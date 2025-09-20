@@ -3,7 +3,7 @@
 
 # Dograh AI
 
-
+<h3 align="center">⭐ <strong>If you find value in this project, PLEASE STAR IT to help others discover our FOSS platform!</strong></h3>
 
 
 <p align="center">
@@ -23,7 +23,7 @@ Build voice agents in just one line or drag-and-drop, then test them using AI pe
 Maintained by YC alumni and exit founders, we're making sure the future of voice AI stays open, not monopolized.
 
 ## 🎥 Demo Video
-📺 [Watch a quick demo video](https://www.youtube.com/watch?v=LK8mvK5TH2Q)
+[![Watch a quick demo video](https://img.youtube.com/vi/LK8mvK5TH2Q/1.jpg)](https://www.youtube.com/watch?v=LK8mvK5TH2Q)
 
 ## 🚀 Get Started
 
@@ -212,9 +212,9 @@ Founded by YC alumni and exit founders committed to keeping voice AI open and ac
 
 <br><br><br>
 
-<p align="center">
-  <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ Star us on GitHub</a> |
-  <a href="https://www.dograh.com">☁️ Try Cloud Version</a> |
-  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">💬 Join Slack</a>
-</p>
+  <p align="center">
+    <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ Star us on GitHub</a> |
+    <a href="https://www.dograh.com">☁️ Try Cloud Version</a> |
+    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">💬 Join Slack</a>
+  </p>
 

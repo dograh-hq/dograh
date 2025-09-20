@@ -231,7 +231,7 @@ export default function CreateWorkflowPage() {
                                     You&apos;re encouraged to first test the bot and then modify it to your specific requirements and location (currency/accent etc).
                                 </p>
                                 <p className="pt-2 text-sm">
-                                    Feel free to join our <span className="font-semibold text-blue-600 dark:text-blue-400">Slack channel</span> for any queries and star us on <span className="font-semibold text-gray-900 dark:text-gray-100">GitHub</span>.
+                                    Feel free to join our Slack channel for any queries and star us on GitHub.
                                 </p>
                             </div>
                         </DialogDescription>

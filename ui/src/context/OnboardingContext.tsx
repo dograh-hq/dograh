@@ -23,24 +23,27 @@ const defaultState: OnboardingState = {
 const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
 
 export const OnboardingProvider = ({ children }: { children: React.ReactNode }) => {
-    const [onboardingState, setOnboardingState] = useState<OnboardingState>(defaultState);
-
-    // Load state from localStorage on mount
-    useEffect(() => {
-        const savedState = localStorage.getItem(ONBOARDING_STORAGE_KEY);
-        if (savedState) {
-            try {
-                const parsed = JSON.parse(savedState);
-                setOnboardingState({ ...defaultState, ...parsed });
-            } catch (error) {
-                console.error('Failed to parse onboarding state:', error);
+    const [onboardingState, setOnboardingState] = useState<OnboardingState>(() => {
+        // Initialize state from localStorage on first render
+        if (typeof window !== 'undefined') {
+            const savedState = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+            if (savedState) {
+                try {
+                    const parsed = JSON.parse(savedState);
+                    return { ...defaultState, ...parsed };
+                } catch (error) {
+                    console.error('Failed to parse onboarding state:', error);
+                }
             }
         }
-    }, []);
+        return defaultState;
+    });
 
     // Save state to localStorage whenever it changes
     useEffect(() => {
-        localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(onboardingState));
+        if (typeof window !== 'undefined') {
+            localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(onboardingState));
+        }
     }, [onboardingState]);
 
     const hasSeenTooltip = (key: TooltipKey): boolean => {

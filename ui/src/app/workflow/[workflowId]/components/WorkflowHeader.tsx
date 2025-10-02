@@ -15,7 +15,6 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useOnboarding } from '@/context/OnboardingContext';
 import { useUserConfig } from "@/context/UserConfigContext";
 import { useAuth } from '@/lib/auth';
-import logger from '@/lib/logger';
 
 interface WorkflowHeaderProps {
     isDirty: boolean;
@@ -72,9 +71,6 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
     const webCallButtonRef = useRef<HTMLButtonElement>(null);
 
     const hasValidationErrors = workflowValidationErrors.length > 0;
-    const isOSSDeployment = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === 'oss';
-
-    logger.info(`isOSSDeployment: ${isOSSDeployment}`);
 
     // Reset call-related state whenever the dialog is closed so that a new call can be placed
     useEffect(() => {
@@ -210,17 +206,15 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
                 <Phone className="mr-2 h-4 w-4" />
                 Web Call
             </Button>
-            {!isOSSDeployment && (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDialogOpen(true)}
-                    disabled={hasValidationErrors}
-                >
-                    <Phone className="mr-2 h-4 w-4" />
-                    Phone Call
-                </Button>
-            )}
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDialogOpen(true)}
+                disabled={hasValidationErrors}
+            >
+                <Phone className="mr-2 h-4 w-4" />
+                Phone Call
+            </Button>
 
             {isDirty ? (
                 <Button
@@ -336,7 +330,7 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
             <OnboardingTooltip
                 title='Test your Voice Agent'
                 targetRef={webCallButtonRef}
-                message="Test this workflow now in your browser (no phone required)"
+                message="Test this workflow now in your browser using Web Call"
                 onDismiss={() => markTooltipSeen('web_call')}
                 showNext={false}
                 isVisible={!hasSeenTooltip('web_call') && !hasValidationErrors}

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleDollarSign, Loader2, Star } from 'lucide-react';
+import { CircleDollarSign, Star } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
@@ -23,7 +23,7 @@ interface BaseHeaderProps {
 }
 
 export default function BaseHeader({ headerActions, backButton, showFeaturesNav = true }: BaseHeaderProps) {
-    const { loading, permissions } = useUserConfig();
+    const { permissions } = useUserConfig();
     const { provider, user } = useAuth();
     const pathname = usePathname();
     const router = useRouter();
@@ -109,14 +109,21 @@ export default function BaseHeader({ headerActions, backButton, showFeaturesNav 
                     {/* Use key to force remount when user changes to avoid hooks issues */}
                     <div className="flex items-center gap-5" key={user ? 'logged-in' : 'logged-out'}>
                         {provider === 'stack' ? (
-                            <React.Suspense fallback={<Loader2 className="w-5 h-5 animate-spin text-gray-600" />}>
-                                {!loading && (
+                            <React.Suspense fallback={
+                                <div className="flex items-center gap-5">
+                                    {/* Match StackTeamSwitcher's internal skeleton */}
+                                    <div className="h-9 w-40 animate-pulse bg-gray-100 rounded" />
+                                    {/* Match StackUserButton dimensions: h-[34px] w-[34px] */}
+                                    <div className="h-[34px] w-[34px] animate-pulse bg-gray-100 rounded-full" />
+                                </div>
+                            }>
+                                <div className="w-40 shrink-0">
                                     <StackTeamSwitcher
                                         onChange={() => {
                                             router.refresh();
                                         }}
                                     />
-                                )}
+                                </div>
                                 <StackUserButton
                                     extraItems={[{
                                         text: 'Usage',

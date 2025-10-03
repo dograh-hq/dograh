@@ -28,12 +28,12 @@ COPY public ./public
 COPY src ./src
 
 # Set build-time environment variables (needed for Next.js build)
-ENV NEXT_PUBLIC_NODE_ENV=local
-ENV NEXT_PUBLIC_AUTH_PROVIDER=local
-ENV NEXT_PUBLIC_DEPLOYMENT_MODE=oss
+ENV NEXT_PUBLIC_NODE_ENV="oss"
+ENV NEXT_PUBLIC_AUTH_PROVIDER="local"
+ENV NEXT_PUBLIC_DEPLOYMENT_MODE="oss"
 ENV NEXT_PUBLIC_BACKEND_URL="http://localhost:8000"
 ENV BACKEND_URL="http://api:8000"
-ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED="1"
 
 # Build the application with standalone mode
 RUN npm run build && \

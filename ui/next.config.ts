@@ -9,9 +9,9 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      // API proxy for backend calls
+      // API proxy for backend calls (excluding Next.js API routes)
       {
-        source: "/api/:path*",
+        source: "/api/:path((?!config|auth).*)*",
         destination: `${process.env.BACKEND_URL || 'http://localhost:8000'}/api/:path*`,
       },
       {

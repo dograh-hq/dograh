@@ -59,7 +59,7 @@ services:
       - app-network
 
   api:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest 
+    image: ${REGISTRY:-dograhai}/dograh-api:latest
     volumes:
       - shared-tmp:/tmp
     environment:
@@ -167,22 +167,18 @@ services:
   ui:
     image: ${REGISTRY:-dograhai}/dograh-ui:latest
     environment:
-      NEXT_PUBLIC_NODE_ENV: "local"
-      NEXT_PUBLIC_AUTH_PROVIDER: "local"
-      # Client-side URL (from browser)
-      NEXT_PUBLIC_BACKEND_URL: "http://localhost:8000"
       # Server-side URL (SSR, internal Docker network)
       BACKEND_URL: "http://api:8000"
-
-      # Controls some feature flags like voicemail detection
-      NEXT_PUBLIC_DEPLOYMENT_MODE: "oss"
+      NODE_ENV: "oss"
 
       # Posthog
-      NEXT_PUBLIC_ENABLE_POSTHOG: "true"
-      NEXT_PUBLIC_POSTHOG_KEY: "phc_st6dverimoydkpM5m0a9aeAr8znUYWznEaQa8v80E2D"
+      ENABLE_POSTHOG: "${ENABLE_POSTHOG:-true}"
+      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.posthog.com"
 
       # Sentry
-      NEXT_PUBLIC_ENABLE_SENTRY: "false"
+      ENABLE_SENTRY: "${ENABLE_SENTRY:-true}"
+      SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
     ports:
       - "3010:3000"
     depends_on:

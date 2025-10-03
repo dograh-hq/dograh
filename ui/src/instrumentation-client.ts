@@ -5,53 +5,91 @@
 import * as Sentry from "@sentry/nextjs";
 import posthog from "posthog-js";
 
-// Only initialize Sentry if explicitly enabled and DSN is provided
-const enableSentry = process.env.NEXT_PUBLIC_ENABLE_SENTRY === 'true' &&
-                     process.env.NEXT_PUBLIC_SENTRY_DSN;
+// Initialize Sentry - prioritize NEXT_PUBLIC env vars, fallback to API
+const initSentry = () => {
+  const hasPublicConfig = process.env.NEXT_PUBLIC_ENABLE_SENTRY === 'true' &&
+                         process.env.NEXT_PUBLIC_SENTRY_DSN;
 
-if (enableSentry) {
-  Sentry.init({
-    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  if (hasPublicConfig) {
+    // Use client-side environment variables
+    Sentry.init({
+      dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+      integrations: [Sentry.replayIntegration()],
+      replaysSessionSampleRate: 0.1,
+      replaysOnErrorSampleRate: 1.0,
+      debug: false,
+      enabled: process.env.NEXT_PUBLIC_NODE_ENV === 'production'
+    });
+    console.log('Sentry initialized from NEXT_PUBLIC config');
+  } else {
+    // Fallback to API-based configuration
+    fetch('/api/config/sentry')
+      .then(res => res.json())
+      .then(config => {
+        if (config.enabled && config.dsn) {
+          Sentry.init({
+            dsn: config.dsn,
+            integrations: [Sentry.replayIntegration()],
+            replaysSessionSampleRate: 0.1,
+            replaysOnErrorSampleRate: 1.0,
+            debug: false,
+            enabled: config.environment === 'production'
+          });
+          console.log('Sentry initialized from API config');
+        } else {
+          console.log('Sentry disabled (not enabled or DSN not configured)');
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch Sentry configuration:', err);
+      });
+  }
+};
 
-    // Add optional integrations for additional features
-    integrations: [
-      Sentry.replayIntegration(),
-    ],
+initSentry();
 
-    // Define how likely Replay events are sampled.
-    // This sets the sample rate to be 10%. You may want this to be 100% while
-    // in development and sample at a lower rate in production
-    replaysSessionSampleRate: 0.1,
+// Initialize PostHog - prioritize NEXT_PUBLIC env vars, fallback to API
+const initPostHog = () => {
+  const hasPublicConfig = process.env.NEXT_PUBLIC_ENABLE_POSTHOG === 'true' &&
+                         process.env.NEXT_PUBLIC_POSTHOG_KEY;
 
-    // Define how likely Replay events are sampled when an error occurs.
-    replaysOnErrorSampleRate: 1.0,
+  if (hasPublicConfig) {
+    // Use client-side environment variables
+    posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+      api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || '/ingest',
+      ui_host: process.env.NEXT_PUBLIC_POSTHOG_UI_HOST || 'https://us.posthog.com',
+      capture_pageview: 'history_change',
+      capture_pageleave: true,
+      capture_exceptions: true,
+      debug: process.env.NEXT_PUBLIC_NODE_ENV === 'development',
+    });
+    console.log('PostHog initialized from NEXT_PUBLIC config');
+  } else {
+    // Fallback to API-based configuration
+    fetch('/api/config/posthog')
+      .then(res => res.json())
+      .then(config => {
+        if (config.enabled && config.key) {
+          posthog.init(config.key, {
+            api_host: config.host,
+            ui_host: config.uiHost,
+            capture_pageview: 'history_change',
+            capture_pageleave: true,
+            capture_exceptions: true,
+            debug: process.env.NEXT_PUBLIC_NODE_ENV === 'development',
+          });
+          console.log('PostHog initialized from API config');
+        } else {
+          console.log('PostHog disabled (not enabled or key not configured)');
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch PostHog configuration:', err);
+      });
+  }
+};
 
-    // Setting this option to true will print useful information to the console while you're setting up Sentry.
-    debug: false,
-    enabled: process.env.NEXT_PUBLIC_NODE_ENV === 'production'
-  });
-  console.log('Sentry initialized for client-side error tracking');
-} else {
-  console.log('Sentry disabled (NEXT_PUBLIC_ENABLE_SENTRY=false or DSN not configured)');
-}
-
-// Only initialize PostHog if explicitly enabled and key is provided
-const shouldEnablePostHog = process.env.NEXT_PUBLIC_ENABLE_POSTHOG === 'true' &&
-                           process.env.NEXT_PUBLIC_POSTHOG_KEY;
-
-if (shouldEnablePostHog) {//FIXME: remove default empty value
-  posthog.init(process.env.NEXT_PUBLIC_POSTHOG_KEY||'', {
-    api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST || "/ingest",//https://us.i.posthog.com
-    ui_host: process.env.NEXT_PUBLIC_POSTHOG_UI_HOST || "https://us.posthog.com",
-    capture_pageview: 'history_change',
-    capture_pageleave: true,    // Enable pageleave capture
-    capture_exceptions: true,   // Capture exceptions via Error Tracking
-    debug: process.env.NEXT_PUBLIC_NODE_ENV === 'development',  // Enable debug in development
-  });
-  console.log('PostHog analytics initialized');
-} else {
-  console.log('PostHog disabled (NEXT_PUBLIC_ENABLE_POSTHOG=false or key not configured)');
-}
+initPostHog();
 
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

@@ -102,6 +102,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      cloudflared:
+        condition: service_started
     command: >
       bash -c "
         cd /app/api &&
@@ -198,6 +200,15 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    networks:
+      - app-network
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
+    ports:
+      - "2000:2000" # Expose metrics endpoint
     networks:
       - app-network
 

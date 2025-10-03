@@ -358,6 +358,13 @@ export type SuperuserWorkflowRunsListResponse = {
     total_pages: number;
 };
 
+/**
+ * Top-level telephony configuration response.
+ */
+export type TelephonyConfigurationResponse = {
+    twilio?: TwilioConfigurationResponse | null;
+};
+
 export type TestSessionResponse = {
     id: number;
     name: string;
@@ -376,6 +383,35 @@ export type TestSessionResponse = {
     created_at: string;
     started_at: string | null;
     completed_at: string | null;
+};
+
+/**
+ * Request schema for Twilio configuration.
+ */
+export type TwilioConfigurationRequest = {
+    provider?: string;
+    /**
+     * Twilio Account SID
+     */
+    account_sid: string;
+    /**
+     * Twilio Auth Token
+     */
+    auth_token: string;
+    /**
+     * List of Twilio phone numbers
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * Response schema for Twilio configuration with masked sensitive fields.
+ */
+export type TwilioConfigurationResponse = {
+    provider: string;
+    account_sid: string;
+    auth_token: string;
+    from_numbers: Array<string>;
 };
 
 export type UpdateIntegrationRequest = {
@@ -1853,6 +1889,68 @@ export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGet
 };
 
 export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponse = GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses[keyof GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses];
+
+export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/telephony-config';
+};
+
+export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetError = GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetErrors[keyof GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetErrors];
+
+export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyConfigurationResponse;
+};
+
+export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponse = GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses[keyof GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses];
+
+export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData = {
+    body: TwilioConfigurationRequest;
+    headers?: {
+        authorization?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/telephony-config';
+};
+
+export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostError = SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostErrors[keyof SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostErrors];
+
+export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
 
 export type GetSignedUrlApiV1S3SignedUrlGetData = {
     body?: never;

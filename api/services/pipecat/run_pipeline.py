@@ -88,12 +88,13 @@ async def run_pipeline_twilio(
     # Create audio configuration for Twilio
     audio_config = create_audio_config(WorkflowRunMode.TWILIO.value)
 
-    transport = create_twilio_transport(
+    transport = await create_twilio_transport(
         websocket_client,
         stream_sid,
         call_sid,
         workflow_run_id,
         audio_config,
+        workflow.organization_id,
         vad_config,
         ambient_noise_config,
     )

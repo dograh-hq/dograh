@@ -3,6 +3,8 @@ import os
 from fastapi import WebSocket
 
 from api.constants import APP_ROOT_DIR, ENABLE_RNNOISE, ENABLE_SMART_TURN
+from api.db import db_client
+from api.enums import OrganizationConfigurationKey
 from api.services.looptalk.internal_transport import InternalTransport
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.smart_turn.websocket_smart_turn import (
@@ -69,23 +71,43 @@ def create_turn_analyzer(workflow_run_id: int, audio_config: AudioConfig):
     return None
 
 
-def create_twilio_transport(
+async def create_twilio_transport(
     websocket_client: WebSocket,
     stream_sid: str,
     call_sid: str,
     workflow_run_id: int,
     audio_config: AudioConfig,
+    organization_id: int,
     vad_config: dict | None = None,
     ambient_noise_config: dict | None = None,
 ):
     """Create a transport for Twilio connections"""
+
+    # Fetch Twilio credentials from organization config
+    config = await db_client.get_configuration(
+        organization_id, OrganizationConfigurationKey.TWILIO_CONFIGURATION.value
+    )
+
+    if not config or not config.value:
+        raise ValueError(
+            f"Twilio credentials not configured for organization {organization_id}"
+        )
+
+    account_sid = config.value.get("account_sid")
+    auth_token = config.value.get("auth_token")
+
+    if not account_sid or not auth_token:
+        raise ValueError(
+            f"Incomplete Twilio configuration for organization {organization_id}"
+        )
+
     turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
     serializer = TwilioFrameSerializer(
         stream_sid=stream_sid,
         call_sid=call_sid,
-        account_sid=os.environ["TWILIO_ACCOUNT_SID"],
-        auth_token=os.environ["TWILIO_AUTH_TOKEN"],
+        account_sid=account_sid,
+        auth_token=auth_token,
     )
 
     return FastAPIWebsocketTransport(

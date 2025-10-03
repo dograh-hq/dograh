@@ -1,5 +1,15 @@
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Union
 
+from api.constants import DEPLOYMENT_MODE, ENABLE_TRACING, VOICEMAIL_RECORDING_DURATION
+from api.services.gender.gender_service import GenderService
+from api.services.workflow.disposition_mapper import (
+    apply_disposition_mapping,
+    get_organization_id_from_workflow_run,
+)
+from api.services.workflow.pipecat_engine_voicemail_detector import (
+    VoicemailDetector,
+)
+from api.services.workflow.workflow import Node, WorkflowGraph
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -15,32 +25,18 @@ from pipecat.services.openai.llm import OpenAILLMContext
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.utils.enums import EndTaskReason
 
-from api.constants import DEPLOYMENT_MODE, ENABLE_TRACING, VOICEMAIL_RECORDING_DURATION
-from api.services.gender.gender_service import GenderService
-from api.services.workflow.disposition_mapper import (
-    apply_disposition_mapping,
-    get_organization_id_from_workflow_run,
-)
-from api.services.workflow.pipecat_engine_voicemail_detector import (
-    VoicemailDetector,
-)
-from api.services.workflow.workflow import Node, WorkflowGraph
-
 if TYPE_CHECKING:
+    from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
     from pipecat.processors.audio.audio_buffer_processor import AudioBuffer
     from pipecat.services.anthropic.llm import AnthropicLLMService
     from pipecat.services.google.llm import GoogleLLMService
     from pipecat.services.openai.llm import OpenAILLMService
-
-    from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
 import asyncio
 
 from loguru import logger
-from pipecat.processors.filters.stt_mute_filter import STTMuteFilter
-from pipecat.utils.tracing.context_registry import get_current_turn_context
 
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.pipecat_engine_utils import (
@@ -57,6 +53,8 @@ from api.services.workflow.tools.timezone import (
     get_current_time,
     get_time_tools,
 )
+from pipecat.processors.filters.stt_mute_filter import STTMuteFilter
+from pipecat.utils.tracing.context_registry import get_current_turn_context
 
 
 class PipecatEngine:

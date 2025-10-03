@@ -1,10 +1,10 @@
 from loguru import logger
-from pipecat.utils.context import set_current_run_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.services.pricing.cost_calculator import cost_calculator
 from api.services.telephony.twilio import TwilioService
+from pipecat.utils.context import set_current_run_id
 
 
 async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
@@ -32,7 +32,15 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
             twilio_call_sid = workflow_run.cost_info.get("twilio_call_sid")
             if twilio_call_sid:
                 try:
-                    twilio_service = TwilioService()
+                    # Get workflow to access organization_id
+                    workflow = await db_client.get_workflow_by_id(
+                        workflow_run.workflow_id
+                    )
+                    if not workflow:
+                        logger.warning("Workflow not found for workflow run")
+                        raise Exception("Workflow not found")
+
+                    twilio_service = TwilioService(workflow.organization_id)
                     call_info = await twilio_service.get_call(twilio_call_sid)
                     # Twilio returns price as a string with negative value (e.g., "-0.0085")
                     if call_info.get("price"):

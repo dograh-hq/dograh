@@ -16,15 +16,11 @@ class CampaignCallDispatcher:
     """Manages rate-limited and concurrent-limited call dispatching"""
 
     def __init__(self):
-        self._twilio_service = None
         self.default_concurrent_limit = 20
 
-    @property
-    def twilio_service(self):
-        """Lazy initialization of TwilioService"""
-        if self._twilio_service is None:
-            self._twilio_service = TwilioService()
-        return self._twilio_service
+    def get_twilio_service(self, organization_id: int) -> TwilioService:
+        """Get TwilioService instance for specific organization"""
+        return TwilioService(organization_id)
 
     async def get_org_concurrent_limit(self, organization_id: int) -> int:
         """Get the concurrent call limit for an organization."""
@@ -225,15 +221,16 @@ class CampaignCallDispatcher:
 
         # Initiate call via Twilio
         try:
-            call_result = await self.twilio_service.initiate_call(
+            twilio_service = self.get_twilio_service(campaign.organization_id)
+            call_result = await twilio_service.initiate_call(
                 to_number=phone_number,
                 workflow_run_id=workflow_run.id,
-                organization_id=campaign.organization_id,
                 url_args={
                     "workflow_id": campaign.workflow_id,
                     "user_id": campaign.created_by,
                     "workflow_run_id": workflow_run.id,
                     "campaign_id": campaign.id,
+                    "organization_id": campaign.organization_id,
                 },
             )
 

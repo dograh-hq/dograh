@@ -2,10 +2,11 @@ import 'react-international-phone/style.css';
 
 import { ReactFlowInstance, ReactFlowJsonObject } from "@xyflow/react";
 import { AlertTriangle, CheckCheck, Download, LoaderCircle, Phone, ShieldCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PhoneInput } from 'react-international-phone';
 
-import { initiateCallApiV1TwilioInitiateCallPost } from '@/client/sdk.gen';
+import { getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet, initiateCallApiV1TwilioInitiateCallPost } from '@/client/sdk.gen';
 import { WorkflowError } from '@/client/types.gen';
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
@@ -56,17 +57,18 @@ const handleExport = (workflow_name: string, workflow_definition: ReactFlowJsonO
 };
 
 const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, workflowValidationErrors, saveWorkflow }: WorkflowHeaderProps) => {
+    const router = useRouter();
     const { userConfig, saveUserConfig } = useUserConfig();
     const { hasSeenTooltip, markTooltipSeen } = useOnboarding();
     const [dialogOpen, setDialogOpen] = useState(false);
     const [phoneNumber, setPhoneNumber] = useState(userConfig?.test_phone_number || "");
-    const [saving, setSaving] = useState(false);
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [callLoading, setCallLoading] = useState(false);
     const [callError, setCallError] = useState<string | null>(null);
     const [callSuccessMsg, setCallSuccessMsg] = useState<string | null>(null);
     const [phoneChanged, setPhoneChanged] = useState(false);
     const [validationDialogOpen, setValidationDialogOpen] = useState(false);
+    const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
     const { user, getAccessToken } = useAuth();
     const webCallButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -90,7 +92,6 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
             setCallError(null);
             setCallSuccessMsg(null);
             setCallLoading(false);
-            setSaving(false);
         }
     };
 
@@ -106,18 +107,32 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
         setCallSuccessMsg(null);
     };
 
-
-    const handleSavePhone = async () => {
-        if (!userConfig) return;
-        setSaving(true);
+    const handlePhoneCallClick = async () => {
+        // Check telephony configuration before opening dialog
         try {
-            await saveUserConfig({ ...userConfig, test_phone_number: phoneNumber });
-            setPhoneChanged(false);
+            const accessToken = await getAccessToken();
+            const configResponse = await getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet({
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+            });
+
+            // If no configuration exists, show configure dialog
+            if (configResponse.error || !configResponse.data?.twilio) {
+                setConfigureDialogOpen(true);
+                return;
+            }
+
+            // Configuration exists, open the phone call dialog
+            setDialogOpen(true);
         } catch (err: unknown) {
-            setCallError(err instanceof Error ? err.message : "Failed to save phone number");
-        } finally {
-            setSaving(false);
+            console.error("Failed to check telephony config:", err);
+            // Still open dialog to show the error
+            setDialogOpen(true);
         }
+    };
+
+    const handleConfigureContinue = () => {
+        setConfigureDialogOpen(false);
+        router.push(`/configure-telephony?returnTo=/workflow/${workflowId}`);
     };
 
     const handleStartCall = async () => {
@@ -125,12 +140,21 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
         setCallError(null);
         setCallSuccessMsg(null);
         try {
-            if (!user) return;
+            if (!user || !userConfig) return;
             const accessToken = await getAccessToken();
+
+            // Save phone number if it has changed
+            if (phoneChanged) {
+                await saveUserConfig({ ...userConfig, test_phone_number: phoneNumber });
+                setPhoneChanged(false);
+            }
+
+            // Configuration exists, proceed with call initiation
             const response = await initiateCallApiV1TwilioInitiateCallPost({
                 body: { workflow_id: workflowId },
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });
+
             if (response.error) {
                 let errMsg = "Failed to initiate call";
                 if (typeof response.error === "string") {
@@ -209,7 +233,7 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
             <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setDialogOpen(true)}
+                onClick={handlePhoneCallClick}
                 disabled={hasValidationErrors}
             >
                 <Phone className="mr-2 h-4 w-4" />
@@ -286,7 +310,7 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
                     <DialogHeader>
                         <DialogTitle>Phone Call</DialogTitle>
                         <DialogDescription>
-                            Enter the phone number to call. This will be saved to your user config.
+                            Enter the phone number to call. The number will be saved automatically.
                         </DialogDescription>
                     </DialogHeader>
                     <PhoneInput
@@ -294,35 +318,57 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
                         value={phoneNumber}
                         onChange={handlePhoneInputChange}
                     />
-                    {phoneChanged && (
+                    <DialogFooter className="flex-col sm:flex-row gap-2">
                         <Button
                             variant="outline"
-                            size="sm"
-                            onClick={handleSavePhone}
-                            disabled={saving}
+                            onClick={() => {
+                                setDialogOpen(false);
+                                router.push(`/configure-telephony?returnTo=/workflow/${workflowId}`);
+                            }}
                         >
-                            {saving ? "Saving..." : "Save Number"}
+                            Configure Telephony
                         </Button>
-                    )}
-                    <DialogFooter>
-                        {!callSuccessMsg ? (
-                            <Button
-                                onClick={handleStartCall}
-                                disabled={callLoading || phoneChanged || !phoneNumber || saving}
-                            >
-                                {callLoading ? "Calling..." : "Start Call"}
-                            </Button>
-                        ) : (
-                            <Button onClick={() => setDialogOpen(false)}>
-                                Close
-                            </Button>
-                        )}
-                        <DialogClose asChild>
-                            <Button variant="ghost">Cancel</Button>
-                        </DialogClose>
+                        <div className="flex gap-2 flex-1 justify-end">
+                            <DialogClose asChild>
+                                <Button variant="outline">Cancel</Button>
+                            </DialogClose>
+                            {!callSuccessMsg ? (
+                                <Button
+                                    onClick={handleStartCall}
+                                    disabled={callLoading || !phoneNumber}
+                                >
+                                    {callLoading ? "Calling..." : "Start Call"}
+                                </Button>
+                            ) : (
+                                <Button onClick={() => setDialogOpen(false)}>
+                                    Close
+                                </Button>
+                            )}
+                        </div>
                     </DialogFooter>
                     {callError && <div className="text-red-500 text-sm mt-2">{callError}</div>}
                     {callSuccessMsg && <div className="text-green-600 text-sm mt-2">{callSuccessMsg}</div>}
+                </DialogContent>
+            </Dialog>
+
+            {/* Configure Telephony Dialog */}
+            <Dialog open={configureDialogOpen} onOpenChange={setConfigureDialogOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Configure Telephony</DialogTitle>
+                        <DialogDescription>
+                            You need to configure your telephony settings before making phone calls.
+                            You will be redirected to the telephony configuration page.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter>
+                        <Button variant="ghost" onClick={() => setConfigureDialogOpen(false)}>
+                            Do it Later
+                        </Button>
+                        <Button onClick={handleConfigureContinue}>
+                            Continue
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
 

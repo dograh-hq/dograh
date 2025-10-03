@@ -5,7 +5,6 @@ from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, Form, Header, HTTPException, Request, WebSocket
 from loguru import logger
-from pipecat.utils.context import set_current_run_id
 from pydantic import BaseModel
 from starlette.responses import HTMLResponse
 
@@ -19,6 +18,7 @@ from api.services.campaign.campaign_event_publisher import (
 )
 from api.services.pipecat.run_pipeline import run_pipeline_twilio
 from api.services.telephony.twilio import TwilioService
+from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/twilio")
 
@@ -45,20 +45,16 @@ class TwilioStatusCallbackRequest(BaseModel):
 async def initiate_call(
     request: InitiateCallRequest, user: UserModel = Depends(get_user)
 ):
-    # Check if organization has TWILIO_PHONE_NUMBERS configured
+    # Check if organization has TWILIO_CONFIGURATION configured
     twilio_config = await db_client.get_configuration(
         user.selected_organization_id,
-        OrganizationConfigurationKey.TWILIO_PHONE_NUMBERS.value,
+        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
     )
 
-    if (
-        not twilio_config
-        or not twilio_config.value
-        or not twilio_config.value.get("value")
-    ):
+    if not twilio_config or not twilio_config.value:
         raise HTTPException(
-            status_code=401,
-            detail="Your organisation is not allowed to make phone call. Contact founders@dograh.com for further support.",
+            status_code=400,
+            detail="telephony_not_configured",  # Special error code
         )
 
     user_configuration = await db_client.get_user_configurations(user.id)
@@ -84,15 +80,16 @@ async def initiate_call(
         workflow_run_name = workflow_run.name
 
     if user_configuration.test_phone_number:
-        await TwilioService().initiate_call(
+        twilio_service = TwilioService(user.selected_organization_id)
+        await twilio_service.initiate_call(
             to_number=user_configuration.test_phone_number,
             url_args={
                 "workflow_id": request.workflow_id,
                 "user_id": user.id,
                 "workflow_run_id": workflow_run_id,
+                "organization_id": user.selected_organization_id,
             },
             workflow_run_id=workflow_run_id,
-            organization_id=user.selected_organization_id,
         )
         return {
             "message": f"Call initiated successfully with run name {workflow_run_name}"
@@ -102,8 +99,10 @@ async def initiate_call(
 
 
 @router.post("/twiml", include_in_schema=False)
-async def start_call(workflow_id: int, user_id: int, workflow_run_id: int):
-    twiml_content = await TwilioService().get_start_call_twiml(
+async def start_call(
+    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int
+):
+    twiml_content = await TwilioService(organization_id).get_start_call_twiml(
         workflow_id, user_id, workflow_run_id
     )
     return HTMLResponse(content=twiml_content, media_type="application/xml")

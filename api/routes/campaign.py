@@ -168,10 +168,10 @@ async def start_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Start campaign execution"""
-    # Check if organization has TWILIO_PHONE_NUMBERS configured
+    # Check if organization has TWILIO_CONFIGURATION configured
     twilio_config = await db_client.get_configuration(
         user.selected_organization_id,
-        OrganizationConfigurationKey.TWILIO_PHONE_NUMBERS.value,
+        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
     )
 
     if (
@@ -280,10 +280,10 @@ async def resume_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Resume a paused campaign"""
-    # Check if organization has TWILIO_PHONE_NUMBERS configured
+    # Check if organization has TWILIO_CONFIGURATION configured
     twilio_config = await db_client.get_configuration(
         user.selected_organization_id,
-        OrganizationConfigurationKey.TWILIO_PHONE_NUMBERS.value,
+        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
     )
 
     if (

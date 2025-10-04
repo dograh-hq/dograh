@@ -59,7 +59,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 USER nextjs
 
 # Expose the port Next.js runs on
-EXPOSE 3000
+EXPOSE 3010
 
 # Start the production server using the standalone Node.js server
-CMD ["node", "server.js"]
+CMD sh -c "echo '🚀 Application ready at http://localhost:3010' && PORT=3010 node server.js"

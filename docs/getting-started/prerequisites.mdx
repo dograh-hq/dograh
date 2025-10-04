@@ -1,4 +1,7 @@
-# Prerequisites
+---
+title: "Prerequisites"
+description: "System requirements and setup needed to run Dograh AI"
+---
 
 ## System Requirements
 
@@ -6,8 +9,8 @@
 - **RAM**: 8 GB (4 GB available for Docker)
 - **Storage**: 10 GB free disk space
 - **CPU**: 2 cores (x86_64 or ARM64)
-- **OS**: 
-  - macOS 10.15+ (Catalina or newer)\
+- **OS**:
+  - macOS 10.15+ (Catalina or newer)
   - Windows 10/11 with WSL2
   - Linux with kernel 3.10+
 
@@ -16,13 +19,16 @@
 To run Dograh AI locally, make sure you have the following installed:
 
 - [Docker](https://docs.docker.com/get-docker/) (version 20.10 or later)
-- [curl](https://curl.se/download.html)  usually preinstalled on macOS/Linux
+- [curl](https://curl.se/download.html) - usually preinstalled on macOS/Linux
 
-> **Note**  
-> Docker Compose is included with Docker Desktop. Make sure Docker is running before you begin.
+<Note>
+Docker Compose is included with Docker Desktop. Make sure Docker is running before you begin.
+</Note>
 
 ### Docker Resource Allocation
+
 For Docker Desktop users, ensure Docker has adequate resources:
+
 1. Open Docker Desktop settings
 2. Navigate to Resources
 3. Allocate at least:
@@ -33,6 +39,7 @@ For Docker Desktop users, ensure Docker has adequate resources:
 ## Required Ports
 
 Ensure these ports are available:
+
 - `3010` - Web UI
 - `8000` - API Server
 - `5432` - PostgreSQL
@@ -42,23 +49,37 @@ Ensure these ports are available:
 
 ## Checking Port Availability
 
-##### Check if a port is in use (replace 3010 with the port number)
-```bash
+Check if a port is in use (replace 3010 with the port number):
+
+<CodeGroup>
+
+```bash macOS/Linux
 lsof -i :3010
 ```
 
+```bash Linux (alternative)
+netstat -tulpn | grep 3010
+```
+
+```bash Windows (PowerShell)
+netstat -ano | findstr :3010
+```
+
+</CodeGroup>
+
 ## Docker Registry Options
 
-Dograh images are available from two registries that you can choose from:
+Dograh images are available from two registries:
 
 - **GitHub Container Registry (Default)**: `ghcr.io/dograh-hq` - Recommended for most users
 - **Docker Hub**: `dograhai` - Alternative registry
 
-To use a specific registry, set the `REGISTRY` environment variable using either of the following:
+To use a specific registry, set the `REGISTRY` environment variable:
 
-##### Using GitHub Container Registry (recommended) or Docker Hub
 ```bash
+# Using GitHub Container Registry (recommended)
 REGISTRY=ghcr.io/dograh-hq docker compose up
 
+# Using Docker Hub
 REGISTRY=dograhai docker compose up
 ```

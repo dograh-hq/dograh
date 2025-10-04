@@ -182,7 +182,7 @@ services:
       ENABLE_SENTRY: "${ENABLE_SENTRY:-true}"
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
     ports:
-      - "3010:3000"
+      - "3010:3010"
     depends_on:
       api:
         condition: service_healthy

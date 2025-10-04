@@ -16,8 +16,14 @@
           {
             "group": "Getting started",
             "pages": [
-              "getting-started/index",
-              "getting-started/prerequisites"
+              {
+                "group": "Introduction",
+                "pages": [
+                  "getting-started/index",
+                  "getting-started/prerequisites",
+                  "getting-started/troubleshooting"
+                ]
+              }
             ]
           },
           {
@@ -28,21 +34,7 @@
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
+    ]
   },
   "logo": {
     "light": "/logo/light.svg",
@@ -53,7 +45,7 @@
     "links": [
       {
         "label": "Support",
-        "href": "mailto:founders@dograh.com"
+        "href": "https://github.com/dograh-hq/dograh/issues/new/choose"
       }
     ],
     "primary": {

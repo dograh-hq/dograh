@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server';
 
 export async function GET() {
   return NextResponse.json({
-    enabled: process.env.ENABLE_POSTHOG === 'true',
+    enabled: process.env.ENABLE_TELEMETRY === 'true',
     key: process.env.POSTHOG_KEY || '',
     host: process.env.POSTHOG_HOST || '/ingest',
     uiHost: process.env.POSTHOG_UI_HOST || 'https://us.posthog.com',

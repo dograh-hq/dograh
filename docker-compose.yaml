@@ -173,13 +173,14 @@ services:
       BACKEND_URL: "http://api:8000"
       NODE_ENV: "oss"
 
+      # Flag to enable/ disable posthog and sentry
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+
       # Posthog
-      ENABLE_POSTHOG: "${ENABLE_POSTHOG:-true}"
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.posthog.com"
 
       # Sentry
-      ENABLE_SENTRY: "${ENABLE_SENTRY:-true}"
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
     ports:
       - "3010:3010"
@@ -190,7 +191,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3000 || exit 1",
+          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
         ]
       interval: 30s
       timeout: 10s

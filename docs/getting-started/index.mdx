@@ -5,8 +5,22 @@ description: "Welcome to Dograh AI documentation"
 
 ## Setting up
 
-Get the stack up and running using a single command. Please check [Prerequisites](getting-started/prerequisites) for the system requirements.
+Get the stack up and running using Docker with a single command.
+
+<Note>We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.</Note>
 
 ```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq docker compose up
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up
 ```
+
+Please check [Prerequisites](getting-started/prerequisites) for the system requirements and [Troubleshooting](getting-started/troubleshooting) for common issues.
+
+You can also watch below video to see the setup in action.
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.tella.tv/video/cmgbysbsz00kw0bjm2qnc5f1d/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
+  title="Dogrh Getting Started"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>

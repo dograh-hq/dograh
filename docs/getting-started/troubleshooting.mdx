@@ -1,0 +1,50 @@
+---
+title: "Troubleshooting"
+description: "Common issues and solutions for running Dograh AI"
+---
+
+# Troubleshooting
+
+## Freeing Up Ports
+
+### When a port is already in use:
+##### Check what's using the port first and then kill the process (may require sudo on Linux)
+```bash
+lsof -i :3010
+
+kill -9 $(lsof -t -i :3010)
+```
+
+### When Docker containers are using the ports (with auto-restart enabled):
+
+**Step 1:** Stop all running containers
+```bash
+docker stop $(docker ps -q)
+```
+
+**Step 2:** Disable restart policy for all containers
+This prevents containers from automatically restarting:
+```bash
+docker update --restart=no $(docker ps -a -q)
+```
+
+**Step 3:** Verify
+
+Check that no containers are running:
+```bash
+docker ps
+```
+
+Check restart policies (should show 'no' for each container):
+```bash
+docker inspect -f '{{.Name}} - {{.HostConfig.RestartPolicy.Name}}' $(docker ps -a -q)
+```
+
+
+## Stopping Dograh Services
+##### Stop services or Stop and remove all data (full cleanup)
+```bash
+docker compose down
+
+docker compose down -v
+```

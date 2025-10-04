@@ -38,12 +38,15 @@ The only command you need to run:
 
 ##### Download and setup Dograh on your local machine
 
+> **Note**
+> We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.
+
 ```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq docker compose up
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up
 ```
 
-> **Note**  
-> First startup may take 2-3 minutes to download all images. Once running, open http://localhost:3010 to create your first AI voice assistant!  
+> **Note**
+> First startup may take 2-3 minutes to download all images. Once running, open http://localhost:3010 to create your first AI voice assistant!
 > For common issues and solutions, see 🔧 **[Troubleshooting](docs/troubleshooting.md)**.
 
 ### 🎙️ Your First Voice Bot

@@ -147,7 +147,7 @@ export default function ConfigureTelephonyPage() {
                     style={{ border: 0 }}
                     width="100%"
                     height="100%"
-                    src="https://www.tella.tv/video/cmg9fweu008fy0bi592h651vq/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
+                    src="https://www.tella.tv/video/cmgbvzkrt00jk0clacu16blm3/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
                     allowFullScreen
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                   />

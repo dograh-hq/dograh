@@ -11,6 +11,8 @@ import time
 from typing import Dict, Optional, Tuple
 
 from loguru import logger
+
+from api.services.looptalk.internal_serializer import InternalFrameSerializer
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -26,8 +28,6 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.transports.base_transport import BaseTransport, TransportParams
-
-from api.services.looptalk.internal_serializer import InternalFrameSerializer
 
 
 class InternalInputTransport(BaseInputTransport):

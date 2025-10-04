@@ -5,12 +5,12 @@ from typing import Dict
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from loguru import logger
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.utils.context import set_current_run_id
 
 from api.db.models import UserModel
 from api.services.auth.depends import get_user_ws
 from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
+from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/ws")
 

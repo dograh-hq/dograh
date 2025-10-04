@@ -11,10 +11,10 @@ from typing import Optional
 
 import httpx
 from loguru import logger
-from pipecat.utils.base_object import BaseObject
 
 from api.services.telephony.ari_client import AsyncARIClient, Bridge, Channel
 from api.services.telephony.ari_client_singleton import ari_client_singleton
+from pipecat.utils.base_object import BaseObject
 
 
 class ARIManagerConnection(BaseObject):

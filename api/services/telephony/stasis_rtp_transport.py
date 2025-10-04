@@ -7,6 +7,10 @@ import time
 from typing import Awaitable, Callable, Optional
 
 from loguru import logger
+from pydantic import BaseModel
+
+from api.services.telephony.stasis_rtp_client import StasisRTPClient
+from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -23,10 +27,6 @@ from pipecat.transports.base_output import (
     TransportClientNotConnectedException,
 )
 from pipecat.transports.base_transport import BaseTransport, TransportParams
-from pydantic import BaseModel
-
-from api.services.telephony.stasis_rtp_client import StasisRTPClient
-from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 
 
 class StasisRTPTransportParams(TransportParams):

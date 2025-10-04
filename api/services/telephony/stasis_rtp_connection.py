@@ -8,7 +8,6 @@ from typing import Optional, Tuple
 
 import redis.asyncio as aioredis
 from loguru import logger
-from pipecat.utils.base_object import BaseObject
 
 from api.services.telephony.stasis_event_protocol import (
     DisconnectCommand,
@@ -16,6 +15,7 @@ from api.services.telephony.stasis_event_protocol import (
     SocketClosedCommand,
     TransferCommand,
 )
+from pipecat.utils.base_object import BaseObject
 
 
 class StasisRTPConnection(BaseObject):

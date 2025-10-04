@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 import numpy as np
 import websockets
 from loguru import logger
+
 from pipecat.audio.turn.smart_turn.base_smart_turn import (
     BaseSmartTurn,
     SmartTurnTimeoutException,

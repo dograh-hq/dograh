@@ -12,7 +12,6 @@ from typing import Awaitable, Callable, Optional
 
 import redis.asyncio as aioredis
 from loguru import logger
-from pipecat.utils.context import set_current_run_id
 
 from api.routes.stasis_rtp import on_stasis_call
 from api.services.telephony.stasis_event_protocol import (
@@ -24,6 +23,7 @@ from api.services.telephony.stasis_event_protocol import (
     parse_event,
 )
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
+from pipecat.utils.context import set_current_run_id
 
 
 class WorkerEventSubscriber:

@@ -1,10 +1,11 @@
-import os, sys
+import os
+import sys
 
 import loguru
-from pipecat.utils.context import run_id_var, turn_var
 
 from api.enums import Environment
 from api.utils.worker import get_worker_id, is_worker_process
+from pipecat.utils.context import run_id_var, turn_var
 
 ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 ENABLE_TURN_LOGGING = os.getenv("ENABLE_TURN_LOGGING", "false").lower() == "true"

@@ -37,7 +37,6 @@ logging_queue_listener = setup_logging()
 import redis.asyncio as aioredis
 import redis.exceptions
 from loguru import logger
-from pipecat.utils.enums import EndTaskReason
 
 from api.services.telephony.ari_client import Channel
 from api.services.telephony.ari_client_manager import (
@@ -45,6 +44,7 @@ from api.services.telephony.ari_client_manager import (
     setup_ari_client_supervisor,
 )
 from api.services.telephony.ari_manager_connection import ARIManagerConnection
+from pipecat.utils.enums import EndTaskReason
 
 
 class ARIManager:

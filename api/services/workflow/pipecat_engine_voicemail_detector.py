@@ -12,13 +12,13 @@ from langfuse import get_client
 from loguru import logger
 from openai import AsyncOpenAI
 from opentelemetry import context as otel_context
-from pipecat.utils.enums import EndTaskReason
-from pipecat.utils.tracing.context_registry import get_current_turn_context
 
 from api.db import db_client
 from api.services.pipecat.tracing_config import is_tracing_enabled
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
+from pipecat.utils.enums import EndTaskReason
+from pipecat.utils.tracing.context_registry import get_current_turn_context
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine

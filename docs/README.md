@@ -2,6 +2,6 @@
 
 ### Local Setup
 
-1. Clone the repository
 1. Install mintlify `npm i -g mint`
-1. cd into the checked out directory and run `mint dev`
+1. Clone the repository
+1. `cd dograh/docs` and run `mint dev`

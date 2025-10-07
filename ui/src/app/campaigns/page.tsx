@@ -97,13 +97,12 @@ export default function CampaignsPage() {
     };
 
     return (
-        <div className="min-h-[calc(100vh-73px)] bg-gray-50 p-6">
-            <div className="max-w-7xl mx-auto">
-                <div className="mb-6 flex justify-between items-center">
-                    <div>
-                        <h1 className="text-3xl font-bold text-gray-900 mb-2">Campaigns</h1>
-                        <p className="text-gray-600">Manage your bulk workflow execution campaigns</p>
-                    </div>
+        <div className="container mx-auto p-6 space-y-6">
+            <div className="flex justify-between items-center">
+                <div>
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Campaigns</h1>
+                    <p className="text-gray-600">Manage your bulk workflow execution campaigns</p>
+                </div>
                     <Button onClick={handleCreateCampaign}>
                         <Plus className="h-4 w-4 mr-2" />
                         Create Campaign
@@ -180,7 +179,6 @@ export default function CampaignsPage() {
                         )}
                     </CardContent>
                 </Card>
-            </div>
         </div>
     );
 }

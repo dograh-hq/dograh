@@ -49,14 +49,13 @@ export default function SuperadminPage() {
 
     return (
         <>
-            <main className="min-h-[calc(100vh-73px)] bg-gray-50 px-4 sm:px-6 lg:px-8 py-8">
-                <div className="max-w-4xl mx-auto">
-                    <div className="text-center mb-8">
-                        <h1 className="text-3xl font-bold text-gray-900 mb-2">Superadmin Dashboard</h1>
-                        <p className="text-sm text-gray-600">Manage users and view system-wide data</p>
-                    </div>
+            <main className="container mx-auto p-6 space-y-6 max-w-4xl">
+                <div className="text-center">
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Superadmin Dashboard</h1>
+                    <p className="text-sm text-gray-600">Manage users and view system-wide data</p>
+                </div>
 
-                    <div className="grid gap-6 md:grid-cols-2">
+                <div className="grid gap-6 md:grid-cols-2">
                         {/* User Impersonation Card */}
                         <Card>
                             <CardHeader>
@@ -126,7 +125,6 @@ export default function SuperadminPage() {
                                 </div>
                             </CardContent>
                         </Card>
-                    </div>
                 </div>
             </main>
         </>

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleDollarSign, Star } from 'lucide-react';
+import { CircleDollarSign, HelpCircle,Star } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import React from 'react';
@@ -133,15 +133,26 @@ export default function BaseHeader({ headerActions, backButton, showFeaturesNav 
                                 />
                             </React.Suspense>
                         ) : (
-                            <a
-                                href="https://github.com/dograh-hq/dograh"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
-                            >
-                                <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                                Star us on GitHub
-                            </a>
+                            <>
+                                <a
+                                    href="https://github.com/dograh-hq/dograh/issues/new/choose"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                                >
+                                    <HelpCircle className="w-4 h-4" />
+                                    Get Help
+                                </a>
+                                <a
+                                    href="https://github.com/dograh-hq/dograh"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
+                                >
+                                    <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                                    Star us on GitHub
+                                </a>
+                            </>
                         )}
                     </div>
                 </nav>

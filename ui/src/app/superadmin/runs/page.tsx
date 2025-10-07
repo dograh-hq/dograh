@@ -316,7 +316,7 @@ export default function RunsPage() {
 
     if (isLoading && runs.length === 0) {
         return (
-            <div className="min-h-[calc(100vh-73px)] bg-gray-50 flex items-center justify-center">
+            <div className="container mx-auto p-6 flex items-center justify-center min-h-[400px]">
                 <div className="flex items-center space-x-2">
                     <Loader2 className="h-6 w-6 animate-spin" />
                     <span>Loading workflow runs...</span>
@@ -326,14 +326,13 @@ export default function RunsPage() {
     }
 
     return (
-        <div className="min-h-[calc(100vh-73px)] bg-gray-50 p-6">
-            <div className="max-w-full mx-auto">
-                <div className="mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Workflow Runs</h1>
-                    <p className="text-gray-600">View and manage all workflow runs across organizations</p>
-                </div>
+        <div className="container mx-auto p-6 space-y-6 max-w-full">
+            <div>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">Workflow Runs</h1>
+                <p className="text-gray-600">View and manage all workflow runs across organizations</p>
+            </div>
 
-                {error && (
+            {error && (
                     <div className="mb-6 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg">
                         {error}
                     </div>
@@ -671,7 +670,6 @@ export default function RunsPage() {
                 {/* Media Preview Dialog */}
                 {mediaPreview.dialog}
 
-            </div>
         </div>
     );
 }

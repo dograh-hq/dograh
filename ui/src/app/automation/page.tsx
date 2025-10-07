@@ -4,14 +4,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 export default function AutomationPage() {
     return (
-        <div className="min-h-[calc(100vh-73px)] bg-gray-50 p-6">
-            <div className="max-w-7xl mx-auto">
-                <div className="mb-6">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Automation</h1>
-                    <p className="text-gray-600">Automate your workflows and processes</p>
-                </div>
+        <div className="container mx-auto p-6 space-y-6">
+            <div>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">Automation</h1>
+                <p className="text-gray-600">Automate your workflows and processes</p>
+            </div>
 
-                <Card>
+            <Card>
                     <CardHeader>
                         <CardTitle>Coming Soon</CardTitle>
                         <CardDescription>
@@ -29,7 +28,6 @@ export default function AutomationPage() {
                         </div>
                     </CardContent>
                 </Card>
-            </div>
         </div>
     );
 }

@@ -309,14 +309,13 @@ export default function UsagePage() {
     };
 
     return (
-        <div className="min-h-[calc(100vh-73px)] bg-gray-50 p-6">
-            <div className="max-w-7xl mx-auto">
-                <div className="mb-6">
-                    <div className="flex justify-between items-start">
-                        <div>
-                            <h1 className="text-3xl font-bold text-gray-900 mb-2">Usage Dashboard</h1>
-                            <p className="text-gray-600">Monitor your Dograh Token usage and quota</p>
-                        </div>
+        <div className="container mx-auto p-6 space-y-6">
+            <div>
+                <div className="flex justify-between items-start">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900 mb-2">Usage Dashboard</h1>
+                        <p className="text-gray-600">Monitor your Dograh Token usage and quota</p>
+                    </div>
                         <div className="flex items-center gap-2">
                             <Globe className="h-4 w-4 text-gray-500" />
                             <div className="w-[300px]">
@@ -569,7 +568,6 @@ export default function UsagePage() {
 
                 {/* Media Preview Dialog */}
                 {mediaPreview.dialog}
-            </div>
         </div>
     );
 }

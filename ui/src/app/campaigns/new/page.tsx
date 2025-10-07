@@ -121,22 +121,21 @@ export default function NewCampaignPage() {
     };
 
     return (
-        <div className="min-h-[calc(100vh-73px)] bg-gray-50 p-6">
-            <div className="max-w-2xl mx-auto">
-                <div className="mb-6">
-                    <Button
-                        variant="ghost"
-                        onClick={handleBack}
-                        className="mb-4"
-                    >
-                        <ArrowLeft className="h-4 w-4 mr-2" />
-                        Back to Campaigns
-                    </Button>
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Campaign</h1>
-                    <p className="text-gray-600">Set up a new campaign to execute workflows at scale</p>
-                </div>
+        <div className="container mx-auto p-6 space-y-6 max-w-2xl">
+            <div>
+                <Button
+                    variant="ghost"
+                    onClick={handleBack}
+                    className="mb-4"
+                >
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Back to Campaigns
+                </Button>
+                <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Campaign</h1>
+                <p className="text-gray-600">Set up a new campaign to execute workflows at scale</p>
+            </div>
 
-                <Card>
+            <Card>
                     <CardHeader>
                         <CardTitle>Campaign Details</CardTitle>
                         <CardDescription>
@@ -221,7 +220,6 @@ export default function NewCampaignPage() {
                         </form>
                     </CardContent>
                 </Card>
-            </div>
         </div>
     );
 }

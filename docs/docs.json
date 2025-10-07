@@ -27,6 +27,19 @@
             ]
           },
           {
+            "group": "Configurations",
+            "pages": [
+              "configurations/inference-providers"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/campaigns",
+              "features/looptalk"
+            ]
+          },
+          {
             "group": "Telephony Integrations",
             "pages": [
               "telephony/twilio"

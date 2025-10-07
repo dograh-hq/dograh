@@ -7,18 +7,14 @@ import posthog from "posthog-js";
 
 // Initialize Sentry - prioritize NEXT_PUBLIC env vars, fallback to API
 const initSentry = () => {
-  const hasPublicConfig = process.env.NEXT_PUBLIC_ENABLE_SENTRY === 'true' &&
-                         process.env.NEXT_PUBLIC_SENTRY_DSN;
+  const hasPublicConfig = process.env.NEXT_PUBLIC_SENTRY_DSN;
+
 
   if (hasPublicConfig) {
     // Use client-side environment variables
     Sentry.init({
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-      integrations: [Sentry.replayIntegration()],
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
       debug: false,
-      enabled: process.env.NEXT_PUBLIC_NODE_ENV === 'production'
     });
     console.log('Sentry initialized from NEXT_PUBLIC config');
   } else {
@@ -29,11 +25,7 @@ const initSentry = () => {
         if (config.enabled && config.dsn) {
           Sentry.init({
             dsn: config.dsn,
-            integrations: [Sentry.replayIntegration()],
-            replaysSessionSampleRate: 0.1,
-            replaysOnErrorSampleRate: 1.0,
             debug: false,
-            enabled: config.environment === 'production'
           });
           console.log('Sentry initialized from API config');
         } else {
@@ -50,8 +42,8 @@ initSentry();
 
 // Initialize PostHog - prioritize NEXT_PUBLIC env vars, fallback to API
 const initPostHog = () => {
-  const hasPublicConfig = process.env.NEXT_PUBLIC_ENABLE_POSTHOG === 'true' &&
-                         process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  const hasPublicConfig = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+
 
   if (hasPublicConfig) {
     // Use client-side environment variables

@@ -31,7 +31,8 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         selectedAudioInput,
         setSelectedAudioInput,
         permissionError,
-        setPermissionError
+        setPermissionError,
+        getAudioInputDevices
     } = useDeviceInputs();
 
     const useStun = true;
@@ -435,6 +436,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         start,
         stop,
         isStarting,
-        initialContext
+        initialContext,
+        getAudioInputDevices
     };
 };

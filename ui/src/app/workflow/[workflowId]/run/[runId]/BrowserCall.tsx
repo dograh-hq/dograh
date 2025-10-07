@@ -39,7 +39,8 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
         connectionStatus,
         start,
         stop,
-        isStarting
+        isStarting,
+        getAudioInputDevices
     } = useWebSocketRTC({ workflowId, workflowRunId, accessToken, initialContextVariables });
 
     // Poll for recording availability after call ends
@@ -118,6 +119,7 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
                                 start={start}
                                 stop={stop}
                                 isStarting={isStarting}
+                                getAudioInputDevices={getAudioInputDevices}
                             />
 
                             <ConnectionStatus

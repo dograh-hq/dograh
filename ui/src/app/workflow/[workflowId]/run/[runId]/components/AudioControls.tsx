@@ -1,4 +1,5 @@
 import { Mic, Phone, PhoneOff } from "lucide-react";
+import { useEffect } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -12,6 +13,7 @@ interface AudioControlsProps {
     start: () => Promise<void>;
     stop: () => void;
     isStarting: boolean;
+    getAudioInputDevices: () => Promise<void>;
 }
 
 export const AudioControls = ({
@@ -23,28 +25,35 @@ export const AudioControls = ({
     permissionError,
     start,
     stop,
-    isStarting
+    isStarting,
+    getAudioInputDevices
 }: AudioControlsProps) => {
     // Check if we have valid audio devices (permissions granted)
-    const hasValidDevices = audioInputs.length > 0 && audioInputs.some(device => device.deviceId && device.deviceId.trim() !== '');
+    // Browsers only provide device labels after permission is granted
+    const hasValidDevices = audioInputs.length > 0 && audioInputs.some(device => device.label && device.label.trim() !== '');
 
     const requestAudioPermissions = async () => {
         try {
-            await navigator.mediaDevices.getUserMedia({ audio: true });
-            // This will trigger the parent component to refresh the device list
-            window.location.reload();
+            // Request audio permissions - this triggers the browser permission prompt
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            // Stop the stream immediately - we just needed to trigger the permission prompt
+            stream.getTracks().forEach(track => track.stop());
+            // Refresh the device list now that we have permissions
+            await getAudioInputDevices();
         } catch (error) {
             console.error('Failed to request audio permissions:', error);
         }
     };
 
     // Handle auto-selection of first device if none selected
-    if (hasValidDevices && !selectedAudioInput) {
-        const firstValidDevice = audioInputs.find(device => device.deviceId && device.deviceId.trim() !== '');
-        if (firstValidDevice) {
-            setSelectedAudioInput(firstValidDevice.deviceId);
+    useEffect(() => {
+        if (hasValidDevices && !selectedAudioInput) {
+            const firstValidDevice = audioInputs.find(device => device.label && device.label.trim() !== '');
+            if (firstValidDevice) {
+                setSelectedAudioInput(firstValidDevice.deviceId);
+            }
         }
-    }
+    }, [hasValidDevices, selectedAudioInput, audioInputs, setSelectedAudioInput]);
 
     if (isCompleted) {
         return null; // The parent component will handle showing the loading state

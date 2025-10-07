@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
+import { isOSSMode } from '@/lib/utils';
 
 export default function APIKeysPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -310,6 +311,11 @@ export default function APIKeysPage() {
         );
     }
 
+    // In OSS mode, check if there's already an active service key
+    const activeServiceKeys = serviceKeys.filter(key => !key.archived_at);
+    const canCreateServiceKey = !isOSSMode() || activeServiceKeys.length === 0;
+    const showServiceKeyArchiveControls = !isOSSMode();
+
     return (
         <div className="min-h-screen bg-gray-50">
             <div className="container mx-auto px-4 py-8">
@@ -444,21 +450,25 @@ export default function APIKeysPage() {
                                     </CardDescription>
                                 </div>
                                 <div className="flex gap-2">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => setShowServiceArchived(!showServiceArchived)}
-                                    >
-                                        {showServiceArchived ? <Eye className="w-4 h-4 mr-2" /> : <EyeOff className="w-4 h-4 mr-2" />}
-                                        {showServiceArchived ? 'Hide' : 'Show'} Archived
-                                    </Button>
-                                    <Button
-                                        onClick={() => setIsCreateServiceDialogOpen(true)}
-                                        size="sm"
-                                    >
-                                        <Plus className="w-4 h-4 mr-2" />
-                                        Create Service Key
-                                    </Button>
+                                    {showServiceKeyArchiveControls && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => setShowServiceArchived(!showServiceArchived)}
+                                        >
+                                            {showServiceArchived ? <Eye className="w-4 h-4 mr-2" /> : <EyeOff className="w-4 h-4 mr-2" />}
+                                            {showServiceArchived ? 'Hide' : 'Show'} Archived
+                                        </Button>
+                                    )}
+                                    {canCreateServiceKey && (
+                                        <Button
+                                            onClick={() => setIsCreateServiceDialogOpen(true)}
+                                            size="sm"
+                                        >
+                                            <Plus className="w-4 h-4 mr-2" />
+                                            Create Service Key
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
                         </CardHeader>
@@ -479,9 +489,11 @@ export default function APIKeysPage() {
                                 <div className="text-center py-12">
                                     <Key className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                                     <p className="text-gray-600 mb-4">No service keys found</p>
-                                    <Button onClick={() => setIsCreateServiceDialogOpen(true)}>
-                                        Create Your First Service Key
-                                    </Button>
+                                    {canCreateServiceKey && (
+                                        <Button onClick={() => setIsCreateServiceDialogOpen(true)}>
+                                            Create Your First Service Key
+                                        </Button>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="space-y-4">
@@ -520,7 +532,7 @@ export default function APIKeysPage() {
                                                 </div>
                                             </div>
                                             <div className="flex gap-2">
-                                                {!key.archived_at && (
+                                                {!key.archived_at && showServiceKeyArchiveControls && (
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"

@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { isOSSMode } from "@/lib/utils";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -170,8 +171,6 @@ const StartCallEditForm = ({
     delayedStartDuration,
     setDelayedStartDuration
 }: StartCallEditFormProps) => {
-    const isOSS = process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === 'oss';
-
     return (
         <div className="grid gap-2">
             <Label>Name</Label>
@@ -241,7 +240,7 @@ const StartCallEditForm = ({
                     </Label>
                 </div>
             </div>
-            {!isOSS && (
+            {!isOSSMode() && (
                 <div className="flex items-center space-x-2">
                     <Switch
                         id="detect-voicemail"

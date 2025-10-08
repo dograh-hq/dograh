@@ -4,18 +4,22 @@
 set -e  # Exit on error
 
 ### CONFIGURATION #############################################################
-ENV_FILE="api/.env"
-RUN_DIR="run"
-BASE_LOG_DIR="/home/ubuntu/dograh/logs"  # Base logs directory (same as start_services.sh)
+
+# Determine BASE_DIR as parent of the scripts directory
+BASE_DIR="$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd)"
+
+ENV_FILE="$BASE_DIR/api/.env"
+RUN_DIR="$BASE_DIR/run"
+BASE_LOG_DIR="$BASE_DIR/logs"  # Base logs directory (same as start_services.sh)
 LATEST_LINK="$BASE_LOG_DIR/latest"        # Symlink to latest logs (same as start_services.sh)
-VENV_PATH="/home/ubuntu/dograh/venv"
+VENV_PATH="$BASE_DIR/venv"
 HEALTH_CHECK_ENDPOINT="/api/v1/health"  # Adjust as needed
 MAX_WAIT_SECONDS=310  # Max wait for graceful shutdown (5 minutes + 10 seconds grace)
 
 # Load environment
 set -a && . "$ENV_FILE" && set +a
 
-cd /home/ubuntu/dograh/app
+cd "$BASE_DIR"
 
 ### FUNCTIONS ##################################################################
 
@@ -166,10 +170,13 @@ start_new_uvicorn_workers() {
     
     log_info "Starting uvicorn with $FASTAPI_WORKERS workers on port $new_port"
     log_info "Logs: $LOG_FILE_PATH"
-    
-    # Start in new process group with setsid (same as start_services.sh)
-    # Each service gets its own LOG_FILE_PATH environment variable
-    setsid nohup bash -c "LOG_FILE_PATH='$LOG_FILE_PATH' uvicorn api.app:app --host 0.0.0.0 --port $new_port --workers $FASTAPI_WORKERS" >/dev/null 2>&1 &
+
+    # Start in background (same pattern as start_services.sh)
+    (
+        cd "$BASE_DIR"
+        export LOG_FILE_PATH="$log_dir/uvicorn-rollover-${timestamp}-${script_pid}.log"
+        exec uvicorn api.app:app --host 0.0.0.0 --port $new_port --workers $FASTAPI_WORKERS >>"$LOG_FILE_PATH" 2>&1
+    ) &
 
     local new_pid=$!
     echo "$new_pid" > "$RUN_DIR/uvicorn_new.pid"

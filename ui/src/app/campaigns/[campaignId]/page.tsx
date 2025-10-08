@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import {
     getCampaignApiV1CampaignCampaignIdGet,
     getCampaignRunsApiV1CampaignCampaignIdRunsGet,
+    getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet,
     pauseCampaignApiV1CampaignCampaignIdPausePost,
     resumeCampaignApiV1CampaignCampaignIdResumePost,
     startCampaignApiV1CampaignCampaignIdStartPost} from '@/client/sdk.gen';
@@ -122,6 +123,33 @@ export default function CampaignDetailPage() {
     const handleRunClick = (runId: number) => {
         if (campaign) {
             router.push(`/workflow/${campaign.workflow_id}/run/${runId}`);
+        }
+    };
+
+    // Handle CSV download
+    const handleDownloadCsv = async () => {
+        if (!user || !campaign || campaign.source_type !== 'csv') return;
+
+        try {
+            const accessToken = await getAccessToken();
+            const response = await getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet({
+                path: {
+                    campaign_id: campaignId,
+                },
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                }
+            });
+
+            if (response.data?.download_url) {
+                // Open download URL in new tab
+                window.open(response.data.download_url, '_blank');
+            } else {
+                toast.error('Failed to get download URL');
+            }
+        } catch (error) {
+            console.error('Failed to download CSV:', error);
+            toast.error('Failed to download CSV file');
         }
     };
 
@@ -354,16 +382,27 @@ export default function CampaignDetailPage() {
                                 <dd className="mt-1 capitalize">{campaign.source_type.replace('-', ' ')}</dd>
                             </div>
                             <div>
-                                <dt className="text-sm font-medium text-gray-500">Source Sheet</dt>
+                                <dt className="text-sm font-medium text-gray-500">
+                                    {campaign.source_type === 'csv' ? 'Source File' : 'Source Sheet'}
+                                </dt>
                                 <dd className="mt-1">
-                                    <a
-                                        href={campaign.source_id}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-600 hover:text-blue-800 hover:underline text-sm break-all"
-                                    >
-                                        {campaign.source_id}
-                                    </a>
+                                    {campaign.source_type === 'csv' ? (
+                                        <button
+                                            onClick={handleDownloadCsv}
+                                            className="text-blue-600 hover:text-blue-800 hover:underline text-sm break-all"
+                                        >
+                                            {campaign.source_id.split('/').pop()}
+                                        </button>
+                                    ) : (
+                                        <a
+                                            href={campaign.source_id}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 hover:text-blue-800 hover:underline text-sm break-all"
+                                        >
+                                            {campaign.source_id}
+                                        </a>
+                                    )}
                                 </dd>
                             </div>
                             <div>

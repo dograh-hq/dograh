@@ -7,7 +7,7 @@ for final completion after 1 hour of inactivity and handles retry events.
 
 from api.logging_config import setup_logging
 
-logging_queue_listener = setup_logging()
+setup_logging()
 
 
 import asyncio
@@ -495,7 +495,7 @@ class CampaignOrchestrator:
         if self._pubsub:
             try:
                 await self._pubsub.unsubscribe(RedisChannel.CAMPAIGN_EVENTS.value)
-                await self._pubsub.close()
+                await self._pubsub.aclose()
             except Exception as e:
                 logger.error(f"Error closing pubsub: {e}")
 
@@ -538,16 +538,12 @@ async def main():
         if shutdown_task in done:
             logger.info("Shutdown signal received, stopping orchestrator...")
             orchestrator._running = False
-            # Wait for orchestrator to finish gracefully
+            # Cancel the orchestrator task immediately since it may be blocked
+            orchestrator_task.cancel()
             try:
-                await asyncio.wait_for(orchestrator_task, timeout=5.0)
-            except asyncio.TimeoutError:
-                logger.warning("Orchestrator shutdown timeout, cancelling...")
-                orchestrator_task.cancel()
-                try:
-                    await orchestrator_task
-                except asyncio.CancelledError:
-                    pass
+                await orchestrator_task
+            except asyncio.CancelledError:
+                logger.info("Orchestrator task cancelled successfully")
 
     except KeyboardInterrupt:
         logger.info("Keyboard interrupt received")

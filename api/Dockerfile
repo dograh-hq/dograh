@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy and install requirements
-COPY requirements.txt .
+COPY api/requirements.txt .
 
 # Install dependencies to user directory for easy copying
 RUN pip install --user --no-cache-dir -r requirements.txt && \
@@ -53,7 +53,8 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
 # Copy application code
-COPY . ./api
+COPY ./api ./api
+COPY ./scripts/start_services.sh ./scripts/start_services.sh
 
 ENV PYTHONPATH=/app
 
@@ -61,4 +62,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8000
 
 # Run the FastAPI app with uvicorn
-CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["bash", "-c", "./scripts/start_services.sh && tail -f ./logs/latest/*.log"]

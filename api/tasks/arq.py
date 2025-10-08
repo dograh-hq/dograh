@@ -9,7 +9,7 @@ from api.constants import REDIS_URL
 from api.logging_config import setup_logging
 from api.tasks.function_names import FunctionNames
 
-logging_queue_listener = setup_logging()
+setup_logging()
 
 # Now import ARQ and task dependencies
 from arq import create_pool

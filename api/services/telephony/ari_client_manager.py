@@ -426,16 +426,7 @@ async def setup_ari_client_supervisor(
 
     This is a drop-in replacement for the asyncari-based function.
     Uses AsyncARIClient instead of asyncari.
-
-    If the *ENABLE_ARI_STASIS* environment variable is not set to ``"true"``
-    (case-insensitive) the function returns ``None`` and no supervisor is
-    launched.
     """
-
-    if os.getenv("ENABLE_ARI_STASIS", "false").lower() != "true":
-        logger.info("ARI Stasis integration disabled via environment variable")
-        return None
-
     logger.info("Starting ARI Client Supervisor with AsyncARIClient")
 
     supervisor = _ARIClientManagerSupervisor(on_channel_start, on_channel_end)

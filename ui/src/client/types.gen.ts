@@ -72,6 +72,11 @@ export type CampaignResponse = {
     completed_at: string | null;
 };
 
+export type CampaignSourceDownloadResponse = {
+    download_url: string;
+    expires_in: number;
+};
+
 export type CampaignsResponse = {
     campaigns: Array<CampaignResponse>;
 };
@@ -91,6 +96,7 @@ export type CreateApiKeyResponse = {
 export type CreateCampaignRequest = {
     name: string;
     workflow_id: number;
+    source_type: string;
     source_id: string;
 };
 
@@ -285,6 +291,27 @@ export type LoadTestStatsResponse = {
     sessions: Array<{
         [key: string]: unknown;
     }>;
+};
+
+export type PresignedUploadUrlRequest = {
+    /**
+     * CSV filename
+     */
+    file_name: string;
+    /**
+     * File size in bytes (max 10MB)
+     */
+    file_size: number;
+    /**
+     * File content type
+     */
+    content_type?: string;
+};
+
+export type PresignedUploadUrlResponse = {
+    upload_url: string;
+    file_key: string;
+    expires_in: number;
 };
 
 export type RtcOfferRequest = {
@@ -1758,6 +1785,40 @@ export type GetCampaignProgressApiV1CampaignCampaignIdProgressGetResponses = {
 
 export type GetCampaignProgressApiV1CampaignCampaignIdProgressGetResponse = GetCampaignProgressApiV1CampaignCampaignIdProgressGetResponses[keyof GetCampaignProgressApiV1CampaignCampaignIdProgressGetResponses];
 
+export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        campaign_id: number;
+    };
+    query?: never;
+    url: '/api/v1/campaign/{campaign_id}/source-download-url';
+};
+
+export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetError = GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetErrors[keyof GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetErrors];
+
+export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CampaignSourceDownloadResponse;
+};
+
+export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponse = GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses[keyof GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses];
+
 export type GetIntegrationsApiV1IntegrationGetData = {
     body?: never;
     headers?: {
@@ -2027,6 +2088,38 @@ export type GetFileMetadataApiV1S3FileMetadataGetResponses = {
 };
 
 export type GetFileMetadataApiV1S3FileMetadataGetResponse = GetFileMetadataApiV1S3FileMetadataGetResponses[keyof GetFileMetadataApiV1S3FileMetadataGetResponses];
+
+export type GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostData = {
+    body: PresignedUploadUrlRequest;
+    headers?: {
+        authorization?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/s3/presigned-upload-url';
+};
+
+export type GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostError = GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostErrors[keyof GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostErrors];
+
+export type GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PresignedUploadUrlResponse;
+};
+
+export type GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostResponse = GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostResponses[keyof GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostResponses];
 
 export type GetServiceKeysApiV1UserServiceKeysGetData = {
     body?: never;

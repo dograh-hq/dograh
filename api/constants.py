@@ -43,5 +43,9 @@ S3_BUCKET = os.environ.get("S3_BUCKET")
 S3_REGION = os.environ.get("S3_REGION", "us-east-1")
 
 # Sentry configuration
-ENABLE_SENTRY = os.getenv("ENABLE_SENTRY", "false").lower() == "true"
 SENTRY_DSN = os.getenv("SENTRY_DSN")
+
+
+ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
+SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
+ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "false").lower() == "true"

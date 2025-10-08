@@ -2,29 +2,22 @@
 
 import sentry_sdk
 
-from api.constants import ENABLE_SENTRY, REDIS_URL, SENTRY_DSN
+from api.constants import DEPLOYMENT_MODE, ENABLE_TELEMETRY, REDIS_URL, SENTRY_DSN
 from api.logging_config import ENVIRONMENT, setup_logging
 
 # Set up logging and get the listener for cleanup
-logging_queue_listener = setup_logging()
+setup_logging()
 
 
-if ENABLE_SENTRY:
-    if not SENTRY_DSN:
-        print(
-            "Warning: ENABLE_SENTRY is true but SENTRY_DSN is not configured. Sentry disabled."
-        )
-    else:
-        sentry_sdk.init(
-            dsn=SENTRY_DSN,
-            # Add data like request headers and IP for users,
-            # see https://docs.sentry.io/platforms/python/data-management/data-collected/ for more info
-            send_default_pii=True,
-            environment=ENVIRONMENT,
-        )
-        print(f"Sentry initialized in environment: {ENVIRONMENT}")
-else:
-    print(f"Sentry disabled (ENABLE_SENTRY=false)")
+if SENTRY_DSN and (
+    DEPLOYMENT_MODE != "oss" or (DEPLOYMENT_MODE == "oss" and ENABLE_TELEMETRY)
+):
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        send_default_pii=True,
+        environment=ENVIRONMENT,
+    )
+    print(f"Sentry initialized in environment: {ENVIRONMENT}")
 
 
 import asyncio
@@ -90,9 +83,6 @@ async def lifespan(app: FastAPI):
     pcs_map.clear()
 
     await redis.aclose()
-
-    if logging_queue_listener is not None:
-        logging_queue_listener.stop()
 
 
 app = FastAPI(

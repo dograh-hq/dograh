@@ -10,7 +10,7 @@ from api.services.campaign.campaign_event_protocol import BatchFailedEvent
 from api.services.campaign.campaign_event_publisher import (
     get_campaign_event_publisher,
 )
-from api.services.campaign.source_sync import get_sync_service
+from api.services.campaign.source_sync_factory import get_sync_service
 
 
 async def sync_campaign_source(ctx: Dict, campaign_id: int) -> None:

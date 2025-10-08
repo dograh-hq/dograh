@@ -9,6 +9,7 @@ from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
 from api.services.auth.depends import get_user
 from api.services.campaign.runner import campaign_runner_service
+from api.services.storage import storage_fs
 
 router = APIRouter(prefix="/campaign")
 
@@ -16,7 +17,8 @@ router = APIRouter(prefix="/campaign")
 class CreateCampaignRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     workflow_id: int
-    source_id: str  # Sheet URL
+    source_type: str = Field(..., pattern="^(google-sheet|csv)$")
+    source_id: str  # Google Sheet URL or CSV file key
 
 
 class CampaignResponse(BaseModel):
@@ -74,7 +76,7 @@ async def create_campaign(
     campaign = await db_client.create_campaign(
         name=request.name,
         workflow_id=request.workflow_id,
-        source_type="google-sheet",
+        source_type=request.source_type,
         source_id=request.source_id,
         user_id=user.id,
         organization_id=user.selected_organization_id,
@@ -174,14 +176,10 @@ async def start_campaign(
         OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
     )
 
-    if (
-        not twilio_config
-        or not twilio_config.value
-        or not twilio_config.value.get("value")
-    ):
+    if not twilio_config or not twilio_config.value:
         raise HTTPException(
             status_code=401,
-            detail="Your organisation is not allowed to make phone call. Contact founders@dograh.com for further support.",
+            detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
     # Verify campaign exists and belongs to organization
@@ -286,14 +284,10 @@ async def resume_campaign(
         OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
     )
 
-    if (
-        not twilio_config
-        or not twilio_config.value
-        or not twilio_config.value.get("value")
-    ):
+    if not twilio_config or not twilio_config.value:
         raise HTTPException(
             status_code=401,
-            detail="Your organisation is not allowed to make phone call. Contact founders@dograh.com for further support.",
+            detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
     # Verify campaign exists and belongs to organization
@@ -345,3 +339,59 @@ async def get_campaign_progress(
         return CampaignProgressResponse(**progress)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+class CampaignSourceDownloadResponse(BaseModel):
+    download_url: str
+    expires_in: int
+
+
+@router.get("/{campaign_id}/source-download-url")
+async def get_campaign_source_download_url(
+    campaign_id: int,
+    user: UserModel = Depends(get_user),
+) -> CampaignSourceDownloadResponse:
+    """Get presigned download URL for campaign CSV source file
+
+    Only works for CSV source type. For Google Sheets, use the source_id directly.
+    Validates that the campaign belongs to the user's organization for security.
+    """
+    # Verify campaign exists and belongs to organization
+    campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Only generate download URL for CSV files
+    if campaign.source_type != "csv":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Download URL only available for CSV sources. This campaign uses {campaign.source_type}",
+        )
+
+    # Verify the file key belongs to the user's organization
+    # File key format: campaigns/{org_id}/{uuid}_{filename}.csv
+    if not campaign.source_id.startswith(f"campaigns/{user.selected_organization_id}/"):
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: Source file does not belong to your organization",
+        )
+
+    # Generate presigned download URL
+    try:
+        download_url = await storage_fs.aget_signed_url(
+            campaign.source_id,
+            expiration=3600,  # 1 hour
+        )
+
+        if not download_url:
+            raise HTTPException(
+                status_code=500, detail="Failed to generate download URL"
+            )
+
+        return CampaignSourceDownloadResponse(
+            download_url=download_url, expires_in=3600
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500, detail=f"Failed to generate download URL: {str(e)}"
+        )

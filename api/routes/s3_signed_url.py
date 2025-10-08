@@ -1,8 +1,11 @@
+import re
+import uuid
 from typing import Annotated, Any, Dict, Optional, TypedDict
 
 from botocore.exceptions import ClientError
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from api.db import db_client
 from api.enums import StorageBackend
@@ -18,6 +21,20 @@ class S3SignedUrlResponse(TypedDict):
 class FileMetadataResponse(TypedDict):
     key: str
     metadata: Optional[Dict[str, Any]]
+
+
+class PresignedUploadUrlRequest(BaseModel):
+    file_name: str = Field(..., pattern=r".*\.csv$", description="CSV filename")
+    file_size: int = Field(
+        ..., gt=0, le=10_485_760, description="File size in bytes (max 10MB)"
+    )
+    content_type: str = Field(default="text/csv", description="File content type")
+
+
+class PresignedUploadUrlResponse(BaseModel):
+    upload_url: str
+    file_key: str
+    expires_in: int
 
 
 router = APIRouter(prefix="/s3", tags=["s3"])
@@ -217,3 +234,65 @@ async def get_file_metadata(
     except Exception as exc:
         logger.error(f"Error getting file metadata: {exc}")
         raise HTTPException(status_code=500, detail="Failed to get file metadata")
+
+
+@router.post(
+    "/presigned-upload-url",
+    response_model=PresignedUploadUrlResponse,
+    summary="Generate a presigned URL for direct CSV upload",
+)
+async def get_presigned_upload_url(
+    request: PresignedUploadUrlRequest,
+    user=Depends(get_user),
+):
+    """Generate a presigned PUT URL for direct CSV file upload to S3/MinIO.
+
+    This endpoint enables browser-to-storage uploads without passing through the backend
+
+    Access Control:
+    * All authenticated users can upload CSV files scoped to their organization.
+    * Files are stored with organization-scoped keys for multi-tenancy.
+
+    Returns:
+    * upload_url: Presigned URL (valid for 15 minutes) for PUT request
+    * file_key: Unique storage key to use as source_id in campaign creation
+    * expires_in: URL expiration time in seconds
+    """
+
+    # Sanitize filename - remove special chars, keep only alphanumeric, dash, underscore, and dot
+    sanitized_name = re.sub(r"[^a-zA-Z0-9._-]", "_", request.file_name)
+
+    # Generate unique file key: campaigns/{org_id}/{uuid}_{filename}.csv
+    file_key = (
+        f"campaigns/{user.selected_organization_id}/{uuid.uuid4()}_{sanitized_name}"
+    )
+
+    try:
+        # Generate presigned PUT URL using current storage backend
+        upload_url = await storage_fs.aget_presigned_put_url(
+            file_path=file_key,
+            expiration=900,  # 15 minutes
+            content_type=request.content_type,
+            max_size=request.file_size,
+        )
+
+        if not upload_url:
+            raise HTTPException(
+                status_code=500, detail="Failed to generate presigned upload URL"
+            )
+
+        logger.info(
+            f"Generated presigned upload URL for user {user.id}, org {user.selected_organization_id}, file_key: {file_key}"
+        )
+
+        return PresignedUploadUrlResponse(
+            upload_url=upload_url,
+            file_key=file_key,
+            expires_in=900,
+        )
+
+    except Exception as exc:
+        logger.error(f"Error generating presigned upload URL: {exc}")
+        raise HTTPException(
+            status_code=500, detail="Failed to generate presigned upload URL"
+        )

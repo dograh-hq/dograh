@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { useAuth } from '@/lib/auth';
 
+import CsvUploadSelector from '../CsvUploadSelector';
 import GoogleSheetSelector from '../GoogleSheetSelector';
 
 export default function NewCampaignPage() {
@@ -29,7 +30,9 @@ export default function NewCampaignPage() {
     // Form state
     const [campaignName, setCampaignName] = useState('');
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
-    const [selectedSheetUrl, setSelectedSheetUrl] = useState('');
+    const [sourceType, setSourceType] = useState<'google-sheet' | 'csv'>('csv');
+    const [sourceId, setSourceId] = useState('');
+    const [selectedFileName, setSelectedFileName] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [userAccessToken, setUserAccessToken] = useState<string>('');
 
@@ -78,7 +81,7 @@ export default function NewCampaignPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
-        if (!campaignName || !selectedWorkflowId || !selectedSheetUrl) {
+        if (!campaignName || !selectedWorkflowId || !sourceId) {
             toast.error('Please fill in all fields');
             return;
         }
@@ -91,7 +94,8 @@ export default function NewCampaignPage() {
                 body: {
                     name: campaignName,
                     workflow_id: parseInt(selectedWorkflowId),
-                    source_id: selectedSheetUrl,
+                    source_type: sourceType,
+                    source_id: sourceId,
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -117,7 +121,13 @@ export default function NewCampaignPage() {
 
     // Handle sheet selection
     const handleSheetSelected = (sheetUrl: string) => {
-        setSelectedSheetUrl(sheetUrl);
+        setSourceId(sheetUrl);
+    };
+
+    // Handle CSV file upload
+    const handleFileUploaded = (fileKey: string, fileName: string) => {
+        setSourceId(fileKey);
+        setSelectedFileName(fileName);
     };
 
     return (
@@ -191,20 +201,52 @@ export default function NewCampaignPage() {
                                     </SelectContent>
                                 </Select>
                                 <p className="text-sm text-gray-500">
-                                    Select the workflow to execute for each row in the spreadsheet
+                                    Select the workflow to execute for each row in the data source
                                 </p>
                             </div>
 
-                            <GoogleSheetSelector
-                                accessToken={userAccessToken}
-                                onSheetSelected={handleSheetSelected}
-                                selectedSheetUrl={selectedSheetUrl}
-                            />
+                            <div className="space-y-2">
+                                <Label htmlFor="source-type">Data Source Type</Label>
+                                <Select
+                                    value={sourceType}
+                                    onValueChange={(value) => {
+                                        setSourceType(value as 'google-sheet' | 'csv');
+                                        setSourceId('');
+                                        setSelectedFileName('');
+                                    }}
+                                    required
+                                >
+                                    <SelectTrigger id="source-type">
+                                        <SelectValue placeholder="Select source type" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="google-sheet">Google Sheet</SelectItem>
+                                        <SelectItem value="csv">CSV File</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                <p className="text-sm text-gray-500">
+                                    Choose where your contact data is stored
+                                </p>
+                            </div>
+
+                            {sourceType === 'google-sheet' ? (
+                                <GoogleSheetSelector
+                                    accessToken={userAccessToken}
+                                    onSheetSelected={handleSheetSelected}
+                                    selectedSheetUrl={sourceId}
+                                />
+                            ) : (
+                                <CsvUploadSelector
+                                    accessToken={userAccessToken}
+                                    onFileUploaded={handleFileUploaded}
+                                    selectedFileName={selectedFileName}
+                                />
+                            )}
 
                             <div className="flex gap-4 pt-4">
                                 <Button
                                     type="submit"
-                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !selectedSheetUrl}
+                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId}
                                 >
                                     {isSubmitting ? 'Creating...' : 'Create Campaign'}
                                 </Button>

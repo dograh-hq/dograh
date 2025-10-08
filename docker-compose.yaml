@@ -45,6 +45,7 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
       - "127.0.0.1:9000:9000" # Bind to localhost explicitly
       - "127.0.0.1:9001:9001"
@@ -90,8 +91,8 @@ services:
       # LANGFUSE_HOST: "https://langfuse.dograh.com"
 
       # Sentry
-      ENABLE_SETRY: "false"
-      SENTRY_DSN: ""
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
 
     ports:
       - "8000:8000"
@@ -104,12 +105,6 @@ services:
         condition: service_healthy
       cloudflared:
         condition: service_started
-    command: >
-      bash -c "
-        cd /app/api &&
-        alembic upgrade head &&
-        uvicorn api.app:app --host 0.0.0.0 --port 8000
-      "
     healthcheck:
       test:
         [
@@ -120,49 +115,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-    networks:
-      - app-network
-
-  arq-worker:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest
-    volumes:
-      - shared-tmp:/tmp
-    environment:
-      # Core application config
-      ENVIRONMENT: "local"
-      LOG_LEVEL: "INFO"
-
-      # Database configuration (using containerized postgres)
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
-
-      # Redis configuration (using containerized redis)
-      REDIS_URL: "redis://:redissecret@redis:6379"
-
-      # Storage configuration - using local MinIO
-      ENABLE_AWS_S3: "false"
-
-      # MinIO
-      MINIO_ENDPOINT: "minio:9000"
-      MINIO_ACCESS_KEY: "minioadmin"
-      MINIO_SECRET_KEY: "minioadmin"
-      MINIO_BUCKET: "voice-audio"
-      MINIO_SECURE: "false"
-
-      # Sentry
-      ENABLE_SETRY: "false"
-      SENTRY_DSN: ""
-    command: >
-      bash -c "
-        cd /app/api &&
-        python -m arq api.tasks.arq.WorkerSettings
-      "
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
     networks:
       - app-network
 

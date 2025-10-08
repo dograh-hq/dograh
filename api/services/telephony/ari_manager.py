@@ -16,7 +16,7 @@ import signal
 import time
 from typing import Dict, Optional
 
-from api.constants import REDIS_URL
+from api.constants import ENABLE_ARI_STASIS, REDIS_URL
 
 # --- Add logging setup before importing loguru ---
 from api.logging_config import setup_logging
@@ -32,7 +32,7 @@ from api.services.telephony.stasis_event_protocol import (
     parse_command,
 )
 
-logging_queue_listener = setup_logging()
+setup_logging()
 
 import redis.asyncio as aioredis
 import redis.exceptions
@@ -601,9 +601,13 @@ class ARIManager:
 
     async def run(self):
         """Main run loop for ARI Manager."""
-        self._running = True
+        if not ENABLE_ARI_STASIS:
+            logger.info("ARI Stasis integration disabled via environment variable")
+            return
 
         # Setup ARI connection with supervisor
+        self._running = True
+
         try:
             self._ari_client_supervisor = await setup_ari_client_supervisor(
                 self.on_channel_start, self.on_channel_end
@@ -737,9 +741,6 @@ async def main():
                     pass
     finally:
         await redis.aclose()
-        # --- Ensure Axiom logging listener is stopped gracefully ---
-        if logging_queue_listener is not None:
-            logging_queue_listener.stop()
 
 
 if __name__ == "__main__":

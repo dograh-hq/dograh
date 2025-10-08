@@ -3,6 +3,7 @@ import sys
 
 import loguru
 
+from api.constants import SERIALIZE_LOG_OUTPUT
 from api.enums import Environment
 from api.utils.worker import get_worker_id, is_worker_process
 from pipecat.utils.context import run_id_var, turn_var
@@ -88,7 +89,7 @@ def setup_logging():
         patched.add(
             actual_log_path,
             level=log_level,
-            serialize=True,  # Use JSON serialization for structured logs
+            serialize=SERIALIZE_LOG_OUTPUT,  # Use JSON serialization for structured logs
             enqueue=True,  # Thread-safe writing
             backtrace=True,  # Include full traceback in exceptions
             diagnose=False,  # Don't include local variables in traceback for security

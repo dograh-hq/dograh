@@ -9,7 +9,9 @@ from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
 from api.enums import OrganizationConfigurationKey, WorkflowRunMode
 from api.services.campaign.rate_limiter import rate_limiter
-from api.services.telephony.twilio import TwilioService
+from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.base import TelephonyProvider
+from api.utils.tunnel import TunnelURLProvider
 
 
 class CampaignCallDispatcher:
@@ -18,9 +20,9 @@ class CampaignCallDispatcher:
     def __init__(self):
         self.default_concurrent_limit = 20
 
-    def get_twilio_service(self, organization_id: int) -> TwilioService:
-        """Get TwilioService instance for specific organization"""
-        return TwilioService(organization_id)
+    async def get_telephony_provider(self, organization_id: int) -> TelephonyProvider:
+        """Get telephony provider instance for specific organization"""
+        return await get_telephony_provider(organization_id)
 
     async def get_org_concurrent_limit(self, organization_id: int) -> int:
         """Get the concurrent call limit for an organization."""
@@ -219,19 +221,25 @@ class CampaignCallDispatcher:
                 },
             )
 
-        # Initiate call via Twilio
+        # Initiate call via telephony provider
         try:
-            twilio_service = self.get_twilio_service(campaign.organization_id)
-            call_result = await twilio_service.initiate_call(
+            provider = await self.get_telephony_provider(campaign.organization_id)
+            
+            # Construct webhook URL with parameters
+            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+            webhook_url = (
+                f"https://{backend_endpoint}/api/v1/telephony/twiml"
+                f"?workflow_id={campaign.workflow_id}"
+                f"&user_id={campaign.created_by}"
+                f"&workflow_run_id={workflow_run.id}"
+                f"&campaign_id={campaign.id}"
+                f"&organization_id={campaign.organization_id}"
+            )
+            
+            call_result = await provider.initiate_call(
                 to_number=phone_number,
+                webhook_url=webhook_url,
                 workflow_run_id=workflow_run.id,
-                url_args={
-                    "workflow_id": campaign.workflow_id,
-                    "user_id": campaign.created_by,
-                    "workflow_run_id": workflow_run.id,
-                    "campaign_id": campaign.id,
-                    "organization_id": campaign.organization_id,
-                },
             )
 
             logger.info(

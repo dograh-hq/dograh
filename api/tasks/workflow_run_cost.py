@@ -40,6 +40,9 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
                         logger.warning("Workflow not found for workflow run")
                         raise Exception("Workflow not found")
 
+                    # TODO: Migrate to use telephony provider abstraction
+                    # provider = await get_telephony_provider(workflow.organization_id)
+                    # call_info = await provider.get_call_status(twilio_call_sid)
                     twilio_service = TwilioService(workflow.organization_id)
                     call_info = await twilio_service.get_call(twilio_call_sid)
                     # Twilio returns price as a string with negative value (e.g., "-0.0085")

@@ -1,0 +1,93 @@
+---
+title: "Webhooks and Callbacks"
+description: "How Dograh AI handles telephony webhooks and audio streaming"
+---
+
+## Overview
+
+Dograh AI uses webhooks to communicate with telephony providers for call events and audio streaming. Webhooks are automatically configured when you initiate calls.
+
+## Webhook Types
+
+### 1. Initial Call Webhook
+
+When a call is initiated, the telephony provider requests instructions.
+
+**Endpoint**: `/api/v1/telephony/twiml`
+
+**Purpose**: Returns provider-specific instructions (TwiML for Twilio)
+
+**Example Response**:
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="wss://your-domain/api/v1/telephony/ws/123/456/789" />
+    </Connect>
+</Response>
+```
+
+### 2. Status Callback
+
+Receives call lifecycle events.
+
+**Endpoint**: `/api/v1/telephony/status-callback/{workflow_run_id}`
+
+**Events Tracked**:
+- `initiated` - Call request received
+- `ringing` - Call is ringing
+- `answered` - Call was answered
+- `completed` - Call ended normally
+- `busy` - Line was busy
+- `no-answer` - Call not answered
+- `failed` - Call failed
+
+### 3. WebSocket Audio Stream
+
+Real-time audio streaming for voice interaction.
+
+**Endpoint**: `/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}`
+
+## How It Works
+
+Dograh AI automatically:
+1. Constructs webhook URLs based on your deployment
+2. Passes them to the telephony provider when initiating calls
+3. Verifies webhook signatures for security
+4. Processes status updates to track call lifecycle
+5. Manages WebSocket connections for audio streaming
+
+## Local Development
+
+For local development, use the built-in Cloudflare tunnel:
+
+```yaml
+# docker-compose.yml includes:
+cloudflared:
+  image: cloudflare/cloudflared:latest
+  command: tunnel --no-autoupdate --url http://api:8000
+```
+
+The tunnel URL is automatically detected and used for webhooks.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Webhook URL not accessible">
+    - Verify your domain/tunnel URL is publicly accessible
+    - Check firewall rules allow incoming HTTPS traffic
+    - Test with `curl` from external network
+  </Accordion>
+  
+  <Accordion title="WebSocket connection dropping">
+    - Check WebSocket upgrade headers are preserved
+    - Verify no timeout on load balancer/proxy
+    - Monitor for memory/CPU constraints
+  </Accordion>
+  
+  <Accordion title="Status callbacks not received">
+    - Verify workflow_run_id is included in URL
+    - Check provider console for webhook errors
+    - Review webhook retry logs
+  </Accordion>
+</AccordionGroup>

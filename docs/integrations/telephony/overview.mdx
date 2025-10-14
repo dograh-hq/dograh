@@ -1,0 +1,115 @@
+---
+title: "Telephony Integration"
+description: "Connect voice agents with telephony providers for inbound and outbound calls"
+---
+
+## Overview
+
+Dograh AI's telephony integration system provides a unified interface for connecting with various telephony providers. This abstraction layer allows you to easily switch between providers without changing your application logic.
+
+## Supported Providers
+
+<CardGroup cols={2}>
+  <Card title="Twilio" href="/integrations/telephony/twilio">
+    Industry-leading cloud communications platform with global reach
+  </Card>
+  {/* Additional providers can be added in the future by implementing the TelephonyProvider interface */}
+  <Card title="Custom Provider" href="/integrations/telephony/custom">
+    Build your own telephony provider integration
+  </Card>
+</CardGroup>
+
+## Architecture
+
+The telephony integration system uses a provider abstraction pattern that ensures consistency across different services:
+
+```python
+# All providers implement this interface
+class TelephonyProvider:
+    async def initiate_call(to_number, webhook_url, ...)
+    async def get_call_status(call_id)
+    async def verify_webhook_signature(url, params, signature)
+    # ... more methods
+```
+
+## Configuration Methods
+
+### OSS Deployment (Environment Variables)
+
+For self-hosted deployments, configure your telephony provider using environment variables:
+
+```bash
+# .env file
+TELEPHONY_PROVIDER=twilio  # Required to specify which provider to use
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_FROM_NUMBER=+1234567890
+```
+
+### SaaS Deployment (Database Configuration)
+
+For cloud deployments, configure providers through the web interface:
+
+1. Navigate to **Settings** → **Integrations** → **Telephony**
+2. Select your provider
+3. Enter credentials
+4. Test connection
+
+## Common Features
+
+The telephony integration in Dograh AI supports:
+
+- **Outbound Calls**: Initiate calls to any phone number
+- **Call Status Tracking**: Monitor call lifecycle events (initiated, ringing, answered, completed, failed)
+- **WebSocket Streaming**: Real-time audio streaming for voice agents
+- **Webhook Authentication**: Secure webhook signature verification
+
+## API Endpoints
+
+The telephony system exposes these unified endpoints:
+
+| Endpoint | Method | Description |
+|----------|---------|-------------|
+| `/api/v1/telephony/initiate-call` | POST | Start an outbound call |
+| `/api/v1/telephony/status-callback/{id}` | POST | Receive call status updates |
+| `/api/v1/telephony/twiml` | POST | Handle initial webhook |
+| `/api/v1/telephony/ws/{id}` | WebSocket | Real-time audio streaming |
+
+## Implementation Status
+
+- **Twilio**: ✅ Fully implemented and tested
+- **Custom Providers**: The abstraction layer supports adding new providers by implementing the `TelephonyProvider` interface
+- **API Endpoints**: All telephony operations use the unified `/api/v1/telephony/*` endpoints:
+  - `/api/v1/telephony/initiate-call` - Start outbound calls
+  - `/api/v1/telephony/status-callback/{id}` - Receive call status updates
+  - `/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}` - WebSocket for audio streaming
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Calls not connecting">
+    - Verify credentials are correctly configured
+    - Check phone number format (must include country code)
+    - Ensure webhook URLs are publicly accessible
+    - Review provider-specific error logs
+  </Accordion>
+  
+  <Accordion title="Audio quality issues">
+    - Check network bandwidth and latency
+    - Verify audio codec compatibility
+    - Review WebSocket connection stability
+    - Ensure proper audio format (MULAW for Twilio)
+  </Accordion>
+  
+  <Accordion title="Webhook signature validation failing">
+    - Confirm auth tokens match between provider and configuration
+    - Verify webhook URL matches exactly (including parameters)
+    - Check for proxy or load balancer modifications
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- [Set up your first telephony provider](/integrations/telephony/twilio)
+- [Build a custom provider integration](/integrations/telephony/custom)
+- [Configure webhooks and callbacks](/integrations/telephony/webhooks)

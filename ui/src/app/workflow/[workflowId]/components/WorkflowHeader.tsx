@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PhoneInput } from 'react-international-phone';
 
-import { getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet, initiateCallApiV1TwilioInitiateCallPost } from '@/client/sdk.gen';
+import { getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet, initiateCallApiV1TelephonyInitiateCallPost } from '@/client/sdk.gen';
 import { WorkflowError } from '@/client/types.gen';
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
@@ -117,6 +117,7 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
             });
 
             // If no configuration exists, show configure dialog
+            // Check if Twilio is configured (currently the only supported provider)
             if (configResponse.error || !configResponse.data?.twilio) {
                 setConfigureDialogOpen(true);
                 return;
@@ -151,7 +152,7 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
             }
 
             // Configuration exists, proceed with call initiation
-            const response = await initiateCallApiV1TwilioInitiateCallPost({
+            const response = await initiateCallApiV1TelephonyInitiateCallPost({
                 body: { workflow_id: workflowId },
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });

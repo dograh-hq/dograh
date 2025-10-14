@@ -38,11 +38,25 @@
               "features/campaigns",
               "features/looptalk"
             ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "integrations/overview"
+            ]
           },
           {
-            "group": "Telephony Integrations",
+            "group": "Telephony",
             "pages": [
-              "telephony/twilio"
+              "integrations/telephony/overview",
+              "integrations/telephony/twilio",
+              "integrations/telephony/webhooks",
+              "integrations/telephony/custom"
             ]
           }
         ]

@@ -1,0 +1,184 @@
+---
+title: "Custom Telephony Provider"
+description: "Build your own telephony provider integration for Dograh AI"
+---
+
+## Overview
+
+Dograh AI's telephony abstraction layer allows you to integrate any telephony service by implementing the `TelephonyProvider` interface.
+
+## Provider Interface
+
+All telephony providers must implement this abstract base class:
+
+```python
+from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional
+
+class TelephonyProvider(ABC):
+    """Abstract base class for telephony providers."""
+    
+    @abstractmethod
+    async def initiate_call(
+        self,
+        to_number: str,
+        webhook_url: str,
+        workflow_run_id: Optional[int] = None,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """Initiate an outbound call."""
+        pass
+    
+    @abstractmethod
+    async def get_call_status(self, call_id: str) -> Dict[str, Any]:
+        """Get current status of a call."""
+        pass
+    
+    @abstractmethod
+    async def get_available_phone_numbers(self) -> List[str]:
+        """Get list of available phone numbers."""
+        pass
+    
+    @abstractmethod
+    def validate_config(self) -> bool:
+        """Validate provider configuration."""
+        pass
+    
+    @abstractmethod
+    async def verify_webhook_signature(
+        self, url: str, params: Dict[str, Any], signature: str
+    ) -> bool:
+        """Verify webhook signature for security."""
+        pass
+    
+    @abstractmethod
+    async def get_webhook_response(
+        self, workflow_id: int, user_id: int, workflow_run_id: int
+    ) -> str:
+        """Generate initial webhook response."""
+        pass
+```
+
+## Implementation Guide
+
+### 1. Create Your Provider
+
+Create a new file in `api/services/telephony/providers/`:
+
+```python
+# api/services/telephony/providers/your_provider.py
+
+from typing import Any, Dict, List, Optional
+from api.services.telephony.base import TelephonyProvider
+
+class YourProvider(TelephonyProvider):
+    """Your custom telephony provider implementation."""
+    
+    def __init__(self, config: Dict[str, Any]):
+        """Initialize with configuration dictionary."""
+        # Extract your provider-specific configuration
+        self.api_key = config.get("api_key")
+        self.api_secret = config.get("api_secret")
+        self.from_number = config.get("from_numbers", [""])[0]
+    
+    def validate_config(self) -> bool:
+        """Check if all required configuration is present."""
+        return bool(self.api_key and self.api_secret and self.from_number)
+    
+    async def initiate_call(
+        self,
+        to_number: str,
+        webhook_url: str,
+        workflow_run_id: Optional[int] = None,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """Start an outbound call using your provider's API."""
+        # Implement your provider's call initiation logic
+        pass
+    
+    # Implement other required methods...
+```
+
+### 2. Register in Factory
+
+Update `api/services/telephony/factory.py` to include your provider:
+
+```python
+from api.services.telephony.providers.your_provider import YourProvider
+
+async def get_telephony_provider(
+    organization_id: Optional[int] = None
+) -> TelephonyProvider:
+    """Factory function to get appropriate telephony provider."""
+    
+    config = await load_telephony_config(organization_id)
+    provider_type = config.get("provider", "twilio").lower()
+    
+    if provider_type == "twilio":
+        return TwilioProvider(config)
+    elif provider_type == "your_provider":
+        return YourProvider(config)
+    else:
+        raise ValueError(f"Unknown telephony provider: {provider_type}")
+```
+
+### 3. Add Configuration Support
+
+For OSS deployment (environment variables):
+
+```bash
+# .env
+TELEPHONY_PROVIDER=your_provider
+YOUR_PROVIDER_API_KEY=your_api_key
+YOUR_PROVIDER_API_SECRET=your_api_secret
+YOUR_PROVIDER_FROM_NUMBER=+1234567890
+```
+
+Update the configuration loader in `factory.py`:
+
+```python
+if provider == "your_provider":
+    return {
+        "provider": "your_provider",
+        "api_key": os.getenv("YOUR_PROVIDER_API_KEY"),
+        "api_secret": os.getenv("YOUR_PROVIDER_API_SECRET"),
+        "from_numbers": [os.getenv("YOUR_PROVIDER_FROM_NUMBER")]
+    }
+```
+
+## Audio Format Considerations
+
+Different providers use different audio formats. Twilio uses MULAW at 8000 Hz encoded in Base64. Your provider may differ, so ensure proper audio format conversion in your WebSocket handler.
+
+## Testing
+
+Create unit tests for your provider:
+
+```python
+# tests/test_your_provider.py
+
+import pytest
+from api.services.telephony.providers.your_provider import YourProvider
+
+@pytest.mark.asyncio
+async def test_validate_config():
+    config = {
+        "api_key": "test_key",
+        "api_secret": "test_secret",
+        "from_numbers": ["+1234567890"]
+    }
+    provider = YourProvider(config)
+    assert provider.validate_config() is True
+```
+
+## Best Practices
+
+1. **Error Handling**: Implement robust error handling with meaningful messages
+2. **Logging**: Use `loguru.logger` for consistent logging
+3. **Async Operations**: All I/O operations should be async
+4. **Configuration Validation**: Validate config on initialization
+5. **Security**: Always verify webhook signatures
+
+## Reference Implementation
+
+See the Twilio provider implementation at `api/services/telephony/providers/twilio_provider.py` for a complete example.

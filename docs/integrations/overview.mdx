@@ -1,0 +1,50 @@
+---
+title: "Integrations Overview"
+description: "Connect Dograh AI with external services and platforms"
+---
+
+## Introduction
+
+Dograh AI provides a flexible integration architecture that allows you to connect with various external services and platforms. Our integration system is designed with modularity and extensibility in mind, making it easy to add new providers while maintaining backward compatibility.
+
+## Integration Categories
+
+### Telephony Providers
+Connect your voice agents with telephony services to make and receive calls.
+
+<Card title="Telephony Providers" href="/integrations/telephony/overview">
+  Configure telephony providers like Twilio, Vonage, and Plivo for voice communication
+</Card>
+
+### Future Integration Categories
+
+The integration architecture is designed to support additional categories in the future, such as storage services, analytics platforms, and CRM systems.
+
+## Architecture Principles
+
+Our integration system follows these core principles:
+
+- **Provider Abstraction**: All integrations implement a common interface, making it easy to switch between providers
+- **Configuration Flexibility**: Support for both environment-based (OSS) and database-based (SaaS) configuration
+- **Backward Compatibility**: New integrations don't break existing implementations
+- **Secure by Default**: All credentials are encrypted and never exposed in logs or UI
+
+## Getting Started
+
+1. Choose the integration category you need
+2. Follow the provider-specific setup guide
+3. Configure credentials through the UI or environment variables
+4. Test your integration with the provided verification tools
+
+## Best Practices
+
+- Store credentials securely using environment variables (OSS) or database configuration (SaaS)
+- Test integrations in a development environment before production deployment
+- Use the provider abstraction to maintain clean separation between business logic and provider specifics
+- Monitor integration health through application logs
+
+## Need Help?
+
+- Check provider-specific documentation for detailed setup instructions
+- Visit our [GitHub Issues](https://github.com/dograh-hq/dograh/issues) for community support
+- Join our [Slack community](https://join.slack.com/t/dograh-ai/shared_invite/zt-2u29h3bkm-RrkJ2f2B5lvTVZo0ZQ1MMA) for assistance

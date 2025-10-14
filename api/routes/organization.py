@@ -14,6 +14,7 @@ from api.services.configuration.masking import is_mask_of, mask_key
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
 
+# TODO: Make endpoints provider-agnostic
 @router.get("/telephony-config", response_model=TelephonyConfigurationResponse)
 async def get_telephony_configuration(user: UserModel = Depends(get_user)):
     """Get telephony configuration for the user's organization with masked sensitive fields."""
@@ -22,7 +23,7 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
 
     config = await db_client.get_configuration(
         user.selected_organization_id,
-        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
+        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,  # TODO: Use TELEPHONY_CONFIGURATION
     )
 
     if not config or not config.value:
@@ -53,7 +54,7 @@ async def save_telephony_configuration(
     # Fetch existing configuration to handle masked values
     existing_config = await db_client.get_configuration(
         user.selected_organization_id,
-        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
+        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,  # TODO: Use TELEPHONY_CONFIGURATION
     )
 
     # Build new configuration

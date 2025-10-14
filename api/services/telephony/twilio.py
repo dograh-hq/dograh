@@ -1,3 +1,6 @@
+# TODO: Remove this file after migrating workflow_run_cost.py to use telephony abstraction
+# Deprecated - use api/services/telephony/providers/twilio_provider.py instead
+
 import random
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode

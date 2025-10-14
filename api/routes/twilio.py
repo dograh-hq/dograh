@@ -1,3 +1,6 @@
+# TODO: Remove this entire file after migrating workflow_run_cost.py to use telephony abstraction
+# All endpoints here are deprecated - use /api/v1/telephony/* instead
+
 import json
 import random
 from datetime import UTC, datetime

@@ -11,7 +11,8 @@ from api.routes.rtc_offer import router as rtc_offer_router
 from api.routes.s3_signed_url import router as s3_router
 from api.routes.service_keys import router as service_keys_router
 from api.routes.superuser import router as superuser_router
-from api.routes.twilio import router as twilio_router
+from api.routes.telephony import router as telephony_router
+from api.routes.twilio import router as twilio_router  # TODO: Remove after migrating workflow_run_cost.py
 from api.routes.user import router as user_router
 from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
@@ -21,7 +22,8 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-router.include_router(twilio_router)
+router.include_router(telephony_router)  # New generic telephony routes
+router.include_router(twilio_router)  # TODO: Remove after migrating workflow_run_cost.py
 router.include_router(rtc_offer_router)
 router.include_router(superuser_router)
 router.include_router(workflow_router)

@@ -1,0 +1,127 @@
+---
+title: "Twilio Integration"
+description: "Configure Twilio for voice communication in Dograh AI"
+---
+
+## Overview
+
+Twilio is a cloud communications platform that enables voice calling, messaging, and video capabilities. Dograh AI's Twilio integration provides seamless connectivity for your voice agents.
+
+## Prerequisites
+
+Before setting up Twilio integration, you'll need:
+
+- A [Twilio account](https://www.twilio.com/try-twilio)
+- Account SID and Auth Token from your Twilio Console
+- At least one Twilio phone number
+- Dograh AI instance running and accessible
+
+## Video Tutorial
+
+Watch this step-by-step guide to set up Twilio with Dograh AI:
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.tella.tv/video/cmgbvzkrt00jk0clacu16blm3/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
+  title="Dograh Twilio Setup"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+## Configuration
+
+### Step 1: Get Twilio Credentials
+
+1. Log in to your [Twilio Console](https://console.twilio.com/)
+2. Find your **Account SID** and **Auth Token** on the dashboard
+3. Navigate to **Phone Numbers** → **Manage** → **Active Numbers**
+4. Copy your phone number(s)
+
+### Step 2: Configure in Dograh AI
+
+<Tabs>
+  <Tab title="Web Interface (SaaS)">
+    1. Navigate to **Settings** → **Integrations** → **Telephony**
+    2. Select **Twilio** as your provider
+    3. Enter your credentials:
+       - Account SID
+       - Auth Token
+       - Phone Numbers (comma-separated if multiple)
+    4. Click **Test Connection**
+    5. Save configuration
+  </Tab>
+  
+  <Tab title="Environment Variables (OSS)">
+    Add these variables to your `.env` file:
+    
+    ```bash
+    # Telephony Configuration
+    TELEPHONY_PROVIDER=twilio  # Specifies Twilio as the telephony provider
+    TWILIO_ACCOUNT_SID="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    TWILIO_AUTH_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    TWILIO_FROM_NUMBER="+1234567890"
+    # For multiple numbers, use comma separation:
+    # TWILIO_FROM_NUMBER="+1234567890,+0987654321"
+    ```
+    
+    Restart your Dograh AI services:
+    ```bash
+    docker-compose restart api
+    ```
+  </Tab>
+</Tabs>
+
+### Step 3: Test Your Configuration
+
+1. Create a test workflow
+2. Click "Test Call" to verify connection
+3. Check call logs for successful connection
+
+## How It Works
+
+### Outbound Calling
+When you initiate a call through Dograh AI:
+1. The system selects a phone number from your configured pool
+2. Twilio places the call to your recipient
+3. Once connected, audio streams through WebSocket for real-time voice interaction
+4. Call status updates are tracked throughout the lifecycle
+
+
+## Campaign Features
+
+When using Twilio with campaigns:
+- **Rate Limiting**: Enforced per organization to prevent overwhelming
+- **Automatic Retry**: Failed calls (busy/no-answer) are retried automatically
+- **Concurrent Call Management**: System manages call slots to optimize throughput
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid phone number error">
+    Ensure phone numbers include country code in E.164 format: `+1234567890`
+  </Accordion>
+  
+  <Accordion title="Authentication failed">
+    - Verify Account SID and Auth Token are correct
+    - Check for extra spaces in credentials
+    - Ensure credentials haven't been regenerated in Twilio Console
+  </Accordion>
+  
+  <Accordion title="Webhook signature validation failing">
+    - Confirm your Auth Token matches exactly
+    - Verify the webhook URL matches what Twilio sends
+    - Check if you're behind a proxy that modifies requests
+  </Accordion>
+  
+  <Accordion title="No audio on calls">
+    - Verify WebSocket connection is established
+    - Check firewall rules for WebSocket traffic
+    - Ensure audio pipeline is configured correctly
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- Store credentials securely in environment variables (OSS) or database (SaaS)
+- Test your configuration with a single call before running campaigns
+- Monitor Twilio Console for usage and billing

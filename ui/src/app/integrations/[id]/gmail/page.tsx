@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { getIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGet } from '@/client/sdk.gen';
 import { useAuth } from '@/lib/auth';
@@ -26,6 +26,18 @@ interface EmailDetail {
     body: string;
 }
 
+interface GmailHeader {
+    name: string;
+    value: string;
+}
+
+interface GmailPayloadPart {
+    mimeType: string;
+    body: {
+        data?: string;
+    };
+}
+
 export default function GmailSearchPage() {
     const params = useParams();
     const router = useRouter();
@@ -41,11 +53,7 @@ export default function GmailSearchPage() {
     const [error, setError] = useState<string | null>(null);
     const [sendingReply, setSendingReply] = useState(false);
 
-    useEffect(() => {
-        fetchAccessToken();
-    }, [integrationId]);
-
-    const fetchAccessToken = async () => {
+    const fetchAccessToken = useCallback(async () => {
         try {
             const token = await getAccessToken();
             if (!token) {
@@ -67,7 +75,11 @@ export default function GmailSearchPage() {
             logger.error('Error fetching access token:', err);
             setError('Failed to fetch access token. Please try again.');
         }
-    };
+    }, [getAccessToken, redirectToLogin, integrationId]);
+
+    useEffect(() => {
+        fetchAccessToken();
+    }, [fetchAccessToken]);
 
     const searchEmails = async () => {
         if (!accessToken || !searchQuery.trim()) return;
@@ -114,10 +126,10 @@ export default function GmailSearchPage() {
             const emailDetails = await Promise.all(emailPromises);
 
             const formattedEmails: Email[] = emailDetails.map((email) => {
-                const headers = email.payload.headers;
-                const subject = headers.find((h: any) => h.name === 'Subject')?.value || 'No Subject';
-                const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
-                const date = headers.find((h: any) => h.name === 'Date')?.value || '';
+                const headers = email.payload.headers as GmailHeader[];
+                const subject = headers.find((h) => h.name === 'Subject')?.value || 'No Subject';
+                const from = headers.find((h) => h.name === 'From')?.value || 'Unknown';
+                const date = headers.find((h) => h.name === 'Date')?.value || '';
 
                 return {
                     id: email.id,
@@ -159,19 +171,20 @@ export default function GmailSearchPage() {
             }
 
             const email = await response.json();
-            const headers = email.payload.headers;
+            const headers = email.payload.headers as GmailHeader[];
 
-            const subject = headers.find((h: any) => h.name === 'Subject')?.value || 'No Subject';
-            const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown';
-            const to = headers.find((h: any) => h.name === 'To')?.value || 'Unknown';
-            const date = headers.find((h: any) => h.name === 'Date')?.value || '';
+            const subject = headers.find((h) => h.name === 'Subject')?.value || 'No Subject';
+            const from = headers.find((h) => h.name === 'From')?.value || 'Unknown';
+            const to = headers.find((h) => h.name === 'To')?.value || 'Unknown';
+            const date = headers.find((h) => h.name === 'Date')?.value || '';
 
             // Extract email body
             let body = '';
             if (email.payload.body.data) {
                 body = atob(email.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));
             } else if (email.payload.parts) {
-                const textPart = email.payload.parts.find((part: any) => part.mimeType === 'text/plain');
+                const parts = email.payload.parts as GmailPayloadPart[];
+                const textPart = parts.find((part) => part.mimeType === 'text/plain');
                 if (textPart && textPart.body.data) {
                     body = atob(textPart.body.data.replace(/-/g, '+').replace(/_/g, '/'));
                 }

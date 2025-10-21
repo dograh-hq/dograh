@@ -15,7 +15,7 @@ BASE_LOG_DIR="$BASE_DIR/logs"           # Base logs directory
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 LOG_DIR="$BASE_LOG_DIR/$TIMESTAMP"      # Timestamped log directory
 LATEST_LINK="$BASE_LOG_DIR/latest"      # Symlink to latest logs
-VENV_PATH="$BASE_DIR/venv"
+VENV_PATH="$(dirname "$BASE_DIR")/venv"
 
 ARQ_WORKERS=${ARQ_WORKERS:-1}
 

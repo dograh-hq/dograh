@@ -1,6 +1,7 @@
 import base64
 import os
 
+from loguru import logger
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
 from api.constants import ENABLE_TRACING
@@ -23,7 +24,7 @@ def setup_pipeline_tracing():
         langfuse_secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
 
         if not all([langfuse_host, langfuse_public_key, langfuse_secret_key]):
-            print(
+            logger.warning(
                 "Warning: ENABLE_TRACING is true but Langfuse credentials are not configured. Tracing disabled."
             )
             return
@@ -39,6 +40,3 @@ def setup_pipeline_tracing():
 
         otlp_exporter = OTLPSpanExporter()
         setup_tracing(service_name="dograh-pipeline", exporter=otlp_exporter)
-        print("Langfuse tracing enabled")
-    else:
-        print("Tracing disabled (ENABLE_TRACING=false)")

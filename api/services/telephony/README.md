@@ -15,7 +15,7 @@ Business Logic → TelephonyProvider (Interface) → Concrete Provider (Twilio, 
 ```python
 from api.services.telephony.factory import get_telephony_provider
 
-# Get provider based on environment/config
+# Get provider based on organization config
 provider = await get_telephony_provider(organization_id)
 
 # Initiate a call
@@ -35,8 +35,9 @@ telephony/
 ├── factory.py           # Provider creation and config loading
 ├── providers/
 │   ├── __init__.py
-│   └── twilio_provider.py  # Twilio implementation
-├── twilio.py           # Legacy TwilioService (backward compat)
+│   ├── twilio_provider.py  # Twilio implementation
+│   └── vonage_provider.py  # Vonage implementation
+├── twilio.py           # Legacy (removed, use factory instead)
 └── README.md           # This file
 ```
 
@@ -47,9 +48,8 @@ See the [Custom Provider Guide](https://docs.dograh.com/integrations/telephony/c
 Quick checklist:
 1. Create `providers/your_provider.py` implementing `TelephonyProvider`
 2. Update `factory.py` to include your provider
-3. Add environment variable support in `factory.py`
-4. Write unit tests
-5. Update documentation
+3. Write unit tests
+4. Update documentation
 
 ## Key Interfaces
 
@@ -76,21 +76,20 @@ class TelephonyProvider(ABC):
 
 ## Configuration Loading
 
-The `factory.py` handles configuration from two sources:
+The `factory.py` loads configuration from the database:
 
-1. **OSS Mode** (default): Environment variables
-   ```python
-   TELEPHONY_PROVIDER=twilio
-   TWILIO_ACCOUNT_SID=xxx
-   TWILIO_AUTH_TOKEN=xxx
-   TWILIO_FROM_NUMBER=+1234567890
-   ```
-
-2. **SaaS Mode**: Database configuration per organization
+**Both Saas and OSS Modes**: Database configuration via UI
    ```python
    # Loaded from organization_configuration table
-   key: "TWILIO_CONFIGURATION"
-   value: {"account_sid": "xxx", "auth_token": "xxx", "from_numbers": [...]}
+   key: "TELEPHONY_CONFIGURATION"
+   value: {
+       "provider": "twilio",  # or "vonage"
+       "account_sid": "xxx",  # for Twilio
+       "auth_token": "xxx",   # for Twilio
+       "application_id": "xxx",  # for Vonage
+       "private_key": "xxx",     # for Vonage
+       "from_numbers": [...]
+   }
    ```
 
 ## Testing
@@ -117,14 +116,15 @@ async def test_call_initiation(mock_get_provider):
 ### Integration Testing
 
 Run against actual providers in development:
-```bash
-# Set test credentials
-export TELEPHONY_PROVIDER=twilio
-export TWILIO_ACCOUNT_SID=test_sid
-export TWILIO_AUTH_TOKEN=test_token
-export TWILIO_FROM_NUMBER=+15005550006  # Twilio test number
 
-# Run integration tests
+1. Configure your provider through the UI:
+   - Navigate to Settings → Integrations → Telephony
+   - Select your provider (Twilio or Vonage)
+   - Enter test credentials
+   - Save configuration
+
+2. Run integration tests:
+```bash
 pytest tests/integration/test_telephony.py
 ```
 
@@ -155,7 +155,7 @@ await provider.initiate_call(...)
 ## Common Issues
 
 1. **Import Error**: Always import from `factory`, not directly from providers
-2. **Config Not Found**: Check environment variables or database configuration
+2. **Config Not Found**: Check database configuration via UI
 3. **Signature Verification**: Ensure auth tokens match between provider and config
 4. **WebSocket Issues**: Verify audio format compatibility (MULAW for Twilio)
 

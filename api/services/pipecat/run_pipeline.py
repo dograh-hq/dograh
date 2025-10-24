@@ -4,6 +4,7 @@ from fastapi import HTTPException, WebSocket
 from loguru import logger
 
 from api.db import db_client
+from api.db.models import WorkflowModel
 from api.enums import WorkflowRunMode
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.engine_pre_aggregator_processor import (
@@ -33,6 +34,7 @@ from api.services.pipecat.tracing_config import setup_pipeline_tracing
 from api.services.pipecat.transport_setup import (
     create_stasis_transport,
     create_twilio_transport,
+    create_vonage_transport,
     create_webrtc_transport,
 )
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
@@ -70,7 +72,7 @@ async def run_pipeline_twilio(
     set_current_run_id(workflow_run_id)
 
     # Store Twilio call SID in cost_info for later cost calculation
-    cost_info = {"twilio_call_sid": call_sid}
+    cost_info = {"twilio_call_sid": call_sid, "provider": "twilio"}
     await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
 
     # Get workflow to extract all pipeline configurations
@@ -105,6 +107,69 @@ async def run_pipeline_twilio(
         user_id,
         audio_config=audio_config,
     )
+
+
+async def run_pipeline_vonage(
+    websocket_client,
+    call_uuid: str,
+    workflow: WorkflowModel,
+    organization_id: int,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+):
+    """Run pipeline for Vonage WebSocket connections.
+    
+    Vonage uses raw PCM audio over WebSocket instead of base64-encoded μ-law.
+    The audio is transmitted as binary frames at 16kHz by default.
+    """
+    logger.info(f"Starting Vonage pipeline for workflow run {workflow_run_id}")
+    set_current_run_id(workflow_run_id)
+
+    # Store Vonage call UUID in cost_info for later cost calculation
+    cost_info = {"vonage_call_uuid": call_uuid, "provider": "vonage"}
+    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+
+    # Extract VAD and ambient noise config from workflow
+    vad_config = None
+    ambient_noise_config = None
+    if workflow and workflow.workflow_configurations:
+        if "vad_configuration" in workflow.workflow_configurations:
+            vad_config = workflow.workflow_configurations["vad_configuration"]
+        if "ambient_noise_configuration" in workflow.workflow_configurations:
+            ambient_noise_config = workflow.workflow_configurations["ambient_noise_configuration"]
+
+    try:
+        # Setup audio config for Vonage using the centralized config
+        audio_config = create_audio_config(WorkflowRunMode.VONAGE.value)
+
+        # Create Vonage transport
+        transport = await create_vonage_transport(
+            websocket_client,
+            call_uuid,
+            workflow_run_id,
+            audio_config,
+            organization_id,
+            vad_config,
+            ambient_noise_config,
+        )
+
+        # No special handshake needed for Vonage
+        # Audio streaming starts immediately
+
+        # Run the pipeline (same as Twilio/WebRTC)
+        await _run_pipeline(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            call_context_vars={},
+            audio_config=audio_config,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in Vonage pipeline: {e}")
+        raise
 
 
 async def run_pipeline_smallwebrtc(

@@ -20,7 +20,8 @@ from api.services.campaign.campaign_event_publisher import (
     get_campaign_event_publisher,
 )
 from api.services.pipecat.run_pipeline import run_pipeline_twilio
-from api.services.telephony.twilio import TwilioService
+from api.services.telephony.factory import get_telephony_provider
+from api.utils.tunnel import TunnelURLProvider
 from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/twilio")
@@ -48,10 +49,10 @@ class TwilioStatusCallbackRequest(BaseModel):
 async def initiate_call(
     request: InitiateCallRequest, user: UserModel = Depends(get_user)
 ):
-    # Check if organization has TWILIO_CONFIGURATION configured
+    # Check if organization has TELEPHONY_CONFIGURATION configured
     twilio_config = await db_client.get_configuration(
         user.selected_organization_id,
-        OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
+        OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
     )
 
     if not twilio_config or not twilio_config.value:
@@ -83,15 +84,16 @@ async def initiate_call(
         workflow_run_name = workflow_run.name
 
     if user_configuration.test_phone_number:
-        twilio_service = TwilioService(user.selected_organization_id)
-        await twilio_service.initiate_call(
+        # Use new provider pattern instead of legacy TwilioService
+        provider = await get_telephony_provider(user.selected_organization_id)
+        
+        # Generate webhook URL for Twilio
+        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+        webhook_url = f"https://{backend_endpoint}/api/v1/twilio/twiml?workflow_id={request.workflow_id}&user_id={user.id}&workflow_run_id={workflow_run_id}&organization_id={user.selected_organization_id}"
+        
+        await provider.initiate_call(
             to_number=user_configuration.test_phone_number,
-            url_args={
-                "workflow_id": request.workflow_id,
-                "user_id": user.id,
-                "workflow_run_id": workflow_run_id,
-                "organization_id": user.selected_organization_id,
-            },
+            webhook_url=webhook_url,
             workflow_run_id=workflow_run_id,
         )
         return {
@@ -105,7 +107,9 @@ async def initiate_call(
 async def start_call(
     workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int
 ):
-    twiml_content = await TwilioService(organization_id).get_start_call_twiml(
+    # Use new provider pattern for TwiML generation
+    provider = await get_telephony_provider(organization_id)
+    twiml_content = await provider.get_webhook_response(
         workflow_id, user_id, workflow_run_id
     )
     return HTMLResponse(content=twiml_content, media_type="application/xml")

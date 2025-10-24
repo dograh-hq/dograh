@@ -13,19 +13,36 @@ Dograh AI uses webhooks to communicate with telephony providers for call events 
 
 When a call is initiated, the telephony provider requests instructions.
 
-**Endpoint**: `/api/v1/telephony/twiml`
+**Endpoint**: `/api/v1/telephony/webhook/{workflow_id}/{user_id}/{workflow_run_id}`
 
-**Purpose**: Returns provider-specific instructions (TwiML for Twilio)
+**Purpose**: Returns provider-specific instructions
 
-**Example Response**:
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Connect>
-        <Stream url="wss://your-domain/api/v1/telephony/ws/123/456/789" />
-    </Connect>
-</Response>
-```
+<Tabs>
+  <Tab title="Twilio (TwiML)">
+    ```xml
+    <?xml version="1.0" encoding="UTF-8"?>
+    <Response>
+        <Connect>
+            <Stream url="wss://your-domain/api/v1/telephony/ws/123/456/789" />
+        </Connect>
+    </Response>
+    ```
+  </Tab>
+  <Tab title="Vonage (NCCO)">
+    ```json
+    [
+      {
+        "action": "connect",
+        "endpoint": [{
+          "type": "websocket",
+          "uri": "wss://your-domain/api/v1/telephony/ws/123/456/789",
+          "content-type": "audio/l16;rate=16000"
+        }]
+      }
+    ]
+    ```
+  </Tab>
+</Tabs>
 
 ### 2. Status Callback
 
@@ -48,14 +65,21 @@ Real-time audio streaming for voice interaction.
 
 **Endpoint**: `/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}`
 
+**Audio Formats**:
+- **Twilio**: 8kHz μ-law (MULAW), Base64-encoded in JSON messages
+- **Vonage**: 16kHz Linear PCM, Binary frames
+
 ## How It Works
 
 Dograh AI automatically:
 1. Constructs webhook URLs based on your deployment
 2. Passes them to the telephony provider when initiating calls
-3. Verifies webhook signatures for security
+3. Verifies webhook signatures for security:
+   - **Twilio**: HMAC-SHA1 signature validation
+   - **Vonage**: JWT token verification
 4. Processes status updates to track call lifecycle
 5. Manages WebSocket connections for audio streaming
+6. Handles provider-specific audio formats and protocols
 
 ## Local Development
 

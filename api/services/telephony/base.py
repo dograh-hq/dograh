@@ -101,3 +101,20 @@ class TelephonyProvider(ABC):
             Provider-specific response (e.g., TwiML for Twilio)
         """
         pass
+
+    @abstractmethod
+    async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
+        """
+        Get cost information for a completed call.
+        
+        Args:
+            call_id: Provider-specific call identifier (SID for Twilio, UUID for Vonage)
+            
+        Returns:
+            Dict containing:
+                - cost_usd: The cost in USD as float
+                - duration: Call duration in seconds
+                - status: Call completion status
+                - raw_response: Full provider response for debugging
+        """
+        pass

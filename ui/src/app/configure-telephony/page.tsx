@@ -28,8 +28,15 @@ import { useAuth } from "@/lib/auth";
 // TODO: Make UI provider-agnostic
 interface TelephonyConfigForm {
   provider: string;
-  account_sid: string;
-  auth_token: string;
+  // Twilio fields
+  account_sid?: string;
+  auth_token?: string;
+  // Vonage fields
+  application_id?: string;
+  private_key?: string;
+  api_key?: string;
+  api_secret?: string;
+  // Common field
   from_number: string;
 }
 
@@ -71,13 +78,26 @@ export default function ConfigureTelephonyPage() {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
 
-        if (!response.error && response.data?.twilio) {
-          setHasExistingConfig(true);
-          // Masked values like "****************def0" from backend
-          setValue("account_sid", response.data.twilio.account_sid);
-          setValue("auth_token", response.data.twilio.auth_token);
-          if (response.data.twilio.from_numbers?.length > 0) {
-            setValue("from_number", response.data.twilio.from_numbers[0]);
+        if (!response.error) {
+          // Simple single provider config
+          if (response.data?.twilio) {
+            setHasExistingConfig(true);
+            setValue("provider", "twilio");
+            setValue("account_sid", response.data.twilio.account_sid);
+            setValue("auth_token", response.data.twilio.auth_token);
+            if (response.data.twilio.from_numbers?.length > 0) {
+              setValue("from_number", response.data.twilio.from_numbers[0]);
+            }
+          } else if (response.data?.vonage) {
+            setHasExistingConfig(true);
+            setValue("provider", "vonage");
+            setValue("application_id", response.data.vonage.application_id);
+            setValue("private_key", response.data.vonage.private_key);
+            setValue("api_key", response.data.vonage.api_key || "");
+            setValue("api_secret", response.data.vonage.api_secret || "");
+            if (response.data.vonage.from_numbers?.length > 0) {
+              setValue("from_number", response.data.vonage.from_numbers[0]);
+            }
           }
         }
       } catch (error) {
@@ -93,14 +113,26 @@ export default function ConfigureTelephonyPage() {
 
     try {
       const accessToken = await getAccessToken();
+      
+      // Build the request body based on provider
+      let requestBody: any = {
+        provider: data.provider,
+        from_numbers: [data.from_number],
+      };
+      
+      if (data.provider === "twilio") {
+        requestBody.account_sid = data.account_sid;
+        requestBody.auth_token = data.auth_token;
+      } else if (data.provider === "vonage") {
+        requestBody.application_id = data.application_id;
+        requestBody.private_key = data.private_key;
+        requestBody.api_key = data.api_key;
+        requestBody.api_secret = data.api_secret;
+      }
+      
       const response = await saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost({
         headers: { Authorization: `Bearer ${accessToken}` },
-        body: {
-          provider: data.provider,
-          account_sid: data.account_sid,
-          auth_token: data.auth_token,
-          from_numbers: [data.from_number],
-        },
+        body: requestBody,
       });
 
       if (response.error) {
@@ -178,8 +210,14 @@ export default function ConfigureTelephonyPage() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="twilio">Twilio</SelectItem>
+                        <SelectItem value="vonage">Vonage</SelectItem>
                       </SelectContent>
                     </Select>
+                    {hasExistingConfig && (
+                      <p className="text-sm text-amber-600">
+                        ⚠️ Switching providers will require entering new credentials
+                      </p>
+                    )}
                   </div>
 
                   {/* Twilio-specific fields */}
@@ -238,6 +276,87 @@ export default function ConfigureTelephonyPage() {
                               value: /^\+[1-9]\d{1,14}$/,
                               message:
                                 "Enter a valid phone number with country code (e.g., +1234567890)",
+                            },
+                          })}
+                        />
+                        {errors.from_number && (
+                          <p className="text-sm text-red-500">
+                            {errors.from_number.message}
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Vonage-specific fields */}
+                  {selectedProvider === "vonage" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="application_id">Application ID</Label>
+                        <Input
+                          id="application_id"
+                          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                          {...register("application_id", {
+                            required: selectedProvider === "vonage" ? "Application ID is required" : false,
+                          })}
+                        />
+                        {errors.application_id && (
+                          <p className="text-sm text-red-500">
+                            {errors.application_id.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="private_key">Private Key</Label>
+                        <textarea
+                          id="private_key"
+                          className="w-full min-h-[100px] px-3 py-2 text-sm border rounded-md"
+                          placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+                          {...register("private_key", {
+                            required: selectedProvider === "vonage" && !hasExistingConfig
+                              ? "Private key is required"
+                              : false,
+                          })}
+                        />
+                        {errors.private_key && (
+                          <p className="text-sm text-red-500">
+                            {errors.private_key.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="api_key">API Key (Optional)</Label>
+                        <Input
+                          id="api_key"
+                          placeholder="Optional - for some operations"
+                          {...register("api_key")}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="api_secret">API Secret (Optional)</Label>
+                        <Input
+                          id="api_secret"
+                          type="password"
+                          placeholder="Optional - for webhook verification"
+                          {...register("api_secret")}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="from_number">From Phone Number</Label>
+                        <Input
+                          id="from_number"
+                          autoComplete="tel"
+                          placeholder="14155551234 (no + prefix for Vonage)"
+                          {...register("from_number", {
+                            required: "Phone number is required",
+                            pattern: {
+                              value: /^[1-9]\d{1,14}$/,
+                              message:
+                                "Enter a valid phone number without + prefix (e.g., 14155551234)",
                             },
                           })}
                         />

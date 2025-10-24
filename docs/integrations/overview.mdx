@@ -13,7 +13,7 @@ Dograh AI provides a flexible integration architecture that allows you to connec
 Connect your voice agents with telephony services to make and receive calls.
 
 <Card title="Telephony Providers" href="/integrations/telephony/overview">
-  Configure telephony providers like Twilio, Vonage, and Plivo for voice communication
+  Configure telephony providers like Twilio and Vonage for voice communication
 </Card>
 
 ### Future Integration Categories
@@ -25,7 +25,7 @@ The integration architecture is designed to support additional categories in the
 Our integration system follows these core principles:
 
 - **Provider Abstraction**: All integrations implement a common interface, making it easy to switch between providers
-- **Configuration Flexibility**: Support for both environment-based (OSS) and database-based (SaaS) configuration
+- **Configuration Flexibility**: Database-based configuration through the web interface
 - **Backward Compatibility**: New integrations don't break existing implementations
 - **Secure by Default**: All credentials are encrypted and never exposed in logs or UI
 
@@ -33,12 +33,12 @@ Our integration system follows these core principles:
 
 1. Choose the integration category you need
 2. Follow the provider-specific setup guide
-3. Configure credentials through the UI or environment variables
+3. Configure credentials through the UI
 4. Test your integration with the provided verification tools
 
 ## Best Practices
 
-- Store credentials securely using environment variables (OSS) or database configuration (SaaS)
+- Store credentials securely using database configuration
 - Test integrations in a development environment before production deployment
 - Use the provider abstraction to maintain clean separation between business logic and provider specifics
 - Monitor integration health through application logs
@@ -47,4 +47,4 @@ Our integration system follows these core principles:
 
 - Check provider-specific documentation for detailed setup instructions
 - Visit our [GitHub Issues](https://github.com/dograh-hq/dograh/issues) for community support
-- Join our [Slack community](https://join.slack.com/t/dograh-ai/shared_invite/zt-2u29h3bkm-RrkJ2f2B5lvTVZo0ZQ1MMA) for assistance
+- Join our [Slack community](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ) for assistance

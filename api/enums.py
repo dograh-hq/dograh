@@ -14,6 +14,7 @@ class Environment(Enum):
 
 class WorkflowRunMode(Enum):
     TWILIO = "twilio"
+    VONAGE = "vonage"
     STASIS = "stasis"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
@@ -62,7 +63,8 @@ class OrganizationConfigurationKey(Enum):
     DISPOSITION_CODE_MAPPING = "DISPOSITION_CODE_MAPPING"
     DISPOSITION_MESSAGE_TEMPLATE = "DISPOSITION_MESSAGE_TEMPLATE"
     CONCURRENT_CALL_LIMIT = "CONCURRENT_CALL_LIMIT"
-    TWILIO_CONFIGURATION = "TWILIO_CONFIGURATION"  # TODO: Rename to TELEPHONY_CONFIGURATION
+    TELEPHONY_CONFIGURATION = "TELEPHONY_CONFIGURATION"  # Stores all providers + active one
+    TWILIO_CONFIGURATION = "TWILIO_CONFIGURATION"  # Deprecated - for backward compatibility
 
 
 class WorkflowStatus(Enum):

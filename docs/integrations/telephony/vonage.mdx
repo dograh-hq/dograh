@@ -1,0 +1,202 @@
+---
+title: "Vonage Integration"
+description: "Configure Vonage (Nexmo) for voice communication in Dograh AI"
+---
+
+## Overview
+
+Vonage (formerly Nexmo) is a cloud communications platform that provides global voice, messaging, and video capabilities. Dograh AI's Vonage integration enables high-quality voice interactions with your agents using Vonage's robust infrastructure.
+
+## Prerequisites
+
+Before setting up Vonage integration, you'll need:
+
+- A [Vonage account](https://www.vonage.com/communications-apis/)
+- Vonage Application with Voice capability enabled
+- Application ID and Private Key from your Vonage Dashboard
+- At least one Vonage phone number
+- Dograh AI instance running and accessible
+
+## Configuration
+
+### Step 1: Create Vonage Application
+
+1. Log in to your [Vonage Dashboard](https://dashboard.nexmo.com/)
+2. Navigate to **Applications** → **Create a new application**
+3. Enable **Voice** capability
+4. Generate a private key (save this securely - you'll need it)
+5. Note your **Application ID**
+
+### Step 2: Get API Credentials
+
+1. Find your **API Key** and **API Secret** in the dashboard
+2. Navigate to **Numbers** → **Your Numbers**
+3. Copy your phone number(s)
+4. Link your numbers to your application
+
+### Step 3: Configure in Dograh AI
+
+1. Navigate to **Settings** → **Integrations** → **Telephony**
+2. Select **Vonage** as your provider
+3. Enter your credentials:
+   - Application ID
+   - Private Key (entire key including BEGIN/END lines)
+   - API Key
+   - API Secret  
+   - Phone Numbers (comma-separated if multiple)
+4. Click **Test Connection**
+5. Save configuration
+
+### Step 4: Test Your Configuration
+
+1. Create a test workflow
+2. Click "Test Call" to verify connection
+3. Check call logs for successful connection
+
+## How It Works
+
+### Technical Details
+
+Vonage integration differs from other providers in key ways:
+
+- **Audio Format**: Uses 16kHz Linear PCM (vs Twilio's 8kHz μ-law)
+- **Protocol**: NCCO (Nexmo Call Control Objects) instead of TwiML
+- **Authentication**: JWT-based authentication using private keys
+- **WebSocket**: Binary audio frames instead of base64-encoded
+
+### Call Flow
+
+1. Dograh AI generates a JWT token using your private key
+2. Call is initiated via Vonage Voice API
+3. Vonage requests NCCO instructions at the webhook URL
+4. Dograh returns WebSocket connection details
+5. Audio streams as 16kHz PCM over WebSocket
+6. Real-time voice interaction occurs with your agent
+
+### NCCO Response Example
+
+```json
+[
+  {
+    "action": "connect",
+    "endpoint": [{
+      "type": "websocket",
+      "uri": "wss://your-domain/api/v1/telephony/ws/123/456/789",
+      "content-type": "audio/l16;rate=16000",
+      "headers": {}
+    }]
+  }
+]
+```
+
+## Campaign Features
+
+When using Vonage with campaigns:
+- **Global Reach**: Excellent international call quality and coverage
+- **Number Pool Management**: Automatic rotation of configured numbers
+- **Call Analytics**: Detailed metrics via Vonage Dashboard
+- **Cost Tracking**: Per-call cost calculation for billing
+
+## Audio Quality Optimization
+
+Vonage uses higher quality audio (16kHz) which provides:
+- Clearer voice reproduction
+- Better speech recognition accuracy
+- More natural-sounding TTS output
+- Reduced transcription errors
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Voice application capabilities error">
+    - Ensure "Voice" is enabled in your Vonage application
+    - Verify the application ID matches your configuration
+    - Check that your phone numbers are linked to the application
+  </Accordion>
+  
+  <Accordion title="JWT authentication failed">
+    - Verify your private key is complete (including BEGIN/END lines)
+    - Check the Application ID is correct
+    - Ensure the private key hasn't been regenerated in Vonage Dashboard
+  </Accordion>
+  
+  <Accordion title="Invalid phone number error">
+    - Remove the '+' prefix for Vonage (use `1234567890` not `+1234567890`)
+    - Ensure numbers are in E.164 format without the '+'
+    - Verify numbers are active in your Vonage account
+  </Accordion>
+  
+  <Accordion title="No audio on calls">
+    - Verify WebSocket connection is established
+    - Check audio pipeline is configured for 16kHz PCM
+    - Monitor WebSocket for binary audio frames
+    - Review VAD (Voice Activity Detection) settings
+  </Accordion>
+  
+  <Accordion title="Calls disconnecting early">
+    - Check WebSocket heartbeat/ping-pong frames
+    - Verify no timeout in load balancer/proxy
+    - Monitor for audio pipeline errors
+    - Review max call duration settings
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- **Security**: Private keys are stored securely in the database
+- **Testing**: Use Vonage Voice Inspector for debugging call issues
+- **Numbers**: Configure multiple numbers for redundancy
+- **Monitoring**: Set up alerts in Vonage Dashboard for failures
+- **Cost Management**: Monitor usage to control costs
+
+## Cost Considerations
+
+Vonage pricing includes:
+- Per-minute charges for calls
+- Phone number rental fees
+- Optional features (recording, transcription)
+
+Check [Vonage pricing](https://www.vonage.com/communications-apis/voice/pricing/) for current rates.
+
+## Advanced Configuration
+
+### Custom Headers
+
+Add custom headers to WebSocket connections:
+
+```python
+# In your webhook response
+"headers": {
+    "X-Custom-Header": "value",
+    "Authorization": "Bearer token"
+}
+```
+
+### Call Recording
+
+Enable call recording via NCCO:
+
+```json
+{
+  "action": "record",
+  "eventUrl": ["https://your-domain/recording-webhook"],
+  "format": "mp3"
+}
+```
+
+## API Differences from Twilio
+
+| Feature | Twilio | Vonage |
+|---------|---------|---------|
+| Audio Format | 8kHz μ-law | 16kHz Linear PCM |
+| Control Format | TwiML (XML) | NCCO (JSON) |
+| Authentication | Basic Auth | JWT |
+| WebSocket Data | Base64 text | Binary frames |
+| Phone Format | With '+' | Without '+' |
+
+## Next Steps
+
+- Test your Vonage integration with a simple workflow
+- Configure VAD settings for optimal voice detection
+- Set up monitoring and alerts
+- Explore advanced features like call recording

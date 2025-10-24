@@ -57,6 +57,10 @@ class TelephonyProvider(ABC):
     ) -> str:
         """Generate initial webhook response."""
         pass
+    
+    async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
+        """Get cost information for a completed call."""
+        pass
 ```
 
 ## Implementation Guide
@@ -107,15 +111,17 @@ Update `api/services/telephony/factory.py` to include your provider:
 from api.services.telephony.providers.your_provider import YourProvider
 
 async def get_telephony_provider(
-    organization_id: Optional[int] = None
+    organization_id: int
 ) -> TelephonyProvider:
     """Factory function to get appropriate telephony provider."""
     
     config = await load_telephony_config(organization_id)
-    provider_type = config.get("provider", "twilio").lower()
+    provider_type = config.get("provider", "twilio")
     
     if provider_type == "twilio":
         return TwilioProvider(config)
+    elif provider_type == "vonage":
+        return VonageProvider(config)
     elif provider_type == "your_provider":
         return YourProvider(config)
     else:
@@ -124,31 +130,28 @@ async def get_telephony_provider(
 
 ### 3. Add Configuration Support
 
-For OSS deployment (environment variables):
-
-```bash
-# .env
-TELEPHONY_PROVIDER=your_provider
-YOUR_PROVIDER_API_KEY=your_api_key
-YOUR_PROVIDER_API_SECRET=your_api_secret
-YOUR_PROVIDER_FROM_NUMBER=+1234567890
-```
-
-Update the configuration loader in `factory.py`:
+Update the configuration loader in `factory.py` to handle your provider's database configuration:
 
 ```python
+# In load_telephony_config function
 if provider == "your_provider":
     return {
         "provider": "your_provider",
-        "api_key": os.getenv("YOUR_PROVIDER_API_KEY"),
-        "api_secret": os.getenv("YOUR_PROVIDER_API_SECRET"),
-        "from_numbers": [os.getenv("YOUR_PROVIDER_FROM_NUMBER")]
+        "api_key": config.value.get("api_key"),
+        "api_secret": config.value.get("api_secret"),
+        "from_numbers": config.value.get("from_numbers", [])
     }
 ```
 
+The configuration will be stored in the database under the `TELEPHONY_CONFIGURATION` key in the `organization_configuration` table and managed through the web interface.
+
 ## Audio Format Considerations
 
-Different providers use different audio formats. Twilio uses MULAW at 8000 Hz encoded in Base64. Your provider may differ, so ensure proper audio format conversion in your WebSocket handler.
+Different providers use different audio formats:
+- **Twilio**: 8kHz μ-law (MULAW) encoded in Base64
+- **Vonage**: 16kHz Linear PCM as binary frames
+
+Your provider may differ, so ensure proper audio format conversion in your WebSocket handler and configure the audio pipeline accordingly.
 
 ## Testing
 
@@ -179,6 +182,13 @@ async def test_validate_config():
 4. **Configuration Validation**: Validate config on initialization
 5. **Security**: Always verify webhook signatures
 
-## Reference Implementation
+## Reference Implementations
 
-See the Twilio provider implementation at `api/services/telephony/providers/twilio_provider.py` for a complete example.
+See these provider implementations for complete examples:
+- **Twilio**: `api/services/telephony/providers/twilio_provider.py` - Basic authentication, XML (TwiML) responses
+- **Vonage**: `api/services/telephony/providers/vonage_provider.py` - JWT authentication, JSON (NCCO) responses
+
+<Note>
+  Other providers like Plivo, Telnyx, or custom SIP providers can be implemented following the same pattern.
+  These are not included out-of-the-box but can be easily added by implementing the TelephonyProvider interface.
+</Note>

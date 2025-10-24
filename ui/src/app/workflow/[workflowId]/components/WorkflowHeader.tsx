@@ -117,8 +117,8 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
             });
 
             // If no configuration exists, show configure dialog
-            // Check if Twilio is configured (currently the only supported provider)
-            if (configResponse.error || !configResponse.data?.twilio) {
+            // Check if any telephony provider is configured (Twilio or Vonage)
+            if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage)) {
                 setConfigureDialogOpen(true);
                 return;
             }
@@ -153,7 +153,10 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
 
             // Configuration exists, proceed with call initiation
             const response = await initiateCallApiV1TelephonyInitiateCallPost({
-                body: { workflow_id: workflowId },
+                body: { 
+                    workflow_id: workflowId,
+                    phone_number: phoneNumber 
+                },
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });
 

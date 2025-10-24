@@ -16,9 +16,6 @@ ENABLE_TRACING = os.getenv("ENABLE_TRACING", "false").lower() == "true"
 ENABLE_RNNOISE = os.getenv("ENABLE_RNNOISE", "false").lower() == "true"
 
 BACKEND_API_ENDPOINT = os.getenv("BACKEND_API_ENDPOINT", None)
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID", None)
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN", None)
-TWILIO_DEFAULT_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER", None)
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]

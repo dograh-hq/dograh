@@ -128,6 +128,7 @@ class TwilioProvider(TelephonyProvider):
         Verify Twilio webhook signature for security.
         """
         if not self.auth_token:
+            logger.error("No auth token available for webhook signature verification")
             return False
         
         validator = RequestValidator(self.auth_token)
@@ -149,3 +150,55 @@ class TwilioProvider(TelephonyProvider):
     <Pause length="40"/>
 </Response>"""
         return twiml_content
+
+    async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
+        """
+        Get cost information for a completed Twilio call.
+        
+        Args:
+            call_id: The Twilio Call SID
+            
+        Returns:
+            Dict containing cost information
+        """
+        endpoint = f"{self.base_url}/Calls/{call_id}.json"
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
+                async with session.get(endpoint, auth=auth) as response:
+                    if response.status != 200:
+                        error_data = await response.json()
+                        logger.error(f"Failed to get Twilio call cost: {error_data}")
+                        return {
+                            "cost_usd": 0.0,
+                            "duration": 0,
+                            "status": "error",
+                            "error": str(error_data)
+                        }
+                    
+                    call_data = await response.json()
+                    
+                    # Twilio returns price as a negative string (e.g., "-0.0085")
+                    price_str = call_data.get("price", "0")
+                    cost_usd = abs(float(price_str)) if price_str else 0.0
+                    
+                    # Duration is in seconds as a string
+                    duration = int(call_data.get("duration", "0"))
+                    
+                    return {
+                        "cost_usd": cost_usd,
+                        "duration": duration,
+                        "status": call_data.get("status", "unknown"),
+                        "price_unit": call_data.get("price_unit", "USD"),
+                        "raw_response": call_data
+                    }
+                    
+        except Exception as e:
+            logger.error(f"Exception fetching Twilio call cost: {e}")
+            return {
+                "cost_usd": 0.0,
+                "duration": 0,
+                "status": "error",
+                "error": str(e)
+            }

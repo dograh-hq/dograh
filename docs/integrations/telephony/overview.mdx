@@ -9,11 +9,13 @@ Dograh AI's telephony integration system provides a unified interface for connec
 
 ## Supported Providers
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card title="Twilio" href="/integrations/telephony/twilio">
     Industry-leading cloud communications platform with global reach
   </Card>
-  {/* Additional providers can be added in the future by implementing the TelephonyProvider interface */}
+  <Card title="Vonage" href="/integrations/telephony/vonage">
+    High-quality voice with 16kHz audio and excellent international coverage
+  </Card>
   <Card title="Custom Provider" href="/integrations/telephony/custom">
     Build your own telephony provider integration
   </Card>
@@ -25,30 +27,19 @@ The telephony integration system uses a provider abstraction pattern that ensure
 
 ```python
 # All providers implement this interface
-class TelephonyProvider:
-    async def initiate_call(to_number, webhook_url, ...)
-    async def get_call_status(call_id)
-    async def verify_webhook_signature(url, params, signature)
-    # ... more methods
+class TelephonyProvider(ABC):
+    async def initiate_call(to_number: str, webhook_url: str, workflow_run_id: Optional[int] = None, **kwargs)
+    async def get_call_status(call_id: str) -> Dict[str, Any]
+    async def get_available_phone_numbers() -> List[str]
+    def validate_config() -> bool
+    async def verify_webhook_signature(url: str, params: Dict, signature: str) -> bool
+    async def get_webhook_response(workflow_id: int, user_id: int, workflow_run_id: int) -> str
+    async def get_call_cost(call_id: str) -> Dict[str, Any]
 ```
 
-## Configuration Methods
+## Configuration
 
-### OSS Deployment (Environment Variables)
-
-For self-hosted deployments, configure your telephony provider using environment variables:
-
-```bash
-# .env file
-TELEPHONY_PROVIDER=twilio  # Required to specify which provider to use
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_FROM_NUMBER=+1234567890
-```
-
-### SaaS Deployment (Database Configuration)
-
-For cloud deployments, configure providers through the web interface:
+Dograh AI uses database configuration for all telephony providers. Configure providers through the web interface:
 
 1. Navigate to **Settings** → **Integrations** → **Telephony**
 2. Select your provider
@@ -64,6 +55,30 @@ The telephony integration in Dograh AI supports:
 - **WebSocket Streaming**: Real-time audio streaming for voice agents
 - **Webhook Authentication**: Secure webhook signature verification
 
+## Code Usage
+
+Here's how to use the telephony provider in your code:
+
+```python
+from api.services.telephony.factory import get_telephony_provider
+
+# Get provider based on organization configuration
+provider = await get_telephony_provider(organization_id)
+
+# Initiate a call
+result = await provider.initiate_call(
+    to_number="+1234567890",
+    webhook_url="https://your-domain.com/webhook",
+    workflow_run_id=123
+)
+
+# Check call status
+status = await provider.get_call_status(result["call_id"])
+
+# Get call cost after completion
+cost_info = await provider.get_call_cost(result["call_id"])
+```
+
 ## API Endpoints
 
 The telephony system exposes these unified endpoints:
@@ -72,16 +87,18 @@ The telephony system exposes these unified endpoints:
 |----------|---------|-------------|
 | `/api/v1/telephony/initiate-call` | POST | Start an outbound call |
 | `/api/v1/telephony/status-callback/{id}` | POST | Receive call status updates |
-| `/api/v1/telephony/twiml` | POST | Handle initial webhook |
+| `/api/v1/telephony/webhook/{id}` | GET/POST | Handle initial webhook |
 | `/api/v1/telephony/ws/{id}` | WebSocket | Real-time audio streaming |
 
 ## Implementation Status
 
 - **Twilio**: ✅ Fully implemented and tested
+- **Vonage**: ✅ Fully implemented with 16kHz audio support
 - **Custom Providers**: The abstraction layer supports adding new providers by implementing the `TelephonyProvider` interface
 - **API Endpoints**: All telephony operations use the unified `/api/v1/telephony/*` endpoints:
   - `/api/v1/telephony/initiate-call` - Start outbound calls
-  - `/api/v1/telephony/status-callback/{id}` - Receive call status updates
+  - `/api/v1/telephony/status-callback/{id}` - Receive call status updates  
+  - `/api/v1/telephony/webhook/{workflow_id}/{user_id}/{workflow_run_id}` - Initial call webhook
   - `/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}` - WebSocket for audio streaming
 
 ## Troubleshooting
@@ -98,7 +115,9 @@ The telephony system exposes these unified endpoints:
     - Check network bandwidth and latency
     - Verify audio codec compatibility
     - Review WebSocket connection stability
-    - Ensure proper audio format (MULAW for Twilio)
+    - Ensure proper audio format:
+      - Twilio: 8kHz μ-law (MULAW)
+      - Vonage: 16kHz Linear PCM
   </Accordion>
   
   <Accordion title="Webhook signature validation failing">

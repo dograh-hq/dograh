@@ -39,37 +39,14 @@ Watch this step-by-step guide to set up Twilio with Dograh AI:
 
 ### Step 2: Configure in Dograh AI
 
-<Tabs>
-  <Tab title="Web Interface (SaaS)">
-    1. Navigate to **Settings** → **Integrations** → **Telephony**
-    2. Select **Twilio** as your provider
-    3. Enter your credentials:
-       - Account SID
-       - Auth Token
-       - Phone Numbers (comma-separated if multiple)
-    4. Click **Test Connection**
-    5. Save configuration
-  </Tab>
-  
-  <Tab title="Environment Variables (OSS)">
-    Add these variables to your `.env` file:
-    
-    ```bash
-    # Telephony Configuration
-    TELEPHONY_PROVIDER=twilio  # Specifies Twilio as the telephony provider
-    TWILIO_ACCOUNT_SID="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    TWILIO_AUTH_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-    TWILIO_FROM_NUMBER="+1234567890"
-    # For multiple numbers, use comma separation:
-    # TWILIO_FROM_NUMBER="+1234567890,+0987654321"
-    ```
-    
-    Restart your Dograh AI services:
-    ```bash
-    docker-compose restart api
-    ```
-  </Tab>
-</Tabs>
+1. Navigate to **Settings** → **Integrations** → **Telephony**
+2. Select **Twilio** as your provider
+3. Enter your credentials:
+   - Account SID
+   - Auth Token
+   - Phone Numbers (comma-separated if multiple)
+4. Click **Test Connection**
+5. Save configuration
 
 ### Step 3: Test Your Configuration
 
@@ -122,6 +99,6 @@ When using Twilio with campaigns:
 
 ## Best Practices
 
-- Store credentials securely in environment variables (OSS) or database (SaaS)
+- Store credentials securely in the database
 - Test your configuration with a single call before running campaigns
 - Monitor Twilio Console for usage and billing

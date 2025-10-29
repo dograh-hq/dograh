@@ -23,8 +23,7 @@ from pipecat.frames.frames import (
 from pipecat.serializers.base_serializer import FrameSerializer
 from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_output import (
-    BaseOutputTransport,
-    TransportClientNotConnectedException,
+    BaseOutputTransport
 )
 from pipecat.transports.base_transport import BaseTransport, TransportParams
 
@@ -204,7 +203,7 @@ class StasisRTPOutputTransport(BaseOutputTransport):
     async def write_audio_frame(self, frame: OutputAudioRawFrame):
         """Write audio frame to RTP stream."""
         if self._client.is_closing:
-            raise TransportClientNotConnectedException()
+            return False
 
         if not self._client.is_connected:
             # If not connected yet, just simulate playback delay.

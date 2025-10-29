@@ -17,6 +17,9 @@ from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
+# Import text filters for processing LLM responses before TTS
+# from pipecat.utils.text.markdown_text_filter import MarkdownTextFilter
+# from pipecat.utils.text.function_call_text_filter import FunctionCallTextFilter  # To be created
 
 if TYPE_CHECKING:
     from api.services.pipecat.audio_config import AudioConfig
@@ -73,7 +76,8 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
         return OpenAITTSService(
-            api_key=user_config.tts.api_key, model=user_config.tts.model.value
+            api_key=user_config.tts.api_key, model=user_config.tts.model.value,
+            # text_filters=[FunctionCallTextFilter()]  # Add when filter is created
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
         voice_id = user_config.tts.voice.split(" - ")[1]

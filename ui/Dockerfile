@@ -4,7 +4,7 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY ui/package*.json ./
 # Install all dependencies (including dev dependencies for building)
 RUN npm ci --cache /tmp/empty-cache && \
     npm cache clean --force
@@ -17,15 +17,15 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 
 # Copy all files needed for build
-COPY package*.json ./
-COPY tsconfig.json ./
-COPY next.config.ts ./
-COPY components.json ./
-COPY sentry.edge.config.ts ./
-COPY sentry.server.config.ts ./
-COPY postcss.config.mjs ./
-COPY public ./public
-COPY src ./src
+COPY ui/package*.json ./
+COPY ui/tsconfig.json ./
+COPY ui/next.config.ts ./
+COPY ui/components.json ./
+COPY ui/sentry.edge.config.ts ./
+COPY ui/sentry.server.config.ts ./
+COPY ui/postcss.config.mjs ./
+COPY ui/public ./public
+COPY ui/src ./src
 
 # Set build-time environment variables (needed for Next.js build)
 ENV NEXT_PUBLIC_NODE_ENV="oss"

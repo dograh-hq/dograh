@@ -18,12 +18,11 @@ RUN pip install --user --no-cache-dir -r requirements.txt && \
     # Clean up pip cache after installation
     rm -rf /root/.cache/pip
 
-# Force reinstall of pipecat on every build (cache bust)
-
-ARG CACHEBUST=1
-RUN pip install --user 'git+https://github.com/dograh-hq/pipecat.git@278248a#egg=pipecat-ai[cartesia,deepgram,openai,elevenlabs,groq,google,azure,soundfile,silero,webrtc]' && \
-    # Clean up pip cache after pipecat installation
-    rm -rf /root/.cache/pip
+# Copy and install pipecat from local submodule
+COPY pipecat /tmp/pipecat
+RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,soundfile,silero,webrtc]' && \
+    # Clean up pip cache and temporary pipecat directory
+    rm -rf /root/.cache/pip /tmp/pipecat
 
     
 # Remove unnecessary Python cache files from installed packages

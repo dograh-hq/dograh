@@ -19,7 +19,7 @@ jobs:
       matrix:
         service: 
           - "dograh-api|api/Dockerfile|."
-          - "dograh-ui|ui/Dockerfile|./ui"
+          - "dograh-ui|ui/Dockerfile|."
 
     steps:
       - name: Checkout repository
@@ -27,23 +27,7 @@ jobs:
         with:
           submodules: true  # Only for version check, not used in build
 
-      - name: Check pipecat version sync
-        id: version-check
-        run: |
-          chmod +x scripts/check_pipecat_sync.sh
-          
-          # Capture the output for version details
-          if OUTPUT=$(./scripts/check_pipecat_sync.sh 2>&1); then
-            echo "version_mismatch=false" >> $GITHUB_OUTPUT
-          else
-            echo "version_mismatch=true" >> $GITHUB_OUTPUT
-            # Extract version info from the output
-            SUBMODULE_VERSION=$(echo "$OUTPUT" | grep "Submodule commit:" | awk '{print $3}')
-            DOCKERFILE_VERSION=$(echo "$OUTPUT" | grep "Dockerfile commit:" | awk '{print $3}')
-            echo "submodule_version=${SUBMODULE_VERSION}" >> $GITHUB_OUTPUT
-            echo "dockerfile_version=${DOCKERFILE_VERSION}" >> $GITHUB_OUTPUT
-            # Don't fail the build, just note the mismatch
-          fi
+      # Pipecat version check removed - now using local submodule
 
       - name: Set up QEMU  # Enables cross-platform builds (e.g., arm64)
         uses: docker/setup-qemu-action@v3
@@ -64,6 +48,19 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_TOKEN }}
 
+      - name: Set build variables
+        id: build-vars
+        run: |
+          # Parse matrix entry and set variables early (before build)
+          SERVICE="${{ matrix.service }}"
+          IMAGE_NAME=$(echo "$SERVICE" | cut -d '|' -f1)
+          SHORT_SHA=${COMMIT_SHA::8}
+          
+          # Export for use in subsequent steps
+          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          echo "service=${SERVICE}" >> $GITHUB_OUTPUT
+      
       - name: Build and Push ${{ matrix.service }}
         id: docker-build
         run: |
@@ -104,39 +101,7 @@ jobs:
         with:
           payload: |
             {
-              "text": "✅ Docker Build Successful",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "✅ Docker Build & Push Successful"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Service:* `${{ steps.docker-build.outputs.image_name }}`\n*Commit:* `${{ steps.docker-build.outputs.short_sha }}`\n*Branch:* `${{ github.ref_name }}`\n*Author:* ${{ github.actor }}"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*📦 Published Tags:*\n• DockerHub: `${{ steps.docker-build.outputs.dockerhub_tag }}`\n• DockerHub: `${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.docker-build.outputs.image_name }}:latest`\n• GHCR: `${{ steps.docker-build.outputs.ghcr_tag }}`\n• GHCR: `ghcr.io/${{ secrets.GHCR_USERNAME }}/${{ steps.docker-build.outputs.image_name }}:latest`"
-                  }
-                },
-                {
-                  "type": "context",
-                  "elements": [
-                    {
-                      "type": "mrkdwn",
-                      "text": "${{ steps.version-check.outputs.version_mismatch == 'true' && format('⚠️ Warning: Pipecat version mismatch detected - <@{0}> <@{1}> please sync versions', secrets.SLACK_DEV1_ID, secrets.SLACK_DEV2_ID) || '✅ Pipecat versions in sync' }}"
-                    }
-                  ]
-                }
-              ]
+              "text": "✅ Docker Build Successful - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.short_sha }}) on ${{ github.ref_name }} by ${{ github.actor }}"
             }
       
       # Failure notification
@@ -148,28 +113,5 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ Docker Build Failed",
-              "blocks": [
-                {
-                  "type": "header",
-                  "text": {
-                    "type": "plain_text",
-                    "text": "❌ Docker Build Failed"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*Service:* `${{ steps.docker-build.outputs.image_name || matrix.service }}`\n*Branch:* `${{ github.ref_name }}`\n*Author:* ${{ github.actor }}\n*Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Details>"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "${{ steps.version-check.outputs.version_mismatch == 'true' && format('*🔴 Pipecat Version Mismatch:*\n• Submodule: `{0}`\n• Dockerfile: `{1}`\n\n_This may have caused the build failure._\n\n<@{2}> <@{3}> Please update api/Dockerfile to use commit {0}', steps.version-check.outputs.submodule_version, steps.version-check.outputs.dockerfile_version, secrets.SLACK_DEV1_ID, secrets.SLACK_DEV2_ID) || '*Failure Reason:* Check workflow logs for details' }}"
-                  }
-                }
-              ]
+              "text": "❌ Docker Build Failed - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.short_sha }}) on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
             }

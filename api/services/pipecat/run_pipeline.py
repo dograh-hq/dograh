@@ -71,8 +71,8 @@ async def run_pipeline_twilio(
     )
     set_current_run_id(workflow_run_id)
 
-    # Store Twilio call SID in cost_info for later cost calculation
-    cost_info = {"twilio_call_sid": call_sid, "provider": "twilio"}
+    # Store call ID in cost_info for later cost calculation (provider-agnostic)
+    cost_info = {"call_id": call_sid}
     await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
 
     # Get workflow to extract all pipeline configurations
@@ -126,8 +126,8 @@ async def run_pipeline_vonage(
     logger.info(f"Starting Vonage pipeline for workflow run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
 
-    # Store Vonage call UUID in cost_info for later cost calculation
-    cost_info = {"vonage_call_uuid": call_uuid, "provider": "vonage"}
+    # Store call ID in cost_info for later cost calculation (provider-agnostic)
+    cost_info = {"call_id": call_uuid}
     await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
 
     # Extract VAD and ambient noise config from workflow

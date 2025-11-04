@@ -153,9 +153,9 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
 
             // Configuration exists, proceed with call initiation
             const response = await initiateCallApiV1TelephonyInitiateCallPost({
-                body: { 
+                body: {
                     workflow_id: workflowId,
-                    phone_number: phoneNumber 
+                    phone_number: phoneNumber
                 },
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });

@@ -4,14 +4,18 @@ Vonage (Nexmo) implementation of the TelephonyProvider interface.
 import json
 import random
 import time
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 import jwt
 from loguru import logger
 
-from api.services.telephony.base import TelephonyProvider
+from api.services.telephony.base import CallInitiationResult, TelephonyProvider
 from api.utils.tunnel import TunnelURLProvider
+from api.enums import WorkflowRunMode
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
 
 
 class VonageProvider(TelephonyProvider):
@@ -19,7 +23,10 @@ class VonageProvider(TelephonyProvider):
     Vonage implementation of TelephonyProvider.
     Uses JWT authentication and NCCO for call control.
     """
-
+    
+    PROVIDER_NAME = WorkflowRunMode.VONAGE.value
+    WEBHOOK_ENDPOINT = "ncco"
+    
     def __init__(self, config: Dict[str, Any]):
         """
         Initialize VonageProvider with configuration.
@@ -52,8 +59,8 @@ class VonageProvider(TelephonyProvider):
         claims = {
             "application_id": self.application_id,
             "iat": int(time.time()),
-            "exp": int(time.time()) + 3600,  # 1 hour expiry
-            "jti": str(time.time())  # Unique token ID
+            "exp": int(time.time()) + 3600,
+            "jti": str(time.time())
         }
         
         return jwt.encode(claims, self.private_key, algorithm="RS256")
@@ -64,7 +71,7 @@ class VonageProvider(TelephonyProvider):
         webhook_url: str,
         workflow_run_id: Optional[int] = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> CallInitiationResult:
         """
         Initiate an outbound call via Vonage Voice API.
         """
@@ -75,7 +82,7 @@ class VonageProvider(TelephonyProvider):
         
         # Select a random phone number
         from_number = random.choice(self.from_numbers)
-        # Remove + prefix for Vonage
+        # Remove '+' prefix for Vonage
         from_number = from_number.replace("+", "")
         to_number = to_number.replace("+", "")
         
@@ -98,13 +105,12 @@ class VonageProvider(TelephonyProvider):
         # Add event webhook if workflow_run_id provided
         if workflow_run_id:
             backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-            event_url = f"https://{backend_endpoint}/api/v1/telephony/events/{workflow_run_id}"
+            event_url = f"https://{backend_endpoint}/api/v1/telephony/vonage/events/{workflow_run_id}"
             data.update({
                 "event_url": [event_url],
                 "event_method": "POST"
             })
         
-        # Add any additional kwargs
         data.update(kwargs)
         
         # Generate JWT token
@@ -118,7 +124,7 @@ class VonageProvider(TelephonyProvider):
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 endpoint, 
-                json=data,  # Use json parameter for proper encoding
+                json=data,
                 headers=headers
             ) as response:
                 response_data = await response.json()
@@ -126,7 +132,14 @@ class VonageProvider(TelephonyProvider):
                 if response.status != 201:
                     raise Exception(f"Failed to initiate call: {response_data}")
                 
-                return response_data
+                return CallInitiationResult(
+                    call_id=response_data["uuid"],
+                    status=response_data.get("status", "started"),
+                    provider_metadata={
+                        "call_uuid": response_data["uuid"]  # Vonage needs UUID persisted for WebSocket
+                    },
+                    raw_response=response_data
+                )
 
     async def get_call_status(self, call_id: str) -> Dict[str, Any]:
         """
@@ -179,8 +192,7 @@ class VonageProvider(TelephonyProvider):
             return False
         
         try:
-            # Vonage sends JWT in Authorization header
-            # Verify the JWT signature
+            # Vonage sends JWT in Authorization header. Verify the JWT signature
             decoded = jwt.decode(
                 signature, 
                 self.api_secret, 
@@ -213,8 +225,15 @@ class VonageProvider(TelephonyProvider):
             }
         ]
         
-        # Return JSON instead of XML
         return json.dumps(ncco)
+
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Generate authorization headers for Vonage API."""
+        token = self._generate_jwt()
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
         """
@@ -272,3 +291,100 @@ class VonageProvider(TelephonyProvider):
                 "status": "error",
                 "error": str(e)
             }
+
+    def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse Vonage event callback data into generic format.
+        """
+        # Map Vonage status to common format
+        status_map = {
+            "started": "initiated",
+            "ringing": "ringing",
+            "answered": "answered", 
+            "complete": "completed",
+            "failed": "failed",
+            "busy": "busy",
+            "timeout": "no-answer",
+            "rejected": "busy"
+        }
+        
+        return {
+            "call_id": data.get("uuid", ""),
+            "status": status_map.get(data.get("status", ""), data.get("status", "")),
+            "from_number": data.get("from"),
+            "to_number": data.get("to"),
+            "direction": data.get("direction"),
+            "duration": data.get("duration"),
+            "extra": data  # Include all original data
+        }
+
+    async def handle_websocket(
+        self,
+        websocket: "WebSocket",
+        workflow_id: int,
+        user_id: int,
+        workflow_run_id: int,
+    ) -> None:
+        """
+        Handle Vonage-specific WebSocket connection.
+        
+        Vonage can send:
+        1. JSON metadata first (websocket:connected event)
+        2. Or directly start with binary audio
+        """
+        from api.db import db_client
+        from api.services.pipecat.run_pipeline import run_pipeline_vonage
+        
+        try:
+            # Get workflow run to extract call UUID
+            workflow_run = await db_client.get_workflow_run(workflow_run_id)
+            if not workflow_run:
+                logger.error(f"Workflow run {workflow_run_id} not found")
+                await websocket.close(code=4404, reason="Workflow run not found")
+                return
+            
+            # Get workflow for organization info
+            workflow = await db_client.get_workflow(workflow_id, user_id)
+            if not workflow:
+                logger.error(f"Workflow {workflow_id} not found")
+                await websocket.close(code=4404, reason="Workflow not found")
+                return
+            
+            # Extract call UUID from workflow run context
+            call_uuid = workflow_run.gathered_context.get("call_uuid") if workflow_run.gathered_context else None
+            
+            if not call_uuid:
+                logger.error(f"No call UUID found for Vonage connection in workflow run {workflow_run_id}")
+                await websocket.close(code=4400, reason="Missing call UUID")
+                return
+            
+            logger.info(f"Vonage WebSocket connected for workflow_run {workflow_run_id}, call_uuid: {call_uuid}")
+            
+            # Peek at first message to see if it's metadata or audio
+            first_msg = await websocket.receive()
+            
+            if "text" in first_msg:
+                # JSON metadata - check if it's the connection event
+                msg = json.loads(first_msg["text"])
+                if msg.get("event") == "websocket:connected":
+                    logger.debug(f"Received Vonage connection confirmation for {workflow_run_id}")
+                # Continue to pipeline regardless of message type
+            elif "bytes" in first_msg:
+                # Binary audio - Vonage started with audio immediately
+                logger.debug(f"Vonage started with binary audio for {workflow_run_id}")
+                # The pipeline will handle this first audio chunk
+            
+            # Run the Vonage pipeline
+            await run_pipeline_vonage(
+                websocket,
+                call_uuid,
+                workflow,
+                workflow.organization_id,
+                workflow_id,
+                workflow_run_id,
+                user_id
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in Vonage WebSocket handler: {e}")
+            raise

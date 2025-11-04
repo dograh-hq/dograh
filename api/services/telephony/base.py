@@ -4,7 +4,20 @@ This allows easy switching between different providers (Twilio, Vonage, etc.)
 while keeping business logic decoupled from specific implementations.
 """
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
+
+
+@dataclass
+class CallInitiationResult:
+    """Standardized response from initiate_call across all providers."""
+    call_id: str                          # Provider's call identifier (SID for Twilio, UUID for Vonage)
+    status: str                            # Initial status (e.g., "queued", "initiated", "started")
+    provider_metadata: Dict[str, Any] = field(default_factory=dict)  # Data that needs to be persisted
+    raw_response: Dict[str, Any] = field(default_factory=dict)       # Full provider response for debugging
 
 
 class TelephonyProvider(ABC):
@@ -12,6 +25,8 @@ class TelephonyProvider(ABC):
     Abstract base class for telephony providers.
     All telephony providers must implement these core methods.
     """
+    PROVIDER_NAME = None
+    WEBHOOK_ENDPOINT = None
 
     @abstractmethod
     async def initiate_call(
@@ -20,7 +35,7 @@ class TelephonyProvider(ABC):
         webhook_url: str,
         workflow_run_id: Optional[int] = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> CallInitiationResult:
         """
         Initiate an outbound call.
         
@@ -31,7 +46,7 @@ class TelephonyProvider(ABC):
             **kwargs: Provider-specific additional parameters
             
         Returns:
-            Dict containing call details (provider-specific format)
+            CallInitiationResult with standardized call details
         """
         pass
 
@@ -116,5 +131,46 @@ class TelephonyProvider(ABC):
                 - duration: Call duration in seconds
                 - status: Call completion status
                 - raw_response: Full provider response for debugging
+        """
+        pass
+
+    @abstractmethod
+    def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse provider-specific status callback data into generic format.
+        
+        Args:
+            data: Raw callback data from the provider
+            
+        Returns:
+            Dict with standardized fields:
+                - call_id: Provider's call identifier
+                - status: Standardized status (completed, failed, busy, etc.)
+                - from_number: Optional caller number
+                - to_number: Optional recipient number
+                - duration: Optional call duration
+                - extra: Provider-specific additional data
+        """
+        pass
+
+    @abstractmethod
+    async def handle_websocket(
+        self,
+        websocket: "WebSocket",
+        workflow_id: int,
+        user_id: int,
+        workflow_run_id: int,
+    ) -> None:
+        """
+        Handle provider-specific WebSocket connection for real-time call audio.
+        
+        This method encapsulates all provider-specific WebSocket handshake and
+        message routing logic, keeping the main websocket endpoint clean.
+        
+        Args:
+            websocket: The WebSocket connection
+            workflow_id: The workflow ID
+            user_id: The user ID
+            workflow_run_id: The workflow run ID
         """
         pass

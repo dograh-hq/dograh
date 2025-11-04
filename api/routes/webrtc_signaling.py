@@ -124,7 +124,7 @@ class SignalingManager:
             )
         else:
             # Create new connection using correct SmallWebRTC API
-            pc = SmallWebRTCConnection(ice_servers=ice_servers, connection_timeout_secs=20)
+            pc = SmallWebRTCConnection(ice_servers=ice_servers, connection_timeout_secs=60)
             # Set the pc_id before initialization so it's available in get_answer()
             pc._pc_id = pc_id
 

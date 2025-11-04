@@ -261,6 +261,12 @@ export type ImpersonateResponse = {
     access_token: string;
 };
 
+export type InitiateCallRequest = {
+    workflow_id: number;
+    workflow_run_id?: number | null;
+    phone_number?: string | null;
+};
+
 export type IntegrationResponse = {
     id: number;
     integration_id: string;
@@ -656,19 +662,8 @@ export type WorkflowTemplateResponse = {
     created_at: string;
 };
 
-export type ApiRoutesTelephonyInitiateCallRequest = {
-    workflow_id: number;
-    workflow_run_id?: number | null;
-    phone_number?: string | null;
-};
-
-export type ApiRoutesTwilioInitiateCallRequest = {
-    workflow_id: number;
-    workflow_run_id?: number | null;
-};
-
 export type InitiateCallApiV1TelephonyInitiateCallPostData = {
-    body: ApiRoutesTelephonyInitiateCallRequest;
+    body: InitiateCallRequest;
     headers?: {
         authorization?: string | null;
     };
@@ -697,19 +692,19 @@ export type InitiateCallApiV1TelephonyInitiateCallPostResponses = {
     200: unknown;
 };
 
-export type HandleStatusCallbackApiV1TelephonyStatusCallbackWorkflowRunIdPostData = {
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostData = {
     body?: never;
     headers?: {
-        'x-twilio-signature'?: string | null;
+        'x-webhook-signature'?: string | null;
     };
     path: {
         workflow_run_id: number;
     };
     query?: never;
-    url: '/api/v1/telephony/status-callback/{workflow_run_id}';
+    url: '/api/v1/telephony/twilio/status-callback/{workflow_run_id}';
 };
 
-export type HandleStatusCallbackApiV1TelephonyStatusCallbackWorkflowRunIdPostErrors = {
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors = {
     /**
      * Not found
      */
@@ -720,25 +715,25 @@ export type HandleStatusCallbackApiV1TelephonyStatusCallbackWorkflowRunIdPostErr
     422: HttpValidationError;
 };
 
-export type HandleStatusCallbackApiV1TelephonyStatusCallbackWorkflowRunIdPostError = HandleStatusCallbackApiV1TelephonyStatusCallbackWorkflowRunIdPostErrors[keyof HandleStatusCallbackApiV1TelephonyStatusCallbackWorkflowRunIdPostErrors];
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostError = HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors[keyof HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors];
 
-export type HandleStatusCallbackApiV1TelephonyStatusCallbackWorkflowRunIdPostResponses = {
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type HandleVonageEventsApiV1TelephonyEventsWorkflowRunIdPostData = {
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostData = {
     body?: never;
     path: {
         workflow_run_id: number;
     };
     query?: never;
-    url: '/api/v1/telephony/events/{workflow_run_id}';
+    url: '/api/v1/telephony/vonage/events/{workflow_run_id}';
 };
 
-export type HandleVonageEventsApiV1TelephonyEventsWorkflowRunIdPostErrors = {
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors = {
     /**
      * Not found
      */
@@ -749,39 +744,9 @@ export type HandleVonageEventsApiV1TelephonyEventsWorkflowRunIdPostErrors = {
     422: HttpValidationError;
 };
 
-export type HandleVonageEventsApiV1TelephonyEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyEventsWorkflowRunIdPostErrors];
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
 
-export type HandleVonageEventsApiV1TelephonyEventsWorkflowRunIdPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type InitiateCallApiV1TwilioInitiateCallPostData = {
-    body: ApiRoutesTwilioInitiateCallRequest;
-    headers?: {
-        authorization?: string | null;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/v1/twilio/initiate-call';
-};
-
-export type InitiateCallApiV1TwilioInitiateCallPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type InitiateCallApiV1TwilioInitiateCallPostError = InitiateCallApiV1TwilioInitiateCallPostErrors[keyof InitiateCallApiV1TwilioInitiateCallPostErrors];
-
-export type InitiateCallApiV1TwilioInitiateCallPostResponses = {
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
@@ -2094,9 +2059,7 @@ export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetData = 
         authorization?: string | null;
     };
     path?: never;
-    query?: {
-        provider?: string | null;
-    };
+    query?: never;
     url: '/api/v1/organizations/telephony-config';
 };
 

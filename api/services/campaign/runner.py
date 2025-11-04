@@ -102,13 +102,13 @@ class CampaignRunnerService:
         }
 
     async def _count_failed_campaign_calls(self, campaign_id: int) -> int:
-        """Count failed calls by examining workflow_run Twilio callbacks"""
+        """Count failed calls by examining workflow_run telephony callbacks"""
         # Get all workflow runs for this campaign
         workflow_runs = await db_client.get_workflow_runs_by_campaign(campaign_id)
 
         failed_count = 0
         for run in workflow_runs:
-            callbacks = run.logs.get("twilio_status_callbacks", [])
+            callbacks = run.logs.get("telephony_status_callbacks", [])
             if callbacks:
                 # Check final status
                 final_status = callbacks[-1].get("status", "").lower()

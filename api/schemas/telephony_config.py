@@ -2,7 +2,6 @@ from typing import List, Optional
 
 from pydantic import BaseModel, Field
 
-# TODO: Make schemas provider-agnostic
 
 class TwilioConfigurationRequest(BaseModel):
     """Request schema for Twilio configuration."""

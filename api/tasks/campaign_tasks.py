@@ -177,7 +177,7 @@ async def monitor_campaign_progress(ctx: Dict, campaign_id: int) -> None:
         failed_calls = 0
 
         for run in workflow_runs:
-            callbacks = run.logs.get("twilio_status_callbacks", [])
+            callbacks = run.logs.get("telephony_status_callbacks", [])
             if callbacks:
                 final_status = callbacks[-1].get("status", "").lower()
                 if final_status == "completed":

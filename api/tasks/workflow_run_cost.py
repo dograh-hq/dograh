@@ -29,16 +29,18 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
         # Fetch telephony call cost for both Twilio and Vonage
         telephony_cost_usd = 0.0
         if workflow_run.mode in [WorkflowRunMode.TWILIO.value, WorkflowRunMode.VONAGE.value] and workflow_run.cost_info:
-            # Get the call ID based on provider
-            call_id = None
-            provider_name = workflow_run.cost_info.get("provider", "")
+            # Get the call ID (provider-agnostic approach with backward compatibility)
+            call_id = workflow_run.cost_info.get("call_id")
             
-            if workflow_run.mode == WorkflowRunMode.TWILIO.value:
-                call_id = workflow_run.cost_info.get("twilio_call_sid")
-                provider_name = provider_name or "twilio"
-            elif workflow_run.mode == WorkflowRunMode.VONAGE.value:
-                call_id = workflow_run.cost_info.get("vonage_call_uuid")
-                provider_name = provider_name or "vonage"
+            # Fallback to legacy provider-specific fields if needed
+            if not call_id:
+                if workflow_run.mode == WorkflowRunMode.TWILIO.value:
+                    call_id = workflow_run.cost_info.get("twilio_call_sid")
+                elif workflow_run.mode == WorkflowRunMode.VONAGE.value:
+                    call_id = workflow_run.cost_info.get("vonage_call_uuid")
+            
+            # Provider name is derived from workflow run mode
+            provider_name = workflow_run.mode.lower() if workflow_run.mode else ""
             
             if call_id:
                 try:
@@ -108,19 +110,16 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
             cost_info["charge_usd"] = charge_usd
             cost_info["price_per_second_usd"] = org.price_per_second_usd
 
-        # Preserve provider-specific call IDs and provider info
+        # Preserve call ID (provider-agnostic with backward compatibility)
         if workflow_run.cost_info:
-            # Preserve Twilio call SID if it exists
-            if "twilio_call_sid" in workflow_run.cost_info:
+            # Preserve generic call_id if it exists
+            if "call_id" in workflow_run.cost_info:
+                cost_info["call_id"] = workflow_run.cost_info["call_id"]
+            # Also preserve legacy fields for backward compatibility
+            elif "twilio_call_sid" in workflow_run.cost_info:
                 cost_info["twilio_call_sid"] = workflow_run.cost_info["twilio_call_sid"]
-            
-            # Preserve Vonage call UUID if it exists
-            if "vonage_call_uuid" in workflow_run.cost_info:
+            elif "vonage_call_uuid" in workflow_run.cost_info:
                 cost_info["vonage_call_uuid"] = workflow_run.cost_info["vonage_call_uuid"]
-            
-            # Preserve provider info
-            if "provider" in workflow_run.cost_info:
-                cost_info["provider"] = workflow_run.cost_info["provider"]
 
         # Update workflow run with cost information
         await db_client.update_workflow_run(run_id=workflow_run_id, cost_info=cost_info)

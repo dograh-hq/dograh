@@ -1,15 +1,20 @@
 """
 Twilio implementation of the TelephonyProvider interface.
 """
+import json
 import random
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 from loguru import logger
 from twilio.request_validator import RequestValidator
 
-from api.services.telephony.base import TelephonyProvider
+from api.services.telephony.base import CallInitiationResult, TelephonyProvider
 from api.utils.tunnel import TunnelURLProvider
+from api.enums import WorkflowRunMode
+
+if TYPE_CHECKING:
+    from fastapi import WebSocket
 
 
 class TwilioProvider(TelephonyProvider):
@@ -17,6 +22,9 @@ class TwilioProvider(TelephonyProvider):
     Twilio implementation of TelephonyProvider.
     Accepts configuration and works the same regardless of OSS/SaaS mode.
     """
+    
+    PROVIDER_NAME = WorkflowRunMode.TWILIO.value
+    WEBHOOK_ENDPOINT = "twiml"
 
     def __init__(self, config: Dict[str, Any]):
         """
@@ -44,7 +52,7 @@ class TwilioProvider(TelephonyProvider):
         webhook_url: str,
         workflow_run_id: Optional[int] = None,
         **kwargs: Any,
-    ) -> Dict[str, Any]:
+    ) -> CallInitiationResult:
         """
         Initiate an outbound call via Twilio.
         """
@@ -67,14 +75,13 @@ class TwilioProvider(TelephonyProvider):
         # Add status callback if workflow_run_id provided
         if workflow_run_id:
             backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-            callback_url = f"https://{backend_endpoint}/api/v1/telephony/status-callback/{workflow_run_id}"
+            callback_url = f"https://{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
             data.update({
                 "StatusCallback": callback_url,
                 "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
                 "StatusCallbackMethod": "POST"
             })
         
-        # Add any additional kwargs
         data.update(kwargs)
         
         # Make the API request
@@ -85,7 +92,14 @@ class TwilioProvider(TelephonyProvider):
                     error_data = await response.json()
                     raise Exception(f"Failed to initiate call: {error_data}")
                 
-                return await response.json()
+                response_data = await response.json()
+                
+                return CallInitiationResult(
+                    call_id=response_data["sid"],
+                    status=response_data.get("status", "queued"),
+                    provider_metadata={},  # Twilio doesn't need to persist extra data
+                    raw_response=response_data
+                )
 
     async def get_call_status(self, call_id: str) -> Dict[str, Any]:
         """
@@ -202,3 +216,74 @@ class TwilioProvider(TelephonyProvider):
                 "status": "error",
                 "error": str(e)
             }
+
+    def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Parse Twilio status callback data into generic format.
+        """
+        return {
+            "call_id": data.get("CallSid", ""),
+            "status": data.get("CallStatus", ""),
+            "from_number": data.get("From"),
+            "to_number": data.get("To"),
+            "direction": data.get("Direction"),
+            "duration": data.get("CallDuration") or data.get("Duration"),
+            "extra": data  # Include all original data
+        }
+
+    async def handle_websocket(
+        self,
+        websocket: "WebSocket",
+        workflow_id: int,
+        user_id: int,
+        workflow_run_id: int,
+    ) -> None:
+        """
+        Handle Twilio-specific WebSocket connection.
+        
+        Twilio sends:
+        1. "connected" event first
+        2. "start" event with streamSid and callSid
+        3. Then audio messages
+        """
+        from api.services.pipecat.run_pipeline import run_pipeline_twilio
+        
+        try:
+            # Wait for "connected" event
+            first_msg = await websocket.receive_text()
+            msg = json.loads(first_msg)
+            
+            if msg.get("event") != "connected":
+                logger.error(f"Expected 'connected' event, got: {msg.get('event')}")
+                await websocket.close(code=4400, reason="Expected connected event")
+                return
+            
+            logger.debug(f"Twilio WebSocket connected for workflow_run {workflow_run_id}")
+            
+            # Wait for "start" event with stream details
+            start_msg = await websocket.receive_text()
+            logger.debug(f"Received start message: {start_msg}")
+            
+            start_msg = json.loads(start_msg)
+            if start_msg.get("event") != "start":
+                logger.error("Expected 'start' event second")
+                await websocket.close(code=4400, reason="Expected start event")
+                return
+            
+            # Extract Twilio-specific identifiers
+            try:
+                stream_sid = start_msg["start"]["streamSid"]
+                call_sid = start_msg["start"]["callSid"]
+            except KeyError:
+                logger.error("Missing streamSid or callSid in start message")
+                await websocket.close(code=4400, reason="Missing stream identifiers")
+                return
+            
+            # Run the Twilio pipeline
+            await run_pipeline_twilio(
+                websocket, stream_sid, call_sid, workflow_id, workflow_run_id, user_id
+            )
+            
+        except Exception as e:
+            logger.error(f"Error in Twilio WebSocket handler: {e}")
+            raise

@@ -17,7 +17,6 @@ from api.enums import WorkflowRunMode
 from api.services.auth.depends import get_user
 from api.services.campaign.call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
-from api.services.pipecat.run_pipeline import run_pipeline_twilio, run_pipeline_vonage
 from api.services.telephony.factory import get_telephony_provider
 from api.utils.tunnel import TunnelURLProvider
 from pipecat.utils.context import set_current_run_id
@@ -28,7 +27,7 @@ router = APIRouter(prefix="/telephony")
 class InitiateCallRequest(BaseModel):
     workflow_id: int
     workflow_run_id: int | None = None
-    phone_number: str | None = None  # Optional phone number to call
+    phone_number: str | None = None
 
 
 class StatusCallbackRequest(BaseModel):
@@ -100,20 +99,10 @@ async def initiate_call(
         )
     
     # Determine the workflow run mode based on provider type
-    from api.services.telephony.providers.twilio_provider import TwilioProvider
-    from api.services.telephony.providers.vonage_provider import VonageProvider
-    
-    if isinstance(provider, TwilioProvider):
-        workflow_run_mode = WorkflowRunMode.TWILIO.value
-    elif isinstance(provider, VonageProvider):
-        workflow_run_mode = WorkflowRunMode.VONAGE.value
-    else:
-        # Default to TWILIO for backward compatibility
-        workflow_run_mode = WorkflowRunMode.TWILIO.value
+    workflow_run_mode = provider.PROVIDER_NAME
     
     user_configuration = await db_client.get_user_configurations(user.id)
     
-    # Use phone number from request, or fall back to user configuration
     phone_number = request.phone_number or user_configuration.test_phone_number
     
     if not phone_number:
@@ -129,7 +118,7 @@ async def initiate_call(
         workflow_run = await db_client.create_workflow_run(
             workflow_run_name,
             request.workflow_id,
-            workflow_run_mode,  # Now provider-agnostic
+            workflow_run_mode,
             initial_context={
                 "phone_number": phone_number,
             },
@@ -145,9 +134,7 @@ async def initiate_call(
     # Construct webhook URL based on provider type
     backend_endpoint = await TunnelURLProvider.get_tunnel_url()
     
-    # Check provider type to determine webhook endpoint
-    provider_type = getattr(provider, '__class__', None).__name__ if provider else None
-    webhook_endpoint = "ncco" if provider_type == "VonageProvider" else "twiml"
+    webhook_endpoint = provider.WEBHOOK_ENDPOINT
     
     webhook_url = (
         f"https://{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
@@ -164,12 +151,15 @@ async def initiate_call(
         workflow_run_id=workflow_run_id,
     )
     
-    # Store call UUID for Vonage in workflow run context
-    if provider_type == "VonageProvider" and result and "uuid" in result:
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            gathered_context={"call_uuid": result["uuid"]}
-        )
+    # Store provider type and any provider-specific metadata in workflow run context
+    gathered_context = {
+        "provider": provider.PROVIDER_NAME,
+        **(result.provider_metadata or {})
+    }
+    await db_client.update_workflow_run(
+        run_id=workflow_run_id,
+        gathered_context=gathered_context
+    )
     
     return {
         "message": f"Call initiated successfully with run name {workflow_run_name}"
@@ -187,15 +177,13 @@ async def handle_twiml_webhook(
     Handle initial webhook from telephony provider.
     Returns provider-specific response (e.g., TwiML for Twilio).
     """
-    # Get provider for organization - exactly like original gets TwilioService
+
     provider = await get_telephony_provider(organization_id)
     
-    # Generate provider-specific response (TwiML for Twilio)
     response_content = await provider.get_webhook_response(
         workflow_id, user_id, workflow_run_id
     )
     
-    # Return exactly like original - HTMLResponse with application/xml
     return HTMLResponse(content=response_content, media_type="application/xml")
 
 
@@ -210,15 +198,13 @@ async def handle_ncco_webhook(
     
     Returns JSON response instead of XML like TwiML.
     """
-    # Get provider for organization
+
     provider = await get_telephony_provider(organization_id or user_id)
     
-    # Generate NCCO response (JSON for Vonage)
     response_content = await provider.get_webhook_response(
         workflow_id, user_id, workflow_run_id
     )
     
-    # Return JSON response for Vonage
     return json.loads(response_content)
 
 
@@ -226,113 +212,65 @@ async def handle_ncco_webhook(
 async def websocket_endpoint(
     websocket: WebSocket, workflow_id: int, user_id: int, workflow_run_id: int
 ):
-    """WebSocket endpoint for real-time call handling - supports both Twilio and Vonage."""
+    """WebSocket endpoint for real-time call handling - routes to provider-specific handlers."""
     await websocket.accept()
 
     try:
-        # set the run context
+        # Set the run context
         set_current_run_id(workflow_run_id)
         
-        # Peek at the first message to determine provider
-        # Twilio sends JSON with "connected" event
-        # Vonage sends binary audio directly or may send metadata
-        first_msg = await websocket.receive()
+        # Get workflow run to determine provider type
+        workflow_run = await db_client.get_workflow_run(workflow_run_id)
+        if not workflow_run:
+            logger.error(f"Workflow run {workflow_run_id} not found")
+            await websocket.close(code=4404, reason="Workflow run not found")
+            return
         
-        if "text" in first_msg:
-            # Text message - likely Twilio
-            msg = json.loads(first_msg["text"])
-            if msg.get("event") == "connected":
-                # Definitely Twilio - follow Twilio flow
-                
-                # "start" – this has everything we need
-                start_msg = await websocket.receive_text()
-                logger.debug(f"Received start message: {start_msg}")
-
-                start_msg = json.loads(start_msg)
-                if start_msg.get("event") != "start":
-                    raise RuntimeError("Expected start message second")
-
-                try:
-                    stream_sid = start_msg["start"]["streamSid"]
-                    call_sid = start_msg["start"]["callSid"]
-                except KeyError:
-                    logger.error(
-                        "Missing callSID and streamSID in start message. Closing connection."
-                    )
-                    await websocket.close(code=4400, reason="Missing or bad start message")
-                    return
-
-                # Run Twilio pipeline
-                await run_pipeline_twilio(
-                    websocket, stream_sid, call_sid, workflow_id, workflow_run_id, user_id
-                )
-            elif msg.get("event") == "websocket:connected":
-                # This is Vonage's initial connection message
-                logger.info(f"Vonage WebSocket connected for workflow_run {workflow_run_id}")
-                
-                # Get workflow run to extract call UUID
-                workflow_run = await db_client.get_workflow_run(workflow_run_id)
-                workflow = await db_client.get_workflow(workflow_id)
-                
-                # Extract call UUID from workflow run context
-                call_uuid = workflow_run.gathered_context.get("call_uuid") if workflow_run.gathered_context else None
-                
-                if not call_uuid:
-                    logger.error("No call UUID found for Vonage connection")
-                    await websocket.close(code=4400, reason="Missing call UUID")
-                    return
-                
-                # Run Vonage pipeline
-                await run_pipeline_vonage(
-                    websocket, 
-                    call_uuid,
-                    workflow,
-                    workflow.organization_id,
-                    workflow_id,
-                    workflow_run_id,
-                    user_id
-                )
-            else:
-                # Unknown provider or format
-                logger.warning(f"Unknown first message format: {msg}")
-                
-        elif "bytes" in first_msg:
-            # Binary message - likely Vonage audio
-            # For Vonage, we need to get the call UUID from the workflow run
-            workflow_run = await db_client.get_workflow_run(workflow_run_id)
-            workflow = await db_client.get_workflow(workflow_id)
-            
-            # Extract call UUID from workflow run context
-            call_uuid = workflow_run.gathered_context.get("call_uuid") if workflow_run.gathered_context else None
-            
-            if not call_uuid:
-                logger.error("No call UUID found for Vonage connection")
-                await websocket.close(code=4400, reason="Missing call UUID")
-                return
-            
-            # Run Vonage pipeline
-            await run_pipeline_vonage(
-                websocket, 
-                call_uuid,
-                workflow,
-                workflow.organization_id,  # Use the actual organization_id from workflow
-                workflow_id,
-                workflow_run_id,
-                user_id
+        # Get workflow for organization info
+        workflow = await db_client.get_workflow(workflow_id)
+        if not workflow:
+            logger.error(f"Workflow {workflow_id} not found")
+            await websocket.close(code=4404, reason="Workflow not found")
+            return
+        
+        # Extract provider type from workflow run context
+        provider_type = None
+        if workflow_run.gathered_context:
+            provider_type = workflow_run.gathered_context.get("provider")
+        
+        if not provider_type:
+            logger.error(f"No provider type found in workflow run {workflow_run_id}")
+            await websocket.close(code=4400, reason="Provider type not found")
+            return
+        
+        logger.info(f"WebSocket connected for {provider_type} provider, workflow_run {workflow_run_id}")
+        
+        # Get the telephony provider instance
+        provider = await get_telephony_provider(workflow.organization_id)
+        
+        # Verify the provider matches what was stored
+        if provider.PROVIDER_NAME != provider_type:
+            logger.error(
+                f"Provider mismatch: expected {provider_type}, got {provider.PROVIDER_NAME}"
             )
+            await websocket.close(code=4400, reason="Provider mismatch")
+            return
+        
+        # Delegate to provider-specific handler
+        await provider.handle_websocket(websocket, workflow_id, user_id, workflow_run_id)
             
     except Exception as e:
         logger.error(f"Error in WebSocket connection: {e}")
         await websocket.close(1011, "Internal server error")
 
 
-@router.post("/status-callback/{workflow_run_id}")
-async def handle_status_callback(
+@router.post("/twilio/status-callback/{workflow_run_id}")
+async def handle_twilio_status_callback(
     workflow_run_id: int,
     request: Request,
-    x_twilio_signature: Optional[str] = Header(None),
+    x_webhook_signature: Optional[str] = Header(None),
 ):
-    """Handle status callbacks from telephony providers."""
+    """Handle Twilio-specific status callbacks."""
     
     # Parse form data
     form_data = await request.form()
@@ -348,28 +286,39 @@ async def handle_status_callback(
         logger.warning(f"Workflow run {workflow_run_id} not found for status callback")
         return {"status": "ignored", "reason": "workflow_run_not_found"}
     
-    # Get provider for verification (if signature provided)
-    if x_twilio_signature:
-        # Get organization from workflow run
-        workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-        if workflow:
-            provider = await get_telephony_provider(workflow.organization_id)
-            
-            # Verify signature
-            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-            full_url = f"https://{backend_endpoint}/api/v1/telephony/status-callback/{workflow_run_id}"
-            
-            is_valid = await provider.verify_webhook_signature(
-                full_url, callback_data, x_twilio_signature
-            )
-            
-            if not is_valid:
-                logger.warning(f"Invalid webhook signature for workflow run {workflow_run_id}")
-                return {"status": "error", "reason": "invalid_signature"}
+    # Get workflow and provider
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    if not workflow:
+        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
+        return {"status": "ignored", "reason": "workflow_not_found"}
     
-    # Convert provider-specific callback to generic format
-    # (Currently assumes Twilio format, will be extended for other providers)
-    status_update = StatusCallbackRequest.from_twilio(callback_data)
+    provider = await get_telephony_provider(workflow.organization_id)
+    
+    if x_webhook_signature:
+        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+        full_url = f"https://{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
+        
+        is_valid = await provider.verify_webhook_signature(
+            full_url, callback_data, x_webhook_signature
+        )
+        
+        if not is_valid:
+            logger.warning(f"Invalid webhook signature for workflow run {workflow_run_id}")
+            return {"status": "error", "reason": "invalid_signature"}
+    
+    # Parse the callback data into generic format
+    parsed_data = provider.parse_status_callback(callback_data)
+    
+    # Create StatusCallbackRequest from parsed data
+    status_update = StatusCallbackRequest(
+        call_id=parsed_data["call_id"],
+        status=parsed_data["status"],
+        from_number=parsed_data.get("from_number"),
+        to_number=parsed_data.get("to_number"),
+        direction=parsed_data.get("direction"),
+        duration=parsed_data.get("duration"),
+        extra=parsed_data.get("extra", {})
+    )
     
     # Process the status update
     await _process_status_update(workflow_run_id, status_update, workflow_run)
@@ -385,20 +334,20 @@ async def _process_status_update(
     """Process status updates from telephony providers."""
     
     # Log the status callback
-    twilio_callback_logs = workflow_run.logs.get("twilio_status_callbacks", [])
-    twilio_callback_log = {
+    telephony_callback_logs = workflow_run.logs.get("telephony_status_callbacks", [])
+    telephony_callback_log = {
         "status": status.status,
         "timestamp": datetime.now(UTC).isoformat(),
         "call_id": status.call_id,
         "duration": status.duration,
         **status.extra  # Include provider-specific data
     }
-    twilio_callback_logs.append(twilio_callback_log)
+    telephony_callback_logs.append(telephony_callback_log)
     
     # Update workflow run logs
     await db_client.update_workflow_run(
         run_id=workflow_run_id,
-        logs={"twilio_status_callbacks": twilio_callback_logs},
+        logs={"telephony_status_callbacks": telephony_callback_logs},
     )
     
     # Handle call completion
@@ -454,12 +403,12 @@ async def _process_status_update(
         )
 
 
-@router.post("/events/{workflow_run_id}")
+@router.post("/vonage/events/{workflow_run_id}")
 async def handle_vonage_events(
     request: Request,
     workflow_run_id: int,
 ):
-    """Handle Vonage event webhooks.
+    """Handle Vonage-specific event webhooks.
     
     Vonage sends all call events to a single endpoint.
     Events include: started, ringing, answered, complete, failed, etc.
@@ -474,7 +423,7 @@ async def handle_vonage_events(
         logger.error(f"[run {workflow_run_id}] Workflow run not found")
         return {"status": "error", "message": "Workflow run not found"}
     
-    # If this is a completed call and includes cost info, capture it immediately
+    # For a completed call that includes cost info, capture it immediately
     if event_data.get("status") == "completed":
         # Vonage sometimes includes price info in the webhook
         if "price" in event_data or "rate" in event_data:
@@ -497,8 +446,27 @@ async def handle_vonage_events(
             except Exception as e:
                 logger.error(f"[run {workflow_run_id}] Failed to capture Vonage cost from webhook: {e}")
     
-    # Convert to generic status format
-    status_update = StatusCallbackRequest.from_vonage(event_data)
+    # Get workflow and provider
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    if not workflow:
+        logger.error(f"[run {workflow_run_id}] Workflow not found")
+        return {"status": "error", "message": "Workflow not found"}
+    
+    provider = await get_telephony_provider(workflow.organization_id)
+    
+    # Parse the event data into generic format
+    parsed_data = provider.parse_status_callback(event_data)
+    
+    # Create StatusCallbackRequest from parsed data
+    status_update = StatusCallbackRequest(
+        call_id=parsed_data["call_id"],
+        status=parsed_data["status"],
+        from_number=parsed_data.get("from_number"),
+        to_number=parsed_data.get("to_number"),
+        direction=parsed_data.get("direction"),
+        duration=parsed_data.get("duration"),
+        extra=parsed_data.get("extra", {})
+    )
     
     # Process the status update
     await _process_status_update(workflow_run_id, status_update, workflow_run)

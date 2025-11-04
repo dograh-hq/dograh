@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet, saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost } from "@/client/sdk.gen";
+import type { TwilioConfigurationRequest, VonageConfigurationRequest } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -113,23 +114,28 @@ export default function ConfigureTelephonyPage() {
 
     try {
       const accessToken = await getAccessToken();
-      
+
       // Build the request body based on provider
-      let requestBody: any = {
-        provider: data.provider,
-        from_numbers: [data.from_number],
-      };
-      
+      let requestBody: TwilioConfigurationRequest | VonageConfigurationRequest;
+
       if (data.provider === "twilio") {
-        requestBody.account_sid = data.account_sid;
-        requestBody.auth_token = data.auth_token;
-      } else if (data.provider === "vonage") {
-        requestBody.application_id = data.application_id;
-        requestBody.private_key = data.private_key;
-        requestBody.api_key = data.api_key;
-        requestBody.api_secret = data.api_secret;
+        requestBody = {
+          provider: data.provider,
+          from_numbers: [data.from_number],
+          account_sid: data.account_sid,
+          auth_token: data.auth_token,
+        } as TwilioConfigurationRequest;
+      } else {
+        requestBody = {
+          provider: data.provider,
+          from_numbers: [data.from_number],
+          application_id: data.application_id,
+          private_key: data.private_key,
+          api_key: data.api_key || undefined,
+          api_secret: data.api_secret || undefined,
+        } as VonageConfigurationRequest;
       }
-      
+
       const response = await saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost({
         headers: { Authorization: `Bearer ${accessToken}` },
         body: requestBody,

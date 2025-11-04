@@ -189,11 +189,15 @@ class CampaignCallDispatcher:
         # Create workflow run with queued_run_id tracking
         workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
 
+        # Get provider first to determine the mode
+        provider = await self.get_telephony_provider(campaign.organization_id)
+        workflow_run_mode = provider.PROVIDER_NAME
+
         try:
             workflow_run = await db_client.create_workflow_run(
                 name=workflow_run_name,
                 workflow_id=campaign.workflow_id,
-                mode=WorkflowRunMode.TWILIO.value,
+                mode=workflow_run_mode,
                 user_id=campaign.created_by,
                 initial_context=initial_context,
                 campaign_id=campaign.id,
@@ -223,12 +227,11 @@ class CampaignCallDispatcher:
 
         # Initiate call via telephony provider
         try:
-            provider = await self.get_telephony_provider(campaign.organization_id)
-            
             # Construct webhook URL with parameters
             backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+            webhook_endpoint = provider.WEBHOOK_ENDPOINT
             webhook_url = (
-                f"https://{backend_endpoint}/api/v1/telephony/twiml"
+                f"https://{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
                 f"?workflow_id={campaign.workflow_id}"
                 f"&user_id={campaign.created_by}"
                 f"&workflow_run_id={workflow_run.id}"
@@ -243,7 +246,7 @@ class CampaignCallDispatcher:
             )
 
             logger.info(
-                f"Call initiated for workflow run {workflow_run.id}, SID: {call_result.get('sid')}"
+                f"Call initiated for workflow run {workflow_run.id}, Call ID: {call_result.call_id}"
             )
 
         except Exception as e:
@@ -252,13 +255,13 @@ class CampaignCallDispatcher:
             )
 
             # Update workflow run as failed
-            twilio_callback_logs = workflow_run.logs.get("twilio_status_callbacks", [])
-            twilio_callback_log = {
+            telephony_callback_logs = workflow_run.logs.get("telephony_status_callbacks", [])
+            telephony_callback_log = {
                 "status": "failed",
                 "timestamp": datetime.now(UTC).isoformat(),
                 "data": {"error": str(e)},
             }
-            twilio_callback_logs.append(twilio_callback_log)
+            telephony_callback_logs.append(telephony_callback_log)
             await db_client.update_workflow_run(
                 run_id=workflow_run.id,
                 is_completed=True,
@@ -266,7 +269,7 @@ class CampaignCallDispatcher:
                     "error": str(e),
                 },
                 logs={
-                    "twilio_status_callbacks": twilio_callback_logs,
+                    "telephony_status_callbacks": telephony_callback_logs,
                 },
             )
 

@@ -33,18 +33,10 @@ async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
     
     logger.debug(f"Loading telephony config from database for org {organization_id}")
     
-    # Try new key first
     config = await db_client.get_configuration(
         organization_id,
         OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
     )
-    
-    # Fallback to old key for backward compatibility
-    if not config:
-        config = await db_client.get_configuration(
-            organization_id,
-            OrganizationConfigurationKey.TWILIO_CONFIGURATION.value,
-        )
     
     if config and config.value:
         # Simple single-provider format
@@ -87,23 +79,18 @@ async def get_telephony_provider(
     Raises:
         ValueError: If provider type is unknown or configuration is invalid
     """
-    # Load configuration from appropriate source
+    # Load configuration
     config = await load_telephony_config(organization_id)
     
     provider_type = config.get("provider", "twilio")
     logger.info(f"Creating {provider_type} telephony provider")
     
     # Create provider instance with configuration
-    # Provider doesn't know or care if config came from env or database
     if provider_type == "twilio":
         return TwilioProvider(config)
     
     elif provider_type == "vonage":
         return VonageProvider(config)
-    
-    # Future providers can be added here
-    # elif provider_type == "plivo":
-    #     return PlivoProvider(config)
     
     else:
         raise ValueError(f"Unknown telephony provider: {provider_type}")

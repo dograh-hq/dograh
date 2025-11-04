@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 
+import ChatwootWidget from "@/components/ChatwootWidget";
 import PostHogIdentify from "@/components/PostHogIdentify";
 import SpinLoader from "@/components/SpinLoader";
 import { Toaster } from "@/components/ui/sonner";
@@ -44,6 +45,7 @@ export default function RootLayout({
                 <PostHogIdentify />
                 {children}
                 <Toaster />
+                <ChatwootWidget />
               </OnboardingProvider>
             </UserConfigProvider>
           </Suspense>

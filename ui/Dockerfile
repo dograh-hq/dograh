@@ -34,6 +34,8 @@ ENV NEXT_PUBLIC_DEPLOYMENT_MODE="oss"
 ENV NEXT_PUBLIC_BACKEND_URL="http://localhost:8000"
 ENV BACKEND_URL="http://api:8000"
 ENV NEXT_TELEMETRY_DISABLED="1"
+ENV NEXT_PUBLIC_CHATWOOT_URL="https://chat.dograh.com"
+ENV NEXT_PUBLIC_CHATWOOT_TOKEN="3fkFx2mCEjNHjM9gaNc4A82X"
 
 # Build the application with standalone mode
 RUN npm run build && \

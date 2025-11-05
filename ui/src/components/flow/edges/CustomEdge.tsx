@@ -1,6 +1,6 @@
-import { BaseEdge, type Edge, EdgeLabelRenderer, type EdgeProps, getSmoothStepPath, useReactFlow } from '@xyflow/react';
+import { BaseEdge, type Edge, EdgeLabelRenderer, type EdgeProps, getBezierPath, useReactFlow } from '@xyflow/react';
 import { AlertCircle, Pencil } from 'lucide-react';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { Button } from "@/components/ui/button";
@@ -85,10 +85,18 @@ interface CustomEdgeProps extends EdgeProps {
 }
 
 export default function CustomEdge(props: CustomEdgeProps) {
-    const { id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data } = props;
+    const { id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, style, selected } = props;
 
-    const { getEdges, setEdges } = useReactFlow<FlowNode, FlowEdge>();
+    const { getEdges, setEdges, setNodes } = useReactFlow<FlowNode, FlowEdge>();
     const { saveWorkflow } = useWorkflow();
+    const [open, setOpen] = useState(false);
+    const [isHovered, setIsHovered] = useState(false);
+
+    // Edge is highlighted when either selected or hovered
+    const isHighlighted = selected || isHovered;
+
+    console.log("in CustomEdge", id, selected, isHovered, isHighlighted);
+
     const parallel = getEdges().filter(
         (e) =>
             (e.source === source && e.target === target) ||
@@ -113,8 +121,8 @@ export default function CustomEdge(props: CustomEdgeProps) {
         }
     }
 
-    // 3) draw the straight path + get label coords
-    const [edgePath, labelX, labelY] = getSmoothStepPath({
+    // 3) draw the bezier path + get label coords
+    const [edgePath, labelX, labelY] = getBezierPath({
         sourceX,
         sourceY,
         sourcePosition,
@@ -123,7 +131,34 @@ export default function CustomEdge(props: CustomEdgeProps) {
         targetPosition,
     });
 
-    const [open, setOpen] = useState(false);
+    // Highlight connected nodes when edge is highlighted (selected or hovered)
+    useEffect(() => {
+        if (isHighlighted) {
+            setNodes((nodes) =>
+                nodes.map((node) => {
+                    if (node.id === source || node.id === target) {
+                        return {
+                            ...node,
+                            data: { ...node.data, highlighted: true }
+                        };
+                    }
+                    return node;
+                })
+            );
+        } else {
+            setNodes((nodes) =>
+                nodes.map((node) => {
+                    if (node.id === source || node.id === target) {
+                        return {
+                            ...node,
+                            data: { ...node.data, highlighted: false }
+                        };
+                    }
+                    return node;
+                })
+            );
+        }
+    }, [isHighlighted, source, target, setNodes, selected]);
 
     const handleSaveEdgeData = useCallback(async (updatedData: FlowEdgeData) => {
         // Update the node data in the ReactFlow nodes state
@@ -144,39 +179,72 @@ export default function CustomEdge(props: CustomEdgeProps) {
 
     return (
         <>
-            <BaseEdge
-                id={id}
-                path={edgePath}
-            />
-            <EdgeLabelRenderer>
-                <div
+            <g
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+            >
+                <BaseEdge
+                    id={id}
+                    path={edgePath}
                     style={{
-                        position: 'absolute',
-                        pointerEvents: 'all',
-                        transformOrigin: 'center',
-                        transform: `translate(-50%, -50%) translate(${labelX + offsetX}px, ${labelY + offsetY}px)`,
+                        ...style,
+                        stroke: isHighlighted
+                            ? '#3B82F6'  // blue-500 when highlighted (selected or hovered)
+                            : data?.invalid ? '#EF4444' : '#94A3B8',
+                        strokeWidth: isHighlighted ? 4 : 2.5,
+                        filter: isHighlighted ? 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))' : 'none',
+                        transition: 'all 0.2s ease',
                     }}
-                    className="nodrag nopan"
-                >
-                    <div className={cn(
-                        "flex items-center gap-2 bg-white pl-3 pr-1 py-1 rounded-md border shadow-sm",
-                        data?.invalid ? "border-red-500/30 shadow-[0_0_10px_rgba(239,68,68,0.5)]" : "border-gray-200"
-                    )}>
-                        <div className="flex flex-col">
-                            <span className="text-sm">{data?.label || data?.condition || 'Set Condition'}</span>
-
+                    interactionWidth={20}
+                />
+            </g>
+            {/* Show label when highlighted (selected or hovered), positioned at edge center */}
+            {isHighlighted && (
+                <EdgeLabelRenderer>
+                    <div
+                        style={{
+                            position: 'absolute',
+                            pointerEvents: 'all',
+                            transformOrigin: 'center',
+                            transform: `translate(-50%, -50%) translate(${labelX + offsetX}px, ${labelY + offsetY}px)`,
+                            zIndex: 1000,
+                        }}
+                        className="nodrag nopan"
+                        onMouseEnter={() => setIsHovered(true)}
+                        onMouseLeave={() => setIsHovered(false)}
+                    >
+                        <div className={cn(
+                            "flex flex-col gap-2 bg-white rounded-lg border-2 shadow-xl min-w-[200px]",
+                            "animate-in fade-in zoom-in duration-200",
+                            data?.invalid ? "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]" : "border-gray-300"
+                        )}>
+                            {/* Header with label */}
+                            <div className={cn(
+                                "flex items-center justify-between px-3 py-2 border-b",
+                                data?.invalid ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"
+                            )}>
+                                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
+                                    Condition
+                                </span>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 p-0 hover:bg-gray-200"
+                                    onClick={() => setOpen(true)}
+                                >
+                                    <Pencil className="h-3 w-3" />
+                                </Button>
+                            </div>
+                            {/* Content */}
+                            <div className="px-3 pb-3">
+                                <div className="text-sm font-medium text-gray-900 break-words">
+                                    {data?.label || data?.condition || 'Click to set condition'}
+                                </div>
+                            </div>
                         </div>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-6 w-6 p-0"
-                            onClick={() => setOpen(true)}
-                        >
-                            <Pencil className="h-4 w-4" />
-                        </Button>
                     </div>
-                </div>
-            </EdgeLabelRenderer>
+                </EdgeLabelRenderer>
+            )}
             <EdgeDetailsDialog
                 open={open}
                 onOpenChange={setOpen}

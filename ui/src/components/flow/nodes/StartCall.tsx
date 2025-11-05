@@ -100,10 +100,13 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
+                highlighted={data.highlighted}
                 title="Start Call"
                 icon={<Play />}
                 bgColor="bg-green-300"
                 hasSourceHandle={true}
+                onDoubleClick={() => setOpen(true)}
+                nodeId={id}
             >
                 <div className="text-sm text-muted-foreground">
                     {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}

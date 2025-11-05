@@ -321,22 +321,19 @@ export const useWorkflowState = ({ initialWorkflowName, workflowId, initialFlow,
         (changes) => setEdges((eds) => {
             const newEdges = applyEdgeChanges(changes, eds) as FlowEdge[];
             setIsDirty(true);
-            // Trigger validation after edge changes
-            setTimeout(() => validateWorkflow(), 100);
+            console.log("in onEdgesChange", changes, eds, newEdges);
             return newEdges;
         }),
-        [setEdges, validateWorkflow],
+        [setEdges],
     );
 
     const onNodesChange: OnNodesChange = useCallback(
         (changes) => setNodes((nds) => {
             const newNodes = applyNodeChanges(changes, nds) as FlowNode[];
             setIsDirty(true);
-            // Trigger validation after node changes
-            setTimeout(() => validateWorkflow(), 100);
             return newNodes;
         }),
-        [setNodes, validateWorkflow],
+        [setNodes],
     );
 
     const onRun = async (mode: string) => {

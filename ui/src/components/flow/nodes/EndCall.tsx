@@ -92,10 +92,13 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
+                highlighted={data.highlighted}
                 title="End Call"
                 icon={<OctagonX />}
                 bgColor="bg-red-300"
                 hasTargetHandle={true}
+                onDoubleClick={() => setOpen(true)}
+                nodeId={id}
             >
                 <div className="text-sm text-muted-foreground">
                     {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}

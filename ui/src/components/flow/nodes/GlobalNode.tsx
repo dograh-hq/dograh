@@ -61,9 +61,12 @@ export const GlobalNode = memo(({ data, selected, id }: GlobalNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
+                highlighted={data.highlighted}
                 title={data.name || 'Global'}
                 icon={<Headset />}
                 bgColor="bg-orange-300"
+                onDoubleClick={() => setOpen(true)}
+                nodeId={id}
             >
                 <div className="text-sm text-muted-foreground">
                     {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}

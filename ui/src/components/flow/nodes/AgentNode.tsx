@@ -88,11 +88,14 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
+                highlighted={data.highlighted}
                 title={data.name || 'Agent'}
                 icon={<Headset />}
                 bgColor="bg-blue-300"
                 hasSourceHandle={true}
                 hasTargetHandle={true}
+                onDoubleClick={() => setOpen(true)}
+                nodeId={id}
             >
                 <div className="text-sm text-muted-foreground">
                     {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}

@@ -1,7 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronLeft, ChevronRight, Download, ExternalLink } from "lucide-react";
-import Link from "next/link";
+import { ChevronLeft, ChevronRight, Download, ExternalLink } from "lucide-react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -27,6 +26,7 @@ import { decodeFiltersFromURL, encodeFiltersToURL } from "@/lib/filters";
 import { ActiveFilter, availableAttributes, FilterAttribute } from "@/types/filters";
 
 import WorkflowLayout from '../../WorkflowLayout';
+import { WorkflowTabs } from '../components/WorkflowTabs';
 
 export default function WorkflowRunsPage() {
     const { workflowId } = useParams();
@@ -89,7 +89,7 @@ export default function WorkflowRunsPage() {
         };
 
         loadDispositionCodes();
-    }, [workflowId, accessToken, configuredAttributes]);
+    }, [workflowId, accessToken]);
 
     const fetchWorkflowRuns = useCallback(async (page: number, filters?: ActiveFilter[]) => {
         if (!accessToken) return;
@@ -177,17 +177,10 @@ export default function WorkflowRunsPage() {
         setIsExecutingFilters(false);
     }, [fetchWorkflowRuns, updatePageInUrl]);
 
-    const backButton = (
-        <Link href={`/workflow/${workflowId}`}>
-            <Button variant="outline" size="sm" className="flex items-center gap-1">
-                <ArrowLeft className="h-4 w-4" />
-                Workflow
-            </Button>
-        </Link>
-    );
+    const stickyTabs = <WorkflowTabs workflowId={Number(workflowId)} currentTab="executions" />;
 
     return (
-        <WorkflowLayout backButton={backButton}>
+        <WorkflowLayout stickyTabs={stickyTabs} showFeaturesNav={false}>
             <div className="container mx-auto py-8">
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold mb-4">Workflow Run History</h1>

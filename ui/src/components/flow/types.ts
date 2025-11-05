@@ -13,6 +13,7 @@ export type FlowNodeData = {
     is_end?: boolean;
     invalid?: boolean;
     validationMessage?: string | null;
+    highlighted?: boolean;
     allow_interrupt?: boolean;
     extraction_enabled?: boolean;
     extraction_prompt?: string;

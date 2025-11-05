@@ -2,7 +2,7 @@ import { Trash2Icon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -63,6 +63,10 @@ export const TemplateContextVariablesDialog = ({
             <DialogContent className="max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Template Context Variables</DialogTitle>
+                    <DialogDescription>
+                        Add or remove template context variables that will be available to your workflow. You can use
+                        these variables within your workflow nodes within double curly braces. Example: {`{{variable_name}}`}.
+                    </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
                     {/* Existing Variables */}

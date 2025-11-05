@@ -7,8 +7,9 @@ export const BaseNode = forwardRef<
     HTMLAttributes<HTMLDivElement> & {
         selected?: boolean;
         invalid?: boolean;
+        highlighted?: boolean;
     }
->(({ className, selected, invalid, ...props }, ref) => (
+>(({ className, selected, invalid, highlighted, ...props }, ref) => (
     <div
         ref={ref}
         className={cn(
@@ -16,6 +17,7 @@ export const BaseNode = forwardRef<
             className,
             selected ? "border-muted-foreground shadow-lg" : "",
             invalid ? "border-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]" : "",
+            highlighted ? "ring-2 ring-blue-400 shadow-[0_0_15px_rgba(59,130,246,0.5)]" : "",
             "hover:ring-1",
         )}
         tabIndex={0}

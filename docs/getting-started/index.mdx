@@ -10,7 +10,7 @@ Get the stack up and running using Docker with a single command.
 <Note>We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.</Note>
 
 ```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
 ```
 
 Please check [Prerequisites](getting-started/prerequisites) for the system requirements and [Troubleshooting](getting-started/troubleshooting) for common issues.

@@ -1,9 +1,9 @@
 ---
 title: "Prerequisites"
-description: "System requirements and setup needed to run Dograh AI"
+description: "System requirements and setup needed to run Dograh AI locally"
 ---
 
-## System Requirements
+## System Requirements (Local Setup)
 
 ### Minimum Requirements
 - **RAM**: 8 GB (4 GB available for Docker)
@@ -78,8 +78,8 @@ To use a specific registry, set the `REGISTRY` environment variable:
 
 ```bash
 # Using GitHub Container Registry (recommended)
-REGISTRY=ghcr.io/dograh-hq docker compose up
+REGISTRY=ghcr.io/dograh-hq docker compose up --pull always
 
 # Using Docker Hub
-REGISTRY=dograhai docker compose up
+REGISTRY=dograhai docker compose up --pull always
 ```

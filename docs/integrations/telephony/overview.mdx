@@ -28,23 +28,27 @@ The telephony integration system uses a provider abstraction pattern that ensure
 ```python
 # All providers implement this interface
 class TelephonyProvider(ABC):
-    async def initiate_call(to_number: str, webhook_url: str, workflow_run_id: Optional[int] = None, **kwargs)
+    async def initiate_call(to_number: str, webhook_url: str, workflow_run_id: Optional[int] = None, **kwargs) -> CallInitiationResult
     async def get_call_status(call_id: str) -> Dict[str, Any]
     async def get_available_phone_numbers() -> List[str]
     def validate_config() -> bool
     async def verify_webhook_signature(url: str, params: Dict, signature: str) -> bool
     async def get_webhook_response(workflow_id: int, user_id: int, workflow_run_id: int) -> str
     async def get_call_cost(call_id: str) -> Dict[str, Any]
+    def parse_status_callback(data: Dict[str, Any]) -> Dict[str, Any]
+    async def handle_websocket(websocket: WebSocket, workflow_id: int, user_id: int, workflow_run_id: int) -> None
 ```
 
 ## Configuration
 
 Dograh AI uses database configuration for all telephony providers. Configure providers through the web interface:
 
-1. Navigate to **Settings** → **Integrations** → **Telephony**
-2. Select your provider
-3. Enter credentials
-4. Test connection
+1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
+2. Select your provider (Twilio or Vonage)
+3. Watch the provider-specific video tutorial for setup guidance
+4. Enter your credentials
+5. Save configuration
+6. Test with a phone call
 
 ## Common Features
 
@@ -73,10 +77,10 @@ result = await provider.initiate_call(
 )
 
 # Check call status
-status = await provider.get_call_status(result["call_id"])
+status = await provider.get_call_status(result.call_id)
 
 # Get call cost after completion
-cost_info = await provider.get_call_cost(result["call_id"])
+cost_info = await provider.get_call_cost(result.call_id)
 ```
 
 ## API Endpoints
@@ -86,20 +90,17 @@ The telephony system exposes these unified endpoints:
 | Endpoint | Method | Description |
 |----------|---------|-------------|
 | `/api/v1/telephony/initiate-call` | POST | Start an outbound call |
-| `/api/v1/telephony/status-callback/{id}` | POST | Receive call status updates |
-| `/api/v1/telephony/webhook/{id}` | GET/POST | Handle initial webhook |
-| `/api/v1/telephony/ws/{id}` | WebSocket | Real-time audio streaming |
+| `/api/v1/telephony/twilio/status-callback/{id}` | POST | Receive Twilio status updates |
+| `/api/v1/telephony/vonage/events/{id}` | POST | Receive Vonage event updates |
+| `/api/v1/telephony/twiml` | POST | Handle Twilio webhook (TwiML) |
+| `/api/v1/telephony/ncco` | GET | Handle Vonage webhook (NCCO) |
+| `/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}` | WebSocket | Real-time audio streaming |
 
 ## Implementation Status
 
 - **Twilio**: ✅ Fully implemented and tested
 - **Vonage**: ✅ Fully implemented with 16kHz audio support
 - **Custom Providers**: The abstraction layer supports adding new providers by implementing the `TelephonyProvider` interface
-- **API Endpoints**: All telephony operations use the unified `/api/v1/telephony/*` endpoints:
-  - `/api/v1/telephony/initiate-call` - Start outbound calls
-  - `/api/v1/telephony/status-callback/{id}` - Receive call status updates  
-  - `/api/v1/telephony/webhook/{workflow_id}/{user_id}/{workflow_run_id}` - Initial call webhook
-  - `/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}` - WebSocket for audio streaming
 
 ## Troubleshooting
 

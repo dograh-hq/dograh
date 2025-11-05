@@ -17,6 +17,18 @@ Before setting up Vonage integration, you'll need:
 - At least one Vonage phone number
 - Dograh AI instance running and accessible
 
+## Video Tutorial
+
+Watch this step-by-step guide to set up Vonage with Dograh AI:
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.tella.tv/video/configuring-telephony-on-dograh-with-vonage-3wvo/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
+  title="Dograh Vonage Setup"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
 ## Configuration
 
 ### Step 1: Create Vonage Application
@@ -29,23 +41,23 @@ Before setting up Vonage integration, you'll need:
 
 ### Step 2: Get API Credentials
 
-1. Find your **API Key** and **API Secret** in the dashboard
+1. Find your **API Key** and **API Secret** in the dashboard under **API Settings**
 2. Navigate to **Numbers** → **Your Numbers**
 3. Copy your phone number(s)
 4. Link your numbers to your application
 
 ### Step 3: Configure in Dograh AI
 
-1. Navigate to **Settings** → **Integrations** → **Telephony**
-2. Select **Vonage** as your provider
-3. Enter your credentials:
+1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
+2. Watch the Vonage setup video tutorial above for detailed guidance
+3. Select **Vonage** as your provider
+4. Enter your credentials:
    - Application ID
    - Private Key (entire key including BEGIN/END lines)
-   - API Key
-   - API Secret  
-   - Phone Numbers (comma-separated if multiple)
-4. Click **Test Connection**
-5. Save configuration
+   - API Key (Optional - for some operations)
+   - API Secret (Optional - for webhook verification)
+   - From Phone Number (without '+' prefix, e.g., 14155551234)
+5. Click **Save Configuration**
 
 ### Step 4: Test Your Configuration
 
@@ -121,7 +133,7 @@ Vonage uses higher quality audio (16kHz) which provides:
   </Accordion>
   
   <Accordion title="Invalid phone number error">
-    - Remove the '+' prefix for Vonage (use `1234567890` not `+1234567890`)
+    - Remove the '+' prefix for Vonage (use `14155551234` not `+14155551234`)
     - Ensure numbers are in E.164 format without the '+'
     - Verify numbers are active in your Vonage account
   </Accordion>

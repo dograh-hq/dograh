@@ -6,6 +6,7 @@ import {
     OnNodesChange,
     ReactFlowInstance,
 } from "@xyflow/react";
+import { EdgeChange, NodeChange } from "@xyflow/system";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef } from "react";
 
@@ -317,7 +318,9 @@ export const useWorkflowState = ({
         (changes) => {
             const currentEdges = useWorkflowStore.getState().edges;
             const newEdges = applyEdgeChanges(changes, currentEdges) as FlowEdge[];
-            setEdges(newEdges, changes);
+            // Cast changes to FlowEdge type - safe because setEdges only uses the type field
+            // to determine history tracking, not the actual item data
+            setEdges(newEdges, changes as EdgeChange<FlowEdge>[]);
         },
         [setEdges],
     );
@@ -326,7 +329,9 @@ export const useWorkflowState = ({
         (changes) => {
             const currentNodes = useWorkflowStore.getState().nodes;
             const newNodes = applyNodeChanges(changes, currentNodes) as FlowNode[];
-            setNodes(newNodes, changes);
+            // Cast changes to FlowNode type - safe because setNodes only uses the type field
+            // to determine history tracking, not the actual item data
+            setNodes(newNodes, changes as NodeChange<FlowNode>[]);
         },
         [setNodes],
     );

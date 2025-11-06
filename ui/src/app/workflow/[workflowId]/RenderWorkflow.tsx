@@ -283,7 +283,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                                     <Button
                                         variant="outline"
                                         size="icon"
-                                        onClick={() => setNodes(layoutNodes(nodes, edges, 'LR', rfInstance, saveWorkflow))}
+                                        onClick={() => setNodes(layoutNodes(nodes, edges, 'LR', rfInstance))}
                                         className="bg-white shadow-sm hover:shadow-md h-8 w-8"
                                     >
                                         <BrushCleaning className="h-4 w-4" />

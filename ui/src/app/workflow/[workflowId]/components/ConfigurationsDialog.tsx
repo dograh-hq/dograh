@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -11,7 +11,8 @@ interface ConfigurationsDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
     workflowConfigurations: WorkflowConfigurations | null;
-    onSave: (configurations: WorkflowConfigurations) => Promise<void>;
+    workflowName: string;
+    onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
 }
 
 const DEFAULT_VAD_CONFIG: VADConfiguration = {
@@ -30,8 +31,10 @@ export const ConfigurationsDialog = ({
     open,
     onOpenChange,
     workflowConfigurations,
+    workflowName,
     onSave
 }: ConfigurationsDialogProps) => {
+    const [name, setName] = useState<string>(workflowName);
     const [vadConfig, setVadConfig] = useState<VADConfiguration>(
         workflowConfigurations?.vad_configuration || DEFAULT_VAD_CONFIG
     );
@@ -54,7 +57,7 @@ export const ConfigurationsDialog = ({
                 ambient_noise_configuration: ambientNoiseConfig,
                 max_call_duration: maxCallDuration,
                 max_user_idle_timeout: maxUserIdleTimeout
-            });
+            }, name);
             onOpenChange(false);
         } catch (error) {
             console.error("Failed to save configurations:", error);
@@ -63,15 +66,16 @@ export const ConfigurationsDialog = ({
         }
     };
 
-    const handleDialogOpenChange = (isOpen: boolean) => {
-        onOpenChange(isOpen);
-        if (isOpen) {
+    // Sync state with props when dialog opens
+    useEffect(() => {
+        if (open) {
+            setName(workflowName);
             setVadConfig(workflowConfigurations?.vad_configuration || DEFAULT_VAD_CONFIG);
             setAmbientNoiseConfig(workflowConfigurations?.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG);
             setMaxCallDuration(workflowConfigurations?.max_call_duration || 600);
             setMaxUserIdleTimeout(workflowConfigurations?.max_user_idle_timeout || 10);
         }
-    };
+    }, [open, workflowName, workflowConfigurations]);
 
     const handleVadChange = (field: keyof VADConfiguration, value: string) => {
         const numValue = parseFloat(value);
@@ -84,13 +88,35 @@ export const ConfigurationsDialog = ({
     };
 
     return (
-        <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+        <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
                     <DialogTitle>Configurations</DialogTitle>
                 </DialogHeader>
 
                 <div className="space-y-6">
+                    {/* Workflow Name Section */}
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-sm font-semibold mb-1">Workflow Name</h3>
+                            <p className="text-xs text-gray-500">
+                                The name of your workflow
+                            </p>
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="workflow_name" className="text-xs">
+                                Name
+                            </Label>
+                            <Input
+                                id="workflow_name"
+                                type="text"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder="Enter workflow name"
+                            />
+                        </div>
+                    </div>
+
                     {/* Voice Activity Detection Section */}
                     <div className="space-y-4">
                         <div>

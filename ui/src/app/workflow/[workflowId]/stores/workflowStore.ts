@@ -1,4 +1,5 @@
 import { ReactFlowInstance } from '@xyflow/react';
+import { NodeChange, EdgeChange } from '@xyflow/system';
 import { create } from 'zustand';
 
 import { WorkflowError } from '@/client/types.gen';
@@ -27,7 +28,6 @@ interface WorkflowState {
   // UI state (not tracked in history)
   isDirty: boolean;
   isAddNodePanelOpen: boolean;
-  isEditingName: boolean;
 
   // Validation state
   workflowValidationErrors: WorkflowError[];
@@ -59,13 +59,13 @@ interface WorkflowActions {
   canRedo: () => boolean;
 
   // Node operations
-  setNodes: (nodes: FlowNode[] | ((nodes: FlowNode[]) => FlowNode[])) => void;
+  setNodes: (nodes: FlowNode[], changes?: NodeChange<FlowNode>[]) => void;
   addNode: (node: FlowNode) => void;
   updateNode: (nodeId: string, updates: Partial<FlowNode>) => void;
   deleteNode: (nodeId: string) => void;
 
   // Edge operations
-  setEdges: (edges: FlowEdge[] | ((edges: FlowEdge[]) => FlowEdge[])) => void;
+  setEdges: (edges: FlowEdge[], changes?: EdgeChange<FlowEdge>[]) => void;
   addEdge: (edge: FlowEdge) => void;
   updateEdge: (edgeId: string, updates: Partial<FlowEdge>) => void;
   deleteEdge: (edgeId: string) => void;
@@ -78,7 +78,6 @@ interface WorkflowActions {
   // UI state
   setIsDirty: (isDirty: boolean) => void;
   setIsAddNodePanelOpen: (isOpen: boolean) => void;
-  setIsEditingName: (isEditing: boolean) => void;
 
   // Validation
   setWorkflowValidationErrors: (errors: WorkflowError[]) => void;
@@ -108,7 +107,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   historyIndex: -1,
   isDirty: false,
   isAddNodePanelOpen: false,
-  isEditingName: false,
   workflowValidationErrors: [],
   templateContextVariables: {},
   workflowConfigurations: DEFAULT_WORKFLOW_CONFIGURATIONS,
@@ -194,19 +192,27 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     return state.historyIndex < state.history.length - 1;
   },
 
-  setNodes: (nodes) => {
-    const state = get();
-    let newNodes: FlowNode[];
-    if (typeof nodes === 'function') {
-      newNodes = nodes(state.nodes);
+  setNodes: (nodes, changes) => {
+    // Determine whether to push to history and set isDirty based on change types
+    if (changes && changes.length > 0) {
+      // Check if any changes are user-initiated (not just selections or dimensions)
+      const hasDirtyChanges = changes.some(change =>
+        change.type === 'add' ||
+        change.type === 'remove' ||
+        (change.type === 'position' && change.dragging)
+      );
+
+      if (hasDirtyChanges) {
+        get().pushToHistory();
+        set({ nodes, isDirty: true });
+      } else {
+        // For selection changes or dimension updates, don't push to history
+        set({ nodes });
+      }
     } else {
-      newNodes = nodes;
+      // No changes provided, just update nodes without history
+      set({ nodes });
     }
-
-    // Push current state to history before making changes
-    get().pushToHistory();
-
-    set({ nodes: newNodes, isDirty: true });
   },
 
   addNode: (node) => {
@@ -241,19 +247,27 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     });
   },
 
-  setEdges: (edges) => {
-    const state = get();
-    let newEdges: FlowEdge[];
-    if (typeof edges === 'function') {
-      newEdges = edges(state.edges);
+  setEdges: (edges, changes) => {
+    // Determine whether to push to history and set isDirty based on change types
+    if (changes && changes.length > 0) {
+      // Check if any changes are user-initiated (not just selections)
+      const hasDirtyChanges = changes.some(change =>
+        change.type === 'add' ||
+        change.type === 'remove' ||
+        change.type === 'replace'
+      );
+
+      if (hasDirtyChanges) {
+        get().pushToHistory();
+        set({ edges, isDirty: true });
+      } else {
+        // For selection changes, don't push to history
+        set({ edges });
+      }
     } else {
-      newEdges = edges;
+      // No changes provided, just update edges without history
+      set({ edges });
     }
-
-    // Push current state to history before making changes
-    get().pushToHistory();
-
-    set({ edges: newEdges, isDirty: true });
   },
 
   addEdge: (edge) => {
@@ -304,10 +318,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   setIsAddNodePanelOpen: (isAddNodePanelOpen) => {
     set({ isAddNodePanelOpen });
-  },
-
-  setIsEditingName: (isEditingName) => {
-    set({ isEditingName });
   },
 
   setWorkflowValidationErrors: (workflowValidationErrors) => {
@@ -362,7 +372,6 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       historyIndex: -1,
       isDirty: false,
       isAddNodePanelOpen: false,
-      isEditingName: false,
       workflowValidationErrors: [],
       templateContextVariables: {},
       workflowConfigurations: DEFAULT_WORKFLOW_CONFIGURATIONS,

@@ -21,11 +21,11 @@ import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { AgentNode, EndCall, GlobalNode, StartCall } from "../../../components/flow/nodes";
 import { ConfigurationsDialog } from './components/ConfigurationsDialog';
 import { TemplateContextVariablesDialog } from './components/TemplateContextVariablesDialog';
-import { layoutNodes } from './components/WorkflowControls';
 import WorkflowHeader from "./components/WorkflowHeader";
 import { WorkflowTabs } from './components/WorkflowTabs';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
+import { layoutNodes } from './utils/layoutNodes';
 
 // Define the node types dynamically based on the onSave prop
 const nodeTypes = {
@@ -307,6 +307,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     open={isConfigurationsDialogOpen}
                     onOpenChange={setIsConfigurationsDialogOpen}
                     workflowConfigurations={workflowConfigurations}
+                    workflowName={workflowName}
                     onSave={saveWorkflowConfigurations}
                 />
 

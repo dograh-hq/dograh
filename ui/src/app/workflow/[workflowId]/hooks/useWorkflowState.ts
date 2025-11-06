@@ -9,6 +9,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef } from "react";
 
+import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
 import {
     createWorkflowRunApiV1WorkflowWorkflowIdRunsPost,
     updateWorkflowApiV1WorkflowWorkflowIdPut,
@@ -18,7 +19,6 @@ import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import logger from '@/lib/logger';
 import { getNextNodeId, getRandomId } from "@/lib/utils";
-import { useWorkflowStore } from "@/stores/workflowStore";
 import { WorkflowConfigurations } from "@/types/workflow-configurations";
 
 export function getDefaultAllowInterrupt(type: string = NodeType.START_CALL): boolean {
@@ -102,7 +102,6 @@ export const useWorkflowState = ({
         workflowName,
         isDirty,
         isAddNodePanelOpen,
-        isEditingName,
         workflowValidationErrors,
         templateContextVariables,
         workflowConfigurations,
@@ -316,20 +315,18 @@ export const useWorkflowState = ({
 
     const onEdgesChange: OnEdgesChange = useCallback(
         (changes) => {
-            setEdges((eds) => {
-                const newEdges = applyEdgeChanges(changes, eds) as FlowEdge[];
-                return newEdges;
-            });
+            const currentEdges = useWorkflowStore.getState().edges;
+            const newEdges = applyEdgeChanges(changes, currentEdges) as FlowEdge[];
+            setEdges(newEdges, changes);
         },
         [setEdges],
     );
 
     const onNodesChange: OnNodesChange = useCallback(
         (changes) => {
-            setNodes((nds) => {
-                const newNodes = applyNodeChanges(changes, nds) as FlowNode[];
-                return newNodes;
-            });
+            const currentNodes = useWorkflowStore.getState().nodes;
+            const newNodes = applyNodeChanges(changes, currentNodes) as FlowNode[];
+            setNodes(newNodes, changes);
         },
         [setNodes],
     );
@@ -380,7 +377,7 @@ export const useWorkflowState = ({
     }, [workflowId, workflowName, user, getAccessToken, setTemplateContextVariables]);
 
     // Save workflow configurations
-    const saveWorkflowConfigurations = useCallback(async (configurations: WorkflowConfigurations) => {
+    const saveWorkflowConfigurations = useCallback(async (configurations: WorkflowConfigurations, newWorkflowName: string) => {
         if (!user) return;
         const accessToken = await getAccessToken();
         try {
@@ -389,7 +386,7 @@ export const useWorkflowState = ({
                     workflow_id: workflowId,
                 },
                 body: {
-                    name: workflowName,
+                    name: newWorkflowName,
                     workflow_definition: null,
                     workflow_configurations: configurations as Record<string, unknown>,
                 },
@@ -398,12 +395,13 @@ export const useWorkflowState = ({
                 },
             });
             setWorkflowConfigurations(configurations);
+            setWorkflowName(newWorkflowName);
             logger.info('Workflow configurations saved successfully');
         } catch (error) {
             logger.error(`Error saving workflow configurations: ${error}`);
             throw error;
         }
-    }, [workflowId, workflowName, user, getAccessToken, setWorkflowConfigurations]);
+    }, [workflowId, user, getAccessToken, setWorkflowConfigurations, setWorkflowName]);
 
     // Update rfInstance when it changes
     useEffect(() => {
@@ -423,7 +421,6 @@ export const useWorkflowState = ({
         edges,
         isAddNodePanelOpen,
         workflowName,
-        isEditingName,
         isDirty,
         workflowValidationErrors,
         templateContextVariables,

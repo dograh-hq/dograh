@@ -66,21 +66,22 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                 const workflow = response.data;
                 if (workflow?.call_disposition_codes) {
                     // Update the disposition code attribute with actual options
-                    const updatedAttributes = configuredAttributes.map(attr => {
-                        if (attr.id === 'dispositionCode') {
-                            return {
-                                ...attr,
-                                config: {
-                                    ...attr.config,
-                                    options: Object.keys(workflow.call_disposition_codes || {}).length > 0
-                                                        ? Object.keys(workflow.call_disposition_codes || {})
-                                                        : [...DISPOSITION_CODES]
-                                }
-                            };
-                        }
-                        return attr;
-                    });
-                    setConfiguredAttributes(updatedAttributes);
+                    setConfiguredAttributes(prevAttributes =>
+                        prevAttributes.map(attr => {
+                            if (attr.id === 'dispositionCode') {
+                                return {
+                                    ...attr,
+                                    config: {
+                                        ...attr.config,
+                                        options: Object.keys(workflow.call_disposition_codes || {}).length > 0
+                                                            ? Object.keys(workflow.call_disposition_codes || {})
+                                                            : [...DISPOSITION_CODES]
+                                    }
+                                };
+                            }
+                            return attr;
+                        })
+                    );
                 }
             } catch (err) {
                 console.error("Failed to load disposition codes:", err);
@@ -88,7 +89,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
         };
 
         loadDispositionCodes();
-    }, [workflowId, accessToken, configuredAttributes]);
+    }, [workflowId, accessToken]);
 
     const fetchWorkflowRuns = useCallback(async (page: number, filters?: ActiveFilter[]) => {
         if (!accessToken) return;

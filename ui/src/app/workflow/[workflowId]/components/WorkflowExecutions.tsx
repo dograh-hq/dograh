@@ -88,7 +88,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
         };
 
         loadDispositionCodes();
-    }, [workflowId, accessToken]);
+    }, [workflowId, accessToken, configuredAttributes]);
 
     const fetchWorkflowRuns = useCallback(async (page: number, filters?: ActiveFilter[]) => {
         if (!accessToken) return;

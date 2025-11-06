@@ -12,35 +12,33 @@ interface WorkflowTabsProps {
 export const WorkflowTabs = ({ workflowId, currentTab }: WorkflowTabsProps) => {
     const router = useRouter();
 
+    const handleTabChange = (tab: 'editor' | 'executions') => {
+        router.push(`/workflow/${workflowId}?tab=${tab}`, { scroll: false });
+    };
+
     return (
-        <div className="flex gap-1">
+        <div className="flex gap-2">
             <button
-                onClick={() => router.push(`/workflow/${workflowId}`)}
+                onClick={() => handleTabChange('editor')}
                 className={cn(
-                    "px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer",
+                    "px-6 py-2.5 text-sm font-medium transition-all relative cursor-pointer rounded-md",
                     currentTab === 'editor'
-                        ? "text-gray-900"
-                        : "text-gray-500 hover:text-gray-700"
+                        ? "text-white bg-[#3d4451]"
+                        : "text-gray-300 hover:text-white hover:bg-[#343842]"
                 )}
             >
                 Editor
-                {currentTab === 'editor' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
-                )}
             </button>
             <button
-                onClick={() => router.push(`/workflow/${workflowId}/runs`)}
+                onClick={() => handleTabChange('executions')}
                 className={cn(
-                    "px-4 py-2 text-sm font-medium transition-colors relative cursor-pointer",
+                    "px-6 py-2.5 text-sm font-medium transition-all relative cursor-pointer rounded-md",
                     currentTab === 'executions'
-                        ? "text-gray-900"
-                        : "text-gray-500 hover:text-gray-700"
+                        ? "text-white bg-[#3d4451]"
+                        : "text-gray-300 hover:text-white hover:bg-[#343842]"
                 )}
             >
                 Executions
-                {currentTab === 'executions' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600" />
-                )}
             </button>
         </div>
     );

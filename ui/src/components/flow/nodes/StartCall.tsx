@@ -100,7 +100,8 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
-                highlighted={data.highlighted}
+                selected_through_edge={data.selected_through_edge}
+                hovered_through_edge={data.hovered_through_edge}
                 title="Start Call"
                 icon={<Play />}
                 bgColor="bg-green-300"

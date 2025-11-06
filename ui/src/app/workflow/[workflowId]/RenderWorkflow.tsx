@@ -8,7 +8,7 @@ import {
     ReactFlow,
 } from "@xyflow/react";
 import { BrushCleaning, Maximize2, Minus, Plus, Settings, Variable } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
@@ -69,9 +69,11 @@ interface RenderWorkflowProps {
     };
     initialTemplateContextVariables?: Record<string, string>;
     initialWorkflowConfigurations?: WorkflowConfigurations;
+    user: { id: string; email?: string };
+    getAccessToken: () => Promise<string>;
 }
 
-function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations }: RenderWorkflowProps) {
+function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, user, getAccessToken }: RenderWorkflowProps) {
     const [isContextVarsDialogOpen, setIsContextVarsDialogOpen] = useState(false);
     const [isConfigurationsDialogOpen, setIsConfigurationsDialogOpen] = useState(false);
 
@@ -95,7 +97,15 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         onRun,
         saveTemplateContextVariables,
         saveWorkflowConfigurations
-    } = useWorkflowState({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations });
+    } = useWorkflowState({
+        initialWorkflowName,
+        workflowId,
+        initialFlow,
+        initialTemplateContextVariables,
+        initialWorkflowConfigurations,
+        user,
+        getAccessToken
+    });
 
     // Memoize defaultEdgeOptions to prevent unnecessary re-renders
     const defaultEdgeOptions = useMemo(() => ({
@@ -112,15 +122,20 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
             onRun={onRun}
             workflowId={workflowId}
             saveWorkflow={saveWorkflow}
+            user={user}
+            getAccessToken={getAccessToken}
         />
     );
 
     const stickyTabs = <WorkflowTabs workflowId={workflowId} currentTab="editor" />;
 
+    // Memoize the context value to prevent unnecessary re-renders
+    const workflowContextValue = useMemo(() => ({ saveWorkflow }), [saveWorkflow]);
+
     return (
-        <WorkflowProvider value={{ saveWorkflow }}>
+        <WorkflowProvider value={workflowContextValue}>
             <WorkflowLayout headerActions={headerActions} showFeaturesNav={false} stickyTabs={stickyTabs}>
-                <div className="h-[calc(100vh-80px)] relative">
+                <div className="h-[calc(100vh-128px)] relative">
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
@@ -131,8 +146,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                         onConnect={onConnect}
                         onInit={(instance) => {
                             rfInstance.current = instance;
+                            // Center the workflow on load
+                            setTimeout(() => {
+                                instance.fitView({ padding: 0.2, duration: 200, maxZoom: 0.75 });
+                            }, 0);
                         }}
                         defaultEdgeOptions={defaultEdgeOptions}
+                        defaultViewport={initialFlow?.viewport}
                     >
                         <Background
                             variant={BackgroundVariant.Dots}
@@ -301,4 +321,15 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     );
 }
 
-export default RenderWorkflow;
+// Memoize the component to prevent unnecessary re-renders when parent re-renders
+export default React.memo(RenderWorkflow, (prevProps, nextProps) => {
+    // Only re-render if these specific props change
+    return (
+        prevProps.workflowId === nextProps.workflowId &&
+        prevProps.initialWorkflowName === nextProps.initialWorkflowName &&
+        prevProps.user.id === nextProps.user.id &&
+        prevProps.getAccessToken === nextProps.getAccessToken
+        // Note: We intentionally don't compare initialFlow, initialTemplateContextVariables,
+        // or initialWorkflowConfigurations because they're only used for initialization
+    );
+});

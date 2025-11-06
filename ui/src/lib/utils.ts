@@ -13,6 +13,15 @@ export function getRandomId() {
   return Math.floor(Math.random() * 10_000);
 }
 
+export function getNextNodeId(existingNodes: { id: string }[]): string {
+  const numericIds = existingNodes
+    .map(node => parseInt(node.id, 10))
+    .filter(id => !isNaN(id));
+
+  const maxId = numericIds.length > 0 ? Math.max(...numericIds) : 0;
+  return String(maxId + 1);
+}
+
 export function debounce<T extends (...args: unknown[]) => unknown>(func: T, wait: number): (...args: Parameters<T>) => void {
   let timeout: NodeJS.Timeout | null = null;
 

@@ -61,7 +61,8 @@ export const GlobalNode = memo(({ data, selected, id }: GlobalNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
-                highlighted={data.highlighted}
+                selected_through_edge={data.selected_through_edge}
+                hovered_through_edge={data.hovered_through_edge}
                 title={data.name || 'Global'}
                 icon={<Headset />}
                 bgColor="bg-orange-300"

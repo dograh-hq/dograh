@@ -92,7 +92,8 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
-                highlighted={data.highlighted}
+                selected_through_edge={data.selected_through_edge}
+                hovered_through_edge={data.hovered_through_edge}
                 title="End Call"
                 icon={<OctagonX />}
                 bgColor="bg-red-300"

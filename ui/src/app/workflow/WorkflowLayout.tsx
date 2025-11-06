@@ -15,9 +15,11 @@ const WorkflowLayout: React.FC<WorkflowLayoutProps> = ({ children, headerActions
         <>
             <BaseHeader headerActions={headerActions} backButton={backButton} showFeaturesNav={showFeaturesNav} />
             {stickyTabs && (
-                <div className="sticky top-0 z-50 bg-white border-b">
-                    <div className="flex justify-center relative">
-                        {stickyTabs}
+                <div className="sticky top-[73px] z-40 bg-[#2a2e39] border-b border-gray-700">
+                    <div className="container mx-auto px-4">
+                        <div className="flex items-center justify-center py-2">
+                            {stickyTabs}
+                        </div>
                     </div>
                 </div>
             )}

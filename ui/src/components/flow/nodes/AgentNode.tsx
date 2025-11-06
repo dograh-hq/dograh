@@ -88,7 +88,8 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             <NodeContent
                 selected={selected}
                 invalid={data.invalid}
-                highlighted={data.highlighted}
+                selected_through_edge={data.selected_through_edge}
+                hovered_through_edge={data.hovered_through_edge}
                 title={data.name || 'Agent'}
                 icon={<Headset />}
                 bgColor="bg-blue-300"

@@ -29,7 +29,7 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@sentry/nextjs": "^9.28.1",
     "@stackframe/stack": "^2.8.28",
-    "@xyflow/react": "^12.5.5",
+    "@xyflow/react": "^12.9.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
@@ -52,7 +52,9 @@
     "sonner": "^2.0.5",
     "tailwind-merge": "^3.2.0",
     "tailwindcss-animate": "^1.0.7",
-    "tw-animate-css": "^1.2.5"
+    "tw-animate-css": "^1.2.5",
+    "zundo": "^2.3.0",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",

@@ -92,11 +92,6 @@ export default function CustomEdge(props: CustomEdgeProps) {
     const [open, setOpen] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
 
-    // Edge is highlighted when either selected or hovered
-    const isHighlighted = selected || isHovered;
-
-    console.log("in CustomEdge", id, selected, isHovered, isHighlighted);
-
     const parallel = getEdges().filter(
         (e) =>
             (e.source === source && e.target === target) ||
@@ -131,34 +126,34 @@ export default function CustomEdge(props: CustomEdgeProps) {
         targetPosition,
     });
 
-    // Highlight connected nodes when edge is highlighted (selected or hovered)
+    // Update connected nodes when edge is selected or hovered
     useEffect(() => {
-        if (isHighlighted) {
-            setNodes((nodes) =>
-                nodes.map((node) => {
-                    if (node.id === source || node.id === target) {
+        setNodes((nodes) => {
+            return nodes.map((node) => {
+                if (node.id === source || node.id === target) {
+                    // Update both properties based on edge state
+                    const shouldSelectThroughEdge = selected || false;
+                    const shouldHoverThroughEdge = isHovered || false;
+
+                    // Only update if state actually changed
+                    if (
+                        node.data.selected_through_edge !== shouldSelectThroughEdge ||
+                        node.data.hovered_through_edge !== shouldHoverThroughEdge
+                    ) {
                         return {
                             ...node,
-                            data: { ...node.data, highlighted: true }
+                            data: {
+                                ...node.data,
+                                selected_through_edge: shouldSelectThroughEdge,
+                                hovered_through_edge: shouldHoverThroughEdge
+                            }
                         };
                     }
-                    return node;
-                })
-            );
-        } else {
-            setNodes((nodes) =>
-                nodes.map((node) => {
-                    if (node.id === source || node.id === target) {
-                        return {
-                            ...node,
-                            data: { ...node.data, highlighted: false }
-                        };
-                    }
-                    return node;
-                })
-            );
-        }
-    }, [isHighlighted, source, target, setNodes, selected]);
+                }
+                return node;
+            });
+        });
+    }, [selected, isHovered, source, target, setNodes]);
 
     const handleSaveEdgeData = useCallback(async (updatedData: FlowEdgeData) => {
         // Update the node data in the ReactFlow nodes state
@@ -182,24 +177,31 @@ export default function CustomEdge(props: CustomEdgeProps) {
             <g
                 onMouseEnter={() => setIsHovered(true)}
                 onMouseLeave={() => setIsHovered(false)}
+                onDoubleClick={() => setOpen(true)}
             >
                 <BaseEdge
                     id={id}
                     path={edgePath}
                     style={{
                         ...style,
-                        stroke: isHighlighted
-                            ? '#3B82F6'  // blue-500 when highlighted (selected or hovered)
-                            : data?.invalid ? '#EF4444' : '#94A3B8',
-                        strokeWidth: isHighlighted ? 4 : 2.5,
-                        filter: isHighlighted ? 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))' : 'none',
+                        stroke: selected
+                            ? '#3B82F6'  // blue-500 when selected
+                            : isHovered
+                                ? '#60A5FA'  // blue-400 when hovered
+                                : data?.invalid ? '#EF4444' : '#94A3B8',
+                        strokeWidth: selected ? 4 : isHovered ? 3 : 2.5,
+                        filter: selected
+                            ? 'drop-shadow(0 0 8px rgba(59, 130, 246, 0.6))'
+                            : isHovered
+                                ? 'drop-shadow(0 0 6px rgba(96, 165, 250, 0.4))'
+                                : 'none',
                         transition: 'all 0.2s ease',
                     }}
                     interactionWidth={20}
                 />
             </g>
-            {/* Show label when highlighted (selected or hovered), positioned at edge center */}
-            {isHighlighted && (
+            {/* Show label when selected or hovered, positioned at edge center */}
+            {(selected || isHovered) && (
                 <EdgeLabelRenderer>
                     <div
                         style={{
@@ -212,6 +214,7 @@ export default function CustomEdge(props: CustomEdgeProps) {
                         className="nodrag nopan"
                         onMouseEnter={() => setIsHovered(true)}
                         onMouseLeave={() => setIsHovered(false)}
+                        onDoubleClick={() => setOpen(true)}
                     >
                         <div className={cn(
                             "flex flex-col gap-2 bg-white rounded-lg border-2 shadow-xl min-w-[200px]",
@@ -224,7 +227,7 @@ export default function CustomEdge(props: CustomEdgeProps) {
                                 data?.invalid ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"
                             )}>
                                 <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                                    Condition
+                                    Condition - EdgeID: {id}
                                 </span>
                                 <Button
                                     variant="ghost"

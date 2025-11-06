@@ -8,7 +8,8 @@ import { NodeHeader, NodeHeaderIcon, NodeHeaderTitle } from "@/components/flow/n
 interface NodeContentProps {
     selected: boolean;
     invalid?: boolean;
-    highlighted?: boolean;
+    selected_through_edge?: boolean;
+    hovered_through_edge?: boolean;
     title: string;
     icon: ReactNode;
     bgColor: string;
@@ -23,7 +24,8 @@ interface NodeContentProps {
 export const NodeContent = ({
     selected,
     invalid,
-    highlighted,
+    selected_through_edge,
+    hovered_through_edge,
     title,
     icon,
     bgColor,
@@ -38,15 +40,15 @@ export const NodeContent = ({
         <BaseNode
             selected={selected}
             invalid={invalid}
-            highlighted={highlighted}
+            selected_through_edge={selected_through_edge}
+            hovered_through_edge={hovered_through_edge}
             className={`p-0 overflow-hidden ${className}`}
             onDoubleClick={onDoubleClick}
         >
             {hasTargetHandle && <BaseHandle type="target" position={Position.Top} />}
             <NodeHeader className={`px-3 py-2 border-b ${bgColor}`}>
                 <NodeHeaderIcon>{icon}</NodeHeaderIcon>
-                <NodeHeaderTitle>{title}</NodeHeaderTitle>
-                <p>{nodeId}</p>
+                <NodeHeaderTitle>{title} - NodeID: {nodeId}</NodeHeaderTitle>
             </NodeHeader>
             <div className="p-3">
                 {children}

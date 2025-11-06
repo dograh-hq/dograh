@@ -1,7 +1,7 @@
-import { useReactFlow } from "@xyflow/react";
 import { useCallback, useState } from "react";
 
-import { FlowEdge, FlowNode, FlowNodeData } from "@/components/flow/types";
+import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
+import { FlowNodeData } from "@/components/flow/types";
 
 interface UseNodeHandlersProps {
     id: string;
@@ -10,25 +10,26 @@ interface UseNodeHandlersProps {
 
 export const useNodeHandlers = ({ id, additionalData = {} }: UseNodeHandlersProps) => {
     const [open, setOpen] = useState(false);
-    const { setNodes } = useReactFlow<FlowNode, FlowEdge>();
+    const updateNode = useWorkflowStore((state) => state.updateNode);
+    const deleteNode = useWorkflowStore((state) => state.deleteNode);
+    const nodes = useWorkflowStore((state) => state.nodes);
 
     const handleSaveNodeData = useCallback(
         (updatedData: FlowNodeData) => {
-            setNodes((nodes) => {
-                const updatedNodes = nodes.map((node) =>
-                    node.id === id
-                        ? { ...node, data: { ...node.data, ...updatedData, ...additionalData } }
-                        : node
-                );
-                return updatedNodes;
-            });
+            // Find the current node to merge data properly
+            const currentNode = nodes.find(node => node.id === id);
+            if (currentNode) {
+                updateNode(id, {
+                    data: { ...currentNode.data, ...updatedData, ...additionalData }
+                });
+            }
         },
-        [id, setNodes, additionalData]
+        [id, updateNode, additionalData, nodes]
     );
 
     const handleDeleteNode = useCallback(() => {
-        setNodes((nodes) => nodes.filter((node) => node.id !== id));
-    }, [id, setNodes]);
+        deleteNode(id);
+    }, [id, deleteNode]);
 
     return {
         open,

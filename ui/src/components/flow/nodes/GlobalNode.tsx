@@ -1,6 +1,6 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
 import { Edit, Headset, Trash2Icon } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { FlowNodeData } from "@/components/flow/types";
@@ -55,6 +55,14 @@ export const GlobalNode = memo(({ data, selected, id }: GlobalNodeProps) => {
         }
         setOpen(newOpen);
     };
+
+    // Update form state when data changes (e.g., from undo/redo)
+    useEffect(() => {
+        if (open) {
+            setPrompt(data.prompt);
+            setName(data.name);
+        }
+    }, [data, open]);
 
     return (
         <>

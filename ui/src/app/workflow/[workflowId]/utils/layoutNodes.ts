@@ -7,8 +7,7 @@ export const layoutNodes = (
     nodes: FlowNode[],
     edges: FlowEdge[],
     rankdir: 'TB' | 'LR',
-    rfInstance: React.RefObject<ReactFlowInstance<FlowNode, FlowEdge> | null>,
-    saveWorkflow: (updateWorkflowDefinition: boolean) => Promise<void>
+    rfInstance: React.RefObject<ReactFlowInstance<FlowNode, FlowEdge> | null>
 ) => {
     const g = new dagre.graphlib.Graph();
     g.setGraph({ rankdir, nodesep: 250, ranksep: 250 });

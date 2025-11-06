@@ -1,5 +1,5 @@
 import { ReactFlowInstance } from '@xyflow/react';
-import { NodeChange, EdgeChange } from '@xyflow/system';
+import { EdgeChange,NodeChange } from '@xyflow/system';
 import { create } from 'zustand';
 
 import { WorkflowError } from '@/client/types.gen';

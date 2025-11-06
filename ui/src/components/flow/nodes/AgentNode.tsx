@@ -1,6 +1,6 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
 import { Edit, Headset, PlusIcon,Trash2Icon } from "lucide-react";
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { ExtractionVariable,FlowNodeData } from "@/components/flow/types";
@@ -82,6 +82,19 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
         }
         setOpen(newOpen);
     };
+
+    // Update form state when data changes (e.g., from undo/redo)
+    useEffect(() => {
+        if (open) {
+            setPrompt(data.prompt);
+            setName(data.name);
+            setAllowInterrupt(data.allow_interrupt ?? true);
+            setExtractionEnabled(data.extraction_enabled ?? false);
+            setExtractionPrompt(data.extraction_prompt ?? "");
+            setVariables(data.extraction_variables ?? []);
+            setAddGlobalPrompt(data.add_global_prompt ?? true);
+        }
+    }, [data, open]);
 
     return (
         <>

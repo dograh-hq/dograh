@@ -3,6 +3,7 @@ import { AlertCircle, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -24,6 +25,14 @@ interface EdgeDetailsDialogProps {
 const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDialogProps) => {
     const [condition, setCondition] = useState(data?.condition ?? '');
     const [label, setLabel] = useState(data?.label ?? '');
+
+    // Update form state when data changes (e.g., from undo/redo)
+    useEffect(() => {
+        if (open) {
+            setCondition(data?.condition ?? '');
+            setLabel(data?.label ?? '');
+        }
+    }, [data, open]);
 
     const handleSave = () => {
         onSave({ condition: condition, label: label });
@@ -87,8 +96,9 @@ interface CustomEdgeProps extends EdgeProps {
 export default function CustomEdge(props: CustomEdgeProps) {
     const { id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data, style, selected } = props;
 
-    const { getEdges, setEdges, setNodes } = useReactFlow<FlowNode, FlowEdge>();
+    const { getEdges, setNodes } = useReactFlow<FlowNode, FlowEdge>();
     const { saveWorkflow } = useWorkflow();
+    const updateEdge = useWorkflowStore((state) => state.updateEdge);
     const [open, setOpen] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
 
@@ -156,21 +166,14 @@ export default function CustomEdge(props: CustomEdgeProps) {
     }, [selected, isHovered, source, target, setNodes]);
 
     const handleSaveEdgeData = useCallback(async (updatedData: FlowEdgeData) => {
-        // Update the node data in the ReactFlow nodes state
-        setEdges((edges) => {
-            const updatedEdges = edges.map((edge) =>
-                edge.id === id
-                    ? { ...edge, data: updatedData }
-                    : edge
-            )
-            return updatedEdges;
-        }
-        );
+        // Use the workflow store's updateEdge method to properly track history
+        updateEdge(id, { data: updatedData });
+
         // Save the workflow after updating edge data with a small delay to ensure state is updated
         setTimeout(async () => {
             await saveWorkflow();
         }, 100);
-    }, [id, setEdges, saveWorkflow]);
+    }, [id, updateEdge, saveWorkflow]);
 
     return (
         <>
@@ -200,22 +203,23 @@ export default function CustomEdge(props: CustomEdgeProps) {
                     interactionWidth={20}
                 />
             </g>
-            {/* Show label when selected or hovered, positioned at edge center */}
-            {(selected || isHovered) && (
-                <EdgeLabelRenderer>
-                    <div
-                        style={{
-                            position: 'absolute',
-                            pointerEvents: 'all',
-                            transformOrigin: 'center',
-                            transform: `translate(-50%, -50%) translate(${labelX + offsetX}px, ${labelY + offsetY}px)`,
-                            zIndex: 1000,
-                        }}
-                        className="nodrag nopan"
-                        onMouseEnter={() => setIsHovered(true)}
-                        onMouseLeave={() => setIsHovered(false)}
-                        onDoubleClick={() => setOpen(true)}
-                    >
+            {/* Always show label, expand on select/hover */}
+            <EdgeLabelRenderer>
+                <div
+                    style={{
+                        position: 'absolute',
+                        pointerEvents: 'all',
+                        transformOrigin: 'center',
+                        transform: `translate(-50%, -50%) translate(${labelX + offsetX}px, ${labelY + offsetY}px)`,
+                        zIndex: 1000,
+                    }}
+                    className="nodrag nopan"
+                    onMouseEnter={() => setIsHovered(true)}
+                    onMouseLeave={() => setIsHovered(false)}
+                    onDoubleClick={() => setOpen(true)}
+                >
+                    {/* Show full EdgeLabel when selected or hovered, otherwise show simple label */}
+                    {(selected || isHovered) ? (
                         <div className={cn(
                             "flex flex-col gap-2 bg-white rounded-lg border-2 shadow-xl min-w-[200px]",
                             "animate-in fade-in zoom-in duration-200",
@@ -245,9 +249,19 @@ export default function CustomEdge(props: CustomEdgeProps) {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </EdgeLabelRenderer>
-            )}
+                    ) : (
+                        /* Simple label shown by default */
+                        <div className={cn(
+                            "px-2 py-1 bg-white rounded border shadow-sm",
+                            data?.invalid ? "border-red-400 text-red-600" : "border-gray-300 text-gray-700"
+                        )}>
+                            <div className="text-xs font-medium">
+                                {data?.label || data?.condition || 'No condition'}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </EdgeLabelRenderer>
             <EdgeDetailsDialog
                 open={open}
                 onOpenChange={setOpen}

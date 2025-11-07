@@ -11,7 +11,16 @@ jobs:
       - name: Check if announcement
         id: check
         run: |
-          # GitHub API check to verify it's in announcements category
+          # Check if the discussion is in the announcements category
+          CATEGORY="${{ github.event.discussion.category.slug }}"
+          echo "Category: $CATEGORY"
+          
+          # Check for both possible variations
+          if [ "$CATEGORY" = "announcements" ] || [ "$CATEGORY" = "announcement" ]; then
+            echo "is_announcement=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_announcement=false" >> $GITHUB_OUTPUT
+          fi
           
       - name: Post to Slack
         if: steps.check.outputs.is_announcement == 'true'

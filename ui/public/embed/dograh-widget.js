@@ -40,32 +40,75 @@
   async function init() {
     if (state.isInitialized) return;
 
-    // Get configuration from script tag
-    const script = document.currentScript || document.querySelector('script[data-dograh-token]');
+    // Get token from script URL
+    const script = document.currentScript || document.querySelector('script[src*="dograh-widget.js"]');
     if (!script) {
-      console.error('Dograh Widget: No configuration found');
+      console.error('Dograh Widget: Script not found');
       return;
     }
 
-    // Parse configuration with data-dograh- prefix
+    // Extract parameters from URL
+    const scriptUrl = new URL(script.src);
+    const token = scriptUrl.searchParams.get('token');
+    const apiEndpoint = scriptUrl.searchParams.get('apiEndpoint');
+    const environment = scriptUrl.searchParams.get('environment');
+
+    if (!token) {
+      console.error('Dograh Widget: No token found in script URL');
+      return;
+    }
+
+    // Determine API base URL
+    let apiBaseUrl = DEFAULT_CONFIG.apiBaseUrl;
+    if (apiEndpoint) {
+      // Use the apiEndpoint from URL parameter if provided
+      apiBaseUrl = apiEndpoint.replace(/\/+$/, ''); // Remove trailing slashes
+    } else if (scriptUrl.origin.includes('localhost')) {
+      apiBaseUrl = 'http://localhost:8000';
+    } else {
+      apiBaseUrl = scriptUrl.origin.replace(/:\d+$/, ':8000');
+    }
+
+    // Store base configuration
     state.config = {
       ...DEFAULT_CONFIG,
-      token: script.getAttribute('data-dograh-token'),
-      workflowId: script.getAttribute('data-dograh-workflow-id'),
-      runId: script.getAttribute('data-dograh-run-id'),
-      position: script.getAttribute('data-dograh-position') || DEFAULT_CONFIG.position,
-      theme: script.getAttribute('data-dograh-theme') || DEFAULT_CONFIG.theme,
-      buttonText: script.getAttribute('data-dograh-button-text') || DEFAULT_CONFIG.buttonText,
-      buttonColor: script.getAttribute('data-dograh-button-color') || DEFAULT_CONFIG.buttonColor,
-      size: script.getAttribute('data-dograh-size') || DEFAULT_CONFIG.size,
-      autoStart: script.getAttribute('data-dograh-auto-start') === 'true',
-      apiBaseUrl: script.getAttribute('data-dograh-api-url') || DEFAULT_CONFIG.apiBaseUrl,
+      token: token,
+      apiBaseUrl: apiBaseUrl,
+      environment: environment || 'production',
+      // Allow data attributes to override fetched config
       contextVariables: parseContextVariables(script.getAttribute('data-dograh-context'))
     };
 
-    // Check for required parameters
-    if (!state.config.token && (!state.config.workflowId || !state.config.runId)) {
-      console.error('Dograh Widget: Missing required configuration (token or workflow/run IDs)');
+    try {
+      // Fetch configuration from API
+      const configResponse = await fetch(`${state.config.apiBaseUrl}/public/embed/config/${token}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': window.location.origin
+        }
+      });
+
+      if (!configResponse.ok) {
+        throw new Error(`Failed to fetch config: ${configResponse.status}`);
+      }
+
+      const configData = await configResponse.json();
+
+      // Merge fetched configuration with defaults
+      state.config = {
+        ...state.config,
+        workflowId: configData.workflow_id,
+        position: configData.position || DEFAULT_CONFIG.position,
+        theme: configData.theme || DEFAULT_CONFIG.theme,
+        buttonText: configData.button_text || DEFAULT_CONFIG.buttonText,
+        buttonColor: configData.button_color || DEFAULT_CONFIG.buttonColor,
+        size: configData.size || DEFAULT_CONFIG.size,
+        autoStart: configData.auto_start || false
+      };
+
+    } catch (error) {
+      console.error('Dograh Widget: Failed to fetch configuration', error);
       return;
     }
 
@@ -610,7 +653,7 @@
    * Initialize embed session
    */
   async function initializeEmbedSession() {
-    const response = await fetch(`${state.config.apiBaseUrl}/api/v1/public/embed/init`, {
+    const response = await fetch(`${state.config.apiBaseUrl}/public/embed/init`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -694,7 +737,7 @@
   async function connectWebSocket() {
     return new Promise((resolve, reject) => {
       // Use public signaling endpoint for embed tokens
-      const wsUrl = `${state.config.apiBaseUrl.replace('http', 'ws')}/api/v1/ws/public/signaling/${state.sessionToken}`;
+      const wsUrl = `${state.config.apiBaseUrl.replace('http', 'ws')}/ws/public/signaling/${state.sessionToken}`;
 
       state.ws = new WebSocket(wsUrl);
       state.pcId = generatePeerId();

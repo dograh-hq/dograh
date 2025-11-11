@@ -1,4 +1,4 @@
-import { Check, Copy, Globe, Loader2, Rocket } from "lucide-react";
+import { Check, Copy, Loader2, Plus, Rocket, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { client } from "@/client/client.gen";
@@ -7,13 +7,11 @@ import {
     deactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDelete,
     getEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGet,
 } from "@/client/sdk.gen";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
     DialogDescription,
-    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
@@ -28,8 +26,6 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 
 interface EmbedDialogProps {
     open: boolean;
@@ -63,17 +59,14 @@ export function EmbedDialog({
     const [saving, setSaving] = useState(false);
     const [embedToken, setEmbedToken] = useState<EmbedToken | null>(null);
     const [copied, setCopied] = useState(false);
-    const [testPageCopied, setTestPageCopied] = useState(false);
 
     // Form state
     const [isEnabled, setIsEnabled] = useState(false);
-    const [domains, setDomains] = useState<string>("");
+    const [domains, setDomains] = useState<string[]>([]);
+    const [newDomain, setNewDomain] = useState("");
     const [position, setPosition] = useState("bottom-right");
-    const [theme, setTheme] = useState("light");
     const [buttonText, setButtonText] = useState("Start Voice Call");
     const [buttonColor, setButtonColor] = useState("#3B82F6");
-    const [usageLimit, setUsageLimit] = useState<string>("");
-    const [expiresInDays, setExpiresInDays] = useState<string>("30");
 
     const loadEmbedToken = useCallback(async () => {
         setLoading(true);
@@ -94,20 +87,15 @@ export function EmbedDialog({
 
                 // Load settings
                 if (response.data.settings) {
-                    setPosition(response.data.settings.position || "bottom-right");
-                    setTheme(response.data.settings.theme || "light");
-                    setButtonText(response.data.settings.buttonText || "Start Voice Call");
-                    setButtonColor(response.data.settings.buttonColor || "#3B82F6");
+                    const settings = response.data.settings as Record<string, string>;
+                    setPosition(settings.position || "bottom-right");
+                    setButtonText(settings.buttonText || "Start Voice Call");
+                    setButtonColor(settings.buttonColor || "#3B82F6");
                 }
 
                 // Load domains
                 if (response.data.allowed_domains) {
-                    setDomains(response.data.allowed_domains.join("\n"));
-                }
-
-                // Load limits
-                if (response.data.usage_limit) {
-                    setUsageLimit(response.data.usage_limit.toString());
+                    setDomains(response.data.allowed_domains);
                 }
             }
         } catch (error) {
@@ -140,23 +128,19 @@ export function EmbedDialog({
                 setEmbedToken(null);
             } else if (isEnabled) {
                 // Create or update token
-                const domainList = domains
-                    .split("\n")
-                    .map(d => d.trim())
-                    .filter(d => d.length > 0);
-
                 const response = await createOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPost({
                     path: { workflow_id: workflowId },
                     body: {
-                        allowed_domains: domainList.length > 0 ? domainList : null,
+                        allowed_domains: domains.length > 0 ? domains : null,
                         settings: {
                             position,
-                            theme,
                             buttonText,
                             buttonColor,
+                            size: "medium",
+                            autoStart: false,
                         },
-                        usage_limit: usageLimit ? parseInt(usageLimit) : null,
-                        expires_in_days: expiresInDays ? parseInt(expiresInDays) : null,
+                        usage_limit: null,
+                        expires_in_days: null,
                     },
                 });
 
@@ -165,7 +149,7 @@ export function EmbedDialog({
                 }
             }
 
-            onOpenChange(false);
+            // Don't close modal after saving - let user copy the embed code
         } catch (error) {
             console.error("Failed to save embed token:", error);
         } finally {
@@ -173,20 +157,33 @@ export function EmbedDialog({
         }
     };
 
-    const copyToClipboard = (text: string, setCopiedFn: (value: boolean) => void) => {
+    const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text);
-        setCopiedFn(true);
-        setTimeout(() => setCopiedFn(false), 2000);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
     };
 
-    const getTestPageUrl = () => {
-        const baseUrl = window.location.origin;
-        return `${baseUrl}/test-embed.html?token=${embedToken?.token}`;
+    const addDomain = () => {
+        if (newDomain.trim() && !domains.includes(newDomain.trim())) {
+            setDomains([...domains, newDomain.trim()]);
+            setNewDomain("");
+        }
+    };
+
+    const removeDomain = (domain: string) => {
+        setDomains(domains.filter(d => d !== domain));
+    };
+
+    const handleKeyPress = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            addDomain();
+        }
     };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                     <DialogTitle className="flex items-center gap-2">
                         <Rocket className="h-5 w-5" />
@@ -222,134 +219,90 @@ export function EmbedDialog({
                             <>
                                 <Separator />
 
-                                <Tabs defaultValue="configuration" className="w-full">
-                                    <TabsList className="grid w-full grid-cols-3">
-                                        <TabsTrigger value="configuration">Configuration</TabsTrigger>
-                                        <TabsTrigger value="appearance">Appearance</TabsTrigger>
-                                        <TabsTrigger value="embed-code">Embed Code</TabsTrigger>
-                                    </TabsList>
+                                {/* Allowed Domains */}
+                                <div className="space-y-3">
+                                    <Label>
+                                        Allowed Domains
+                                        <span className="text-xs text-muted-foreground ml-2">
+                                            (leave empty to allow all domains)
+                                        </span>
+                                    </Label>
 
-                                    <TabsContent value="configuration" className="space-y-4">
+                                    {/* Domain Input */}
+                                    <div className="flex gap-2">
+                                        <Input
+                                            placeholder="example.com or *.example.com"
+                                            value={newDomain}
+                                            onChange={(e) => setNewDomain(e.target.value)}
+                                            onKeyPress={handleKeyPress}
+                                        />
+                                        <Button
+                                            type="button"
+                                            size="icon"
+                                            variant="outline"
+                                            onClick={addDomain}
+                                            disabled={!newDomain.trim()}
+                                        >
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+
+                                    {/* Domain List */}
+                                    {domains.length > 0 && (
                                         <div className="space-y-2">
-                                            <Label htmlFor="domains">
-                                                Allowed Domains
-                                                <span className="text-xs text-muted-foreground ml-2">
-                                                    (one per line, leave empty for all)
-                                                </span>
-                                            </Label>
-                                            <Textarea
-                                                id="domains"
-                                                placeholder="example.com&#10;*.example.com&#10;app.example.com"
-                                                value={domains}
-                                                onChange={(e) => setDomains(e.target.value)}
-                                                rows={4}
-                                            />
-                                        </div>
-
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="usage-limit">
-                                                    Usage Limit
-                                                    <span className="text-xs text-muted-foreground ml-2">
-                                                        (optional)
-                                                    </span>
-                                                </Label>
-                                                <Input
-                                                    id="usage-limit"
-                                                    type="number"
-                                                    placeholder="Unlimited"
-                                                    value={usageLimit}
-                                                    onChange={(e) => setUsageLimit(e.target.value)}
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label htmlFor="expires">
-                                                    Expires In (days)
-                                                    <span className="text-xs text-muted-foreground ml-2">
-                                                        (optional)
-                                                    </span>
-                                                </Label>
-                                                <Input
-                                                    id="expires"
-                                                    type="number"
-                                                    placeholder="Never"
-                                                    value={expiresInDays}
-                                                    onChange={(e) => setExpiresInDays(e.target.value)}
-                                                />
-                                            </div>
-                                        </div>
-
-                                        {embedToken && (
-                                            <div className="rounded-lg bg-muted/50 p-4 space-y-2">
-                                                <div className="flex items-center justify-between">
-                                                    <span className="text-sm font-medium">Usage Statistics</span>
-                                                    <Badge variant="secondary">
-                                                        {embedToken.usage_count} / {embedToken.usage_limit || "∞"}
-                                                    </Badge>
+                                            {domains.map((domain, index) => (
+                                                <div
+                                                    key={index}
+                                                    className="flex items-center justify-between bg-muted/50 rounded-lg px-3 py-2"
+                                                >
+                                                    <span className="text-sm font-mono">{domain}</span>
+                                                    <Button
+                                                        type="button"
+                                                        size="icon"
+                                                        variant="ghost"
+                                                        className="h-6 w-6"
+                                                        onClick={() => removeDomain(domain)}
+                                                    >
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </Button>
                                                 </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Created: {new Date(embedToken.created_at).toLocaleDateString()}
-                                                    {embedToken.expires_at && (
-                                                        <> · Expires: {new Date(embedToken.expires_at).toLocaleDateString()}</>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </TabsContent>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
 
-                                    <TabsContent value="appearance" className="space-y-4">
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="position">Position</Label>
-                                                <Select value={position} onValueChange={setPosition}>
-                                                    <SelectTrigger id="position">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="bottom-right">Bottom Right</SelectItem>
-                                                        <SelectItem value="bottom-left">Bottom Left</SelectItem>
-                                                        <SelectItem value="top-right">Top Right</SelectItem>
-                                                        <SelectItem value="top-left">Top Left</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                {/* Widget Appearance */}
+                                <div className="space-y-4">
+                                    <Label>Widget Appearance</Label>
 
-                                            <div className="space-y-2">
-                                                <Label htmlFor="theme">Theme</Label>
-                                                <Select value={theme} onValueChange={setTheme}>
-                                                    <SelectTrigger id="theme">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="light">Light</SelectItem>
-                                                        <SelectItem value="dark">Dark</SelectItem>
-                                                        <SelectItem value="auto">Auto</SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="position" className="text-sm">Position</Label>
+                                            <Select value={position} onValueChange={setPosition}>
+                                                <SelectTrigger id="position">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="bottom-right">Bottom Right</SelectItem>
+                                                    <SelectItem value="bottom-left">Bottom Left</SelectItem>
+                                                    <SelectItem value="top-right">Top Right</SelectItem>
+                                                    <SelectItem value="top-left">Top Left</SelectItem>
+                                                </SelectContent>
+                                            </Select>
                                         </div>
 
                                         <div className="space-y-2">
-                                            <Label htmlFor="button-text">Button Text</Label>
-                                            <Input
-                                                id="button-text"
-                                                value={buttonText}
-                                                onChange={(e) => setButtonText(e.target.value)}
-                                            />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label htmlFor="button-color">Button Color</Label>
+                                            <Label htmlFor="button-color" className="text-sm">Button Color</Label>
                                             <div className="flex gap-2">
                                                 <Input
-                                                    id="button-color"
+                                                    id="button-color-picker"
                                                     type="color"
                                                     value={buttonColor}
                                                     onChange={(e) => setButtonColor(e.target.value)}
-                                                    className="w-20 h-10 cursor-pointer"
+                                                    className="w-14 h-10 cursor-pointer"
                                                 />
                                                 <Input
+                                                    id="button-color"
                                                     value={buttonColor}
                                                     onChange={(e) => setButtonColor(e.target.value)}
                                                     placeholder="#3B82F6"
@@ -357,135 +310,99 @@ export function EmbedDialog({
                                                 />
                                             </div>
                                         </div>
+                                    </div>
 
-                                        {/* Preview */}
-                                        <div className="space-y-2">
-                                            <Label>Preview</Label>
-                                            <div className="rounded-lg border bg-background p-8 flex items-center justify-center">
-                                                <button
-                                                    className="px-6 py-3 rounded-full font-medium shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
-                                                    style={{
-                                                        backgroundColor: buttonColor,
-                                                        color: "white",
-                                                    }}
-                                                >
-                                                    <svg
-                                                        width="20"
-                                                        height="20"
-                                                        viewBox="0 0 24 24"
-                                                        fill="none"
-                                                        stroke="currentColor"
-                                                        strokeWidth="2"
-                                                    >
-                                                        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                                                    </svg>
-                                                    {buttonText}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </TabsContent>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="button-text" className="text-sm">Button Text</Label>
+                                        <Input
+                                            id="button-text"
+                                            value={buttonText}
+                                            onChange={(e) => setButtonText(e.target.value)}
+                                            placeholder="Start Voice Call"
+                                        />
+                                    </div>
 
-                                    <TabsContent value="embed-code" className="space-y-4">
-                                        {embedToken ? (
+                                    {/* Preview */}
+                                    <div className="rounded-lg border bg-background p-4 flex items-center justify-center">
+                                        <button
+                                            className="px-5 py-2.5 rounded-full font-medium shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
+                                            style={{
+                                                backgroundColor: buttonColor,
+                                                color: "white",
+                                            }}
+                                        >
+                                            <svg
+                                                width="18"
+                                                height="18"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                            >
+                                                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                                            </svg>
+                                            {buttonText}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <Separator />
+
+                                {/* Save Button */}
+                                <div className="flex justify-end">
+                                    <Button onClick={handleSave} disabled={saving}>
+                                        {saving ? (
                                             <>
-                                                <div className="space-y-2">
-                                                    <Label>Embed Script</Label>
-                                                    <div className="relative">
-                                                        <Textarea
-                                                            value={embedToken.embed_script}
-                                                            readOnly
-                                                            rows={8}
-                                                            className="font-mono text-xs"
-                                                        />
-                                                        <Button
-                                                            size="sm"
-                                                            variant="secondary"
-                                                            className="absolute top-2 right-2"
-                                                            onClick={() =>
-                                                                copyToClipboard(embedToken.embed_script, setCopied)
-                                                            }
-                                                        >
-                                                            {copied ? (
-                                                                <>
-                                                                    <Check className="h-4 w-4 mr-1" />
-                                                                    Copied
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Copy className="h-4 w-4 mr-1" />
-                                                                    Copy
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="rounded-lg bg-muted/50 p-4 space-y-3">
-                                                    <div className="flex items-center gap-2">
-                                                        <Globe className="h-4 w-4" />
-                                                        <span className="font-medium text-sm">Test Your Embed</span>
-                                                    </div>
-                                                    <p className="text-sm text-muted-foreground">
-                                                        Try your embed configuration on our test page before deploying to
-                                                        production.
-                                                    </p>
-                                                    <div className="flex gap-2">
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            onClick={() => window.open(getTestPageUrl(), "_blank")}
-                                                        >
-                                                            Open Test Page
-                                                        </Button>
-                                                        <Button
-                                                            size="sm"
-                                                            variant="outline"
-                                                            onClick={() =>
-                                                                copyToClipboard(getTestPageUrl(), setTestPageCopied)
-                                                            }
-                                                        >
-                                                            {testPageCopied ? (
-                                                                <>
-                                                                    <Check className="h-4 w-4 mr-1" />
-                                                                    Copied
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <Copy className="h-4 w-4 mr-1" />
-                                                                    Copy URL
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    </div>
-                                                </div>
+                                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                                Saving...
                                             </>
                                         ) : (
-                                            <div className="text-center py-8 text-muted-foreground">
-                                                Save your configuration to generate the embed code
-                                            </div>
+                                            "Save Configurations"
                                         )}
-                                    </TabsContent>
-                                </Tabs>
+                                    </Button>
+                                </div>
+
+                                {/* Embed Script (shows after saving) */}
+                                {embedToken && embedToken.is_active && (
+                                    <>
+                                        <Separator />
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <Label>Embed Code</Label>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    onClick={() => copyToClipboard(embedToken.embed_script)}
+                                                >
+                                                    {copied ? (
+                                                        <>
+                                                            <Check className="h-4 w-4 mr-1" />
+                                                            Copied!
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Copy className="h-4 w-4 mr-1" />
+                                                            Copy Code
+                                                        </>
+                                                    )}
+                                                </Button>
+                                            </div>
+                                            <div className="relative">
+                                                <pre className="bg-muted/50 rounded-lg p-4 text-xs overflow-x-auto whitespace-pre-wrap break-all">
+                                                    <code>{embedToken.embed_script}</code>
+                                                </pre>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">
+                                                Add this script to your website&apos;s HTML to enable the voice widget.
+                                                Configuration changes will apply automatically without re-embedding.
+                                            </p>
+                                        </div>
+                                    </>
+                                )}
                             </>
                         )}
                     </div>
                 )}
-
-                <DialogFooter>
-                    <Button variant="outline" onClick={() => onOpenChange(false)}>
-                        Cancel
-                    </Button>
-                    <Button onClick={handleSave} disabled={saving}>
-                        {saving ? (
-                            <>
-                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                Saving...
-                            </>
-                        ) : (
-                            "Save Configuration"
-                        )}
-                    </Button>
-                </DialogFooter>
             </DialogContent>
         </Dialog>
     );

@@ -1,6 +1,9 @@
 import os
 from pathlib import Path
 
+from api.enums import Environment
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 # Absolute path to the project root directory (i.e. the directory containing
 # the top-level api/ package). Having a single canonical location helps
 # when constructing file-system paths elsewhere in the codebase.

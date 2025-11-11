@@ -47,6 +47,8 @@ class EmbedConfigResponse(BaseModel):
     position: str
     button_text: str
     button_color: str
+    size: str
+    auto_start: bool
 
 
 def validate_origin(origin: str, allowed_domains: list) -> bool:
@@ -207,8 +209,10 @@ async def get_embed_config(token: str, request: Request):
         settings=settings,
         theme=settings.get("theme", "light"),
         position=settings.get("position", "bottom-right"),
-        button_text=settings.get("button_text", "Start Voice Call"),
-        button_color=settings.get("button_color", "#3B82F6"),
+        button_text=settings.get("buttonText", "Start Voice Call"),
+        button_color=settings.get("buttonColor", "#3B82F6"),
+        size=settings.get("size", "medium"),
+        auto_start=settings.get("autoStart", False),
     )
 
 

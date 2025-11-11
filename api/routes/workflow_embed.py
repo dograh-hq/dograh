@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from api.constants import UI_APP_URL
+from api.constants import BACKEND_API_ENDPOINT, ENVIRONMENT, UI_APP_URL
 from api.db import db_client
 from api.db.models import EmbedTokenModel, UserModel
 from api.services.auth.depends import get_user
@@ -17,12 +17,6 @@ router = APIRouter(prefix="/workflow")
 def generate_embed_script(token: EmbedTokenModel) -> str:
     """Generate the embed script for a given token."""
     base_url = str(UI_APP_URL).rstrip("/")
-    position = (
-        token.settings.get("position", "bottom-right")
-        if token.settings
-        else "bottom-right"
-    )
-    theme = token.settings.get("theme", "light") if token.settings else "light"
 
     return f"""<!-- Dograh Voice Widget -->
 <script>
@@ -30,10 +24,8 @@ def generate_embed_script(token: EmbedTokenModel) -> str:
     var js, fjs = d.getElementsByTagName(s)[0];
     if (d.getElementById(id)) return;
     js = d.createElement(s); js.id = id;
-    js.src = '{base_url}/embed/dograh-widget.js';
-    js.setAttribute('data-dograh-token', '{token.token}');
-    js.setAttribute('data-dograh-position', '{position}');
-    js.setAttribute('data-dograh-theme', '{theme}');
+    js.src = '{base_url}/embed/dograh-widget.js?token={token.token}&environment={ENVIRONMENT}&apiEndpoint={BACKEND_API_ENDPOINT}';
+    js.async = true;
     fjs.parentNode.insertBefore(js, fjs);
   }}(document, 'script', 'dograh-widget'));
 </script>"""

@@ -105,53 +105,6 @@ async def get_user(
     return user_model
 
 
-async def _handle_oss_auth(authorization: str | None) -> UserModel:
-    """
-    Handle authentication for OSS deployment mode.
-    Uses the authorization token as provider_id and creates user/org if needed.
-    """
-    if not authorization:
-        raise HTTPException(status_code=401, detail="Authorization header required")
-
-    # Remove "Bearer " prefix if present
-    token = (
-        authorization.replace("Bearer ", "")
-        if authorization.startswith("Bearer ")
-        else authorization
-    )
-
-    if not token:
-        raise HTTPException(status_code=401, detail="Invalid authorization token")
-
-    try:
-        # Use token as provider_id for OSS mode
-        user_model = await db_client.get_or_create_user_by_provider_id(
-            provider_id=token
-        )
-
-        # Create or get organization for OSS user
-        # Each OSS user gets their own organization using their token as org ID
-        organization = await db_client.get_or_create_organization_by_provider_id(
-            provider_id=f"org_{token}"
-        )
-
-        # Ensure user is mapped to their organization
-        if user_model.selected_organization_id != organization.id:
-            # add_user_to_organization now handles race conditions with ON CONFLICT DO NOTHING
-            await db_client.add_user_to_organization(user_model.id, organization.id)
-            await db_client.update_user_selected_organization(
-                user_model.id, organization.id
-            )
-            user_model.selected_organization_id = organization.id
-
-        return user_model
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error while handling OSS authentication: {e}"
-        )
-
-
 async def get_user_optional(
     authorization: Annotated[str | None, Header()] = None,
 ) -> UserModel | None:

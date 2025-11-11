@@ -606,3 +606,67 @@ class QueuedRunModel(Base):
             name="unique_campaign_source_retry",
         ),
     )
+
+
+class EmbedTokenModel(Base):
+    """Model for storing workflow embed tokens"""
+
+    __tablename__ = "embed_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    token = Column(String(255), unique=True, nullable=False, index=True)
+    workflow_id = Column(
+        Integer,
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    organization_id = Column(
+        Integer,
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    allowed_domains = Column(JSON, nullable=True)  # Array of whitelisted domains
+    settings = Column(JSON, nullable=True)  # Widget customization settings
+    is_active = Column(Boolean, default=True, nullable=False, index=True)
+    usage_limit = Column(Integer, nullable=True)  # Optional usage limit
+    usage_count = Column(Integer, default=0, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    created_by = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    workflow = relationship("WorkflowModel")
+    organization = relationship("OrganizationModel")
+    creator = relationship("UserModel")
+    sessions = relationship(
+        "EmbedSessionModel", back_populates="embed_token", cascade="all, delete-orphan"
+    )
+
+
+class EmbedSessionModel(Base):
+    """Model for storing temporary embed sessions"""
+
+    __tablename__ = "embed_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_token = Column(String(255), unique=True, nullable=False, index=True)
+    embed_token_id = Column(
+        Integer, ForeignKey("embed_tokens.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_run_id = Column(
+        Integer, ForeignKey("workflow_runs.id", ondelete="CASCADE"), nullable=True
+    )
+    client_ip = Column(String(45), nullable=True)
+    user_agent = Column(String(500), nullable=True)
+    origin = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+    # Relationships
+    embed_token = relationship("EmbedTokenModel", back_populates="sessions")
+    workflow_run = relationship("WorkflowRunModel")

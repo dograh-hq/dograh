@@ -7,10 +7,10 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
-from api.enums import OrganizationConfigurationKey, WorkflowRunMode
+from api.enums import OrganizationConfigurationKey
 from api.services.campaign.rate_limiter import rate_limiter
-from api.services.telephony.factory import get_telephony_provider
 from api.services.telephony.base import TelephonyProvider
+from api.services.telephony.factory import get_telephony_provider
 from api.utils.tunnel import TunnelURLProvider
 
 
@@ -238,7 +238,7 @@ class CampaignCallDispatcher:
                 f"&campaign_id={campaign.id}"
                 f"&organization_id={campaign.organization_id}"
             )
-            
+
             call_result = await provider.initiate_call(
                 to_number=phone_number,
                 webhook_url=webhook_url,
@@ -255,7 +255,9 @@ class CampaignCallDispatcher:
             )
 
             # Update workflow run as failed
-            telephony_callback_logs = workflow_run.logs.get("telephony_status_callbacks", [])
+            telephony_callback_logs = workflow_run.logs.get(
+                "telephony_status_callbacks", []
+            )
             telephony_callback_log = {
                 "status": "failed",
                 "timestamp": datetime.now(UTC).isoformat(),

@@ -7,7 +7,7 @@ import {
     Panel,
     ReactFlow,
 } from "@xyflow/react";
-import { BrushCleaning, Maximize2, Minus, Plus, Settings, Variable } from 'lucide-react';
+import { BrushCleaning, Maximize2, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
@@ -20,6 +20,7 @@ import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { AgentNode, EndCall, GlobalNode, StartCall } from "../../../components/flow/nodes";
 import { ConfigurationsDialog } from './components/ConfigurationsDialog';
+import { EmbedDialog } from './components/EmbedDialog';
 import { TemplateContextVariablesDialog } from './components/TemplateContextVariablesDialog';
 import WorkflowHeader from "./components/WorkflowHeader";
 import { WorkflowTabs } from './components/WorkflowTabs';
@@ -76,6 +77,7 @@ interface RenderWorkflowProps {
 function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, user, getAccessToken }: RenderWorkflowProps) {
     const [isContextVarsDialogOpen, setIsContextVarsDialogOpen] = useState(false);
     const [isConfigurationsDialogOpen, setIsConfigurationsDialogOpen] = useState(false);
+    const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
 
     const {
         rfInstance,
@@ -218,6 +220,22 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                                             <p>Template Context Variables</p>
                                         </TooltipContent>
                                     </Tooltip>
+
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                onClick={() => setIsEmbedDialogOpen(true)}
+                                                className="bg-white shadow-sm hover:shadow-md"
+                                            >
+                                                <Rocket className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="left">
+                                            <p>Deploy Workflow</p>
+                                        </TooltipContent>
+                                    </Tooltip>
                                 </div>
                             </TooltipProvider>
                         </Panel>
@@ -316,6 +334,14 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     onOpenChange={setIsContextVarsDialogOpen}
                     templateContextVariables={templateContextVariables}
                     onSave={saveTemplateContextVariables}
+                />
+
+                <EmbedDialog
+                    open={isEmbedDialogOpen}
+                    onOpenChange={setIsEmbedDialogOpen}
+                    workflowId={workflowId}
+                    workflowName={workflowName}
+                    getAccessToken={getAccessToken}
                 />
             </WorkflowLayout>
         </WorkflowProvider>

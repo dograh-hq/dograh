@@ -46,3 +46,4 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "false").lower() == "true"
+UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")

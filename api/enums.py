@@ -63,8 +63,12 @@ class OrganizationConfigurationKey(Enum):
     DISPOSITION_CODE_MAPPING = "DISPOSITION_CODE_MAPPING"
     DISPOSITION_MESSAGE_TEMPLATE = "DISPOSITION_MESSAGE_TEMPLATE"
     CONCURRENT_CALL_LIMIT = "CONCURRENT_CALL_LIMIT"
-    TELEPHONY_CONFIGURATION = "TELEPHONY_CONFIGURATION"  # Stores all providers + active one
-    TWILIO_CONFIGURATION = "TWILIO_CONFIGURATION"  # Deprecated - for backward compatibility
+    TELEPHONY_CONFIGURATION = (
+        "TELEPHONY_CONFIGURATION"  # Stores all providers + active one
+    )
+    TWILIO_CONFIGURATION = (
+        "TWILIO_CONFIGURATION"  # Deprecated - for backward compatibility
+    )
 
 
 class WorkflowStatus(Enum):

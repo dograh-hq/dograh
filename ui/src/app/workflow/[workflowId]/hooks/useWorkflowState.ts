@@ -150,7 +150,7 @@ export const useWorkflowState = ({
             initialTemplateContextVariables,
             initialWorkflowConfigurations
         );
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);
 
     // Set up keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -418,7 +418,7 @@ export const useWorkflowState = ({
     // Validate workflow on mount
     useEffect(() => {
         validateWorkflow();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }, []);
 
     return {
         rfInstance,

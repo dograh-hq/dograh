@@ -234,6 +234,44 @@ export type DuplicateTemplateRequest = {
     workflow_name: string;
 };
 
+/**
+ * Response model for embed configuration
+ */
+export type EmbedConfigResponse = {
+    workflow_id: number;
+    settings: {
+        [key: string]: unknown;
+    };
+    theme: string;
+    position: string;
+    button_text: string;
+    button_color: string;
+};
+
+export type EmbedTokenRequest = {
+    allowed_domains?: Array<string> | null;
+    settings?: {
+        [key: string]: unknown;
+    } | null;
+    usage_limit?: number | null;
+    expires_in_days?: number | null;
+};
+
+export type EmbedTokenResponse = {
+    id: number;
+    token: string;
+    allowed_domains: Array<string> | null;
+    settings: {
+        [key: string]: unknown;
+    } | null;
+    is_active: boolean;
+    usage_count: number;
+    usage_limit: number | null;
+    expires_at: string | null;
+    created_at: string;
+    embed_script: string;
+};
+
 export type FileMetadataResponse = {
     key: string;
     metadata: {
@@ -259,6 +297,27 @@ export type ImpersonateRequest = {
 export type ImpersonateResponse = {
     refresh_token: string;
     access_token: string;
+};
+
+/**
+ * Request model for initializing an embed session
+ */
+export type InitEmbedRequest = {
+    token: string;
+    context_variables?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * Response model for embed initialization
+ */
+export type InitEmbedResponse = {
+    session_token: string;
+    workflow_run_id: number;
+    config: {
+        [key: string]: unknown;
+    };
 };
 
 export type InitiateCallRequest = {
@@ -2887,6 +2946,220 @@ export type GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses = {
 };
 
 export type GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponse = GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses[keyof GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses];
+
+export type OptionsInitApiV1PublicEmbedInitOptionsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/public/embed/init';
+};
+
+export type OptionsInitApiV1PublicEmbedInitOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type OptionsInitApiV1PublicEmbedInitOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type InitializeEmbedSessionApiV1PublicEmbedInitPostData = {
+    body: InitEmbedRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/public/embed/init';
+};
+
+export type InitializeEmbedSessionApiV1PublicEmbedInitPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitializeEmbedSessionApiV1PublicEmbedInitPostError = InitializeEmbedSessionApiV1PublicEmbedInitPostErrors[keyof InitializeEmbedSessionApiV1PublicEmbedInitPostErrors];
+
+export type InitializeEmbedSessionApiV1PublicEmbedInitPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: InitEmbedResponse;
+};
+
+export type InitializeEmbedSessionApiV1PublicEmbedInitPostResponse = InitializeEmbedSessionApiV1PublicEmbedInitPostResponses[keyof InitializeEmbedSessionApiV1PublicEmbedInitPostResponses];
+
+export type GetEmbedConfigApiV1PublicEmbedConfigTokenGetData = {
+    body?: never;
+    path: {
+        token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/config/{token}';
+};
+
+export type GetEmbedConfigApiV1PublicEmbedConfigTokenGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetEmbedConfigApiV1PublicEmbedConfigTokenGetError = GetEmbedConfigApiV1PublicEmbedConfigTokenGetErrors[keyof GetEmbedConfigApiV1PublicEmbedConfigTokenGetErrors];
+
+export type GetEmbedConfigApiV1PublicEmbedConfigTokenGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EmbedConfigResponse;
+};
+
+export type GetEmbedConfigApiV1PublicEmbedConfigTokenGetResponse = GetEmbedConfigApiV1PublicEmbedConfigTokenGetResponses[keyof GetEmbedConfigApiV1PublicEmbedConfigTokenGetResponses];
+
+export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsData = {
+    body?: never;
+    path: {
+        token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/config/{token}';
+};
+
+export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsError = OptionsConfigApiV1PublicEmbedConfigTokenOptionsErrors[keyof OptionsConfigApiV1PublicEmbedConfigTokenOptionsErrors];
+
+export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/embed-token';
+};
+
+export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteError = DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteErrors[keyof DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteErrors];
+
+export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteResponse = DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteResponses[keyof DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteResponses];
+
+export type GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/embed-token';
+};
+
+export type GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetError = GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetErrors[keyof GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetErrors];
+
+export type GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EmbedTokenResponse | null;
+};
+
+export type GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetResponse = GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetResponses[keyof GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetResponses];
+
+export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostData = {
+    body: EmbedTokenRequest;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/embed-token';
+};
+
+export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostError = CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostErrors[keyof CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostErrors];
+
+export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: EmbedTokenResponse;
+};
+
+export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponse = CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponses[keyof CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponses];
 
 export type HealthApiV1HealthGetData = {
     body?: never;

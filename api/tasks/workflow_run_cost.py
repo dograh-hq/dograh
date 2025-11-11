@@ -28,20 +28,24 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
 
         # Fetch telephony call cost for both Twilio and Vonage
         telephony_cost_usd = 0.0
-        if workflow_run.mode in [WorkflowRunMode.TWILIO.value, WorkflowRunMode.VONAGE.value] and workflow_run.cost_info:
+        if (
+            workflow_run.mode
+            in [WorkflowRunMode.TWILIO.value, WorkflowRunMode.VONAGE.value]
+            and workflow_run.cost_info
+        ):
             # Get the call ID (provider-agnostic approach with backward compatibility)
             call_id = workflow_run.cost_info.get("call_id")
-            
+
             # Fallback to legacy provider-specific fields if needed
             if not call_id:
                 if workflow_run.mode == WorkflowRunMode.TWILIO.value:
                     call_id = workflow_run.cost_info.get("twilio_call_sid")
                 elif workflow_run.mode == WorkflowRunMode.VONAGE.value:
                     call_id = workflow_run.cost_info.get("vonage_call_uuid")
-            
+
             # Provider name is derived from workflow run mode
             provider_name = workflow_run.mode.lower() if workflow_run.mode else ""
-            
+
             if call_id:
                 try:
                     # Get workflow to access organization_id
@@ -55,12 +59,14 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
                     # Use telephony provider abstraction
                     provider = await get_telephony_provider(workflow.organization_id)
                     call_cost_info = await provider.get_call_cost(call_id)
-                    
+
                     if call_cost_info.get("status") != "error":
                         telephony_cost_usd = call_cost_info.get("cost_usd", 0.0)
                         cost_breakdown["telephony_call"] = telephony_cost_usd
-                        cost_breakdown[f"{provider_name}_call"] = telephony_cost_usd  # Keep backward compatibility
-                        
+                        cost_breakdown[f"{provider_name}_call"] = (
+                            telephony_cost_usd  # Keep backward compatibility
+                        )
+
                         # Add telephony cost to the total
                         cost_breakdown["total"] = (
                             float(cost_breakdown["total"]) + telephony_cost_usd
@@ -69,8 +75,10 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
                             f"{provider_name.title()} call cost: ${telephony_cost_usd:.6f} USD for call {call_id}"
                         )
                     else:
-                        logger.error(f"Failed to fetch {provider_name} call cost: {call_cost_info.get('error')}")
-                        
+                        logger.error(
+                            f"Failed to fetch {provider_name} call cost: {call_cost_info.get('error')}"
+                        )
+
                 except Exception as e:
                     logger.error(f"Failed to fetch telephony call cost: {e}")
                     # Don't fail the whole cost calculation if telephony API fails
@@ -119,7 +127,9 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
             elif "twilio_call_sid" in workflow_run.cost_info:
                 cost_info["twilio_call_sid"] = workflow_run.cost_info["twilio_call_sid"]
             elif "vonage_call_uuid" in workflow_run.cost_info:
-                cost_info["vonage_call_uuid"] = workflow_run.cost_info["vonage_call_uuid"]
+                cost_info["vonage_call_uuid"] = workflow_run.cost_info[
+                    "vonage_call_uuid"
+                ]
 
         # Update workflow run with cost information
         await db_client.update_workflow_run(run_id=workflow_run_id, cost_info=cost_info)

@@ -10,12 +10,14 @@ Uses the SmallWebRTC API contract:
 """
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Dict
 
 from aiortc.sdp import candidate_from_sdp
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from loguru import logger
 
+from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user_ws
 from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
@@ -124,7 +126,9 @@ class SignalingManager:
             )
         else:
             # Create new connection using correct SmallWebRTC API
-            pc = SmallWebRTCConnection(ice_servers=ice_servers, connection_timeout_secs=60)
+            pc = SmallWebRTCConnection(
+                ice_servers=ice_servers, connection_timeout_secs=60
+            )
             # Set the pc_id before initialization so it's available in get_answer()
             pc._pc_id = pc_id
 
@@ -243,4 +247,47 @@ async def signaling_websocket(
     """WebSocket endpoint for WebRTC signaling with ICE trickling."""
     await signaling_manager.handle_websocket(
         websocket, workflow_id, workflow_run_id, user
+    )
+
+
+@router.websocket("/public/signaling/{session_token}")
+async def public_signaling_websocket(
+    websocket: WebSocket,
+    session_token: str,
+):
+    """Public WebSocket endpoint for WebRTC signaling with embed tokens.
+
+    This endpoint:
+    1. Validates the session token from embed initialization
+    2. Retrieves the associated workflow run
+    3. Handles WebRTC signaling without requiring authentication
+    """
+
+    # Validate session token
+    embed_session = await db_client.get_embed_session_by_token(session_token)
+    if not embed_session:
+        await websocket.close(code=1008, reason="Invalid session token")
+        return
+
+    # Check if session is expired
+    if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
+        await websocket.close(code=1008, reason="Session expired")
+        return
+
+    # Get the embed token for user information
+    embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
+    if not embed_token:
+        await websocket.close(code=1008, reason="Invalid embed token")
+        return
+
+    # Create a minimal user object for compatibility with signaling manager
+    # Use the embed token creator as the user
+    user = await db_client.get_user_by_id(embed_token.created_by)
+    if not user:
+        await websocket.close(code=1008, reason="Invalid user")
+        return
+
+    # Handle the WebSocket connection using the existing signaling manager
+    await signaling_manager.handle_websocket(
+        websocket, embed_token.workflow_id, embed_session.workflow_run_id, user
     )

@@ -54,41 +54,40 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
 
     // Load disposition codes from workflow configuration
-    useEffect(() => {
-        const loadDispositionCodes = async () => {
-            if (!accessToken) return;
-            try {
-                const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({
-                    path: { workflow_id: Number(workflowId) },
-                    headers: { 'Authorization': `Bearer ${accessToken}` }
-                });
+    const loadDispositionCodes = useCallback(async () => {
+        if (!accessToken) return;
+        try {
+            const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({
+                path: { workflow_id: Number(workflowId) },
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
 
-                const workflow = response.data;
-                if (workflow?.call_disposition_codes) {
-                    // Update the disposition code attribute with actual options
-                    const updatedAttributes = configuredAttributes.map(attr => {
-                        if (attr.id === 'dispositionCode') {
-                            return {
-                                ...attr,
-                                config: {
-                                    ...attr.config,
-                                    options: Object.keys(workflow.call_disposition_codes || {}).length > 0
-                                                        ? Object.keys(workflow.call_disposition_codes || {})
-                                                        : [...DISPOSITION_CODES]
-                                }
-                            };
-                        }
-                        return attr;
-                    });
-                    setConfiguredAttributes(updatedAttributes);
-                }
-            } catch (err) {
-                console.error("Failed to load disposition codes:", err);
+            const workflow = response.data;
+            if (workflow?.call_disposition_codes) {
+                // Update the disposition code attribute with actual options
+                setConfiguredAttributes(prev => prev.map(attr => {
+                    if (attr.id === 'dispositionCode') {
+                        return {
+                            ...attr,
+                            config: {
+                                ...attr.config,
+                                options: Object.keys(workflow.call_disposition_codes || {}).length > 0
+                                                    ? Object.keys(workflow.call_disposition_codes || {})
+                                                    : [...DISPOSITION_CODES]
+                            }
+                        };
+                    }
+                    return attr;
+                }));
             }
-        };
-
-        loadDispositionCodes();
+        } catch (err) {
+            console.error("Failed to load disposition codes:", err);
+        }
     }, [workflowId, accessToken]);
+
+    useEffect(() => {
+        loadDispositionCodes();
+    }, [loadDispositionCodes]);
 
     const fetchWorkflowRuns = useCallback(async (page: number, filters?: ActiveFilter[]) => {
         if (!accessToken) return;

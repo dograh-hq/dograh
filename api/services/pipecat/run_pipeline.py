@@ -119,7 +119,7 @@ async def run_pipeline_vonage(
     user_id: int,
 ):
     """Run pipeline for Vonage WebSocket connections.
-    
+
     Vonage uses raw PCM audio over WebSocket instead of base64-encoded μ-law.
     The audio is transmitted as binary frames at 16kHz by default.
     """
@@ -137,7 +137,9 @@ async def run_pipeline_vonage(
         if "vad_configuration" in workflow.workflow_configurations:
             vad_config = workflow.workflow_configurations["vad_configuration"]
         if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations["ambient_noise_configuration"]
+            ambient_noise_config = workflow.workflow_configurations[
+                "ambient_noise_configuration"
+            ]
 
     try:
         # Setup audio config for Vonage using the centralized config

@@ -1,5 +1,6 @@
 from api.db.api_key_client import APIKeyClient
 from api.db.campaign_client import CampaignClient
+from api.db.embed_token_client import EmbedTokenClient
 from api.db.integration_client import IntegrationClient
 from api.db.looptalk_client import LoopTalkClient
 from api.db.organization_client import OrganizationClient
@@ -25,6 +26,7 @@ class DBClient(
     CampaignClient,
     ReportsClient,
     APIKeyClient,
+    EmbedTokenClient,
 ):
     """
     Unified database client that combines all specialized database operations.
@@ -42,6 +44,7 @@ class DBClient(
     - CampaignClient: handles campaign operations
     - ReportsClient: handles reports and analytics operations
     - APIKeyClient: handles API key operations
+    - EmbedTokenClient: handles embed token and session operations
     """
 
     pass

@@ -3,15 +3,23 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 
+# Install Python and build dependencies for native modules
+# This helps with ARM64 builds and native module compilation
+RUN apk add --no-cache python3 make g++ libc6-compat
+
 # Copy package files
 COPY ui/package*.json ./
-# Install all dependencies (including dev dependencies for building)
-RUN npm ci --cache /tmp/empty-cache && \
-    npm cache clean --force
+
+# Clean install with proper handling of native modules
+RUN rm -rf node_modules && \
+    npm ci || npm install
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder
 WORKDIR /app
+
+# Install libc6-compat for native modules in builder stage too
+RUN apk add --no-cache libc6-compat
 
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.3.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.2.0...dograh-v1.3.0) (2025-11-12)
+
+
+### Features
+
+* improve workflow builder UX ([#41](https://github.com/dograh-hq/dograh/issues/41)) ([1a0a18a](https://github.com/dograh-hq/dograh/commit/1a0a18a435279f57ad1095c27c205913a504fa8a))
+
+
+### Bug Fixes
+
+* arm docker build step ([#48](https://github.com/dograh-hq/dograh/issues/48)) ([c028c79](https://github.com/dograh-hq/dograh/commit/c028c79b4034d5f9a5e3abe00c5b74f58169bfda))
+* fix npm build ([#43](https://github.com/dograh-hq/dograh/issues/43)) ([8d05c9f](https://github.com/dograh-hq/dograh/commit/8d05c9f8909dfacb1905aa383cf58989ee57020f))
+* slack annoucement workflow ([#46](https://github.com/dograh-hq/dograh/issues/46)) ([dc6d696](https://github.com/dograh-hq/dograh/commit/dc6d696af61225b4782dfea14868b398a2aa649e))
+
 ## [1.2.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.1.0...dograh-v1.2.0) (2025-11-06)
 
 

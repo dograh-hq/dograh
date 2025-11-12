@@ -10,10 +10,6 @@
   // Widget configuration defaults
   const DEFAULT_CONFIG = {
     position: 'bottom-right',
-    theme: 'light',
-    buttonText: 'Start Voice Call',
-    buttonColor: '#3B82F6',
-    size: 'medium',
     autoStart: false,
     apiBaseUrl: window.location.hostname === 'localhost'
       ? 'http://localhost:8000'
@@ -31,7 +27,14 @@
     sessionToken: null,
     workflowRunId: null,
     connectionStatus: 'idle', // idle, connecting, connected, failed
-    audioElement: null
+    audioElement: null,
+    callbacks: {
+      onReady: null,
+      onCallStart: null,
+      onCallEnd: null,
+      onError: null,
+      onStatusChange: null
+    }
   };
 
   /**
@@ -81,7 +84,7 @@
 
     try {
       // Fetch configuration from API
-      const configResponse = await fetch(`${state.config.apiBaseUrl}/public/embed/config/${token}`, {
+      const configResponse = await fetch(`${state.config.apiBaseUrl}/api/v1/public/embed/config/${token}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -99,14 +102,11 @@
       state.config = {
         ...state.config,
         workflowId: configData.workflow_id,
+        embedMode: configData.settings?.embedMode || 'floating',
+        containerId: configData.settings?.containerId || 'dograh-inline-container',
         position: configData.position || DEFAULT_CONFIG.position,
-        theme: configData.theme || DEFAULT_CONFIG.theme,
-        buttonText: configData.button_text || DEFAULT_CONFIG.buttonText,
-        buttonColor: configData.button_color || DEFAULT_CONFIG.buttonColor,
-        size: configData.size || DEFAULT_CONFIG.size,
         autoStart: configData.auto_start || false
       };
-
     } catch (error) {
       console.error('Dograh Widget: Failed to fetch configuration', error);
       return;
@@ -117,8 +117,17 @@
     // Load styles
     injectStyles();
 
-    // Create widget UI
-    createWidget();
+    // Create widget UI based on mode
+    if (state.config.embedMode === 'inline') {
+      createInlineWidget();
+    } else {
+      createFloatingWidget();
+    }
+
+    // Trigger ready callback
+    if (state.callbacks.onReady) {
+      state.callbacks.onReady();
+    }
 
     // Auto-start if configured
     if (state.config.autoStart) {
@@ -173,221 +182,67 @@
       }
 
       .dograh-widget-button {
-        background: var(--button-color, #3B82F6);
         color: white;
         border: none;
-        border-radius: 50px;
-        padding: 12px 24px;
+        border-radius: 50%;
+        width: 60px;
+        height: 60px;
         cursor: pointer;
         display: flex;
         align-items: center;
-        gap: 8px;
-        font-size: 16px;
-        font-weight: 500;
+        justify-content: center;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        transition: all 0.2s ease;
+        transition: all 0.3s ease;
       }
 
       .dograh-widget-button:hover {
-        transform: scale(1.05);
-        box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+        transform: scale(1.1);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
       }
 
-      .dograh-widget-button.small {
-        padding: 8px 16px;
-        font-size: 14px;
+      .dograh-widget-button:active {
+        transform: scale(0.95);
       }
 
-      .dograh-widget-button.large {
-        padding: 16px 32px;
-        font-size: 18px;
+      /* Green button for idle/ready state */
+      .dograh-widget-button-idle {
+        background: #10b981;
       }
 
-      .dograh-widget-button.fab {
-        width: 56px;
-        height: 56px;
-        padding: 0;
-        justify-content: center;
+      .dograh-widget-button-idle:hover {
+        background: #059669;
       }
 
-      .dograh-widget-modal {
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: white;
-        border-radius: 12px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
-        padding: 24px;
-        min-width: 320px;
-        max-width: 90vw;
-        display: none;
-        z-index: 1000000;
-      }
-
-      .dograh-widget-modal.open {
-        display: block;
-      }
-
-      .dograh-widget-modal.dark {
-        background: #1f2937;
-        color: white;
-      }
-
-      .dograh-widget-modal-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-      }
-
-      .dograh-widget-modal-title {
-        font-size: 20px;
-        font-weight: 600;
-        margin: 0;
-      }
-
-      .dograh-widget-close {
-        background: none;
-        border: none;
-        font-size: 24px;
-        cursor: pointer;
-        color: #6b7280;
-        padding: 0;
-        width: 32px;
-        height: 32px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border-radius: 4px;
-        transition: background 0.2s;
-      }
-
-      .dograh-widget-close:hover {
-        background: #f3f4f6;
-      }
-
-      .dark .dograh-widget-close {
-        color: #9ca3af;
-      }
-
-      .dark .dograh-widget-close:hover {
-        background: #374151;
-      }
-
-      .dograh-widget-status {
-        text-align: center;
-        padding: 40px 20px;
-      }
-
-      .dograh-widget-status-icon {
-        width: 48px;
-        height: 48px;
-        margin: 0 auto 16px;
+      /* Orange button for connecting state */
+      .dograh-widget-button-connecting {
+        background: #f59e0b;
         animation: pulse 2s infinite;
       }
 
-      .dograh-widget-status-text {
-        font-size: 16px;
-        color: #4b5563;
-        margin: 0 0 8px;
-      }
-
-      .dark .dograh-widget-status-text {
-        color: #d1d5db;
-      }
-
-      .dograh-widget-status-subtext {
-        font-size: 14px;
-        color: #9ca3af;
-        margin: 0;
-      }
-
-      .dograh-widget-controls {
-        display: flex;
-        gap: 12px;
-        justify-content: center;
-        margin-top: 24px;
-      }
-
-      .dograh-widget-control-btn {
-        padding: 10px 20px;
-        border-radius: 8px;
-        border: none;
-        font-size: 14px;
-        font-weight: 500;
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-
-      .dograh-widget-control-btn.primary {
+      /* Red button for connected state (to end call) */
+      .dograh-widget-button-connected {
         background: #ef4444;
-        color: white;
       }
 
-      .dograh-widget-control-btn.primary:hover {
+      .dograh-widget-button-connected:hover {
         background: #dc2626;
       }
 
-      .dograh-widget-control-btn.secondary {
-        background: #f3f4f6;
-        color: #374151;
-      }
-
-      .dograh-widget-control-btn.secondary:hover {
-        background: #e5e7eb;
-      }
-
-      .dark .dograh-widget-control-btn.secondary {
-        background: #374151;
-        color: #d1d5db;
-      }
-
-      .dark .dograh-widget-control-btn.secondary:hover {
-        background: #4b5563;
-      }
-
-      .dograh-widget-error {
-        background: #fee;
-        color: #c00;
-        padding: 12px;
-        border-radius: 8px;
-        margin-top: 16px;
-        font-size: 14px;
-      }
-
-      .dark .dograh-widget-error {
-        background: #7f1d1d;
-        color: #fca5a5;
+      /* Red button for failed state */
+      .dograh-widget-button-failed {
+        background: #ef4444;
+        opacity: 0.8;
       }
 
       @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
+        0%, 100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.6;
+        }
       }
 
-      @keyframes spin {
-        to { transform: rotate(360deg); }
-      }
-
-      .dograh-widget-spinner {
-        animation: spin 1s linear infinite;
-      }
-
-      .dograh-widget-overlay {
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        z-index: 999998;
-        display: none;
-      }
-
-      .dograh-widget-overlay.open {
-        display: block;
-      }
     `;
 
     const styleSheet = document.createElement('style');
@@ -397,81 +252,274 @@
   }
 
   /**
-   * Create widget UI
+   * Create floating widget UI (simplified - no modal)
    */
-  function createWidget() {
+  function createFloatingWidget() {
     // Create container
     const container = document.createElement('div');
     container.className = `dograh-widget-container ${state.config.position}`;
     container.id = 'dograh-widget';
 
-    // Create button
+    // Create button (green to start, red to end)
     const button = document.createElement('button');
-    button.className = `dograh-widget-button ${state.config.size}`;
-    button.style.setProperty('--button-color', state.config.buttonColor);
+    button.className = 'dograh-widget-button dograh-widget-button-idle';
+    button.id = 'dograh-widget-button';
     button.innerHTML = `
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
       </svg>
-      <span>${state.config.buttonText}</span>
     `;
-    button.onclick = toggleWidget;
+    button.onclick = toggleCall;
 
-    // Create overlay
-    const overlay = document.createElement('div');
-    overlay.className = 'dograh-widget-overlay';
-    overlay.id = 'dograh-widget-overlay';
-    overlay.onclick = (e) => {
-      // Only close if clicking the overlay itself, not the modal
-      if (e.target === overlay) {
-        closeWidget();
-      }
-    };
-
-    // Create modal
-    const modal = document.createElement('div');
-    modal.className = `dograh-widget-modal ${state.config.theme}`;
-    modal.id = 'dograh-widget-modal';
-    modal.innerHTML = `
-      <div class="dograh-widget-modal-header">
-        <h3 class="dograh-widget-modal-title">Voice Call</h3>
-        <button class="dograh-widget-close" id="dograh-widget-close-btn">×</button>
-      </div>
-      <div class="dograh-widget-modal-content">
-        <div class="dograh-widget-status">
-          <div class="dograh-widget-status-icon">
-            ${getStatusIcon('idle')}
-          </div>
-          <p class="dograh-widget-status-text">Ready to start</p>
-          <p class="dograh-widget-status-subtext">Click below to begin your voice call</p>
-        </div>
-        <div class="dograh-widget-controls">
-          <button class="dograh-widget-control-btn secondary" id="dograh-widget-start-btn">
-            Start Call
-          </button>
-        </div>
-      </div>
-      <audio id="dograh-widget-audio" autoplay style="display: none;"></audio>
-    `;
+    // Create hidden audio element
+    const audio = document.createElement('audio');
+    audio.id = 'dograh-widget-audio';
+    audio.autoplay = true;
+    audio.style.display = 'none';
 
     // Append elements
     container.appendChild(button);
+    container.appendChild(audio);
     document.body.appendChild(container);
-    document.body.appendChild(overlay);
-    document.body.appendChild(modal);
 
     // Store audio element reference
-    state.audioElement = document.getElementById('dograh-widget-audio');
+    state.audioElement = audio;
+  }
 
-    // Attach event handlers after DOM is created
-    const closeBtn = document.getElementById('dograh-widget-close-btn');
-    if (closeBtn) {
-      closeBtn.onclick = closeWidget;
+  /**
+   * Toggle call (start or stop based on current state)
+   */
+  function toggleCall() {
+    if (state.connectionStatus === 'idle' || state.connectionStatus === 'failed') {
+      startCall();
+    } else {
+      stopCall();
+    }
+  }
+
+  /**
+   * Update floating widget button appearance
+   */
+  function updateFloatingButton(status) {
+    const button = document.getElementById('dograh-widget-button');
+    if (!button) return;
+
+    // Remove all status classes
+    button.classList.remove('dograh-widget-button-idle', 'dograh-widget-button-connecting', 'dograh-widget-button-connected', 'dograh-widget-button-failed');
+
+    // Add current status class
+    button.classList.add(`dograh-widget-button-${status}`);
+
+    // Update title attribute for tooltip
+    const titles = {
+      idle: 'Start Call',
+      connecting: 'Connecting...',
+      connected: 'End Call',
+      failed: 'Retry Call'
+    };
+    button.title = titles[status] || 'Voice Call';
+  }
+
+  /**
+   * Create inline widget UI
+   */
+  function createInlineWidget() {
+    // Find container element
+    const container = document.getElementById(state.config.containerId);
+    if (!container) {
+      console.error(`Dograh Widget: Container element with id "${state.config.containerId}" not found`);
+      if (state.callbacks.onError) {
+        state.callbacks.onError(new Error('Container element not found'));
+      }
+      return;
     }
 
-    const startBtn = document.getElementById('dograh-widget-start-btn');
-    if (startBtn) {
-      startBtn.onclick = startCall;
+    // Clear container
+    container.innerHTML = '';
+    container.className = 'dograh-inline-container';
+
+    // Add minimal inline styles
+    const inlineStyles = `
+      .dograh-inline-container {
+        min-height: 200px;
+        padding: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .dograh-inline-status {
+        text-align: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+
+      .dograh-inline-status-icon {
+        width: 64px;
+        height: 64px;
+        margin: 0 auto 20px;
+      }
+
+      .dograh-inline-status-text {
+        font-size: 18px;
+        font-weight: 500;
+        margin: 0 0 8px;
+        color: #111827;
+      }
+
+      .dograh-inline-status-subtext {
+        font-size: 14px;
+        color: #6b7280;
+        margin: 0 0 20px;
+      }
+
+      .dograh-inline-button-container {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        margin-top: 20px;
+      }
+
+      .dograh-inline-btn {
+        padding: 12px 32px;
+        border-radius: 8px;
+        border: none;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+        color: white;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+      }
+
+      .dograh-inline-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      }
+
+      .dograh-inline-btn:active {
+        transform: translateY(0);
+      }
+
+      .dograh-inline-btn-start {
+        background: #10b981;
+      }
+
+      .dograh-inline-btn-start:hover {
+        background: #059669;
+      }
+
+      .dograh-inline-btn-end {
+        background: #ef4444;
+      }
+
+      .dograh-inline-btn-end:hover {
+        background: #dc2626;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+
+      .dograh-inline-pulse {
+        animation: pulse 2s infinite;
+      }
+    `;
+
+    // Add inline styles if not already added
+    if (!document.getElementById('dograh-inline-styles')) {
+      const styleSheet = document.createElement('style');
+      styleSheet.id = 'dograh-inline-styles';
+      styleSheet.textContent = inlineStyles;
+      document.head.appendChild(styleSheet);
+    }
+
+    // Create initial status display
+    updateInlineStatus('idle');
+
+    // Store audio element (hidden)
+    state.audioElement = document.createElement('audio');
+    state.audioElement.autoplay = true;
+    state.audioElement.style.display = 'none';
+    container.appendChild(state.audioElement);
+
+    // Mark widget as open (for inline mode, it's always "open")
+    state.isOpen = true;
+  }
+
+  /**
+   * Update inline widget status
+   */
+  function updateInlineStatus(status, text, subtext) {
+    const container = document.getElementById(state.config.containerId);
+    if (!container) return;
+
+    // Update state
+    state.connectionStatus = status;
+
+    // Determine display text
+    const displayText = text || {
+      idle: 'Ready to Connect',
+      connecting: 'Connecting...',
+      connected: 'Call Active',
+      failed: 'Connection Failed'
+    }[status];
+
+    const displaySubtext = subtext || {
+      idle: 'Click to start voice conversation',
+      connecting: 'Please wait while we establish connection',
+      connected: 'You can speak now',
+      failed: 'Please check your microphone and try again'
+    }[status];
+
+    // Simple button design: green to start, red to end
+    let buttonHTML = '';
+    if (status === 'idle' || status === 'failed') {
+      // Green button to start
+      buttonHTML = `
+        <button class="dograh-inline-btn dograh-inline-btn-start" id="dograh-inline-start-btn">
+          ${status === 'failed' ? 'Retry' : 'Start Call'}
+        </button>
+      `;
+    } else if (status === 'connecting' || status === 'connected') {
+      // Red button to end
+      buttonHTML = `
+        <button class="dograh-inline-btn dograh-inline-btn-end" id="dograh-inline-end-btn">
+          End Call
+        </button>
+      `;
+    }
+
+    // Update container content (preserve audio element)
+    const audioElement = state.audioElement;
+    container.innerHTML = `
+      <div class="dograh-inline-status">
+        <div class="dograh-inline-status-icon ${status === 'connecting' ? 'dograh-inline-pulse' : ''}">
+          ${getStatusIcon(status)}
+        </div>
+        <p class="dograh-inline-status-text">${displayText}</p>
+        <p class="dograh-inline-status-subtext">${displaySubtext}</p>
+        <div class="dograh-inline-button-container">
+          ${buttonHTML}
+        </div>
+      </div>
+    `;
+
+    // Re-append audio element
+    if (audioElement) {
+      container.appendChild(audioElement);
+    }
+
+    // Attach event handlers
+    const startBtn = document.getElementById('dograh-inline-start-btn');
+    if (startBtn) startBtn.onclick = startCall;
+
+    const endBtn = document.getElementById('dograh-inline-end-btn');
+    if (endBtn) endBtn.onclick = stopCall;
+
+    // Trigger status change callback
+    if (state.callbacks.onStatusChange) {
+      state.callbacks.onStatusChange(status, displayText, displaySubtext);
     }
   }
 
@@ -516,98 +564,25 @@
   function updateStatus(status, text, subtext) {
     state.connectionStatus = status;
 
-    const modal = document.getElementById('dograh-widget-modal');
-    if (!modal) return;
-
-    const statusIcon = modal.querySelector('.dograh-widget-status-icon');
-    const statusText = modal.querySelector('.dograh-widget-status-text');
-    const statusSubtext = modal.querySelector('.dograh-widget-status-subtext');
-    const controls = modal.querySelector('.dograh-widget-controls');
-
-    if (statusIcon) statusIcon.innerHTML = getStatusIcon(status);
-    if (statusText) statusText.textContent = text;
-    if (statusSubtext) statusSubtext.textContent = subtext;
-
-    // Update controls based on status
-    if (controls) {
-      switch (status) {
-        case 'idle':
-          controls.innerHTML = `
-            <button class="dograh-widget-control-btn secondary" id="dograh-widget-start-btn">
-              Start Call
-            </button>
-          `;
-          const startBtn = document.getElementById('dograh-widget-start-btn');
-          if (startBtn) startBtn.onclick = startCall;
-          break;
-        case 'connecting':
-          controls.innerHTML = `
-            <button class="dograh-widget-control-btn primary" id="dograh-widget-cancel-btn">
-              Cancel
-            </button>
-          `;
-          const cancelBtn = document.getElementById('dograh-widget-cancel-btn');
-          if (cancelBtn) cancelBtn.onclick = stopCall;
-          break;
-        case 'connected':
-          controls.innerHTML = `
-            <button class="dograh-widget-control-btn primary" id="dograh-widget-end-btn">
-              End Call
-            </button>
-          `;
-          const endBtn = document.getElementById('dograh-widget-end-btn');
-          if (endBtn) endBtn.onclick = stopCall;
-          break;
-        case 'failed':
-          controls.innerHTML = `
-            <button class="dograh-widget-control-btn secondary" id="dograh-widget-retry-btn">
-              Retry
-            </button>
-            <button class="dograh-widget-control-btn secondary" id="dograh-widget-close-failed-btn">
-              Close
-            </button>
-          `;
-          const retryBtn = document.getElementById('dograh-widget-retry-btn');
-          if (retryBtn) retryBtn.onclick = retryCall;
-          const closeFailedBtn = document.getElementById('dograh-widget-close-failed-btn');
-          if (closeFailedBtn) closeFailedBtn.onclick = closeWidget;
-          break;
-      }
-    }
-  }
-
-  /**
-   * Toggle widget visibility
-   */
-  function toggleWidget() {
-    if (state.isOpen) {
-      closeWidget();
+    // Use appropriate update function based on mode
+    if (state.config.embedMode === 'inline') {
+      updateInlineStatus(status, text, subtext);
     } else {
-      openWidget();
+      updateFloatingButton(status);
     }
   }
 
   /**
-   * Open widget
+   * Open widget (deprecated - kept for backwards compatibility)
    */
   function openWidget() {
-    state.isOpen = true;
-    const modal = document.getElementById('dograh-widget-modal');
-    const overlay = document.getElementById('dograh-widget-overlay');
-    if (modal) modal.classList.add('open');
-    if (overlay) overlay.classList.add('open');
+    // No-op since we removed the modal
   }
 
   /**
-   * Close widget
+   * Close widget (deprecated - kept for backwards compatibility)
    */
   function closeWidget() {
-    state.isOpen = false;
-    const modal = document.getElementById('dograh-widget-modal');
-    const overlay = document.getElementById('dograh-widget-overlay');
-    if (modal) modal.classList.remove('open');
-    if (overlay) overlay.classList.remove('open');
-
     // Stop call if active
     if (state.connectionStatus === 'connected' || state.connectionStatus === 'connecting') {
       stopCall();
@@ -620,6 +595,11 @@
   async function startCall() {
     updateStatus('connecting', 'Connecting...', 'Please wait while we establish the connection');
 
+    // Trigger call start callback
+    if (state.callbacks.onCallStart) {
+      state.callbacks.onCallStart();
+    }
+
     try {
       // Initialize session if using embed token
       if (state.config.token) {
@@ -631,8 +611,23 @@
       }
 
       // Request microphone permission
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      state.stream = stream;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        state.stream = stream;
+      } catch (micError) {
+        // Handle specific microphone permission errors
+        let errorMessage = 'Please check your microphone and try again';
+
+        if (micError.name === 'NotAllowedError' || micError.name === 'PermissionDeniedError') {
+          errorMessage = 'Microphone permission denied. Please allow microphone access to start the call.';
+        } else if (micError.name === 'NotFoundError' || micError.name === 'DevicesNotFoundError') {
+          errorMessage = 'No microphone found. Please connect a microphone and try again.';
+        } else if (micError.name === 'NotReadableError' || micError.name === 'TrackStartError') {
+          errorMessage = 'Microphone is already in use by another application.';
+        }
+
+        throw new Error(errorMessage);
+      }
 
       // Create WebRTC connection
       await createWebRTCConnection();
@@ -646,6 +641,11 @@
     } catch (error) {
       console.error('Dograh Widget: Failed to start call', error);
       updateStatus('failed', 'Connection failed', error.message || 'Please check your microphone and try again');
+
+      // Trigger error callback
+      if (state.callbacks.onError) {
+        state.callbacks.onError(error);
+      }
     }
   }
 
@@ -653,7 +653,7 @@
    * Initialize embed session
    */
   async function initializeEmbedSession() {
-    const response = await fetch(`${state.config.apiBaseUrl}/public/embed/init`, {
+    const response = await fetch(`${state.config.apiBaseUrl}/api/v1/public/embed/init`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -737,7 +737,7 @@
   async function connectWebSocket() {
     return new Promise((resolve, reject) => {
       // Use public signaling endpoint for embed tokens
-      const wsUrl = `${state.config.apiBaseUrl.replace('http', 'ws')}/ws/public/signaling/${state.sessionToken}`;
+      const wsUrl = `${state.config.apiBaseUrl.replace('http', 'ws')}/api/v1/ws/public/signaling/${state.sessionToken}`;
 
       state.ws = new WebSocket(wsUrl);
       state.pcId = generatePeerId();
@@ -840,6 +840,11 @@
   function stopCall() {
     updateStatus('idle', 'Call ended', 'Click below to start a new call');
 
+    // Trigger call end callback
+    if (state.callbacks.onCallEnd) {
+      state.callbacks.onCallEnd();
+    }
+
     // Close WebSocket
     if (state.ws) {
       state.ws.close();
@@ -885,13 +890,55 @@
 
   // Public API
   window.DograhWidget = {
+    // Core methods
     init: init,
-    open: openWidget,
-    close: closeWidget,
     start: startCall,
     stop: stopCall,
+    end: stopCall, // Alias for stop
     retry: retryCall,
-    getState: () => state
+
+    // Floating widget specific
+    open: openWidget,
+    close: closeWidget,
+
+    // State and callbacks
+    getState: () => state,
+    onReady: (callback) => { state.callbacks.onReady = callback; },
+    onCallStart: (callback) => { state.callbacks.onCallStart = callback; },
+    onCallEnd: (callback) => { state.callbacks.onCallEnd = callback; },
+    onError: (callback) => { state.callbacks.onError = callback; },
+    onStatusChange: (callback) => { state.callbacks.onStatusChange = callback; },
+
+    // Check if inline mode
+    isInlineMode: () => state.config.embedMode === 'inline',
+
+    // Re-render the inline widget (useful when React component remounts)
+    refresh: () => {
+      if (state.config.embedMode === 'inline') {
+        // Re-render inline widget with current status
+        updateInlineStatus(state.connectionStatus);
+      }
+    },
+
+    // Initialize inline mode manually (for advanced use cases)
+    initInline: (options) => {
+      if (options.container) {
+        state.config.containerId = options.container.id || 'dograh-inline-container';
+      }
+      state.config.embedMode = 'inline';
+
+      // Set callbacks if provided
+      if (options.onReady) state.callbacks.onReady = options.onReady;
+      if (options.onCallStart) state.callbacks.onCallStart = options.onCallStart;
+      if (options.onCallEnd) state.callbacks.onCallEnd = options.onCallEnd;
+      if (options.onError) state.callbacks.onError = options.onError;
+      if (options.onStatusChange) state.callbacks.onStatusChange = options.onStatusChange;
+
+      // Initialize
+      if (!state.isInitialized) {
+        init();
+      }
+    }
   };
 
   // Auto-initialize on DOM ready

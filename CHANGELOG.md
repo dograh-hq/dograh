@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.3.0...dograh-v1.3.1) (2025-11-13)
+
+
+### Bug Fixes
+
+* upgrade pipecat with bundled Silero VAD model ([#50](https://github.com/dograh-hq/dograh/issues/50)) ([1e32eba](https://github.com/dograh-hq/dograh/commit/1e32ebae2a1334d1844c1b5618a60ed3b752d0b2))
+
 ## [1.3.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.2.0...dograh-v1.3.0) (2025-11-12)
 
 

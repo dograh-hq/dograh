@@ -20,9 +20,12 @@ RUN pip install --user --no-cache-dir -r requirements.txt && \
 
 # Copy and install pipecat from local submodule
 COPY pipecat /tmp/pipecat
+COPY scripts/download_model.sh /tmp/download_model.sh
 RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,soundfile,silero,webrtc]' && \
-    # Clean up pip cache and temporary pipecat directory
-    rm -rf /root/.cache/pip /tmp/pipecat
+    # Copy Silero VAD model using dedicated script (before cleaning up pipecat source)
+    bash /tmp/download_model.sh && \
+    # Clean up pip cache and temporary files
+    rm -rf /root/.cache/pip /tmp/pipecat /tmp/download_model.sh
 
     
 # Remove unnecessary Python cache files from installed packages

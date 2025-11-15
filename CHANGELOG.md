@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.3.1...dograh-v1.4.0) (2025-11-15)
+
+
+### Features
+
+* enable workflows to be embedded in websites as a script tag ([#47](https://github.com/dograh-hq/dograh/issues/47)) ([99a768f](https://github.com/dograh-hq/dograh/commit/99a768f291b6a77bd0a32f6e4ffcc36f38c05dd4))
+* simplify pipecat engine execution ([#54](https://github.com/dograh-hq/dograh/issues/54)) ([6ce25a5](https://github.com/dograh-hq/dograh/commit/6ce25a589ce84229b71bdc7208cf99ed35b35e5d))
+
+
+### Documentation
+
+* add development workflow to CONTRIBUTING.md ([#52](https://github.com/dograh-hq/dograh/issues/52)) ([6d7b0a9](https://github.com/dograh-hq/dograh/commit/6d7b0a951a68bf93df875b1d4f1e90c7b6df0317))
+* update Slack link in README.md ([5e4aef3](https://github.com/dograh-hq/dograh/commit/5e4aef346d804dad25732a2aa07a7438a9d4fda0))
+
 ## [1.3.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.3.0...dograh-v1.3.1) (2025-11-13)
 
 

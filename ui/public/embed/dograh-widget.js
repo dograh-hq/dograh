@@ -65,7 +65,13 @@
     let apiBaseUrl = DEFAULT_CONFIG.apiBaseUrl;
     if (apiEndpoint) {
       // Use the apiEndpoint from URL parameter if provided
-      apiBaseUrl = apiEndpoint.replace(/\/+$/, ''); // Remove trailing slashes
+      // Ensure it has a protocol
+      if (!apiEndpoint.startsWith('http://') && !apiEndpoint.startsWith('https://')) {
+        // Default to https for production endpoints
+        apiBaseUrl = 'https://' + apiEndpoint.replace(/\/+$/, '');
+      } else {
+        apiBaseUrl = apiEndpoint.replace(/\/+$/, ''); // Remove trailing slashes
+      }
     } else if (scriptUrl.origin.includes('localhost')) {
       apiBaseUrl = 'http://localhost:8000';
     } else {

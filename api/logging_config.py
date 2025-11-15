@@ -1,13 +1,15 @@
+import logging
 import os
 import sys
 
 import loguru
 
-from api.constants import ENVIRONMENT, SERIALIZE_LOG_OUTPUT
+from api.constants import SERIALIZE_LOG_OUTPUT
 from api.enums import Environment
 from api.utils.worker import get_worker_id, is_worker_process
 from pipecat.utils.context import run_id_var, turn_var
 
+ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 ENABLE_TURN_LOGGING = os.getenv("ENABLE_TURN_LOGGING", "false").lower() == "true"
 
 # We write different uvicorn forked worker log to a different
@@ -16,6 +18,26 @@ LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", None)
 
 # Track if logging has been initialized
 _logging_initialized = False
+
+
+class InterceptHandler(logging.Handler):
+    """
+    Intercept standard library logging calls and redirect them to loguru.
+    This allows us to capture uvicorn and other library logs through loguru.
+    """
+
+    def emit(self, record):
+        # Get corresponding Loguru level if it exists
+        try:
+            level = loguru.logger.level(record.levelname).name
+        except ValueError:
+            level = record.levelno
+
+        # Use the original record's information instead of trying to find the caller
+        # This preserves the logger name (e.g., "uvicorn.access") in the logs
+        loguru.logger.patch(lambda r: r.update(name=record.name)).opt(
+            exception=record.exc_info
+        ).log(level, record.getMessage())
 
 
 def inject_run_id(record):
@@ -103,4 +125,16 @@ def setup_logging():
         )
 
     loguru.logger = patched
+
+    # Intercept standard library logging (uvicorn, etc.) and redirect to loguru
+    # Set level to INFO to avoid debug logs from libraries
+    logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)
+
+    # Specifically intercept uvicorn loggers with INFO level
+    for logger_name in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
+        logging_logger = logging.getLogger(logger_name)
+        logging_logger.handlers = [InterceptHandler()]
+        logging_logger.setLevel(logging.INFO)
+        logging_logger.propagate = False
+
     _logging_initialized = True

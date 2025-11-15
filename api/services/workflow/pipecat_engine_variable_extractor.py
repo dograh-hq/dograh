@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING, Any, List
 from loguru import logger
 from openai import AsyncOpenAI
 from opentelemetry import trace
-from pipecat.services.openai.llm import OpenAILLMContext
-from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
 from api.services.pipecat.tracing_config import is_tracing_enabled
 from api.services.workflow.dto import ExtractionVariableDTO
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -139,7 +139,7 @@ class VariableExtractionManager:
             f"{conversation_history}"
         )
 
-        extraction_context = OpenAILLMContext()
+        extraction_context = LLMContext()
         extraction_messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -171,7 +171,7 @@ class VariableExtractionManager:
                     service_name="OpenAILLMService",
                     model=self._model,
                     operation_name="variable_extraction",
-                    messages=json.dumps(extraction_messages),
+                    messages=extraction_messages,
                     output=llm_response,
                     stream=False,
                     parameters={"temperature": 0.0, "response_format": "json_object"},

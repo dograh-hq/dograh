@@ -9,7 +9,7 @@ from api.constants import (
 from api.services.pipecat.audio_config import AudioConfig
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBuffer
 from pipecat.processors.audio.audio_synchronizer import AudioSynchronizer
 from pipecat.processors.transcript_processor import TranscriptProcessor
@@ -39,7 +39,7 @@ def create_pipeline_components(audio_config: AudioConfig, engine: "PipecatEngine
         assistant_correct_aggregation_callback=engine.create_aggregation_correction_callback()
     )
 
-    context = OpenAILLMContext()
+    context = LLMContext()
 
     return audio_buffer, audio_synchronizer, transcript, context
 
@@ -58,7 +58,6 @@ def build_pipeline(
     stt_mute_filter,
     pipeline_metrics_aggregator,
     user_idle_disconnect,
-    engine_pre_aggregator_processor=None,
 ):
     """Build the main pipeline with all components"""
     # Register processors with synchronizer for merged audio
@@ -69,15 +68,11 @@ def build_pipeline(
     processors = [
         transport.input(),  # Transport user input
         audio_buffer.input(),  # Record input audio (only processes InputAudioRawFrame)
-        stt_mute_filter,
         stt,  # STT can now have audio_passthrough=False
+        stt_mute_filter,  # STTMuteFilters don't let VAD related events pass through if muted
         user_idle_disconnect,
         transcript.user(),
     ]
-
-    # Insert engine pre-aggregator processor if provided (before user aggregator)
-    if engine_pre_aggregator_processor:
-        processors.append(engine_pre_aggregator_processor)
 
     processors.extend(
         [

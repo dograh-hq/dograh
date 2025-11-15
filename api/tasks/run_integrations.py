@@ -3,12 +3,12 @@ import os
 import aiohttp
 import httpx
 from loguru import logger
-from pipecat.utils.context import set_current_run_id
 
 from api.db import db_client
 from api.db.models import IntegrationModel
 from api.enums import OrganizationConfigurationKey, WorkflowRunMode
 from api.utils.template_renderer import render_template
+from pipecat.utils.context import set_current_run_id
 
 
 async def run_integrations_post_workflow_run(ctx, workflow_run_id: int):
@@ -162,7 +162,7 @@ async def _process_slack_integration(
     """
     logger.info(f"Processing Slack integration {integration.id}")
 
-    # TODO: Generalise this, currently tailored to Kapil's use case
+    # TODO: Generalise this
     if gathered_context.get("mapped_call_disposition") != "XFER":
         logger.debug(
             f"Not sending message on slack since not XFER: {gathered_context.get('mapped_call_disposition')}"

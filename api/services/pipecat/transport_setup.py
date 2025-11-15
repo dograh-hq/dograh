@@ -165,14 +165,15 @@ async def create_vonage_transport(
 
     # Use the factory to load config from database
     from api.services.telephony.factory import load_telephony_config
+
     config = await load_telephony_config(organization_id)
-    
+
     if config.get("provider") != "vonage":
         raise ValueError(f"Expected Vonage provider, got {config.get('provider')}")
 
     application_id = config.get("application_id")
     private_key = config.get("private_key")
-    
+
     if not application_id or not private_key:
         raise ValueError(
             f"Incomplete Vonage configuration for organization {organization_id}"
@@ -186,8 +187,8 @@ async def create_vonage_transport(
         private_key=private_key,
         params=VonageFrameSerializer.InputParams(
             vonage_sample_rate=audio_config.transport_in_sample_rate,
-            sample_rate=audio_config.pipeline_sample_rate
-        )
+            sample_rate=audio_config.pipeline_sample_rate,
+        ),
     )
 
     # Important: Vonage uses binary WebSocket mode, not text

@@ -7,9 +7,6 @@ from api.db import db_client
 from api.db.models import WorkflowModel
 from api.enums import WorkflowRunMode
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
-from api.services.pipecat.engine_pre_aggregator_processor import (
-    EnginePreAggregatorProcessor,
-)
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_task_event_handler,
@@ -43,6 +40,9 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.processors.aggregators.llm_response import LLMAssistantAggregatorParams
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
 from pipecat.processors.filters.stt_mute_filter import (
     STTMuteConfig,
     STTMuteFilter,
@@ -119,7 +119,7 @@ async def run_pipeline_vonage(
     user_id: int,
 ):
     """Run pipeline for Vonage WebSocket connections.
-    
+
     Vonage uses raw PCM audio over WebSocket instead of base64-encoded μ-law.
     The audio is transmitted as binary frames at 16kHz by default.
     """
@@ -137,7 +137,9 @@ async def run_pipeline_vonage(
         if "vad_configuration" in workflow.workflow_configurations:
             vad_config = workflow.workflow_configurations["vad_configuration"]
         if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations["ambient_noise_configuration"]
+            ambient_noise_config = workflow.workflow_configurations[
+                "ambient_noise_configuration"
+            ]
 
     try:
         # Setup audio config for Vonage using the centralized config
@@ -355,21 +357,14 @@ async def _run_pipeline(
         expect_stripped_words=True,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
-    context_aggregator = llm.create_context_aggregator(
+    context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params
-    )
-
-    # Create engine pre-aggregator processor for speaking events
-    engine_pre_aggregator_processor = EnginePreAggregatorProcessor(
-        user_started_speaking_callback=engine.create_user_started_speaking_callback(),
-        user_stopped_speaking_callback=engine.create_user_stopped_speaking_callback(),
     )
 
     # Create usage metrics aggregator with engine's callback
     pipeline_engine_callback_processor = PipelineEngineCallbacksProcessor(
         max_call_duration_seconds=max_call_duration_seconds,
         max_duration_end_task_callback=engine.create_max_duration_callback(),
-        llm_generated_text_callback=engine.create_llm_generated_text_callback(),
         generation_started_callback=engine.create_generation_started_callback(),
         llm_text_frame_callback=engine.handle_llm_text_frame,
         # Note: speaking event callbacks are now handled by pre-aggregator processor
@@ -396,11 +391,6 @@ async def _run_pipeline(
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
 
-    @assistant_context_aggregator.event_handler("on_push_aggregation")
-    async def on_assistant_aggregator_push_context(_aggregator):
-        logger.debug("Assistant aggregator push context – flushing pending transitions")
-        await engine.flush_pending_transitions(source="context_push")
-
     # Build the pipeline with the STT mute filter and context controller
     pipeline = build_pipeline(
         transport,
@@ -416,7 +406,6 @@ async def _run_pipeline(
         stt_mute_filter,
         pipeline_metrics_aggregator,
         user_idle_disconnect,
-        engine_pre_aggregator_processor=engine_pre_aggregator_processor,
     )
 
     # Create pipeline task with audio configuration

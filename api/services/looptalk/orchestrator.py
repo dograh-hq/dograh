@@ -272,14 +272,6 @@ class LoopTalkTestOrchestrator:
 
             await task.cancel()
 
-        # Connect the context aggregator events to engine
-        @assistant_context_aggregator.event_handler("on_push_aggregation")
-        async def on_assistant_aggregator_push_context(_aggregator):
-            logger.debug(
-                "Assistant aggregator push context – flushing pending transitions"
-            )
-            await engine.flush_pending_transitions()
-
         # Register custom audio and transcript handlers for LoopTalk
         await self._register_looptalk_handlers(
             audio_synchronizer, transcript, test_session_id, role

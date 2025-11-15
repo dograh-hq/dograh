@@ -24,6 +24,9 @@ from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
 from pipecat.processors.filters.stt_mute_filter import (
     STTMuteConfig,
     STTMuteFilter,
@@ -83,7 +86,8 @@ class LoopTalkPipelineBuilder:
         audio_buffer, audio_synchronizer, transcript, context = (
             create_pipeline_components(audio_config)
         )
-        context_aggregator = llm.create_context_aggregator(context)
+
+        context_aggregator = LLMContextAggregatorPair(context)
 
         # Get workflow graph
         workflow_graph = WorkflowGraph(
@@ -113,7 +117,6 @@ class LoopTalkPipelineBuilder:
         pipeline_engine_callback_processor = PipelineEngineCallbacksProcessor(
             max_call_duration_seconds=300,
             max_duration_end_task_callback=engine.create_max_duration_callback(),
-            llm_generated_text_callback=engine.create_llm_generated_text_callback(),
             generation_started_callback=engine.create_generation_started_callback(),
         )
 

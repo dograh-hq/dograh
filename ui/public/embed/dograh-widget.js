@@ -11,10 +11,25 @@
   const DEFAULT_CONFIG = {
     position: 'bottom-right',
     autoStart: false,
-    apiBaseUrl: window.location.hostname === 'localhost'
-      ? 'http://localhost:8000'
-      : 'https://api.dograh.com'
+    apiBaseUrl: getWidgetBackendUrl()
   };
+
+  // Backend URL detection for embed widget
+  function getWidgetBackendUrl() {
+    // Check for manual override
+    if (window.__DOGRAH_BACKEND_HOST__) {
+      return `http://${window.__DOGRAH_BACKEND_HOST__}:8000`;
+    }
+    
+    // Automatic detection
+    const hostname = window.location.hostname;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return 'http://localhost:8000';
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+      return `${protocol}//${hostname}:8000`;
+    }
+  }
 
   // Widget state
   const state = {

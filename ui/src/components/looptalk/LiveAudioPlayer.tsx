@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
+import { getWebSocketUrl } from '@/lib/backend-url';
 
 interface LiveAudioPlayerProps {
     testSessionId: number;
@@ -97,8 +98,8 @@ export function LiveAudioPlayer({
             // Get auth token
             const accessToken = await getAccessToken();
 
-            // Create WebSocket connection
-            const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace('http', 'ws') || 'ws://localhost:8000';
+            // Create WebSocket connection using shared utility
+            const baseUrl = getWebSocketUrl();
             const wsUrl = `${baseUrl}/api/v1/looptalk/test-sessions/${testSessionId}/audio-stream?role=${audioRole}&token=${encodeURIComponent(accessToken || '')}`;
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
@@ -208,7 +209,7 @@ export function LiveAudioPlayer({
         }
 
         // Stop all scheduled audio
-        audioQueueRef.current.forEach(source => {
+        audioQueueRef.current.forEach((source: AudioBufferSourceNode) => {
             try {
                 source.stop();
             } catch {

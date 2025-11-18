@@ -34,6 +34,7 @@ COPY ui/sentry.server.config.ts ./
 COPY ui/postcss.config.mjs ./
 COPY ui/public ./public
 COPY ui/src ./src
+COPY ui/docker-entrypoint.sh ./docker-entrypoint.sh
 
 # Set build-time environment variables (needed for Next.js build)
 ENV NEXT_PUBLIC_NODE_ENV="oss"
@@ -64,12 +65,16 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/docker-entrypoint.sh ./docker-entrypoint.sh
 
-# Switch to non-root user
+# Make entrypoint executable and switch to non-root user
+USER root
+RUN chmod +x ./docker-entrypoint.sh
 USER nextjs
 
 # Expose the port Next.js runs on
 EXPOSE 3010
 
-# Start the production server using the standalone Node.js server
+# Use entrypoint for optional configuration
+ENTRYPOINT ["./docker-entrypoint.sh"]
 CMD sh -c "echo '🚀 Application ready at http://localhost:3010' && PORT=3010 node server.js"

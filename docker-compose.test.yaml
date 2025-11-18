@@ -1,3 +1,6 @@
+# Test docker-compose file for remote deployment
+# Use this on your remote server to test the images
+
 services:
   postgres:
     image: postgres:17
@@ -5,11 +8,6 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
     ports:
       - "5432:5432"
     volumes:
@@ -47,7 +45,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin
       MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
-      - "127.0.0.1:9000:9000" # Bind to localhost explicitly
+      - "127.0.0.1:9000:9000"
       - "127.0.0.1:9001:9001"
     volumes:
       - minio-data:/data
@@ -64,39 +62,21 @@ services:
     volumes:
       - shared-tmp:/tmp
     environment:
-      # Core application config
       ENVIRONMENT: "local"
       LOG_LEVEL: "INFO"
-
-      # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
-
-      # Redis configuration (using containerized redis)
       REDIS_URL: "redis://:redissecret@redis:6379"
-
-      # Storage configuration - using local MinIO
       ENABLE_AWS_S3: "false"
-
-      # MinIO
       MINIO_ENDPOINT: "minio:9000"
       MINIO_ACCESS_KEY: "minioadmin"
       MINIO_SECRET_KEY: "minioadmin"
       MINIO_BUCKET: "voice-audio"
       MINIO_SECURE: "false"
-
-      # Langfuse
       ENABLE_TRACING: "false"
-      # LANGFUSE_SECRET_KEY: ""
-      # LANGFUSE_PUBLIC_KEY: ""
-      # LANGFUSE_HOST: "https://langfuse.dograh.com"
-
-      # Sentry
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      ENABLE_TELEMETRY: "false"
       SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
-
-    # Remove port exposure - nginx will handle it
-    expose:
-      - "8000"  # Internal container port
+    ports:
+      - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -104,12 +84,10 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+      cloudflared:
+        condition: service_started
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
-        ]
+      test: ["CMD-SHELL", 'python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8000/api/v1/health\").read()"']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -118,36 +96,23 @@ services:
       - app-network
 
   ui:
-    image: chewiee/dograh-ui:test-remote-fix-1
+    image: chewiee/dograh-ui:test-remote-fix
     environment:
-      # Server-side URL (SSR, internal Docker network)
       BACKEND_URL: "http://api:8000"
       NODE_ENV: "oss"
-      # Optional manual override for complex network setups
-      # Usage: DOGRAH_BACKEND_HOST=192.168.1.100 docker-compose up
-      DOGRAH_BACKEND_HOST: "${DOGRAH_BACKEND_HOST:-}"
-
-      # Flag to enable/ disable posthog and sentry
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
-
-      # Posthog
+      # Optional manual override for testing
+      # DOGRAH_BACKEND_HOST: "YOUR_SERVER_IP"
+      ENABLE_TELEMETRY: "false"
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.posthog.com"
-
-      # Sentry
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
-    # Expose port for nginx to access
-    expose:
-      - "3010"  # Internal container port
+    ports:
+      - "3010:3010"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
-        ]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -155,20 +120,12 @@ services:
     networks:
       - app-network
 
-  nginx-https:
-    image: nginx:alpine
-    container_name: dograh-https-proxy
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: cloudflared-tunnel
+    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
     ports:
-      - "3010:3010"  # HTTPS UI
-      - "8000:8000"  # HTTPS API
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      ui:
-        condition: service_healthy
-      api:
-        condition: service_healthy
+      - "2000:2000"
     networks:
       - app-network
 

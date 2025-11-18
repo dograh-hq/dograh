@@ -1,14 +1,12 @@
 import type { CreateClientConfig } from '@/client/client.gen';
+import { getBackendUrl } from '@/lib/backend-url';
 
 export const createClientConfig: CreateClientConfig = (config) => {
-    // Use different URLs for server-side vs client-side
-    const isServer = typeof window === 'undefined';
-    const baseUrl = isServer
-        ? process.env.BACKEND_URL || process.env.NEXT_PUBLIC_BACKEND_URL
-        : process.env.NEXT_PUBLIC_BACKEND_URL;
-
+    let baseUrl = getBackendUrl()
+    const isServerSide = typeof window === 'undefined';
+    console.log(`[${isServerSide ? 'SSR' : 'CSR'}] Backend URL: ${baseUrl}`);
     return {
         ...config,
-        baseUrl,
+        baseUrl: baseUrl,
     };
 };

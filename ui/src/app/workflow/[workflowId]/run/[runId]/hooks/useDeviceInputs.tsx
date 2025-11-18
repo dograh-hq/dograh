@@ -9,6 +9,11 @@ export const useDeviceInputs = () => {
 
     const getAudioInputDevices = useCallback(async () => {
         try {
+            // Check if navigator.mediaDevices is available
+            if (!navigator?.mediaDevices?.enumerateDevices) {
+                throw new Error('MediaDevices API not available. Ensure the page is served over HTTPS.');
+            }
+            
             const devices = await navigator.mediaDevices.enumerateDevices();
             const audioDevices = devices.filter(device => device.kind === 'audioinput');
             setAudioInputs(audioDevices);

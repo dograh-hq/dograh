@@ -36,6 +36,9 @@ export default function RootLayout({
 
   return (
     <html lang="en">
+      <head>
+        <script src="/runtime-config.js"></script>
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>

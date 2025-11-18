@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
+import { getWebSocketUrl } from '@/lib/backend-url';
 
 interface SimpleAudioPlayerProps {
     testSessionId: number;
@@ -29,8 +30,8 @@ export function SimpleAudioPlayer({ testSessionId }: SimpleAudioPlayerProps) {
                 // Get auth token
                 const accessToken = await getAccessToken();
 
-                // Create WebSocket connection - pass token as query param since WebSocket doesn't support headers
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:8000';
+                // Create WebSocket connection using shared utility
+                const baseUrl = getWebSocketUrl();
                 const wsUrl = `${baseUrl}/api/v1/looptalk/test-sessions/${testSessionId}/audio-stream?role=${audioRole}&token=${encodeURIComponent(accessToken || '')}`;
                 const ws = new WebSocket(wsUrl);
                 wsRef.current = ws;
@@ -92,7 +93,7 @@ export function SimpleAudioPlayer({ testSessionId }: SimpleAudioPlayerProps) {
                                 }
                             };
 
-                            setBufferedDuration(prev => prev + audioBuffer.duration);
+                            setBufferedDuration((prev: number) => prev + audioBuffer.duration);
                         } else if (data.type === 'keepalive') {
                             // Connection is alive
                         }
@@ -124,7 +125,7 @@ export function SimpleAudioPlayer({ testSessionId }: SimpleAudioPlayerProps) {
                 wsRef.current.close();
             }
             // Stop all scheduled audio
-            audioQueueRef.current.forEach(source => {
+            audioQueueRef.current.forEach((source: AudioBufferSourceNode) => {
                 try {
                     source.stop();
                 } catch {

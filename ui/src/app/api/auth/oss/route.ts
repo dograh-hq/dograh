@@ -27,6 +27,7 @@ export async function GET() {
   // If no token exists, create one
   if (!token) {
     token = generateOSSToken();
+    console.log(`[OSS_AUTH] Creating new token: ${token}`);
     user = JSON.stringify({
       id: token,
       name: 'Local User',

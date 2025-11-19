@@ -18,12 +18,22 @@ export const dynamic = 'force-dynamic';
 // Server component for workflow templates
 async function WorkflowTemplatesList() {
     try {
+        console.log('[WorkflowTemplatesList] Starting template fetch...');
+        logger.info('Attempting to fetch workflow templates...');
         const response = await getWorkflowTemplatesApiV1WorkflowTemplatesGet();
+        
+        console.log(`[WorkflowTemplatesList] Template response received`);
+        console.log(`[WorkflowTemplatesList] Template response status: ${response.response?.status}`);
         // Log request URL if available
         if (response.request?.url) {
+            console.log(`[WorkflowTemplatesList] Template Request URL: ${response.request.url}`);
             logger.info(`Template Request URL: ${response.request.url}`);
         }
+        logger.info(`Template Response status: ${response.response?.status}`);
         const templates = response.data || [];
+        console.log(`[WorkflowTemplatesList] Templates found: ${templates.length}`);
+        console.log(`[WorkflowTemplatesList] Template data:`, JSON.stringify(templates, null, 2));
+        logger.info(`Found ${templates.length} templates`);
 
         // Get access token on server side to pass to client component
         const accessToken = await getServerAccessToken();
@@ -53,12 +63,17 @@ async function WorkflowTemplatesList() {
 
 // Server component for workflow list
 async function WorkflowList() {
+    console.log('[WorkflowList] Component started');
     const authProvider = getServerAuthProvider();
     const accessToken = await getServerAccessToken();
 
+    console.log(`[WorkflowList] authProvider: ${authProvider}`);
+    console.log(`[WorkflowList] accessToken length: ${accessToken?.length || 0}`);
+    console.log(`[WorkflowList] accessToken starts with: ${accessToken?.substring(0, 10)}...`);
     logger.debug(`In WorkflowList, authProvider: ${authProvider}, accessToken: ${accessToken}`);
 
     if (!accessToken) {
+        console.log('[WorkflowList] No access token - redirecting or showing error');
         // If no token, user needs to sign in
         const { redirect } = await import('next/navigation');
         if (authProvider === 'stack') {
@@ -75,16 +90,34 @@ async function WorkflowList() {
 
     try {
         // Fetch both active and archived workflows in a single request
-        const response = await getWorkflowsApiV1WorkflowFetchGet({
+        console.log('[WorkflowList] Starting API call...');
+        logger.info('Attempting to fetch workflows...');
+        
+        const requestConfig = {
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
             },
             query: {
                 status: 'active,archived'
             }
-        });
+        };
+        console.log(`[WorkflowList] Request config:`, JSON.stringify(requestConfig, null, 2));
+        
+        const response = await getWorkflowsApiV1WorkflowFetchGet(requestConfig);
 
+        console.log(`[WorkflowList] Response received`);
+        console.log(`[WorkflowList] Response status: ${response.response?.status}`);
+        console.log(`[WorkflowList] Response headers:`, response.response?.headers);
+        logger.info(`Workflow Response status: ${response.response?.status}`);
+        if (response.request?.url) {
+            console.log(`[WorkflowList] Request URL: ${response.request.url}`);
+            logger.info(`Workflow Request URL: ${response.request.url}`);
+        }
+
+        console.log(`[WorkflowList] Raw response data:`, JSON.stringify(response.data, null, 2));
         const allWorkflowData = response.data ? (Array.isArray(response.data) ? response.data : [response.data]) : [];
+        console.log(`[WorkflowList] Processed workflow data length: ${allWorkflowData.length}`);
+        logger.info(`Found ${allWorkflowData.length} total workflows`);
 
         // Separate active and archived workflows
         const activeWorkflows = allWorkflowData
@@ -94,6 +127,10 @@ async function WorkflowList() {
         const archivedWorkflows = allWorkflowData
             .filter(w => w.status === 'archived')
             .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            
+        console.log(`[WorkflowList] Active workflows: ${activeWorkflows.length}`);
+        console.log(`[WorkflowList] Archived workflows: ${archivedWorkflows.length}`);
+        console.log(`[WorkflowList] Active workflow IDs:`, activeWorkflows.map(w => w.id));
 
         return (
             <>
@@ -119,6 +156,7 @@ async function WorkflowList() {
             </>
         );
     } catch (err) {
+        console.error('[WorkflowList] Error fetching workflows:', err);
         logger.error(`Error fetching workflows: ${err}`);
         return (
             <div className="text-red-500">

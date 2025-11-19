@@ -52,13 +52,20 @@ export function getWebSocketUrl(): string {
  */
 function getServerSideBackendUrl(): string {
   // Manual override takes precedence
-const manualHost = getProcessEnv('DOGRAH_BACKEND_HOST');
+  const manualHost = getProcessEnv('DOGRAH_BACKEND_HOST');
+  console.log(`[SSR] DOGRAH_BACKEND_HOST: ${manualHost}`);
   if (manualHost) {
-    return `http://${manualHost}:8000`;
+    const url = `http://${manualHost}:8000`;
+    console.log(`[SSR] Using manual override: ${url}`);
+    return url;
   }
   
   // Docker internal network for SSR
-  return getProcessEnv('BACKEND_URL') || 'http://api:8000';
+  const backendUrl = getProcessEnv('BACKEND_URL');
+  const finalUrl = backendUrl || 'http://api:8000';
+  console.log(`[SSR] BACKEND_URL env: ${backendUrl}`);
+  console.log(`[SSR] Final server URL: ${finalUrl}`);
+  return finalUrl;
 }
 
 /**

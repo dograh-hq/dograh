@@ -142,6 +142,7 @@ export async function getServerAccessToken(): Promise<string | null> {
   } else if (authProvider === 'local') {
     // Get token from cookies (created by middleware)
     const oss_token = await getOSSToken();
+    console.log(`[SERVER_AUTH] Server-side token: ${oss_token}`);
     logger.debug(`oss_token: ${oss_token}`);
     return oss_token;
   }

@@ -238,12 +238,14 @@ async def create_workflow_from_template(
             )
 
         # Create the workflow in our database
+        logger.info(f"[WORKFLOW_CREATE] User ID: {user.id}, Org ID: {user.selected_organization_id}")
         workflow = await db_client.create_workflow(
             name=workflow_data.get("name", f"{request.use_case} - {request.call_type}"),
             workflow_definition=workflow_data.get("workflow_definition", {}),
             user_id=user.id,
             organization_id=user.selected_organization_id,
         )
+        logger.info(f"[WORKFLOW_CREATE] Created workflow ID: {workflow.id} for org: {user.selected_organization_id}")
 
         return {
             "id": workflow.id,
@@ -285,6 +287,7 @@ async def get_workflows(
     ),
 ) -> List[WorkflowResponse]:
     """Get all workflows for the authenticated user's organization"""
+    logger.info(f"[WORKFLOW_FETCH] User ID: {user.id}, Org ID: {user.selected_organization_id}, Status filter: {status}")
     # Handle comma-separated status values
     if status and "," in status:
         # Split comma-separated values and fetch workflows for each status

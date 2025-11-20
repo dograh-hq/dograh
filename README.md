@@ -102,6 +102,10 @@ Architecture diagram _(coming soon)_
 
 Refer [prerequisites](https://docs.dograh.com/getting-started/prerequisites) and [first steps](#-get-started)
 
+### Self-Hosted Deployment
+
+For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker).
+
 ### Production (Self-Hosted)
 
 Production guide coming soon. [Drop in a message](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ) for assistance.

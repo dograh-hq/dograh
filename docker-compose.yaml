@@ -59,6 +59,21 @@ services:
     networks:
       - app-network
 
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_https
+    profiles: ["remote"]
+    depends_on:
+      - ui
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - app-network
+
   api:
     image: ${REGISTRY:-dograhai}/dograh-api:latest
     volumes:

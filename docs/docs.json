@@ -33,6 +33,14 @@
             ]
           },
           {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/custom-domain",
+              "deployment/heroku"
+            ]
+          },
+          {
             "group": "Features",
             "pages": [
               "features/campaigns",

@@ -10,6 +10,8 @@ from api.schemas.telephony_config import (
     TwilioConfigurationResponse,
     VonageConfigurationRequest,
     VonageConfigurationResponse,
+    VobizConfigurationRequest,
+    VobizConfigurationResponse,
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
@@ -19,7 +21,8 @@ router = APIRouter(prefix="/organizations", tags=["organizations"])
 # Provider configuration constants
 PROVIDER_MASKED_FIELDS = {
     "twilio": ["account_sid", "auth_token"],
-    "vonage": ["private_key", "api_key", "api_secret"]
+    "vonage": ["private_key", "api_key", "api_secret"],
+    "vobiz": ["auth_id", "auth_token"]
 }
 
 # TODO: Make endpoints provider-agnostic
@@ -53,7 +56,8 @@ async def get_telephony_configuration(
                 auth_token=mask_key(auth_token) if auth_token else "",
                 from_numbers=from_numbers,
             ),
-            vonage=None
+            vonage=None,
+            vobiz=None
         )
     elif stored_provider == "vonage":
         application_id = config.value.get("application_id", "")
@@ -71,6 +75,22 @@ async def get_telephony_configuration(
                 api_key=mask_key(api_key) if api_key else None,
                 api_secret=mask_key(api_secret) if api_secret else None,
                 from_numbers=from_numbers,
+            ),
+            vobiz=None
+        )
+    elif stored_provider == "vobiz":
+        auth_id = config.value.get("auth_id", "")
+        auth_token = config.value.get("auth_token", "")
+        from_numbers = config.value.get("from_numbers", []) if auth_id and auth_token else []
+
+        return TelephonyConfigurationResponse(
+            twilio=None,
+            vonage=None,
+            vobiz=VobizConfigurationResponse(
+                provider="vobiz",
+                auth_id=mask_key(auth_id) if auth_id else "",
+                auth_token=mask_key(auth_token) if auth_token else "",
+                from_numbers=from_numbers,
             )
         )
     else:
@@ -79,7 +99,7 @@ async def get_telephony_configuration(
 
 @router.post("/telephony-config")
 async def save_telephony_configuration(
-    request: Union[TwilioConfigurationRequest, VonageConfigurationRequest], 
+    request: Union[TwilioConfigurationRequest, VonageConfigurationRequest, VobizConfigurationRequest],
     user: UserModel = Depends(get_user)
 ):
     """Save telephony configuration for the user's organization."""
@@ -107,6 +127,13 @@ async def save_telephony_configuration(
             "private_key": request.private_key,
             "api_key": getattr(request, 'api_key', None),
             "api_secret": getattr(request, 'api_secret', None),
+            "from_numbers": request.from_numbers,
+        }
+    elif request.provider == "vobiz":
+        config_value = {
+            "provider": "vobiz",
+            "auth_id": request.auth_id,
+            "auth_token": request.auth_token,
             "from_numbers": request.from_numbers,
         }
     else:

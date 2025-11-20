@@ -13,6 +13,7 @@ from api.enums import OrganizationConfigurationKey
 from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.providers.twilio_provider import TwilioProvider
 from api.services.telephony.providers.vonage_provider import VonageProvider
+from api.services.telephony.providers.vobiz_provider import VobizProvider
 
 
 async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
@@ -58,6 +59,13 @@ async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
                 "api_secret": config.value.get("api_secret"),
                 "from_numbers": config.value.get("from_numbers", [])
             }
+        elif provider == "vobiz":
+            return {
+                "provider": "vobiz",
+                "auth_id": config.value.get("auth_id"),
+                "auth_token": config.value.get("auth_token"),
+                "from_numbers": config.value.get("from_numbers", [])
+            }
         else:
             raise ValueError(f"Unknown provider in config: {provider}")
     
@@ -88,9 +96,12 @@ async def get_telephony_provider(
     # Create provider instance with configuration
     if provider_type == "twilio":
         return TwilioProvider(config)
-    
+
     elif provider_type == "vonage":
         return VonageProvider(config)
-    
+
+    elif provider_type == "vobiz":
+        return VobizProvider(config)
+
     else:
         raise ValueError(f"Unknown telephony provider: {provider_type}")

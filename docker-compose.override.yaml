@@ -1,0 +1,13 @@
+# Override to build API and UI locally instead of using pre-built images
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: dograh-api:local-vobiz
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    image: dograh-ui:local-vobiz

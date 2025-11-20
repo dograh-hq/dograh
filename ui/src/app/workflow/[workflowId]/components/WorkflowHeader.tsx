@@ -117,8 +117,8 @@ const WorkflowHeader = ({ isDirty, workflowName, rfInstance, onRun, workflowId, 
             });
 
             // If no configuration exists, show configure dialog
-            // Check if any telephony provider is configured (Twilio or Vonage)
-            if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage)) {
+            // Check if any telephony provider is configured (Twilio, Vonage, or Vobiz)
+            if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage && !configResponse.data?.vobiz)) {
                 setConfigureDialogOpen(true);
                 return;
             }

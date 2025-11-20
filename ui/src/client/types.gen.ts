@@ -392,6 +392,7 @@ export type SuperuserWorkflowRunsListResponse = {
 export type TelephonyConfigurationResponse = {
     twilio?: TwilioConfigurationResponse | null;
     vonage?: VonageConfigurationResponse | null;
+    vobiz?: VobizConfigurationResponse | null;
 };
 
 export type TestSessionResponse = {
@@ -540,6 +541,35 @@ export type VonageConfigurationResponse = {
     api_key: string | null;
     api_secret: string | null;
     private_key: string;
+    from_numbers: Array<string>;
+};
+
+/**
+ * Request schema for Vobiz telephony configuration.
+ */
+export type VobizConfigurationRequest = {
+    provider: string;
+    /**
+     * Vobiz Account ID (e.g., MA_SYQRLN1K)
+     */
+    auth_id: string;
+    /**
+     * Vobiz Auth Token
+     */
+    auth_token: string;
+    /**
+     * List of Vobiz phone numbers (without + prefix, E.164 format)
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * Response schema for Vobiz configuration with masked sensitive fields.
+ */
+export type VobizConfigurationResponse = {
+    provider: string;
+    auth_id: string;
+    auth_token: string;
     from_numbers: Array<string>;
 };
 
@@ -2086,7 +2116,7 @@ export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetRespons
 export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponse = GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses[keyof GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses];
 
 export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData = {
-    body: TwilioConfigurationRequest | VonageConfigurationRequest;
+    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest;
     headers?: {
         authorization?: string | null;
     };

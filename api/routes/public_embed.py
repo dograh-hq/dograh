@@ -71,6 +71,16 @@ def validate_origin(origin: str, allowed_domains: list) -> bool:
     else:
         domain = origin
 
+    # Normalize domain for www matching
+    def normalize_www(d: str) -> tuple[str, str]:
+        """Return both www and non-www versions of a domain"""
+        if d.startswith("www."):
+            return (d, d[4:])  # (www.x.com, x.com)
+        else:
+            return (d, f"www.{d}")  # (x.com, www.x.com)
+
+    domain_variants = normalize_www(domain)
+
     for allowed in allowed_domains:
         if allowed == "*":
             return True
@@ -79,8 +89,13 @@ def validate_origin(origin: str, allowed_domains: list) -> bool:
             base_domain = allowed[2:]
             if domain == base_domain or domain.endswith("." + base_domain):
                 return True
-        elif domain == allowed:
-            return True
+        else:
+            # Check both www and non-www versions
+            allowed_variants = normalize_www(allowed)
+            # If any variant of domain matches any variant of allowed, it's valid
+            if any(dv in allowed_variants or av in domain_variants
+                   for dv in domain_variants for av in allowed_variants):
+                return True
 
     return False
 

@@ -6,7 +6,7 @@ from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.cartesia.stt import CartesiaSTTService
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService
@@ -25,7 +25,13 @@ if TYPE_CHECKING:
 def create_stt_service(user_config):
     """Create and return appropriate STT service based on user configuration"""
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
+        live_options = LiveOptions(
+            language="multi",
+            profanity_filter=False,
+            endpointing=100
+        )
         return DeepgramSTTService(
+            live_options=live_options,
             api_key=user_config.stt.api_key,
             audio_passthrough=False,  # Disable passthrough since audio is buffered separately
         )

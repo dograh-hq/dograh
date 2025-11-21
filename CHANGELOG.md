@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.4.0...dograh-v1.5.0) (2025-11-21)
+
+
+### Features
+
+* enable remote server deployment for OSS deployment ([#57](https://github.com/dograh-hq/dograh/issues/57)) ([6efe7d6](https://github.com/dograh-hq/dograh/commit/6efe7d6bd47e8cd099665351c7c8c6de645b1539))
+
 ## [1.4.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.3.1...dograh-v1.4.0) (2025-11-15)
 
 

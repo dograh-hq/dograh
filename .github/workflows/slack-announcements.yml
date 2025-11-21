@@ -22,29 +22,31 @@ jobs:
             echo "is_announcement=false" >> $GITHUB_OUTPUT
           fi
           
+      - name: Checkout repository
+        if: steps.check.outputs.is_announcement == 'true'
+        uses: actions/checkout@v4
+
+      - name: Prepare Slack Message
+        if: steps.check.outputs.is_announcement == 'true'
+        id: prepare_message
+        run: |
+          # Run the script with environment variables to avoid shell parsing issues
+          PAYLOAD=$(./scripts/prepare-slack-message.sh)
+          
+          # Set output for next step
+          echo "slack_payload<<EOF" >> $GITHUB_OUTPUT
+          echo "$PAYLOAD" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          DISCUSSION_TITLE: ${{ github.event.discussion.title }}
+          DISCUSSION_BODY: ${{ github.event.discussion.body }}
+          DISCUSSION_URL: ${{ github.event.discussion.html_url }}
       - name: Post to Slack
         if: steps.check.outputs.is_announcement == 'true'
-        uses: slackapi/slack-github-action@v1
+        uses: 8398a7/action-slack@v3
         with:
-          payload: |
-            {
-              "text": "New Announcement: ${{ github.event.discussion.title }}",
-              "blocks": [
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "*${{ github.event.discussion.title }}*\n${{ github.event.discussion.body }}"
-                  }
-                },
-                {
-                  "type": "section",
-                  "text": {
-                    "type": "mrkdwn",
-                    "text": "<${{ github.event.discussion.html_url }}|View Discussion>"
-                  }
-                }
-              ]
-            }
+          status: custom
+          custom_payload: |
+            ${{ steps.prepare_message.outputs.slack_payload }}
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_DOGRAH_COMMUNITY_WEBHOOK_URL }}

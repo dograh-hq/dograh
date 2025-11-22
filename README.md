@@ -17,9 +17,10 @@
   </a>
 </p>
 
-Dograh helps you build your own voice agents with an easy drag-and-drop workflow builder. It's the fastest way to build voice AI agents - from zero to working bot in under 2 minutes (our hard SLA standards).
+**The open-source alternative to Vapi** - Dograh helps you build your own voice agents with an easy drag-and-drop workflow builder. It's the fastest way to build voice AI agents - from zero to working bot in under 2 minutes (our hard SLA standards).
 
-- **100% open source**, self-hostable platform with built-in AI testing personas and flexible LLM/TTS/STT integration
+- **100% open source**, self-hostable platform - no vendor lock-in, unlike proprietary solutions like Vapi
+- **Full control & transparency** - every line of code is open, with built-in AI testing personas and flexible LLM/TTS/STT integration
 - **Maintained by YC alumni and exit founders**, ensuring the future of voice AI stays open, not monopolized
 
 ## 🎥 Demo Video
@@ -62,13 +63,13 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ## Quick Summary
 
-⚡ 2-Minute Setup: Hard SLA standards - from zero to working voice bot in under 2 minutes
+⚡ **Open-source alternative to Vapi** - 2-minute setup with hard SLA standards
 
-- 🔧 Minimal setup: Just [run docker command](#get-started) and you're live
-- 🤖 AI Testing Personas: Test your bots with LoopTalk AI that mimics real customer interactions
-- 🔓 100% Open Source: Every line of code is open - no hidden logic, no black boxes
-- 🔄 Flexible Integration: Bring your own LLM, TTS, or STT - or use Dograh’s API’s
-- ☁️ Self-Host or Cloud: Run locally or use our hosted version at app.dograh.com
+- 🔧 **No vendor lock-in**: Self-hostable platform vs proprietary SaaS solutions
+- 🤖 **AI Testing Personas**: Test your bots with LoopTalk AI that mimics real customer interactions
+- 🔓 **100% Open Source**: Every line of code is open - no hidden logic, no black boxes (unlike Vapi)
+- 🔄 **Flexible Integration**: Bring your own LLM, TTS, or STT - or use Dograh's APIs
+- ☁️ **Deploy anywhere**: Self-host or use our hosted version at app.dograh.com
 
 ## Features
 

@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.6.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.5.0...dograh-v1.6.0) (2025-11-23)
+
+
+### Features
+
+* add new elevenlabs voices ([d60c020](https://github.com/dograh-hq/dograh/commit/d60c0206d152161741a6bdbb399861f7facb3d21))
+* allow www domain for embedded websites ([#60](https://github.com/dograh-hq/dograh/issues/60)) ([ed3ceaf](https://github.com/dograh-hq/dograh/commit/ed3ceaf5ad4aedc76ba0c7f2f2fe353c0920a870))
+
+
+### Bug Fixes
+
+* permission in slack announcements action ([c37fbcd](https://github.com/dograh-hq/dograh/commit/c37fbcd7bc5378d1aefda0807f4690c1992be12e))
+* slack message body ([#59](https://github.com/dograh-hq/dograh/issues/59)) ([5ab5c1d](https://github.com/dograh-hq/dograh/commit/5ab5c1d0c160b6a1e4a9b0c4beabe4da609e4693))
+
+
+### Documentation
+
+* update dograh overview ([#63](https://github.com/dograh-hq/dograh/issues/63)) ([93a6a0a](https://github.com/dograh-hq/dograh/commit/93a6a0aef90ebb34bd9170b0e15c882ab1fd4ef4))
+
 ## [1.5.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.4.0...dograh-v1.5.0) (2025-11-21)
 
 

@@ -26,9 +26,7 @@ def create_stt_service(user_config):
     """Create and return appropriate STT service based on user configuration"""
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         live_options = LiveOptions(
-            language="multi",
-            profanity_filter=False,
-            endpointing=100
+            language="multi", profanity_filter=False, endpointing=100
         )
         return DeepgramSTTService(
             live_options=live_options,

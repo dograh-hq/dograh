@@ -93,8 +93,11 @@ def validate_origin(origin: str, allowed_domains: list) -> bool:
             # Check both www and non-www versions
             allowed_variants = normalize_www(allowed)
             # If any variant of domain matches any variant of allowed, it's valid
-            if any(dv in allowed_variants or av in domain_variants
-                   for dv in domain_variants for av in allowed_variants):
+            if any(
+                dv in allowed_variants or av in domain_variants
+                for dv in domain_variants
+                for av in allowed_variants
+            ):
                 return True
 
     return False

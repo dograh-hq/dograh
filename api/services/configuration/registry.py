@@ -157,8 +157,11 @@ class AzureLLMService(BaseLLMConfiguration):
 # Dograh LLM Service
 class DograhLLMModel(str, Enum):
     DEFAULT = "default"
-    FAST = "fast"
     ACCURATE = "accurate"
+    FAST = "fast"
+    LITE = "lite"
+    ZEN = "zen"
+    ZEN_LITE = "zen_lite"
 
 
 @register_llm

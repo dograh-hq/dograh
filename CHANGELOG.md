@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.6.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.5.0...dograh-v1.6.0) (2025-11-26)
+
+
+### Features
+
+* add llm models in Dograh ([#64](https://github.com/dograh-hq/dograh/issues/64)) ([a7bf64a](https://github.com/dograh-hq/dograh/commit/a7bf64a02b8de226d7d28bd42f9e96cec0b94edc))
+* add new elevenlabs voices ([d60c020](https://github.com/dograh-hq/dograh/commit/d60c0206d152161741a6bdbb399861f7facb3d21))
+* allow www domain for embedded websites ([#60](https://github.com/dograh-hq/dograh/issues/60)) ([ed3ceaf](https://github.com/dograh-hq/dograh/commit/ed3ceaf5ad4aedc76ba0c7f2f2fe353c0920a870))
+* show error if quota is exceeded ([#66](https://github.com/dograh-hq/dograh/issues/66)) ([145da30](https://github.com/dograh-hq/dograh/commit/145da30b57fb4149c6e0f61eb8bf39164c928838))
+
+
+### Bug Fixes
+
+* permission in slack announcements action ([c37fbcd](https://github.com/dograh-hq/dograh/commit/c37fbcd7bc5378d1aefda0807f4690c1992be12e))
+* slack message body ([#59](https://github.com/dograh-hq/dograh/issues/59)) ([5ab5c1d](https://github.com/dograh-hq/dograh/commit/5ab5c1d0c160b6a1e4a9b0c4beabe4da609e4693))
+
+
+### Documentation
+
+* add ui telephony integration ([3d710ca](https://github.com/dograh-hq/dograh/commit/3d710cafb12e718fd6ae654e95d12fb195d4a4fa))
+* update dograh overview ([#63](https://github.com/dograh-hq/dograh/issues/63)) ([93a6a0a](https://github.com/dograh-hq/dograh/commit/93a6a0aef90ebb34bd9170b0e15c882ab1fd4ef4))
+
 ## [1.5.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.4.0...dograh-v1.5.0) (2025-11-21)
 
 

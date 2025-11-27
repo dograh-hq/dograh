@@ -1,15 +1,14 @@
 services:
   postgres:
-    image: postgres:17
-    restart: always
+    image: 'postgres:17'
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - 'postgres_data:/var/lib/postgresql/data'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 3s
       timeout: 3s
       retries: 10
@@ -17,14 +16,12 @@ services:
       - app-network
 
   redis:
-    image: redis:7
-    restart: always
-    command: >
-      --requirepass redissecret
+    image: 'redis:7'
+    command: --requirepass redissecret
     volumes:
-      - redis_data:/data
+      - 'redis_data:/data'
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
+      test: ['CMD', 'redis-cli', '-a', 'redissecret', 'ping']
       interval: 3s
       timeout: 10s
       retries: 10
@@ -33,19 +30,15 @@ services:
 
   minio:
     image: minio/minio
-    restart: always
-    container_name: minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-      MINIO_API_CORS_ALLOW_ORIGIN: "*"
-      MINIO_SERVER_URL: "http://minio:9000"
-      MINIO_BROWSER_REDIRECT_URL: "http://minio:9001"
+      MINIO_API_CORS_ALLOW_ORIGIN: '*'
     volumes:
-      - minio-data:/data
+      - 'minio-data:/data'
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 10s
       timeout: 5s
       retries: 5
@@ -53,31 +46,22 @@ services:
       - app-network
 
   api:
-    image: ghcr.io/dograh-hq/dograh-api:latest
-    restart: always
+    image: '${REGISTRY:-dograhai}/dograh-api:latest'
     volumes:
-      - shared-tmp:/tmp
+      - 'shared-tmp:/tmp'
     environment:
-      ENVIRONMENT: "production"
-      LOG_LEVEL: "INFO"
-      
-      # Internal Docker Networking
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
-      REDIS_URL: "redis://:redissecret@redis:6379"
-
-      # Storage
-      ENABLE_AWS_S3: "false"
-      MINIO_ENDPOINT: "minio:9000"
-      MINIO_ACCESS_KEY: "minioadmin"
-      MINIO_SECRET_KEY: "minioadmin"
-      MINIO_BUCKET: "voice-audio"
-      MINIO_SECURE: "false"
-
-      # Telemetry
-      ENABLE_TRACING: "false"
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
-      SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
-    
+      ENVIRONMENT: production
+      LOG_LEVEL: INFO
+      DATABASE_URL: 'postgresql+asyncpg://postgres:postgres@postgres:5432/postgres'
+      REDIS_URL: 'redis://:redissecret@redis:6379'
+      ENABLE_AWS_S3: 'false'
+      MINIO_ENDPOINT: 'minio:9000'
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: voice-audio
+      MINIO_SECURE: 'false'
+      ENABLE_TRACING: 'false'
+      ENABLE_TELEMETRY: '${ENABLE_TELEMETRY:-true}'
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,22 +69,24 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+    # THIS SECTION WAS MISSING AND CAUSED THE ERROR
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"'
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     networks:
       - app-network
 
   ui:
-    image: ghcr.io/dograh-hq/dograh-ui:latest
-    restart: always
+    image: '${REGISTRY:-dograhai}/dograh-ui:latest'
     environment:
-      # Change this to your Public Domain if login fails (e.g. https://api.yourdomain.com)
-      BACKEND_URL: "http://api:8000"
-      NODE_ENV: "production"
-      
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
-      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
-      POSTHOG_HOST: "https://us.posthog.com"
-      SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
-    
+      BACKEND_URL: 'http://api:8000'
+      NODE_ENV: production
+      ENABLE_TELEMETRY: '${ENABLE_TELEMETRY:-true}'
     depends_on:
       api:
         condition: service_healthy

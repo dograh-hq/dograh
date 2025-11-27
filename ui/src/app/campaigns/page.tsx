@@ -36,7 +36,7 @@ export default function CampaignsPage() {
 
     // Fetch campaigns
     const fetchCampaigns = useCallback(async () => {
-        if (!user) return;
+        if (!user || loading) return;
         setIsLoading(true);
         try {
             const accessToken = await getAccessToken();
@@ -54,14 +54,14 @@ export default function CampaignsPage() {
         } finally {
             setIsLoading(false);
         }
-    }, [user, getAccessToken]);
+    }, [user, loading, getAccessToken]);
 
     // Initial load
     useEffect(() => {
-        if (user) {
+        if (user && !loading) {
             fetchCampaigns();
         }
-    }, [fetchCampaigns, user]);
+    }, [fetchCampaigns, user, loading]);
 
     // Handle row click to navigate to campaign detail
     const handleRowClick = (campaignId: number) => {

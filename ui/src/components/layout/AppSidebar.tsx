@@ -48,9 +48,18 @@ import { cn } from "@/lib/utils";
 const StackUserButton = React.lazy(() =>
   import("@stackframe/stack").then((mod) => ({ default: mod.UserButton }))
 );
-const StackTeamSwitcher = React.lazy(() =>
+
+// Wrapper component that passes selectedTeam from useUser to SelectedTeamSwitcher
+// This is needed because SelectedTeamSwitcher doesn't automatically use user.selectedTeam
+const StackTeamSwitcherWithSelectedTeam = React.lazy(() =>
   import("@stackframe/stack").then((mod) => ({
-    default: mod.SelectedTeamSwitcher,
+    default: function TeamSwitcherWrapper(props: { onChange?: () => void }) {
+      const user = mod.useUser();
+      return React.createElement(mod.SelectedTeamSwitcher, {
+        ...props,
+        selectedTeam: user?.selectedTeam ?? undefined,
+      });
+    },
   }))
 );
 
@@ -195,7 +204,7 @@ export function AppSidebar() {
                 <div className="h-9 w-full animate-pulse bg-muted rounded" />
               }
             >
-              <StackTeamSwitcher
+              <StackTeamSwitcherWithSelectedTeam
                 onChange={() => {
                   router.refresh();
                 }}

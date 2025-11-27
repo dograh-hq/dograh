@@ -79,10 +79,10 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
     };
 
     return (
-        <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
+        <div className="bg-card border rounded-lg overflow-hidden shadow-sm">
             <Table>
                 <TableHeader>
-                    <TableRow className="bg-gray-50">
+                    <TableRow>
                         <TableHead className="font-semibold">Workflow Name</TableHead>
                         <TableHead className="font-semibold">Created At</TableHead>
                         <TableHead className="font-semibold text-center">Total Runs</TableHead>
@@ -93,7 +93,7 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
                     {workflows.map((workflow) => (
                         <TableRow
                             key={workflow.id}
-                            className={`hover:bg-gray-50 transition-colors ${showArchived ? 'opacity-60' : ''}`}
+                            className={`hover:bg-accent transition-colors ${showArchived ? 'opacity-60' : ''}`}
                         >
                             <TableCell className="font-medium">
                                 {workflow.name}
@@ -106,7 +106,7 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
                                 })}
                             </TableCell>
                             <TableCell className="text-center">
-                                <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 text-sm font-semibold bg-gray-100 rounded-full">
+                                <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 text-sm font-semibold bg-muted rounded-full">
                                     {workflow.total_runs || 0}
                                 </span>
                             </TableCell>

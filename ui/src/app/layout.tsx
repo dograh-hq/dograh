@@ -5,6 +5,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Suspense } from "react";
 
 import ChatwootWidget from "@/components/ChatwootWidget";
+import AppLayout from "@/components/layout/AppLayout";
 import PostHogIdentify from "@/components/PostHogIdentify";
 import SpinLoader from "@/components/SpinLoader";
 import { Toaster } from "@/components/ui/sonner";
@@ -35,7 +36,26 @@ export default function RootLayout({
 }) {
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Inline script to prevent flash of light theme - runs before React hydrates */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var theme = localStorage.getItem('theme');
+                  if (theme === 'dark' || (!theme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    document.documentElement.classList.add('dark');
+                  } else {
+                    document.documentElement.classList.remove('dark');
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>
@@ -43,7 +63,9 @@ export default function RootLayout({
             <UserConfigProvider>
               <OnboardingProvider>
                 <PostHogIdentify />
-                {children}
+                <AppLayout>
+                  {children}
+                </AppLayout>
                 <Toaster />
                 <ChatwootWidget />
               </OnboardingProvider>

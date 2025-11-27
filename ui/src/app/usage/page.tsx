@@ -313,11 +313,11 @@ export default function UsagePage() {
             <div>
                 <div className="flex justify-between items-start">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900 mb-2">Usage Dashboard</h1>
-                        <p className="text-gray-600">Monitor your Dograh Token usage and quota</p>
+                        <h1 className="text-3xl font-bold mb-2">Usage Dashboard</h1>
+                        <p className="text-muted-foreground">Monitor your Dograh Token usage and quota</p>
                     </div>
                         <div className="flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-gray-500" />
+                            <Globe className="h-4 w-4 text-muted-foreground" />
                             <div className="w-[300px]">
                                 <TimezoneSelect
                                     instanceId={timezoneSelectId}
@@ -353,9 +353,9 @@ export default function UsagePage() {
                     <CardContent>
                         {isLoadingCurrent ? (
                             <div className="animate-pulse space-y-4">
-                                <div className="h-4 bg-gray-200 rounded w-1/4"></div>
-                                <div className="h-8 bg-gray-200 rounded"></div>
-                                <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+                                <div className="h-4 bg-muted rounded w-1/4"></div>
+                                <div className="h-8 bg-muted rounded"></div>
+                                <div className="h-4 bg-muted rounded w-1/3"></div>
                             </div>
                         ) : currentUsage ? (
                             <div className="space-y-4">
@@ -366,8 +366,8 @@ export default function UsagePage() {
                                                 <p className="text-2xl font-bold">
                                                     ${(currentUsage.used_amount_usd || 0).toFixed(2)}
                                                 </p>
-                                                <p className="text-sm text-gray-600">Total Cost (USD)</p>
-                                                <p className="text-xs text-gray-500 mt-1">
+                                                <p className="text-sm text-muted-foreground">Total Cost (USD)</p>
+                                                <p className="text-xs text-muted-foreground mt-1">
                                                     Rate: ${(organizationPricing.price_per_second_usd * 60).toFixed(4)}/minute
                                                 </p>
                                             </>
@@ -376,14 +376,14 @@ export default function UsagePage() {
                                                 <p className="text-2xl font-bold">
                                                     {currentUsage.used_dograh_tokens.toLocaleString()} / {currentUsage.quota_dograh_tokens.toLocaleString()}
                                                 </p>
-                                                <p className="text-sm text-gray-600">Dograh Tokens</p>
+                                                <p className="text-sm text-muted-foreground">Dograh Tokens</p>
                                             </>
                                         )}
                                     </div>
                                     {!organizationPricing?.price_per_second_usd && (
                                         <div className="text-right">
                                             <p className="text-lg font-semibold">{currentUsage.percentage_used}%</p>
-                                            <p className="text-sm text-gray-600">Used</p>
+                                            <p className="text-sm text-muted-foreground">Used</p>
                                         </div>
                                     )}
                                 </div>
@@ -392,18 +392,18 @@ export default function UsagePage() {
                                     <Progress value={currentUsage.percentage_used} className="h-3" />
                                 )}
 
-                                <div className="flex justify-between items-center text-sm text-gray-600">
+                                <div className="flex justify-between items-center text-sm text-muted-foreground">
                                     <div className="flex items-center">
                                         <Calendar className="h-4 w-4 mr-1" />
                                         Next refresh: {formatDate(currentUsage.next_refresh_date)}
                                     </div>
                                     <div>
-                                        Total Duration: <span className="font-medium text-gray-900">{formatDuration(currentUsage.total_duration_seconds)}</span>
+                                        Total Duration: <span className="font-medium text-foreground">{formatDuration(currentUsage.total_duration_seconds)}</span>
                                     </div>
                                 </div>
                             </div>
                         ) : (
-                            <p className="text-gray-500">Unable to load usage data</p>
+                            <p className="text-muted-foreground">Unable to load usage data</p>
                         )}
                     </CardContent>
                 </Card>
@@ -446,15 +446,15 @@ export default function UsagePage() {
                         {isLoadingHistory ? (
                             <div className="animate-pulse space-y-3">
                                 {[...Array(5)].map((_, i) => (
-                                    <div key={i} className="h-12 bg-gray-200 rounded"></div>
+                                    <div key={i} className="h-12 bg-muted rounded"></div>
                                 ))}
                             </div>
                         ) : usageHistory && usageHistory.runs.length > 0 ? (
                             <>
-                                <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
+                                <div className="bg-card border rounded-lg overflow-hidden shadow-sm">
                                     <Table>
                                         <TableHeader>
-                                            <TableRow className="bg-gray-50">
+                                            <TableRow className="bg-muted/50">
                                                 <TableHead className="font-semibold">Run ID</TableHead>
                                                 <TableHead className="font-semibold">Workflow Name</TableHead>
                                                 <TableHead className="font-semibold">Phone Number</TableHead>
@@ -518,13 +518,13 @@ export default function UsagePage() {
 
                                 {/* Summary */}
                                 {activeFilters.length > 0 && (
-                                    <div className="mt-4 p-3 bg-gray-50 rounded-md">
-                                        <p className="text-sm text-gray-600">
-                                            Total for filtered period: <span className="font-semibold text-gray-900">
+                                    <div className="mt-4 p-3 bg-muted rounded-md">
+                                        <p className="text-sm text-muted-foreground">
+                                            Total for filtered period: <span className="font-semibold text-foreground">
                                                 {usageHistory.total_dograh_tokens.toLocaleString()} Dograh Tokens
                                             </span>
                                             {' • '}
-                                            <span className="font-semibold text-gray-900">
+                                            <span className="font-semibold text-foreground">
                                                 {formatDuration(usageHistory.total_duration_seconds)}
                                             </span>
                                         </p>
@@ -534,7 +534,7 @@ export default function UsagePage() {
                                 {/* Pagination */}
                                 {usageHistory.total_pages > 1 && (
                                     <div className="flex items-center justify-between mt-6">
-                                        <p className="text-sm text-gray-600">
+                                        <p className="text-sm text-muted-foreground">
                                             Page {usageHistory.page} of {usageHistory.total_pages} ({usageHistory.total_count} total runs)
                                         </p>
                                         <div className="flex gap-2">
@@ -561,7 +561,7 @@ export default function UsagePage() {
                                 )}
                             </>
                         ) : (
-                            <p className="text-center py-8 text-gray-500">No usage history found</p>
+                            <p className="text-center py-8 text-muted-foreground">No usage history found</p>
                         )}
                     </CardContent>
                 </Card>

@@ -1,6 +1,6 @@
 import React, { ReactNode } from 'react'
 
-import BaseHeader from '@/components/header/BaseHeader'
+import AppLayout from '@/components/layout/AppLayout'
 
 interface LoopTalkLayoutProps {
     children: ReactNode,
@@ -8,12 +8,13 @@ interface LoopTalkLayoutProps {
     backButton?: ReactNode,
 }
 
-const LoopTalkLayout: React.FC<LoopTalkLayoutProps> = ({ children, headerActions, backButton }) => {
+const LoopTalkLayout: React.FC<LoopTalkLayoutProps> = ({ children, headerActions }) => {
+    // backButton is kept in interface for backward compatibility
+    // but not used with the new sidebar layout
     return (
-        <>
-            <BaseHeader headerActions={headerActions} backButton={backButton} />
+        <AppLayout headerActions={headerActions}>
             {children}
-        </>
+        </AppLayout>
     )
 }
 

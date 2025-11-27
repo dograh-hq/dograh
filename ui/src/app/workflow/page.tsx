@@ -103,7 +103,7 @@ async function WorkflowList() {
                     {activeWorkflows.length > 0 ? (
                         <WorkflowTable workflows={activeWorkflows} showArchived={false} />
                     ) : (
-                        <div className="text-gray-500 bg-gray-50 rounded-lg p-8 text-center">
+                        <div className="text-muted-foreground bg-muted rounded-lg p-8 text-center">
                             No active workflows found. Create your first workflow to get started.
                         </div>
                     )}
@@ -112,7 +112,7 @@ async function WorkflowList() {
                 {/* Archived Workflows Section */}
                 {archivedWorkflows.length > 0 && (
                     <div className="mb-8">
-                        <h2 className="text-xl font-semibold mb-4 text-gray-600">Archived Workflows</h2>
+                        <h2 className="text-xl font-semibold mb-4 text-muted-foreground">Archived Workflows</h2>
                         <WorkflowTable workflows={archivedWorkflows} showArchived={true} />
                     </div>
                 )}
@@ -157,7 +157,7 @@ async function PageContent() {
                 <Suspense fallback={
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {Array.from({ length: 3 }, (_, i) => (
-                            <div key={i} className="bg-gray-200 rounded-lg h-40"></div>
+                            <div key={i} className="bg-muted rounded-lg h-40"></div>
                         ))}
                     </div>
                 }>
@@ -185,10 +185,10 @@ function WorkflowsLoading() {
         <div className="container mx-auto px-4 py-8">
             {/* Get Started Section Loading */}
             <div className="mb-12">
-                <div className="h-8 w-48 bg-gray-200 rounded mb-6"></div>
+                <div className="h-8 w-48 bg-muted rounded mb-6"></div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {Array.from({ length: 3 }, (_, i) => (
-                        <div key={i} className="bg-gray-200 rounded-lg h-40"></div>
+                        <div key={i} className="bg-muted rounded-lg h-40"></div>
                     ))}
                 </div>
             </div>

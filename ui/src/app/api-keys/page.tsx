@@ -302,7 +302,7 @@ export default function APIKeysPage() {
     // Don't render content until auth is loaded
     if (loading || !user) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+            <div className="min-h-screen bg-background flex items-center justify-center">
                 <div className="space-y-4">
                     <Skeleton className="h-12 w-64" />
                     <Skeleton className="h-64 w-96" />
@@ -317,16 +317,16 @@ export default function APIKeysPage() {
     const showServiceKeyArchiveControls = !isOSSMode();
 
     return (
-        <div className="min-h-screen bg-gray-50">
+        <div className="min-h-screen bg-background">
             <div className="container mx-auto px-4 py-8">
                 <div className="max-w-6xl mx-auto">
                     <div className="mb-8">
-                        <h1 className="text-3xl font-bold text-gray-900 mb-2">Developer Portal</h1>
-                        <p className="text-gray-600">Manage your API keys to access Dograh services programmatically</p>
+                        <h1 className="text-3xl font-bold mb-2">Developer Portal</h1>
+                        <p className="text-muted-foreground">Manage your API keys to access Dograh services programmatically</p>
                     </div>
 
                     {error && (
-                        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                        <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
                             {error}
                         </div>
                     )}
@@ -374,8 +374,8 @@ export default function APIKeysPage() {
                                 </div>
                             ) : apiKeys.length === 0 ? (
                                 <div className="text-center py-12">
-                                    <Key className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                                    <p className="text-gray-600 mb-4">No API keys found</p>
+                                    <Key className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                                    <p className="text-muted-foreground mb-4">No API keys found</p>
                                     <Button onClick={() => setIsCreateDialogOpen(true)}>
                                         Create Your First API Key
                                     </Button>
@@ -386,12 +386,12 @@ export default function APIKeysPage() {
                                         <div
                                             key={key.id}
                                             className={`flex items-center justify-between p-4 border rounded-lg ${
-                                                key.archived_at ? 'bg-gray-50 opacity-60' : 'bg-white'
+                                                key.archived_at ? 'bg-muted opacity-60' : 'bg-card'
                                             }`}
                                         >
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <span className="font-medium text-gray-900">{key.name}</span>
+                                                    <span className="font-medium">{key.name}</span>
                                                     {key.archived_at ? (
                                                         <Badge variant="secondary">Archived</Badge>
                                                     ) : key.is_active ? (
@@ -400,13 +400,13 @@ export default function APIKeysPage() {
                                                         <Badge variant="destructive">Inactive</Badge>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-2 text-sm text-gray-600">
-                                                    <span className="font-mono bg-gray-100 px-2 py-1 rounded">{key.key_prefix}...</span>
-                                                    <span className="text-xs text-gray-400">
+                                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <span className="font-mono bg-muted px-2 py-1 rounded">{key.key_prefix}...</span>
+                                                    <span className="text-xs text-muted-foreground/70">
                                                         (Full key hidden for security)
                                                     </span>
                                                 </div>
-                                                <div className="mt-2 text-xs text-gray-500">
+                                                <div className="mt-2 text-xs text-muted-foreground">
                                                     Created: {formatDate(key.created_at)} •
                                                     Last used: {formatDate(key.last_used_at ?? null)}
                                                 </div>
@@ -426,7 +426,7 @@ export default function APIKeysPage() {
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => handleArchiveKey(key.id)}
-                                                        className="text-red-600 hover:text-red-700"
+                                                        className="text-destructive hover:text-destructive/90"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
@@ -487,8 +487,8 @@ export default function APIKeysPage() {
                                 </div>
                             ) : serviceKeys.length === 0 ? (
                                 <div className="text-center py-12">
-                                    <Key className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                                    <p className="text-gray-600 mb-4">No service keys found</p>
+                                    <Key className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                                    <p className="text-muted-foreground mb-4">No service keys found</p>
                                     {canCreateServiceKey && (
                                         <Button onClick={() => setIsCreateServiceDialogOpen(true)}>
                                             Create Your First Service Key
@@ -501,12 +501,12 @@ export default function APIKeysPage() {
                                         <div
                                             key={key.id}
                                             className={`flex items-center justify-between p-4 border rounded-lg ${
-                                                key.archived_at ? 'bg-gray-50 opacity-60' : 'bg-white'
+                                                key.archived_at ? 'bg-muted opacity-60' : 'bg-card'
                                             }`}
                                         >
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <span className="font-medium text-gray-900">{key.name}</span>
+                                                    <span className="font-medium">{key.name}</span>
                                                     {key.archived_at ? (
                                                         <Badge variant="secondary">Archived</Badge>
                                                     ) : key.is_active ? (
@@ -520,13 +520,13 @@ export default function APIKeysPage() {
                                                         </Badge>
                                                     )}
                                                 </div>
-                                                <div className="flex items-center gap-2 text-sm text-gray-600">
-                                                    <span className="font-mono bg-gray-100 px-2 py-1 rounded">{key.key_prefix}...</span>
-                                                    <span className="text-xs text-gray-400">
+                                                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                                                    <span className="font-mono bg-muted px-2 py-1 rounded">{key.key_prefix}...</span>
+                                                    <span className="text-xs text-muted-foreground/70">
                                                         (Full key hidden for security)
                                                     </span>
                                                 </div>
-                                                <div className="mt-2 text-xs text-gray-500">
+                                                <div className="mt-2 text-xs text-muted-foreground">
                                                     Created: {formatDate(key.created_at)} •
                                                     Last used: {formatDate(key.last_used_at ?? null)}
                                                 </div>
@@ -537,7 +537,7 @@ export default function APIKeysPage() {
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => handleArchiveServiceKey(String(key.id))}
-                                                        className="text-red-600 hover:text-red-700"
+                                                        className="text-destructive hover:text-destructive/90"
                                                     >
                                                         <Trash2 className="w-4 h-4" />
                                                     </Button>
@@ -550,8 +550,8 @@ export default function APIKeysPage() {
                         </CardContent>
                     </Card>
 
-                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <p className="text-sm text-yellow-800">
+                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                        <p className="text-sm text-yellow-600 dark:text-yellow-500">
                             <strong>Important:</strong> Keep your API keys secure. Never share them publicly or commit them to version control.
                             API keys provide full access to your organization&apos;s resources.
                         </p>
@@ -601,10 +601,10 @@ export default function APIKeysPage() {
                     </DialogHeader>
                     {createdKey && (
                         <div className="space-y-4">
-                            <div className="p-4 bg-gray-100 rounded-lg">
-                                <p className="text-sm text-gray-600 mb-2">Your API Key:</p>
+                            <div className="p-4 bg-muted rounded-lg">
+                                <p className="text-sm text-muted-foreground mb-2">Your API Key:</p>
                                 <div className="flex items-center gap-2">
-                                    <code className="flex-1 p-2 bg-white rounded text-sm font-mono break-all">
+                                    <code className="flex-1 p-2 bg-background rounded text-sm font-mono break-all">
                                         {createdKey.api_key}
                                     </code>
                                     <Button
@@ -616,8 +616,8 @@ export default function APIKeysPage() {
                                     </Button>
                                 </div>
                             </div>
-                            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                                <p className="text-sm text-yellow-800">
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                                <p className="text-sm text-yellow-600 dark:text-yellow-500">
                                     Store this key securely. It will only be shown once and cannot be retrieved later.
                                 </p>
                             </div>
@@ -676,10 +676,10 @@ export default function APIKeysPage() {
                     </DialogHeader>
                     {createdServiceKey && (
                         <div className="space-y-4">
-                            <div className="p-4 bg-gray-100 rounded-lg">
-                                <p className="text-sm text-gray-600 mb-2">Your Service Key:</p>
+                            <div className="p-4 bg-muted rounded-lg">
+                                <p className="text-sm text-muted-foreground mb-2">Your Service Key:</p>
                                 <div className="flex items-center gap-2">
-                                    <code className="flex-1 p-2 bg-white rounded text-sm font-mono break-all">
+                                    <code className="flex-1 p-2 bg-background rounded text-sm font-mono break-all">
                                         {createdServiceKey.service_key}
                                     </code>
                                     <Button
@@ -691,8 +691,8 @@ export default function APIKeysPage() {
                                     </Button>
                                 </div>
                             </div>
-                            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                                <p className="text-sm text-blue-800">
+                            <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                                <p className="text-sm text-blue-600 dark:text-blue-500">
                                     This key provides access to Dograh AI services including LLM, Text-to-Speech, and Speech-to-Text.
                                     {createdServiceKey.expires_at && (
                                         <span className="block mt-1">
@@ -701,8 +701,8 @@ export default function APIKeysPage() {
                                     )}
                                 </p>
                             </div>
-                            <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                                <p className="text-sm text-yellow-800">
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                                <p className="text-sm text-yellow-600 dark:text-yellow-500">
                                     Store this key securely. It will only be shown once and cannot be retrieved later.
                                 </p>
                             </div>

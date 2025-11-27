@@ -1,7 +1,5 @@
 import React, { ReactNode } from 'react'
 
-import BaseHeader from '@/components/header/BaseHeader'
-
 interface WorkflowLayoutProps {
     children: ReactNode,
     headerActions?: ReactNode,
@@ -10,19 +8,11 @@ interface WorkflowLayoutProps {
     stickyTabs?: ReactNode
 }
 
-const WorkflowLayout: React.FC<WorkflowLayoutProps> = ({ children, headerActions, backButton, showFeaturesNav = true, stickyTabs }) => {
+const WorkflowLayout: React.FC<WorkflowLayoutProps> = ({ children }) => {
+    // This component is kept for backward compatibility
+    // AppLayout is now applied globally in the root layout
     return (
         <>
-            <BaseHeader headerActions={headerActions} backButton={backButton} showFeaturesNav={showFeaturesNav} />
-            {stickyTabs && (
-                <div className="sticky top-[73px] z-40 bg-[#2a2e39] border-b border-gray-700">
-                    <div className="container mx-auto px-4">
-                        <div className="flex items-center justify-center py-2">
-                            {stickyTabs}
-                        </div>
-                    </div>
-                </div>
-            )}
             {children}
         </>
     )

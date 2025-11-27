@@ -1,17 +1,31 @@
 "use client";
 
-import { Moon,Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-export default function ThemeToggle() {
-  const [theme, setTheme] = useState("light");
+interface ThemeToggleProps {
+  className?: string;
+  showLabel?: boolean;
+  variant?: "ghost" | "outline" | "default";
+  size?: "default" | "sm" | "lg" | "icon";
+}
+
+export default function ThemeToggle({
+  className,
+  showLabel = false,
+  variant = "ghost",
+  size = "icon"
+}: ThemeToggleProps) {
+  // Start with null to avoid hydration mismatch - theme is set by inline script in layout.tsx
+  const [theme, setTheme] = useState<"light" | "dark" | null>(null);
 
   useEffect(() => {
-    const storedTheme = localStorage.getItem("theme") || "light";
-    setTheme(storedTheme);
-    document.documentElement.classList.toggle("dark", storedTheme === "dark");
+    // Read the current theme from the DOM (already set by inline script in layout.tsx)
+    const isDark = document.documentElement.classList.contains("dark");
+    setTheme(isDark ? "dark" : "light");
   }, []);
 
   const toggleTheme = () => {
@@ -22,8 +36,27 @@ export default function ThemeToggle() {
   };
 
   return (
-    <Button variant="outline" className="absolute top-4 right-4" onClick={toggleTheme}>
-      {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+    <Button
+      variant={variant}
+      size={size}
+      className={cn(
+        showLabel && "w-full justify-start",
+        className
+      )}
+      onClick={toggleTheme}
+    >
+      <Sun className={cn(
+        "h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0",
+        showLabel && "absolute"
+      )} />
+      <Moon className={cn(
+        "h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100",
+        !showLabel && "absolute"
+      )} />
+      {showLabel && theme && (
+        <span className="ml-2">{theme === "light" ? "Light" : "Dark"} Mode</span>
+      )}
+      <span className="sr-only">Toggle theme</span>
     </Button>
   );
 }

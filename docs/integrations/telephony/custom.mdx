@@ -192,3 +192,99 @@ See these provider implementations for complete examples:
   Other providers like Plivo, Telnyx, or custom SIP providers can be implemented following the same pattern.
   These are not included out-of-the-box but can be easily added by implementing the TelephonyProvider interface.
 </Note>
+
+## UI Implementation Guide
+
+To integrate your new provider into the frontend, you'll need to update the configuration form and the workflow header.
+
+### 1. Update Configuration Page
+
+Modify `src/app/configure-telephony/page.tsx` to include your provider's form fields.
+
+**A. Update Interface**
+
+Add your provider's specific configuration fields to the `TelephonyConfigForm` interface:
+
+```typescript
+interface TelephonyConfigForm {
+  provider: string;
+  // ... existing fields
+  
+  // Your Provider Fields
+  your_provider_api_key?: string;
+  your_provider_secret?: string;
+}
+```
+
+**B. Add to Dropdown**
+
+Add your provider to the `Select` component options:
+
+```tsx
+<SelectContent>
+  <SelectItem value="twilio">Twilio</SelectItem>
+  <SelectItem value="vonage">Vonage</SelectItem>
+  <SelectItem value="your_provider">Your Provider</SelectItem>
+</SelectContent>
+```
+
+**C. Add Form Fields**
+
+Render your provider's fields conditionally:
+
+```tsx
+{selectedProvider === "your_provider" && (
+  <>
+    <div className="space-y-2">
+      <Label htmlFor="your_provider_api_key">API Key</Label>
+      <Input
+        id="your_provider_api_key"
+        {...register("your_provider_api_key", { 
+          required: selectedProvider === "your_provider" 
+        })}
+      />
+    </div>
+    {/* Add other fields similarly */}
+  </>
+)}
+```
+
+**D. Handle Submission**
+
+Update the `onSubmit` function to format the request correctly:
+
+```typescript
+// Inside onSubmit function
+if (data.provider === "your_provider") {
+  requestBody = {
+    provider: "your_provider",
+    api_key: data.your_provider_api_key,
+    // ... other fields
+  };
+}
+```
+
+### 2. Enable Call Button
+
+Update `src/app/workflow/[workflowId]/components/WorkflowHeader.tsx` to enable the "Phone Call" button when your provider is configured.
+
+```typescript
+// In handlePhoneCallClick function
+if (
+  configResponse.error || 
+  (!configResponse.data?.twilio && 
+   !configResponse.data?.vonage && 
+   !configResponse.data?.your_provider) // Add this check
+) {
+    setConfigureDialogOpen(true);
+    return;
+}
+``` 
+
+### 3. Update API Client
+
+After updating the backend and frontend, regenerate the API client to ensure types are synced:
+
+```bash
+npm run generate-client
+```

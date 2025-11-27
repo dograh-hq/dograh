@@ -19,16 +19,12 @@ interface StartCallEditFormProps {
     nodeData: FlowNodeData;
     prompt: string;
     setPrompt: (value: string) => void;
-    isStatic: boolean;
-    setIsStatic: (value: boolean) => void;
     name: string;
     setName: (value: string) => void;
     allowInterrupt: boolean;
     setAllowInterrupt: (value: boolean) => void;
     addGlobalPrompt: boolean;
     setAddGlobalPrompt: (value: boolean) => void;
-    waitForUserResponse: boolean;
-    setWaitForUserResponse: (value: boolean) => void;
     detectVoicemail: boolean;
     setDetectVoicemail: (value: boolean) => void;
     delayedStart: boolean;
@@ -50,11 +46,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
 
     // Form state
     const [prompt, setPrompt] = useState(data.prompt ?? "");
-    const [isStatic, setIsStatic] = useState(data.is_static ?? true);
     const [name, setName] = useState(data.name);
     const [allowInterrupt, setAllowInterrupt] = useState(data.allow_interrupt ?? true);
     const [addGlobalPrompt, setAddGlobalPrompt] = useState(data.add_global_prompt ?? true);
-    const [waitForUserResponse, setWaitForUserResponse] = useState(data.wait_for_user_response ?? false);
     const [detectVoicemail, setDetectVoicemail] = useState(data.detect_voicemail ?? true);
     const [delayedStart, setDelayedStart] = useState(data.delayed_start ?? false);
     const [delayedStartDuration, setDelayedStartDuration] = useState(data.delayed_start_duration ?? 2);
@@ -63,11 +57,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
         handleSaveNodeData({
             ...data,
             prompt,
-            is_static: isStatic,
             name,
             allow_interrupt: allowInterrupt,
             add_global_prompt: addGlobalPrompt,
-            wait_for_user_response: waitForUserResponse,
             detect_voicemail: detectVoicemail,
             delayed_start: delayedStart,
             delayed_start_duration: delayedStart ? delayedStartDuration : undefined
@@ -83,11 +75,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const handleOpenChange = (newOpen: boolean) => {
         if (newOpen) {
             setPrompt(data.prompt ?? "");
-            setIsStatic(data.is_static ?? true);
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
-            setWaitForUserResponse(data.wait_for_user_response ?? false);
             setDetectVoicemail(data.detect_voicemail ?? true);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
@@ -99,11 +89,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     useEffect(() => {
         if (open) {
             setPrompt(data.prompt ?? "");
-            setIsStatic(data.is_static ?? true);
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
-            setWaitForUserResponse(data.wait_for_user_response ?? false);
             setDetectVoicemail(data.detect_voicemail ?? true);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
@@ -147,16 +135,12 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                         nodeData={data}
                         prompt={prompt}
                         setPrompt={setPrompt}
-                        isStatic={isStatic}
-                        setIsStatic={setIsStatic}
                         name={name}
                         setName={setName}
                         allowInterrupt={allowInterrupt}
                         setAllowInterrupt={setAllowInterrupt}
                         addGlobalPrompt={addGlobalPrompt}
                         setAddGlobalPrompt={setAddGlobalPrompt}
-                        waitForUserResponse={waitForUserResponse}
-                        setWaitForUserResponse={setWaitForUserResponse}
                         detectVoicemail={detectVoicemail}
                         setDetectVoicemail={setDetectVoicemail}
                         delayedStart={delayedStart}
@@ -173,16 +157,12 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
 const StartCallEditForm = ({
     prompt,
     setPrompt,
-    isStatic,
-    setIsStatic,
     name,
     setName,
     allowInterrupt,
     setAllowInterrupt,
     addGlobalPrompt,
     setAddGlobalPrompt,
-    waitForUserResponse,
-    setWaitForUserResponse,
     detectVoicemail,
     setDetectVoicemail,
     delayedStart,
@@ -201,14 +181,10 @@ const StartCallEditForm = ({
                 onChange={(e) => setName(e.target.value)}
             />
 
-            <Label>{isStatic ? "Text" : "Prompt"}</Label>
+            <Label>Prompt</Label>
             <Label className="text-xs text-gray-500">
-                What would you like the agent to say when the call starts? Its a good idea to have a static greeting that can be used to identify the call.
+                Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
             </Label>
-            <div className="flex items-center space-x-2">
-                <Switch id="static-text" checked={isStatic} onCheckedChange={setIsStatic} />
-                <Label htmlFor="static-text">Static Text</Label>
-            </div>
             <Textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -216,7 +192,7 @@ const StartCallEditForm = ({
                 style={{
                     overflowY: 'auto'
                 }}
-                placeholder={isStatic ? "Hello, welcome to Dograh. How can I help you today?" : "Enter a dynamic prompt"}
+                placeholder="Enter a prompt"
             />
             <div className="flex items-center space-x-2">
                 <Switch id="allow-interrupt" checked={allowInterrupt} onCheckedChange={setAllowInterrupt} />
@@ -230,34 +206,10 @@ const StartCallEditForm = ({
                     id="add-global-prompt"
                     checked={addGlobalPrompt}
                     onCheckedChange={setAddGlobalPrompt}
-                    disabled={isStatic}
                 />
-                <Label htmlFor="add-global-prompt" className={isStatic ? "opacity-50" : ""}>
+                <Label htmlFor="add-global-prompt">
                     Add Global Prompt
                 </Label>
-                <Label className={`text-xs text-gray-500 ${isStatic ? "opacity-50" : ""}`}>
-                    {isStatic
-                        ? "Not applicable for static text"
-                        : "Whether you want to add global prompt with this node's prompt."}
-                </Label>
-            </div>
-            <div className="flex flex-col space-y-2">
-                <div className="flex items-center space-x-2">
-                    <Switch
-                        id="wait-for-user-response"
-                        checked={waitForUserResponse}
-                        onCheckedChange={setWaitForUserResponse}
-                        disabled={!isStatic}
-                    />
-                    <Label htmlFor="wait-for-user-response" className={!isStatic ? "opacity-50" : ""}>
-                        Wait for user&apos;s response
-                    </Label>
-                    <Label className={`text-xs text-gray-500 ${!isStatic ? "opacity-50" : ""}`}>
-                        {!isStatic
-                            ? "Only applicable for static text"
-                            : "Wait for user to respond before disconnecting the call."}
-                    </Label>
-                </div>
             </div>
             {!isOSSMode() && (
                 <div className="flex items-center space-x-2">

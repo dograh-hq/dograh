@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.6.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.5.0...dograh-v1.6.0) (2025-11-26)
+
+
+### Features
+
+* add llm models in Dograh ([#64](https://github.com/dograh-hq/dograh/issues/64)) ([a7bf64a](https://github.com/dograh-hq/dograh/commit/a7bf64a02b8de226d7d28bd42f9e96cec0b94edc))
+* add new elevenlabs voices ([d60c020](https://github.com/dograh-hq/dograh/commit/d60c0206d152161741a6bdbb399861f7facb3d21))
+* allow www domain for embedded websites ([#60](https://github.com/dograh-hq/dograh/issues/60)) ([ed3ceaf](https://github.com/dograh-hq/dograh/commit/ed3ceaf5ad4aedc76ba0c7f2f2fe353c0920a870))
+* show error if quota is exceeded ([#66](https://github.com/dograh-hq/dograh/issues/66)) ([145da30](https://github.com/dograh-hq/dograh/commit/145da30b57fb4149c6e0f61eb8bf39164c928838))
+
+
+### Bug Fixes
+
+* permission in slack announcements action ([c37fbcd](https://github.com/dograh-hq/dograh/commit/c37fbcd7bc5378d1aefda0807f4690c1992be12e))
+* slack message body ([#59](https://github.com/dograh-hq/dograh/issues/59)) ([5ab5c1d](https://github.com/dograh-hq/dograh/commit/5ab5c1d0c160b6a1e4a9b0c4beabe4da609e4693))
+
+
+### Documentation
+
+* add ui telephony integration ([3d710ca](https://github.com/dograh-hq/dograh/commit/3d710cafb12e718fd6ae654e95d12fb195d4a4fa))
+* update dograh overview ([#63](https://github.com/dograh-hq/dograh/issues/63)) ([93a6a0a](https://github.com/dograh-hq/dograh/commit/93a6a0aef90ebb34bd9170b0e15c882ab1fd4ef4))
+
+## [1.5.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.4.0...dograh-v1.5.0) (2025-11-21)
+
+
+### Features
+
+* enable remote server deployment for OSS deployment ([#57](https://github.com/dograh-hq/dograh/issues/57)) ([6efe7d6](https://github.com/dograh-hq/dograh/commit/6efe7d6bd47e8cd099665351c7c8c6de645b1539))
+
+## [1.4.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.3.1...dograh-v1.4.0) (2025-11-15)
+
+
+### Features
+
+* enable workflows to be embedded in websites as a script tag ([#47](https://github.com/dograh-hq/dograh/issues/47)) ([99a768f](https://github.com/dograh-hq/dograh/commit/99a768f291b6a77bd0a32f6e4ffcc36f38c05dd4))
+* simplify pipecat engine execution ([#54](https://github.com/dograh-hq/dograh/issues/54)) ([6ce25a5](https://github.com/dograh-hq/dograh/commit/6ce25a589ce84229b71bdc7208cf99ed35b35e5d))
+
+
+### Documentation
+
+* add development workflow to CONTRIBUTING.md ([#52](https://github.com/dograh-hq/dograh/issues/52)) ([6d7b0a9](https://github.com/dograh-hq/dograh/commit/6d7b0a951a68bf93df875b1d4f1e90c7b6df0317))
+* update Slack link in README.md ([5e4aef3](https://github.com/dograh-hq/dograh/commit/5e4aef346d804dad25732a2aa07a7438a9d4fda0))
+
+## [1.3.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.3.0...dograh-v1.3.1) (2025-11-13)
+
+
+### Bug Fixes
+
+* upgrade pipecat with bundled Silero VAD model ([#50](https://github.com/dograh-hq/dograh/issues/50)) ([1e32eba](https://github.com/dograh-hq/dograh/commit/1e32ebae2a1334d1844c1b5618a60ed3b752d0b2))
+
 ## [1.3.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.2.0...dograh-v1.3.0) (2025-11-12)
 
 

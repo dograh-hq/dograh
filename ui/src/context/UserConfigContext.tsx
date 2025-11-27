@@ -80,8 +80,6 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
         if (!auth.loading) {
             fetchPermissions();
         }
-    // We intentionally depend only on specific auth properties to avoid infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [auth.loading, auth.provider, auth.getSelectedTeam, auth.listPermissions]);
 
 
@@ -152,8 +150,6 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
         } finally {
             setLoading(false);
         }
-    // We intentionally depend only on specific auth properties to avoid infinite loops
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [auth.loading, auth.isAuthenticated, auth.getAccessToken]);
 
     useEffect(() => {

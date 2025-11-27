@@ -157,8 +157,11 @@ class AzureLLMService(BaseLLMConfiguration):
 # Dograh LLM Service
 class DograhLLMModel(str, Enum):
     DEFAULT = "default"
-    FAST = "fast"
     ACCURATE = "accurate"
+    FAST = "fast"
+    LITE = "lite"
+    ZEN = "zen"
+    ZEN_LITE = "zen_lite"
 
 
 @register_llm
@@ -219,6 +222,7 @@ class ElevenlabsVoice(str, Enum):
     DAVE = "Dave - CYw3kZ02Hs0563khs1Fj"
     DOMI = "Domi - AZnzlk1XvdvUeBnXmlld"
     DREW = "Drew - 29vD33N1CtxCmqQRPOHJ"
+    ELENA = "Elena_German - iFJwt4O7E3aafIpJFfcu"
     EVE = "Eve - BZgkqPqms7Kj9ulSkVzn"
     FIN = "Fin - D38z5RcWu1voky8WS1ja"
     HOPE_BESTIE = "Hope_Bestie - uYXf8XasLslADfZ2MB4u"
@@ -226,15 +230,18 @@ class ElevenlabsVoice(str, Enum):
     JARNATHAN = "Jarnathan - c6SfcYrb2t09NHXiT80T"
     JENNA = "Jenna - C2BkQxlGNzBn7WD2bqfR"
     JESSICA = "Jessica - cgSgspJ2msm6clMCkdW9"
+    JOHANNA = "Johanna_German - YYDsZT3K2y6tv7X1aj6N"
     JUNIPER = "Juniper - aMSt68OGf4xUZAnLpTU8"
     LAUREN = "Lauren - 3liN8q8YoeB9Hk6AboKe"
     LINA = "Lina - oWjuL7HSoaEJRMDMP3HD"
+    MONIKA = "Monika_Hindi_8 - 2bNrEsM0omyhLiEyOwqY"
     OLIVIA = "Olivia - 1rviaVF7GGGkTU36HNpz"
     PAUL = "Paul - 5Q0t7uMcjvnagumLfvZi"
     RACHEL = "Rachel - 21m00Tcm4TlvDq8ikWAM"
     ROGER = "Roger - CwhRBWXzGAHq8TQ4Fs17"
     SAMI_REAL = "Sami_Real - O4cGUVdAocn0z4EpQ9yF"
     SARAH = "Sarah - EXAVITQu4vr4xnSDxMaL"
+    SIA = "Sia_Hindi_10 - ryIIztHPLYSJ74ueXxnO"
 
 
 class ElevenlabsModel(str, Enum):

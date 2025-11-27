@@ -18,8 +18,6 @@ interface EndCallEditFormProps {
     nodeData: FlowNodeData;
     prompt: string;
     setPrompt: (value: string) => void;
-    isStatic: boolean;
-    setIsStatic: (value: boolean) => void;
     name: string;
     setName: (value: string) => void;
     extractionEnabled: boolean;
@@ -45,7 +43,6 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
 
     // Form state
     const [prompt, setPrompt] = useState(data.prompt);
-    const [isStatic, setIsStatic] = useState(data.is_static ?? true);
     const [name, setName] = useState(data.name);
 
     // Variable Extraction state
@@ -58,7 +55,6 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
         handleSaveNodeData({
             ...data,
             prompt,
-            is_static: isStatic,
             name,
             allow_interrupt: false,  // Always set to false for end nodes
             extraction_enabled: extractionEnabled,
@@ -77,7 +73,6 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
     const handleOpenChange = (newOpen: boolean) => {
         if (newOpen) {
             setPrompt(data.prompt);
-            setIsStatic(data.is_static ?? true);
             setName(data.name);
             setExtractionEnabled(data.extraction_enabled ?? false);
             setExtractionPrompt(data.extraction_prompt ?? "");
@@ -91,7 +86,6 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
     useEffect(() => {
         if (open) {
             setPrompt(data.prompt);
-            setIsStatic(data.is_static ?? true);
             setName(data.name);
             setExtractionEnabled(data.extraction_enabled ?? false);
             setExtractionPrompt(data.extraction_prompt ?? "");
@@ -137,8 +131,6 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
                         nodeData={data}
                         prompt={prompt}
                         setPrompt={setPrompt}
-                        isStatic={isStatic}
-                        setIsStatic={setIsStatic}
                         name={name}
                         setName={setName}
                         extractionEnabled={extractionEnabled}
@@ -159,8 +151,6 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
 const EndCallEditForm = ({
     prompt,
     setPrompt,
-    isStatic,
-    setIsStatic,
     name,
     setName,
     extractionEnabled,
@@ -206,14 +196,10 @@ const EndCallEditForm = ({
             </Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
 
-            <Label>{isStatic ? "Text" : "Prompt"}</Label>
+            <Label>Prompt</Label>
             <Label className="text-xs text-gray-500">
-                What would you like the agent to say when the call ends? Its a good idea to have a static goodbye message.
+                Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
             </Label>
-            <div className="flex items-center space-x-2">
-                <Switch id="static-text" checked={isStatic} onCheckedChange={setIsStatic} />
-                <Label htmlFor="static-text">Static Text</Label>
-            </div>
             <Textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -221,7 +207,7 @@ const EndCallEditForm = ({
                 style={{
                     overflowY: 'auto'
                 }}
-                placeholder={isStatic ? "Thank you for calling Dograh. Have a great day!" : "Enter a dynamic prompt"}
+                placeholder="Enter a dynamic prompt"
             />
             <div className="flex items-center space-x-2">
                 <Switch id="add-global-prompt" checked={addGlobalPrompt} onCheckedChange={setAddGlobalPrompt} />

@@ -65,7 +65,7 @@ export default function WorkflowDetailPage() {
     const stickyTabs = workflow ? <WorkflowTabs workflowId={workflow.id} currentTab={currentTab} /> : null;
 
     // Memoize user and getAccessToken to prevent unnecessary re-renders
-    const stableUser = useMemo(() => user, [user?.id]);
+    const stableUser = useMemo(() => user, [user]);
     const stableGetAccessToken = useMemo(() => getAccessToken, [getAccessToken]);
 
     if (loading) {

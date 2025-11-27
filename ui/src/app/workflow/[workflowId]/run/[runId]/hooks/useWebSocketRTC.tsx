@@ -213,7 +213,32 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             break;
 
                         case 'error':
-                            logger.error('Server error:', message.payload);
+                            // Check if this is a quota exceeded error
+                            if (message.payload?.error_type === 'quota_exceeded') {
+                                // Log as info since it's a handled business logic case
+                                logger.info('Quota exceeded, showing user dialog:', message.payload.message);
+
+                                // Set error state for display
+                                setApiKeyError(message.payload.message || 'Service quota exceeded');
+                                setApiKeyModalOpen(true);
+
+                                // Stop the connection gracefully
+                                setConnectionStatus('failed');
+                                setConnectionActive(false);
+
+                                // Close WebSocket and peer connection
+                                if (wsRef.current) {
+                                    wsRef.current.close();
+                                    wsRef.current = null;
+                                }
+                                if (pcRef.current) {
+                                    pcRef.current.close();
+                                    pcRef.current = null;
+                                }
+                            } else {
+                                // Log other errors as actual errors
+                                logger.error('Server error:', message.payload);
+                            }
                             break;
 
                         default:

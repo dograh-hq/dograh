@@ -1,6 +1,9 @@
 import os
 from pathlib import Path
 
+from api.enums import Environment
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
 # Absolute path to the project root directory (i.e. the directory containing
 # the top-level api/ package). Having a single canonical location helps
 # when constructing file-system paths elsewhere in the codebase.
@@ -15,7 +18,9 @@ ENABLE_SMART_TURN = os.getenv("ENABLE_SMART_TURN", "false").lower() == "true"
 ENABLE_TRACING = os.getenv("ENABLE_TRACING", "false").lower() == "true"
 ENABLE_RNNOISE = os.getenv("ENABLE_RNNOISE", "false").lower() == "true"
 
-BACKEND_API_ENDPOINT = os.getenv("BACKEND_API_ENDPOINT", None)
+# URLs for deployment
+BACKEND_API_ENDPOINT = os.getenv("BACKEND_API_ENDPOINT", "http://localhost:8000")
+UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]

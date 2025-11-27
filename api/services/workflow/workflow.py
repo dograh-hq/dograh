@@ -44,8 +44,6 @@ class Node:
         self.extraction_prompt = data.extraction_prompt
         self.extraction_variables = data.extraction_variables
         self.add_global_prompt = data.add_global_prompt
-        self.wait_for_user_response = data.wait_for_user_response
-        self.wait_for_user_response_timeout = data.wait_for_user_response_timeout
         self.detect_voicemail = data.detect_voicemail
         self.delayed_start = data.delayed_start
         self.delayed_start_duration = data.delayed_start_duration

@@ -19,13 +19,33 @@ class MPSServiceKeyClient:
         self.base_url = MPS_API_URL
         self.timeout = httpx.Timeout(10.0)
 
-    def _get_headers(self) -> dict:
-        """Get headers for MPS API requests."""
+    def _get_headers(
+        self,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """
+        Get headers for MPS API requests.
+
+        Args:
+            organization_id: Organization ID for authenticated mode
+            created_by: User provider ID for OSS mode
+
+        Returns:
+            Dictionary of headers
+        """
         headers = {"Content-Type": "application/json"}
 
         # Add authentication for non-OSS mode
-        if DEPLOYMENT_MODE != "oss" and DOGRAH_MPS_SECRET_KEY:
-            headers["X-Secret-Key"] = DOGRAH_MPS_SECRET_KEY
+        if DEPLOYMENT_MODE != "oss":
+            if DOGRAH_MPS_SECRET_KEY:
+                headers["X-Secret-Key"] = DOGRAH_MPS_SECRET_KEY
+            if organization_id:
+                headers["X-Organization-Id"] = str(organization_id)
+        else:
+            # OSS mode
+            if created_by:
+                headers["X-Created-By"] = created_by
 
         return headers
 
@@ -58,7 +78,7 @@ class MPSServiceKeyClient:
             response = await client.post(
                 f"{self.base_url}/api/v1/service-keys/",
                 json=request_body,
-                headers=self._get_headers(),
+                headers=self._get_headers(organization_id, created_by),
             )
 
             if response.status_code == 200:
@@ -116,7 +136,7 @@ class MPSServiceKeyClient:
             response = await client.get(
                 f"{self.base_url}/api/v1/service-keys/",
                 params=params,
-                headers=self._get_headers(),
+                headers=self._get_headers(organization_id, created_by),
             )
 
             if response.status_code == 200:
@@ -152,7 +172,7 @@ class MPSServiceKeyClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
                 f"{self.base_url}/api/v1/service-keys/{key_id}",
-                headers=self._get_headers(),
+                headers=self._get_headers(organization_id, created_by),
             )
 
             if response.status_code == 200:
@@ -209,7 +229,7 @@ class MPSServiceKeyClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.delete(
                 f"{self.base_url}/api/v1/service-keys/{key_id}",
-                headers=self._get_headers(),
+                headers=self._get_headers(organization_id, created_by),
             )
 
             if response.status_code in [200, 204]:
@@ -219,6 +239,51 @@ class MPSServiceKeyClient:
                     f"Failed to archive service key: {response.status_code} - {response.text}"
                 )
                 return False
+
+    async def check_service_key_usage(
+        self,
+        service_key: str,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """
+        Check the usage and quota of a service key.
+
+        Args:
+            service_key: The service key to check usage for
+            organization_id: Organization ID (for authenticated mode)
+            created_by: User provider ID (for OSS mode)
+
+        Returns:
+            Dictionary containing:
+            - total_credits_used: Total credits consumed
+            - remaining_credits: Credits remaining in quota
+
+        Raises:
+            HTTPException: If the API call fails
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/service-keys/usage",
+                json={"service_key": service_key},
+                headers=self._get_headers(organization_id, created_by),
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "total_credits_used": data.get("total_credits_used", 0.0),
+                    "remaining_credits": data.get("remaining_credits", 0.0),
+                }
+            else:
+                logger.error(
+                    f"Failed to check service key usage: {response.status_code} - {response.text}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Failed to check service key usage: {response.text}",
+                    request=response.request,
+                    response=response,
+                )
 
     async def call_workflow_api(
         self,
@@ -247,17 +312,6 @@ class MPSServiceKeyClient:
         Raises:
             HTTPException: If the API call fails
         """
-        headers = {"Content-Type": "application/json"}
-
-        # Add secret key authentication
-        if DEPLOYMENT_MODE != "oss" and DOGRAH_MPS_SECRET_KEY:
-            headers["X-Secret-Key"] = DOGRAH_MPS_SECRET_KEY
-            if organization_id:
-                headers["X-Organization-Id"] = str(organization_id)
-        elif DEPLOYMENT_MODE == "oss":
-            if created_by:
-                headers["X-Created-By"] = created_by
-
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
             response = await client.post(
                 f"{self.base_url}/api/v1/workflow/create-workflow",
@@ -266,7 +320,7 @@ class MPSServiceKeyClient:
                     "use_case": use_case,
                     "activity_description": activity_description,
                 },
-                headers=headers,
+                headers=self._get_headers(organization_id, created_by),
             )
 
             if response.status_code == 200:

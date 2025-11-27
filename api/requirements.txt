@@ -1,4 +1,4 @@
-langfuse==3.4.0
+langfuse==3.9.3
 fastapi==0.116.2
 asyncpg==0.30.0
 alembic==1.16.5

@@ -7,7 +7,6 @@ from pipecat.frames.frames import (
     Frame,
     HeartbeatFrame,
     LLMFullResponseStartFrame,
-    LLMGeneratedTextFrame,
     LLMTextFrame,
     StartFrame,
     TTSSpeakFrame,
@@ -26,7 +25,6 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
         self,
         max_call_duration_seconds: int = 300,
         max_duration_end_task_callback: Optional[Callable[[], Awaitable[None]]] = None,
-        llm_generated_text_callback: Optional[Callable[[], Awaitable[None]]] = None,
         generation_started_callback: Optional[Callable[[], Awaitable[None]]] = None,
         llm_text_frame_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ):
@@ -34,7 +32,6 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
         self._start_time = None
         self._max_call_duration_seconds = max_call_duration_seconds
         self._max_duration_end_task_callback = max_duration_end_task_callback
-        self._llm_generated_text_callback = llm_generated_text_callback
         self._generation_started_callback = generation_started_callback
         self._llm_text_frame_callback = llm_text_frame_callback
         self._end_task_frame_pushed = False
@@ -46,8 +43,6 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
             await self._start(frame)
         elif isinstance(frame, HeartbeatFrame):
             await self._check_call_duration()
-        elif isinstance(frame, LLMGeneratedTextFrame):
-            await self._generated_text_frame(frame)
         elif isinstance(frame, LLMFullResponseStartFrame):
             await self._generation_started()
         elif (
@@ -73,11 +68,6 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
                     logger.debug(
                         "Max call duration exceeded. Skipping EndTaskFrame since already sent"
                     )
-
-    async def _generated_text_frame(self, _: LLMGeneratedTextFrame):
-        """Handle LLMGeneratedTextFrame."""
-        if self._llm_generated_text_callback is not None:
-            await self._llm_generated_text_callback()
 
     async def _generation_started(self):
         if self._generation_started_callback:

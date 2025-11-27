@@ -2,16 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from google.genai.types import (
-    Content,
-    Part,
-)
+from api.utils.template_renderer import render_template
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
-from pipecat.services.google.llm import GoogleLLMContext
-from pipecat.services.openai.llm import OpenAILLMContext
-
-from api.utils.template_renderer import render_template
+from pipecat.processors.aggregators.llm_context import LLMContext
 
 __all__ = [
     "get_function_schema",
@@ -44,7 +38,7 @@ def get_function_schema(
 
 
 def update_llm_context(
-    context: OpenAILLMContext,
+    context: LLMContext,
     system_message: Dict[str, Any],
     functions: List[FunctionSchema],
 ) -> None:
@@ -59,21 +53,6 @@ def update_llm_context(
     # associated with the current LLM service can convert them to the correct
     # provider-specific representation when required.
     tools_schema = ToolsSchema(standard_tools=functions)
-
-    if isinstance(context, GoogleLLMContext):
-        context.system_message = system_message["content"]
-
-        if functions:
-            # Lets only call set_tools if we have functions, else Gemini will
-            # throw an exception
-            context.set_tools(tools_schema)
-
-        if context.messages[-1].role != "user":
-            # Google expects the last message should end with user message
-            context.add_message(Content(role="user", parts=[Part(text="...")]))
-        return
-
-    # In case of OpenAILLMContext, replace the system message with incoming system message
     previous_interactions = context.messages
 
     # Filter out old system messages but keep user/assistant/function content.

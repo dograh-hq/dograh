@@ -14,6 +14,7 @@ import re
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from loguru import logger
+
 from pipecat.frames.frames import (
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
@@ -23,9 +24,8 @@ from pipecat.processors.filters.stt_mute_filter import STTMuteFilter
 from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
-    from pipecat.processors.user_idle_processor import UserIdleProcessor
-
     from api.services.workflow.pipecat_engine import PipecatEngine
+    from pipecat.processors.user_idle_processor import UserIdleProcessor
 
 
 # ---------------------------------------------------------------------------
@@ -115,23 +115,6 @@ def create_max_duration_callback(engine: "PipecatEngine"):
 
 
 # ---------------------------------------------------------------------------
-# LLM-generated-text handling
-# ---------------------------------------------------------------------------
-
-
-def create_llm_generated_text_callback(engine: "PipecatEngine"):
-    """Return a callback invoked when the LLM emits text (not only tool calls)."""
-
-    async def handle_llm_generated_text():  # noqa: D401
-        logger.debug(
-            "Generation has text content in current response - deferring context push from set_node"
-        )
-        engine._defer_context_push = True
-
-    return handle_llm_generated_text
-
-
-# ---------------------------------------------------------------------------
 # Generation-started handling
 # ---------------------------------------------------------------------------
 
@@ -140,94 +123,11 @@ def create_generation_started_callback(engine: "PipecatEngine"):
     """Return a callback that resets flags at the start of each LLM generation."""
 
     async def handle_generation_started():  # noqa: D401
-        logger.debug("LLM generation started - resetting defer flags and tool counters")
-        engine._defer_context_push = False
-        engine._pending_function_calls = 0
-        engine._pending_generated_transition_after_context_push = None
+        logger.debug("LLM generation started in callback processor")
         # Clear reference text from previous generation
         engine._current_llm_reference_text = ""
 
     return handle_generation_started
-
-
-# ---------------------------------------------------------------------------
-# User-stopped-speaking handling
-# ---------------------------------------------------------------------------
-
-
-def create_user_stopped_speaking_callback(engine: "PipecatEngine"):
-    """Return a callback that handles when the user stops speaking.
-
-    According to simplified flow:
-    - For start nodes with wait_for_user_response=True:
-      - Cancel timeout task if still active
-      - Transition to next node with _queue_context_frame=False
-    """
-
-    async def handle_user_stopped_speaking():
-        # Only handle if current node is a start node with wait_for_user_response
-        if (
-            engine._current_node
-            and engine._current_node.is_start
-            and engine._current_node.wait_for_user_response
-            and engine._current_node.out_edges
-        ):
-            # Cancel timeout task if it's still active
-            if (
-                engine._user_response_timeout_task
-                and not engine._user_response_timeout_task.done()
-            ):
-                logger.debug("Cancelling user response timeout - user responded")
-                engine._user_response_timeout_task.cancel()
-                engine._user_response_timeout_task = None
-
-            # Transition to next node
-            next_node_id = engine._current_node.out_edges[0].target
-            logger.debug(
-                f"User stopped speaking after wait_for_user_response - transitioning to: {next_node_id}"
-            )
-
-            # Set flag to not queue context frame since
-            # it will be pushed by user context aggregator
-            # we are just setting the context with next node's
-            # functions and prompts
-            engine._queue_context_frame = False
-
-            # Transition to next node
-            await engine.set_node(next_node_id)
-
-    return handle_user_stopped_speaking
-
-
-# ---------------------------------------------------------------------------
-# User-started-speaking handling
-# ---------------------------------------------------------------------------
-
-
-def create_user_started_speaking_callback(engine: "PipecatEngine"):
-    """Return a callback that handles when the user starts speaking.
-
-    According to simplified flow:
-    - For start nodes with wait_for_user_response=True:
-      - Cancel the timeout timer if it exists (but don't set to None)
-    """
-
-    async def handle_user_started_speaking():
-        # Only handle if current node is a start node with wait_for_user_response
-        if (
-            engine._current_node
-            and engine._current_node.is_start
-            and engine._current_node.wait_for_user_response
-            and engine._user_response_timeout_task
-            and not engine._user_response_timeout_task.done()
-        ):
-            logger.debug(
-                "User started speaking during wait_for_user_response - cancelling timeout timer"
-            )
-            engine._user_response_timeout_task.cancel()
-            # Don't set to None here - let user_stopped_speaking handle the transition
-
-    return handle_user_started_speaking
 
 
 def create_aggregation_correction_callback(engine: "PipecatEngine"):

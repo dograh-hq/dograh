@@ -1,0 +1,192 @@
+---
+title: "Docker"
+description: "Deploy Dograh AI using Docker for local development and remote server environments"
+---
+
+Dograh AI can be deployed using Docker in two main configurations. Choose the option that best fits your needs:
+
+- **Option 1**: For local development and testing on your own machine
+- **Option 2**: For remote server deployment with HTTPS (using IP address)
+
+## Option 1: Local Docker Deployment
+
+For local development and testing, you can run Dograh AI directly on your machine using Docker with a single command.
+
+### Quick Start
+
+Run this single command to download and start Dograh AI:
+
+```bash
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
+```
+
+This command:
+- Downloads the latest docker-compose.yaml
+- Starts all required services including PostgreSQL, Redis, MinIO, API, and UI
+- Pulls the latest images automatically
+
+### Access the Application
+
+Once running (first startup takes 2-3 minutes), open:
+```
+http://localhost:3010
+```
+
+<Note>
+You can disable telemetry by setting `ENABLE_TELEMETRY=false` in the command above.
+</Note>
+
+## Option 2: Remote Server Deployment
+
+Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates.
+
+### Prerequisites
+
+- A server with Docker and Docker Compose installed
+- Public IP address for your server
+- Ports 80 and 443 accessible from the internet
+
+### Step 1: Create Project Directory
+
+Open your terminal and create a directory for Dograh:
+
+```bash
+mkdir dograh
+cd dograh
+```
+
+### Step 2: Download Docker Compose File
+
+Download the docker-compose.yaml file:
+
+```bash
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
+```
+
+### Step 3: Generate SSL Certificates
+
+Create a script to generate self-signed certificates for HTTPS:
+
+```bash
+nano generate_certificate.sh
+```
+
+Copy the following content into the file:
+
+```bash
+mkdir -p certs
+openssl req -x509 -nodes -newkey rsa:2048 \
+  -keyout certs/local.key \
+  -out certs/local.crt \
+  -days 365 \
+  -subj "/CN=YOUR_SERVER_IP"
+```
+
+<Note>
+Replace `YOUR_SERVER_IP` with your server's public IP address.
+</Note>
+
+Make the script executable and run it:
+
+```bash
+chmod +x generate_certificate.sh
+./generate_certificate.sh
+```
+
+### Step 4: Configure nginx
+
+Create an nginx configuration file:
+
+```bash
+nano nginx.conf
+```
+
+Copy the following content into the file:
+
+```nginx
+server {
+    listen 80;
+    server_name YOUR_SERVER_IP;
+
+    # Optional: redirect all HTTP to HTTPS
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name YOUR_SERVER_IP;
+
+    ssl_certificate     /etc/nginx/certs/local.crt;
+    ssl_certificate_key /etc/nginx/certs/local.key;
+
+    # Basic TLS settings for dev
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+
+    location / {
+        proxy_pass         http://ui:3010;
+        proxy_http_version 1.1;
+
+        # Important for WebSockets / hot reload etc.
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        
+        # Rewrite localhost MinIO URLs in API responses to use current domain
+        sub_filter 'http://localhost:9000/voice-audio/' 'https://$host/voice-audio/';
+        sub_filter_once off;
+        sub_filter_types application/json text/html;
+    }
+
+    location /voice-audio/ {
+        proxy_pass http://minio:9000/voice-audio/;
+
+        proxy_http_version 1.1;
+
+        # Headers for file downloads from MinIO
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        
+        # Allow large file downloads
+        proxy_buffering off;
+        client_max_body_size 100M;
+    }
+}
+```
+
+<Note>
+Replace `YOUR_SERVER_IP` with your server's public IP address in both locations (lines 3 and 11).
+</Note>
+
+### Step 5: Deploy with Remote Profile
+
+Start the application with the remote profile to include nginx:
+
+```bash
+docker compose --profile remote up -d
+```
+
+This command starts all services including the nginx reverse proxy with HTTPS support.
+
+### Step 6: Access Your Application
+
+Your application will be available at:
+```
+https://YOUR_SERVER_IP
+```
+
+Replace `YOUR_SERVER_IP` with your actual server IP address.
+
+### Configuration Notes
+
+- The remote deployment includes an nginx reverse proxy for HTTPS termination
+- File downloads (transcripts, recordings) are automatically routed through nginx
+- WebSocket connections for real-time features are properly proxied
+- The setup uses self-signed certificates - browsers will show a security warning that you can safely accept for testing
+- For production deployments with proper SSL and domain names, see the [Custom Domain](custom-domain) documentation

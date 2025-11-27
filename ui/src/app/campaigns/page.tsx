@@ -2,7 +2,7 @@
 
 import { Plus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { getCampaignsApiV1CampaignGet } from '@/client/sdk.gen';
 import type { CampaignsResponse } from '@/client/types.gen';
@@ -23,9 +23,9 @@ export default function CampaignsPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const router = useRouter();
 
-    // Campaigns state
     const [campaignsData, setCampaignsData] = useState<CampaignsResponse | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const hasFetched = useRef(false);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -34,51 +34,48 @@ export default function CampaignsPage() {
         }
     }, [loading, user, redirectToLogin]);
 
-    // Fetch campaigns
-    const fetchCampaigns = useCallback(async () => {
-        if (!user || loading) return;
-        setIsLoading(true);
-        try {
-            const accessToken = await getAccessToken();
-            const response = await getCampaignsApiV1CampaignGet({
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                }
-            });
-
-            if (response.data) {
-                setCampaignsData(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch campaigns:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    }, [user, loading, getAccessToken]);
-
-    // Initial load
+    // Fetch campaigns once when user is ready
     useEffect(() => {
-        if (user && !loading) {
-            fetchCampaigns();
+        if (loading || !user || hasFetched.current) {
+            return;
         }
-    }, [fetchCampaigns, user, loading]);
+        hasFetched.current = true;
 
-    // Handle row click to navigate to campaign detail
+        const fetchCampaigns = async () => {
+            setIsLoading(true);
+            try {
+                const accessToken = await getAccessToken();
+                const response = await getCampaignsApiV1CampaignGet({
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                    }
+                });
+
+                if (response.data) {
+                    setCampaignsData(response.data);
+                }
+            } catch (error) {
+                console.error('Failed to fetch campaigns:', error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        fetchCampaigns();
+    }, [loading, user, getAccessToken]);
+
     const handleRowClick = (campaignId: number) => {
         router.push(`/campaigns/${campaignId}`);
     };
 
-    // Handle create campaign button
     const handleCreateCampaign = () => {
         router.push('/campaigns/new');
     };
 
-    // Format date for display
     const formatDate = (dateString: string) => {
         return new Date(dateString).toLocaleDateString();
     };
 
-    // Get badge variant for state
     const getStateBadgeVariant = (state: string) => {
         switch (state) {
             case 'created':
@@ -109,7 +106,6 @@ export default function CampaignsPage() {
                     </Button>
                 </div>
 
-                {/* Campaigns Table */}
                 <Card>
                     <CardHeader>
                         <CardTitle>All Campaigns</CardTitle>

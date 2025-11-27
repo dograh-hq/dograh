@@ -1,11 +1,8 @@
 'use client';
 
-import { StackClientApp,StackProvider, StackTheme, useUser as useStackUser } from '@stackframe/stack';
-import React, { useEffect, useState } from 'react';
+import { StackClientApp, StackProvider, StackTheme, useUser as useStackUser } from '@stackframe/stack';
+import React, { useMemo, useRef } from 'react';
 
-import logger from '@/lib/logger';
-
-import { StackAuthService } from '../services';
 import type { AuthUser } from '../types';
 import { AuthContext } from './AuthProvider';
 
@@ -14,7 +11,6 @@ let stackClientAppInstance: StackClientApp<true, string> | null = null;
 
 function getStackClientApp(): StackClientApp<true, string> {
   if (!stackClientAppInstance) {
-    logger.debug('[StackProviderWrapper] Creating singleton StackClientApp instance');
     stackClientAppInstance = new StackClientApp({
       tokenStore: "nextjs-cookie",
       urls: {
@@ -26,90 +22,82 @@ function getStackClientApp(): StackClientApp<true, string> {
 }
 
 interface StackProviderWrapperProps {
-  service: StackAuthService;
   children: React.ReactNode;
 }
 
-// Stack-specific context provider that uses the useUser hook
-function StackAuthContextProvider({ service, children }: { service: StackAuthService; children: React.ReactNode }) {
-  const renderCount = React.useRef(0);
-  const lastUserId = React.useRef<string | undefined>(undefined);
-  renderCount.current++;
+// Simple context provider that uses Stack's useUser directly
+function StackAuthContextProvider({ children }: { children: React.ReactNode }) {
+  const stackUser = useStackUser();
 
-  logger.debug(`[StackAuthContextProvider] Render #${renderCount.current} - Starting`);
+  // Store user in ref for callbacks to access latest value without creating new callbacks
+  const userRef = useRef(stackUser);
+  userRef.current = stackUser;
 
-  const stackUser = useStackUser(); // Always call the hook
-  const [isInitialized, setIsInitialized] = useState(false);
+  // Derive loading state: loading if we don't have a user yet
+  const isLoading = stackUser === null;
 
-  // Track if user actually changed
-  const userChanged = lastUserId.current !== stackUser?.id;
-  if (userChanged) {
-    lastUserId.current = stackUser?.id;
-  }
-
-  logger.debug(`[StackAuthContextProvider] Render #${renderCount.current} - stackUser:`, {
-    hasUser: !!stackUser,
-    userId: stackUser?.id,
-    isInitialized,
-    userChanged
-  });
-
-  useEffect(() => {
-    // Only log and update if user actually changed
-    if (!userChanged && isInitialized) {
-      return;
+  // Stable callbacks that use ref to access current user
+  const getAccessToken = React.useCallback(async () => {
+    const user = userRef.current;
+    if (!user) {
+      throw new Error('User not authenticated');
     }
-
-    logger.debug('[StackAuthContextProvider] useEffect triggered (user changed)', {
-      hasUser: !!stackUser,
-      userId: stackUser?.id,
-      isInitialized,
-      isStackAuthService: service instanceof StackAuthService
-    });
-
-    // Only update the service once when user becomes available
-    if (!isInitialized && service instanceof StackAuthService && stackUser) {
-      logger.debug('[StackAuthContextProvider] Setting user instance in service', {
-        userId: stackUser.id
-      });
-      service.setUserInstance(stackUser);
-      setIsInitialized(true);
+    const authJson = await user.getAuthJson();
+    if (!authJson.accessToken) {
+      throw new Error('No access token available');
     }
-  }, [service, stackUser, isInitialized, userChanged]);
+    return authJson.accessToken;
+  }, []);
 
-  const getAccessToken = React.useCallback(() => {
-    logger.debug('[StackAuthContextProvider] getAccessToken called');
-    return service.getAccessToken();
-  }, [service]);
+  const redirectToLogin = React.useCallback(() => {
+    if (typeof window !== 'undefined') {
+      window.location.href = '/handler/sign-in';
+    }
+  }, []);
 
-  // Stabilize the context value to prevent unnecessary re-renders
-  const contextValue = React.useMemo(() => {
-    const isAuth = service.isAuthenticated();
-    // IMPORTANT: Stay in loading state until service is initialized (has user set)
-    // Even if stackUser exists, we're still loading until setUserInstance is called
-    const loadingState = !isInitialized;
+  const logout = React.useCallback(async () => {
+    const user = userRef.current;
+    if (user?.signOut) {
+      await user.signOut();
+    }
+  }, []);
 
-    const value = {
-      service,
-      user: stackUser as AuthUser,  // Pass the actual Stack CurrentUser
-      isAuthenticated: isAuth,
-      loading: loadingState,  // Loading until service is initialized
-      getAccessToken,
-      provider: service.getProviderName(),
-    };
+  const getSelectedTeam = React.useCallback(() => {
+    return userRef.current?.selectedTeam ?? null;
+  }, []);
 
-    logger.debug('[StackAuthContextProvider] Context value created', {
-      isAuthenticated: isAuth,
-      loading: loadingState,
-      hasUser: !!value.user,
-      userId: stackUser?.id,
-      isInitialized,
-      provider: value.provider,
-      serviceHasUser: isAuth
-    });
+  const listPermissions = React.useCallback(async (team?: unknown) => {
+    const user = userRef.current;
+    if (!user?.listPermissions) {
+      return [];
+    }
+    const targetTeam = team || user.selectedTeam;
+    if (!targetTeam) {
+      return [];
+    }
+    try {
+      const perms = await user.listPermissions(targetTeam);
+      return Array.isArray(perms) ? perms : [];
+    } catch {
+      return [];
+    }
+  }, []);
 
-    return value;
-  }, [service, stackUser, isInitialized, getAccessToken]);
+  // IMPORTANT: Use primitive values (userId, isLoading) in deps, NOT stackUser object
+  // Stack's useUser() returns a new object reference on every render, which would cause infinite re-renders
+  const userId = stackUser?.id;
+
+  const contextValue = useMemo(() => ({
+    user: userRef.current as AuthUser,
+    isAuthenticated: !!userId,
+    loading: isLoading,
+    getAccessToken,
+    redirectToLogin,
+    logout,
+    provider: 'stack' as const,
+    getSelectedTeam,
+    listPermissions,
+  }), [userId, isLoading, getAccessToken, redirectToLogin, logout, getSelectedTeam, listPermissions]);
 
   return (
     <AuthContext.Provider value={contextValue}>
@@ -118,16 +106,13 @@ function StackAuthContextProvider({ service, children }: { service: StackAuthSer
   );
 }
 
-export function StackProviderWrapper({ service, children }: StackProviderWrapperProps) {
-  logger.debug('[StackProviderWrapper] Rendering wrapper');
-
-  // Use the singleton instance
+export function StackProviderWrapper({ children }: StackProviderWrapperProps) {
   const stackClientApp = getStackClientApp();
 
   return (
     <StackProvider app={stackClientApp}>
       <StackTheme>
-        <StackAuthContextProvider service={service}>
+        <StackAuthContextProvider>
           {children}
         </StackAuthContextProvider>
       </StackTheme>

@@ -55,9 +55,9 @@ export default function OverviewPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle>Create and manage your Voice Agents</CardTitle>
+                            <CardTitle>Create and Manage your Voice Agents</CardTitle>
                             <CardDescription>
-                                Build powerful voice AI Voice Agents with our visual editor
+                                Build powerful AI Voice Agents with our visual editor
                             </CardDescription>
                         </CardHeader>
                         <CardContent>

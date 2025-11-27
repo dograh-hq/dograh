@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { getUserConfigurationsApiV1UserConfigurationsUserGet, updateUserConfigurationsApiV1UserConfigurationsUserPut } from '@/client/sdk.gen';
 import type { UserConfigurationRequestResponseSchema } from '@/client/types.gen';
@@ -41,7 +41,7 @@ interface UserConfigContextType {
     refreshConfig: () => Promise<void>;
     permissions: TeamPermission[];
     accessToken: string | null;
-    user: AuthUser | null;  // Now properly typed as CurrentUser | LocalUser
+    user: AuthUser | null;
     organizationPricing: OrganizationPricing | null;
 }
 
@@ -53,17 +53,32 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
     const [error, setError] = useState<Error | null>(null);
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [organizationPricing, setOrganizationPricing] = useState<OrganizationPricing | null>(null);
-    const auth = useAuth();
     const [permissions, setPermissions] = useState<TeamPermission[]>([]);
 
+    const auth = useAuth();
 
+    // Store auth functions in refs to avoid dependency issues
+    const authRef = useRef(auth);
+    authRef.current = auth;
+
+    // Track initialization
+    const hasFetchedConfig = useRef(false);
+    const hasFetchedPermissions = useRef(false);
+
+    // Fetch permissions once when auth is ready
     useEffect(() => {
+        if (auth.loading || hasFetchedPermissions.current) {
+            return;
+        }
+        hasFetchedPermissions.current = true;
+
         const fetchPermissions = async () => {
-            if (auth.provider === 'stack') {
-                const selectedTeam = auth.getSelectedTeam();
+            const currentAuth = authRef.current;
+            if (currentAuth.provider === 'stack' && currentAuth.getSelectedTeam && currentAuth.listPermissions) {
+                const selectedTeam = currentAuth.getSelectedTeam();
                 if (selectedTeam) {
                     try {
-                        const perms = await auth.listPermissions(selectedTeam);
+                        const perms = await currentAuth.listPermissions(selectedTeam);
                         setPermissions(Array.isArray(perms) ? perms : []);
                     } catch {
                         setPermissions([]);
@@ -72,16 +87,55 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
                     setPermissions([]);
                 }
             } else {
-                // For non-Stack providers, set default permissions
                 setPermissions([{ id: 'admin' }]);
             }
         };
 
-        if (!auth.loading) {
-            fetchPermissions();
-        }
-    }, [auth.loading, auth.provider, auth.getSelectedTeam, auth.listPermissions]);
+        fetchPermissions();
+    }, [auth.loading, auth.provider]);
 
+    // Fetch user config once when auth is ready
+    useEffect(() => {
+        if (auth.loading || !auth.isAuthenticated || hasFetchedConfig.current) {
+            return;
+        }
+        hasFetchedConfig.current = true;
+
+        const fetchUserConfig = async () => {
+            setLoading(true);
+            try {
+                const token = await authRef.current.getAccessToken();
+                setAccessToken(token);
+
+                const response = await getUserConfigurationsApiV1UserConfigurationsUserGet({
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                    },
+                });
+
+                if (response.data) {
+                    setUserConfig(response.data);
+                    if (response.data.organization_pricing) {
+                        setOrganizationPricing({
+                            price_per_second_usd: response.data.organization_pricing.price_per_second_usd as number | null,
+                            currency: response.data.organization_pricing.currency as string || 'USD',
+                            billing_enabled: response.data.organization_pricing.billing_enabled as boolean || false
+                        });
+                    } else {
+                        setOrganizationPricing(null);
+                    }
+                }
+                setError(null);
+            } catch (err) {
+                setError(err instanceof Error ? err : new Error('Failed to fetch user configuration'));
+                setAccessToken(null);
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchUserConfig();
+    }, [auth.loading, auth.isAuthenticated]);
 
     const saveUserConfig = useCallback(async (userConfigRequest: SaveUserConfigFunctionParams) => {
         if (!accessToken) throw new Error('No authentication token available');
@@ -93,11 +147,9 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
             headers: { 'Authorization': `Bearer ${accessToken}` },
         });
         if (response.error) {
-            // Try to pull out a JSON array of { model, message } from response.error.detail
             let msg = 'Failed to save user configuration';
             const detail = (response.error as unknown as { detail?: { errors: { model: string; message: string }[] } }).detail;
             if (Array.isArray(detail)) {
-                // Map each entry to "model: message" and join with \n
                 msg = detail
                     .map((e: { model: string; message: string }) => `${e.model}: ${e.message}`)
                     .join('\n');
@@ -106,7 +158,6 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
         }
         setUserConfig(response.data!);
 
-        // Update organization pricing if available
         if (response.data?.organization_pricing) {
             setOrganizationPricing({
                 price_per_second_usd: response.data.organization_pricing.price_per_second_usd as number | null,
@@ -116,12 +167,14 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
         }
     }, [accessToken, userConfig]);
 
-    const fetchUserConfig = useCallback(async () => {
+    const refreshConfig = useCallback(async () => {
+        const currentAuth = authRef.current;
+        if (!currentAuth.isAuthenticated) return;
+
         setLoading(true);
         try {
-            if (auth.loading || !auth.isAuthenticated) return;
-            const token = await auth.getAccessToken();
-            setAccessToken(token); // Set token when fetching config
+            const token = await currentAuth.getAccessToken();
+            setAccessToken(token);
 
             const response = await getUserConfigurationsApiV1UserConfigurationsUserGet({
                 headers: {
@@ -131,32 +184,21 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
 
             if (response.data) {
                 setUserConfig(response.data);
-
-                // Extract organization pricing if available
                 if (response.data.organization_pricing) {
                     setOrganizationPricing({
                         price_per_second_usd: response.data.organization_pricing.price_per_second_usd as number | null,
                         currency: response.data.organization_pricing.currency as string || 'USD',
                         billing_enabled: response.data.organization_pricing.billing_enabled as boolean || false
                     });
-                } else {
-                    setOrganizationPricing(null);
                 }
             }
             setError(null);
         } catch (err) {
             setError(err instanceof Error ? err : new Error('Failed to fetch user configuration'));
-            setAccessToken(null);
         } finally {
             setLoading(false);
         }
-    }, [auth.loading, auth.isAuthenticated, auth.getAccessToken]);
-
-    useEffect(() => {
-        if (!auth.loading && auth.isAuthenticated) {
-            fetchUserConfig();
-        }
-    }, [fetchUserConfig, auth.loading, auth.isAuthenticated]);
+    }, []);
 
     return (
         <UserConfigContext.Provider
@@ -165,10 +207,10 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
                 saveUserConfig,
                 loading,
                 error,
-                refreshConfig: fetchUserConfig,
+                refreshConfig,
                 permissions,
                 accessToken,
-                user: auth.user,  // Pass the AuthUser (CurrentUser | LocalUser)
+                user: auth.user,
                 organizationPricing,
             }}
         >

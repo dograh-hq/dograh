@@ -1,11 +1,7 @@
-import { Settings } from 'lucide-react';
-import Link from 'next/link';
 import { Suspense } from 'react';
 
-import { getWorkflowsApiV1WorkflowFetchGet, getWorkflowTemplatesApiV1WorkflowTemplatesGet } from '@/client/sdk.gen';
-import { Button } from '@/components/ui/button';
+import { getWorkflowsApiV1WorkflowFetchGet } from '@/client/sdk.gen';
 import { CreateWorkflowButton } from "@/components/workflow/CreateWorkflowButton";
-import { DuplicateWorkflowTemplate } from "@/components/workflow/TemplateCard";
 import { UploadWorkflowButton } from '@/components/workflow/UploadWorkflowButton';
 import { WorkflowTable } from "@/components/workflow/WorkflowTable";
 import { getServerAccessToken, getServerAuthProvider } from '@/lib/auth/server';
@@ -14,42 +10,6 @@ import logger from '@/lib/logger';
 import WorkflowLayout from "./WorkflowLayout";
 
 export const dynamic = 'force-dynamic';
-
-// Server component for workflow templates
-async function WorkflowTemplatesList() {
-    try {
-        const response = await getWorkflowTemplatesApiV1WorkflowTemplatesGet();
-        // Log request URL if available
-        if (response.request?.url) {
-            logger.info(`Template Request URL: ${response.request.url}`);
-        }
-        const templates = response.data || [];
-
-        // Get access token on server side to pass to client component
-        const accessToken = await getServerAccessToken();
-
-        return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {templates.map((template) => (
-                    <DuplicateWorkflowTemplate
-                        key={template.id}
-                        id={template.id}
-                        title={template.template_name}
-                        description={template.template_description}
-                        serverAccessToken={accessToken}
-                    />
-                ))}
-            </div>
-        );
-    } catch (err) {
-        logger.error(`Error fetching workflow templates: ${err}`);
-        return (
-            <div className="text-red-500">
-                Failed to load Workflow Templates. Please Try Again Later.
-            </div>
-        );
-    }
-}
 
 // Server component for workflow list
 async function WorkflowList() {
@@ -134,41 +94,10 @@ async function PageContent() {
 
     return (
         <div className="container mx-auto px-4 py-8">
-            {/* Get Started Section */}
-            <div className="mb-12">
-                <div className="flex justify-between items-center px-4">
-                    <h2 className="text-2xl font-bold mb-6">Get Started</h2>
-                    <div className="flex gap-2">
-                        <Link href="/service-configurations">
-                            <Button className="flex items-center gap-2 mb-6">
-                                <Settings size={16} />
-                                Configure Services
-                            </Button>
-                        </Link>
-                        <Link href="/integrations">
-                            <Button className="flex items-center gap-2 mb-6">
-                                <Settings size={16} />
-                                Integrations
-                            </Button>
-                        </Link>
-                    </div>
-                </div>
-
-                <Suspense fallback={
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {Array.from({ length: 3 }, (_, i) => (
-                            <div key={i} className="bg-muted rounded-lg h-40"></div>
-                        ))}
-                    </div>
-                }>
-                    <WorkflowTemplatesList />
-                </Suspense>
-            </div>
-
             {/* Your Workflows Section */}
             <div className="mb-6">
                 <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold">Your Workflows</h1>
+                    <h1 className="text-2xl font-bold">Your Agents</h1>
                     <div className="flex gap-2">
                         <UploadWorkflowButton />
                         <CreateWorkflowButton />

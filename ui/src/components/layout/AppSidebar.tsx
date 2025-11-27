@@ -1,5 +1,6 @@
 "use client";
 
+import type { Team } from "@stackframe/stack";
 import {
   ChevronLeft,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Key,
   Megaphone,
   MessageSquare,
+  Settings,
   Star,
   TrendingUp,
   Workflow,
@@ -19,7 +21,6 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
-import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -49,17 +50,10 @@ const StackUserButton = React.lazy(() =>
   import("@stackframe/stack").then((mod) => ({ default: mod.UserButton }))
 );
 
-// Wrapper component that passes selectedTeam from useUser to SelectedTeamSwitcher
-// This is needed because SelectedTeamSwitcher doesn't automatically use user.selectedTeam
-const StackTeamSwitcherWithSelectedTeam = React.lazy(() =>
+// Lazy load SelectedTeamSwitcher - we'll pass selectedTeam from our context
+const StackTeamSwitcher = React.lazy(() =>
   import("@stackframe/stack").then((mod) => ({
-    default: function TeamSwitcherWrapper(props: { onChange?: () => void }) {
-      const user = mod.useUser();
-      return React.createElement(mod.SelectedTeamSwitcher, {
-        ...props,
-        selectedTeam: user?.selectedTeam ?? undefined,
-      });
-    },
+    default: mod.SelectedTeamSwitcher,
   }))
 );
 
@@ -67,7 +61,10 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { state } = useSidebar();
-  const { provider } = useAuth();
+  const { provider, getSelectedTeam } = useAuth();
+
+  // Get selected team for Stack auth (cast to Team type from Stack)
+  const selectedTeam = provider === "stack" && getSelectedTeam ? getSelectedTeam() as Team | null : null;
 
   const isActive = (path: string) => {
     return pathname.startsWith(path);
@@ -99,6 +96,16 @@ export function AppSidebar() {
           url: "/automation",
           icon: Zap,
         },
+        {
+          title: "Services",
+          url: "/service-configurations",
+          icon: Settings,
+        },
+        // {
+        //   title: "Integrations",
+        //   url: "/integrations",
+        //   icon: Plug,
+        // },
         {
           title: "Developers",
           url: "/api-keys",
@@ -204,7 +211,8 @@ export function AppSidebar() {
                 <div className="h-9 w-full animate-pulse bg-muted rounded" />
               }
             >
-              <StackTeamSwitcherWithSelectedTeam
+              <StackTeamSwitcher
+                selectedTeam={selectedTeam || undefined}
                 onChange={() => {
                   router.refresh();
                 }}

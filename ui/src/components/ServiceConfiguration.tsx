@@ -5,10 +5,11 @@ import { useForm } from "react-hook-form";
 
 import { getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet } from '@/client/sdk.gen';
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useUserConfig } from "@/context/UserConfigContext";
 
 type ServiceSegment = "llm" | "tts" | "stt";
@@ -32,6 +33,12 @@ interface ProviderSchema {
 interface FormValues {
     [key: string]: string | number | boolean;
 }
+
+const TAB_CONFIG: { key: ServiceSegment; label: string }[] = [
+    { key: "llm", label: "Model" },
+    { key: "tts", label: "Voice" },
+    { key: "stt", label: "Transcriber" },
+];
 
 export default function ServiceConfiguration() {
     const [apiError, setApiError] = useState<string | null>(null);
@@ -80,28 +87,6 @@ export default function ServiceConfiguration() {
             };
 
             const setServicePropertyValues = (service: ServiceSegment) => {
-                /*
-                    sets service properties like api_key, model etc. from default configurations
-                    if not present in user configurations
-
-                    service - llm/ tts/ stt
-
-
-                    userConfig['llm'] = {
-                        provider: 'openai',
-                        api_key: 'sk-...'
-                    }
-
-                    response.data.llm = {
-                        openai: {
-                            properties: {
-                                provider: 'openai'
-                                api_key: 'sk-...'
-                            }
-                        }
-                    }
-                */
-
                 if (userConfig?.[service]?.provider) {
                     Object.entries(userConfig?.[service]).forEach(([field, value]) => {
                         if (field !== "provider") {
@@ -110,8 +95,6 @@ export default function ServiceConfiguration() {
                     });
                     selectedProviders[service] = userConfig?.[service]?.provider as string;
                 } else {
-                    // response.data['service'] will all providers for the given service
-                    // selectedProviders[service] will have the provider name
                     const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
                     if (properties) {
                         Object.entries(properties).forEach(([field, schema]) => {
@@ -135,10 +118,6 @@ export default function ServiceConfiguration() {
     }, [reset, userConfig]);
 
     const handleProviderChange = (service: ServiceSegment, providerName: string) => {
-        /*
-            service can be llm/ tts/ stt
-            providerName is openAI/ Deepgram etc.
-        */
         if (!providerName) {
             return;
         }
@@ -170,10 +149,6 @@ export default function ServiceConfiguration() {
 
 
     const onSubmit = async (data: FormValues) => {
-        /*
-            data contains form values like llm_api_key: "sk...", llm_model: "gpt-4o" etc.
-            extract the values in relevant form
-        */
         setApiError(null);
         setIsSaving(true);
 
@@ -197,7 +172,7 @@ export default function ServiceConfiguration() {
         Object.entries(data).forEach(([property, value]) => {
             const parts = property.split('_');
             const service = parts[0] as ServiceSegment;
-            const field = parts.slice(1).join('_'); // Join all parts after the service name
+            const field = parts.slice(1).join('_');
 
             if (userConfig[service] && !(field in userConfig[service])) {
                 (userConfig[service] as Record<string, string>)[field] = value as string;
@@ -222,116 +197,166 @@ export default function ServiceConfiguration() {
         }
     };
 
-    const renderServiceSegmentFields = (service: ServiceSegment) => {
-        // Segment is segments like llm, tts and stt
+    const getConfigFields = (service: ServiceSegment): string[] => {
         const currentProvider = serviceProviders[service];
         const providerSchema = schemas?.[service]?.[currentProvider];
-        const availableProviders = schemas?.[service] ? Object.keys(schemas[service]) : [];
+        if (!providerSchema) return [];
 
-        return (
-            <Card className="mb-6">
-                <CardHeader>
-                    <CardTitle>{service.toUpperCase()} Configuration</CardTitle>
-                    <CardDescription>
-                        Configure your {service.toUpperCase()} service
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="space-y-4">
-                        <div className="space-y-2">
-                            <Label>Provider</Label>
-                            <Select
-                                value={currentProvider}
-                                onValueChange={(providerName) => {
-                                    handleProviderChange(service, providerName);
-                                }}
-                            >
-                                <SelectTrigger>
-                                    <SelectValue placeholder={`Select ${service.toUpperCase()} provider`} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {availableProviders.map((provider) => (
-                                        <SelectItem key={provider} value={provider}>
-                                            {provider}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        {currentProvider && providerSchema && (
-                            <div className="space-y-4">
-                                {Object.entries(providerSchema.properties).map(([field, schema]: [string, SchemaProperty]) => {
-                                    // Handle $ref fields by getting the actual schema from $defs
-                                    const actualSchema = schema.$ref && providerSchema.$defs
-                                        ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
-                                        : schema;
-
-                                    // Skip provider field as it's handled separately
-                                    return field !== "provider" && (
-                                        <div key={`${service}_${field}_${currentProvider}`} className="space-y-2">
-                                            <Label>{field}</Label>
-                                            {actualSchema?.enum ? (
-                                                <Select
-                                                    value={watch(`${service}_${field}`) as string || ""}
-                                                    onValueChange={(value) => {
-                                                        setValue(`${service}_${field}`, value, { shouldDirty: true });
-                                                    }}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder={`Select ${field}`} />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {actualSchema.enum.map((value: string) => (
-                                                            <SelectItem key={value} value={value}>
-                                                                {value}
-                                                            </SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            ) : (
-                                                <Input
-                                                    type={actualSchema?.type === "number" ? "number" : "text"}
-                                                    {...(actualSchema?.type === "number" && { step: "any" })}
-                                                    placeholder={`Enter ${field}`}
-                                                    {...register(`${service}_${field}`, {
-                                                        required: providerSchema.required?.includes(field),
-                                                        valueAsNumber: actualSchema?.type === "number"
-                                                    })}
-                                                />
-                                            )}
-                                            {errors[`${service}_${field}`] && (
-                                                <p className="text-sm text-red-500">
-                                                    {typeof errors[`${service}_${field}`]?.message === 'string'
-                                                        ? String(errors[`${service}_${field}`]?.message)
-                                                        : "This field is required"}
-                                                </p>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-
-                            </div>
-                        )}
-                    </div>
-                </CardContent>
-            </Card>
+        // Find all config fields (not provider, not api_key)
+        return Object.keys(providerSchema.properties).filter(
+            field => field !== "provider" && field !== "api_key"
         );
     };
 
+    const renderServiceFields = (service: ServiceSegment) => {
+        const currentProvider = serviceProviders[service];
+        const providerSchema = schemas?.[service]?.[currentProvider];
+        const availableProviders = schemas?.[service] ? Object.keys(schemas[service]) : [];
+        const configFields = getConfigFields(service);
+
+        return (
+            <div className="space-y-6">
+                {/* Provider and first config field in one row */}
+                <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                        <Label>Provider</Label>
+                        <Select
+                            value={currentProvider}
+                            onValueChange={(providerName) => {
+                                handleProviderChange(service, providerName);
+                            }}
+                        >
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Select provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {availableProviders.map((provider) => (
+                                    <SelectItem key={provider} value={provider}>
+                                        {provider}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    {currentProvider && providerSchema && configFields[0] && (
+                        <div className="space-y-2">
+                            <Label className="capitalize">{configFields[0].replace(/_/g, ' ')}</Label>
+                            {renderField(service, configFields[0], providerSchema)}
+                        </div>
+                    )}
+                </div>
+
+                {/* Additional config fields (like voice for TTS) */}
+                {currentProvider && providerSchema && configFields.length > 1 && (
+                    <div className="grid grid-cols-2 gap-4">
+                        {configFields.slice(1).map((field) => (
+                            <div key={field} className="space-y-2">
+                                <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
+                                {renderField(service, field, providerSchema)}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* API Key in bottom row */}
+                {currentProvider && providerSchema && providerSchema.properties.api_key && (
+                    <div className="space-y-2">
+                        <Label>API Key</Label>
+                        <Input
+                            type="password"
+                            placeholder="Enter API key"
+                            {...register(`${service}_api_key`, {
+                                required: providerSchema.required?.includes("api_key"),
+                            })}
+                        />
+                        {errors[`${service}_api_key`] && (
+                            <p className="text-sm text-red-500">
+                                {typeof errors[`${service}_api_key`]?.message === 'string'
+                                    ? String(errors[`${service}_api_key`]?.message)
+                                    : "This field is required"}
+                            </p>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderField = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
+        const schema = providerSchema.properties[field];
+        const actualSchema = schema.$ref && providerSchema.$defs
+            ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
+            : schema;
+
+        if (actualSchema?.enum) {
+            return (
+                <Select
+                    value={watch(`${service}_${field}`) as string || ""}
+                    onValueChange={(value) => {
+                        setValue(`${service}_${field}`, value, { shouldDirty: true });
+                    }}
+                >
+                    <SelectTrigger className="w-full">
+                        <SelectValue placeholder={`Select ${field}`} />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {actualSchema.enum.map((value: string) => (
+                            <SelectItem key={value} value={value}>
+                                {value}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            );
+        }
+
+        return (
+            <Input
+                type={actualSchema?.type === "number" ? "number" : "text"}
+                {...(actualSchema?.type === "number" && { step: "any" })}
+                placeholder={`Enter ${field}`}
+                {...register(`${service}_${field}`, {
+                    required: providerSchema.required?.includes(field),
+                    valueAsNumber: actualSchema?.type === "number"
+                })}
+            />
+        );
+    };
 
     return (
-        <div className="w-full max-w-4xl mx-auto py-8">
-            <h1 className="text-2xl font-bold mb-6">Service Configuration</h1>
+        <div className="w-full max-w-2xl mx-auto">
+            <div className="mb-6">
+                <h1 className="text-3xl font-bold mb-2">AI Services Configuration</h1>
+                <p className="text-muted-foreground">
+                    Configure your AI model, voice, and transcription services.
+                </p>
+            </div>
 
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-                {renderServiceSegmentFields("llm")}
-                {renderServiceSegmentFields("tts")}
-                {renderServiceSegmentFields("stt")}
+            <form onSubmit={handleSubmit(onSubmit)}>
+                <Card>
+                    <CardContent className="pt-6">
+                        <Tabs defaultValue="llm" className="w-full">
+                            <TabsList className="grid w-full grid-cols-3 mb-6">
+                                {TAB_CONFIG.map(({ key, label }) => (
+                                    <TabsTrigger key={key} value={key}>
+                                        {label}
+                                    </TabsTrigger>
+                                ))}
+                            </TabsList>
 
-                {apiError && <p className="text-red-500">{apiError}</p>}
+                            {TAB_CONFIG.map(({ key }) => (
+                                <TabsContent key={key} value={key} className="mt-0">
+                                    {renderServiceFields(key)}
+                                </TabsContent>
+                            ))}
+                        </Tabs>
+                    </CardContent>
+                </Card>
 
-                <Button type="submit" className="w-full" disabled={isSaving}>
+                {apiError && <p className="text-red-500 mt-4">{apiError}</p>}
+
+                <Button type="submit" className="w-full mt-6" disabled={isSaving}>
                     {isSaving ? "Saving..." : "Save Configuration"}
                 </Button>
             </form>

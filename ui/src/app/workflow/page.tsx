@@ -59,7 +59,7 @@ async function WorkflowList() {
             <>
                 {/* Active Workflows Section */}
                 <div className="mb-8">
-                    <h2 className="text-xl font-semibold mb-4">Active Workflows</h2>
+                    <h2 className="text-xl font-semibold mb-4">Active Agents</h2>
                     {activeWorkflows.length > 0 ? (
                         <WorkflowTable workflows={activeWorkflows} showArchived={false} />
                     ) : (

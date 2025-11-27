@@ -90,13 +90,13 @@ export function UploadWorkflowButton() {
                 variant="outline"
             >
                 <Upload className="w-4 h-4 mr-2" />
-                Upload Workflow
+                Upload Agent Definition
             </Button>
 
             <Dialog open={isOpen} onOpenChange={setIsOpen}>
                 <DialogContent className="sm:max-w-md">
                     <DialogHeader>
-                        <DialogTitle>Upload Workflow</DialogTitle>
+                        <DialogTitle>Upload Agent Definition</DialogTitle>
                     </DialogHeader>
                     <div
                         className={`mt-4 border-2 border-dashed rounded-lg p-8 text-center ${isDragging ? 'border-primary bg-primary/5' : 'border-gray-300'

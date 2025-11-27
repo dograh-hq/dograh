@@ -91,14 +91,14 @@ export async function getRedirectUrl(token: string, permissions: { id: string }[
       console.log('[getRedirectUrl] User has workflows, redirecting to /workflow');
       return "/workflow";
     } else {
-      console.log('[getRedirectUrl] No workflows found, redirecting to /create-workflow');
-      return "/create-workflow";
+      console.log('[getRedirectUrl] No workflows found, redirecting to /workflow/create');
+      return "/workflow/create";
     }
   } catch (error) {
     console.error('[getRedirectUrl] Error checking workflows:', error);
-    // If we can't check workflows, default to create-workflow
-    console.log('[getRedirectUrl] Defaulting to /create-workflow due to error');
-    return "/create-workflow";
+    // If we can't check workflows, default to /workflow/create
+    console.log('[getRedirectUrl] Defaulting to /workflow/create due to error');
+    return "/workflow/create";
   }
   } catch (error) {
     console.error("[getRedirectUrl] Failed to fetch auth user:", error);

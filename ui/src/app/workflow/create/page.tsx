@@ -112,15 +112,15 @@ export default function CreateWorkflowPage() {
         <div className="min-h-screen bg-background">
             <div className="container mx-auto px-4 py-8 max-w-2xl">
                 <div className="mb-6">
-                    <h1 className="text-3xl font-bold mb-2">Create Voice Agent Workflow</h1>
+                    <h1 className="text-3xl font-bold mb-2">Create Voice Agent</h1>
                     <p className="text-muted-foreground">
-                        Tell us about your use case and we&apos;ll create a customized workflow for you
+                        Tell us about your use case and we&apos;ll create a customized voice agent for you
                     </p>
                 </div>
 
                 <Card>
                     <CardHeader>
-                        <CardTitle>Workflow Details</CardTitle>
+                        <CardTitle>Agent Details</CardTitle>
                         <CardDescription>
                             Configure your voice agent settings
                         </CardDescription>
@@ -183,7 +183,7 @@ export default function CreateWorkflowPage() {
                                 disabled={isLoading || !useCase || !activityDescription}
                                 className="w-full"
                             >
-                                {isLoading ? 'Creating...' : 'Create Workflow'}
+                                {isLoading ? 'Creating...' : 'Create Agent'}
                             </Button>
                         </div>
                     </CardContent>

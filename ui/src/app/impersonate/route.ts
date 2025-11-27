@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
 
     const refreshToken = searchParams.get("refresh_token");
-    const redirectPath = searchParams.get("redirect_path") ?? "/create-workflow";
+    const redirectPath = searchParams.get("redirect_path") ?? "/workflow/create";
 
     if (!refreshToken) {
         return new Response("Missing refresh_token", { status: 400 });

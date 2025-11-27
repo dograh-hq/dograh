@@ -98,9 +98,9 @@ export const ConfigurationsDialog = ({
                     {/* Workflow Name Section */}
                     <div className="space-y-4">
                         <div>
-                            <h3 className="text-sm font-semibold mb-1">Workflow Name</h3>
+                            <h3 className="text-sm font-semibold mb-1">Agent Name</h3>
                             <p className="text-xs text-gray-500">
-                                The name of your workflow
+                                The name of your agent
                             </p>
                         </div>
                         <div className="space-y-2">
@@ -112,7 +112,7 @@ export const ConfigurationsDialog = ({
                                 type="text"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
-                                placeholder="Enter workflow name"
+                                placeholder="Enter Agent name"
                             />
                         </div>
                     </div>

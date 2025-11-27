@@ -83,7 +83,7 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead className="font-semibold">Workflow Name</TableHead>
+                        <TableHead className="font-semibold">Agent Name</TableHead>
                         <TableHead className="font-semibold">Created At</TableHead>
                         <TableHead className="font-semibold text-center">Total Runs</TableHead>
                         <TableHead className="font-semibold text-right">Actions</TableHead>

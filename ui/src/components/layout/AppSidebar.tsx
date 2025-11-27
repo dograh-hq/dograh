@@ -270,7 +270,6 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className={cn(
-        "px-2",
         state === "collapsed" && "px-0"
       )}>
         {/* Overview Section */}

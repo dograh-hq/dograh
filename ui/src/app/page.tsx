@@ -39,8 +39,8 @@ export default async function Home() {
           logger.debug('[HomePage] Redirecting to /workflow - user has workflows');
           redirect('/workflow');
         } else {
-          logger.debug('[HomePage] Redirecting to /create-workflow - no workflows found');
-          redirect('/create-workflow');
+          logger.debug('[HomePage] Redirecting to /workflow/create - no workflows found');
+          redirect('/workflow/create');
         }
       }
     } catch (error) {
@@ -50,9 +50,9 @@ export default async function Home() {
       }
 
       logger.error('[HomePage] Error checking workflows for local provider:', error);
-      // Default to create-workflow on actual errors
-      logger.debug('[HomePage] Defaulting to /create-workflow due to error');
-      redirect('/create-workflow');
+      // Default to /workflow/create on actual errors
+      logger.debug('[HomePage] Defaulting to /workflow/create due to error');
+      redirect('/workflow/create');
     }
   }
 

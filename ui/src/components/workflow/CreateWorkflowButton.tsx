@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 export function CreateWorkflowButton() {
     const router = useRouter();
     const handleClick = () => {
-        router.push('/create-workflow');
+        router.push('/workflow/create');
     };
 
     return (
@@ -16,7 +16,7 @@ export function CreateWorkflowButton() {
             onClick={handleClick}
         >
             <PlusIcon className="w-4 h-4" />
-            Create Workflow
+            Create Agent
         </Button>
     );
 }

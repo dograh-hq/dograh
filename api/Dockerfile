@@ -20,13 +20,8 @@ RUN pip install --user --no-cache-dir -r requirements.txt && \
 
 # Copy and install pipecat from local submodule
 COPY pipecat /tmp/pipecat
-RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,soundfile,silero,webrtc]'
-
-# Copy ONNX model files required for VAD and Smart Turn
-RUN cp /tmp/pipecat/src/pipecat/audio/vad/data/silero_vad.onnx \
-       /root/.local/lib/python3.12/site-packages/pipecat/audio/vad/data/silero_vad.onnx && \
-    cp /tmp/pipecat/src/pipecat/audio/turn/smart_turn/data/smart-turn-v3.0.onnx \
-       /root/.local/lib/python3.12/site-packages/pipecat/audio/turn/smart_turn/data/smart-turn-v3.0.onnx && \
+RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,soundfile,silero,webrtc]' && \
+    # Clean up pip cache and temporary pipecat directory
     rm -rf /root/.cache/pip /tmp/pipecat
 
     

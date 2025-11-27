@@ -260,6 +260,7 @@ async def create_vobiz_transport(
 
     # Load Vobiz configuration from database
     from api.services.telephony.factory import load_telephony_config
+
     config = await load_telephony_config(organization_id)
 
     if config.get("provider") != "vobiz":
@@ -288,8 +289,8 @@ async def create_vobiz_transport(
         auth_token=auth_token,
         params=PlivoFrameSerializer.InputParams(
             plivo_sample_rate=8000,  # Vobiz uses MULAW at 8kHz
-            sample_rate=audio_config.pipeline_sample_rate
-        )
+            sample_rate=audio_config.pipeline_sample_rate,
+        ),
     )
 
     logger.debug(
@@ -338,7 +339,9 @@ async def create_vobiz_transport(
         ),
     )
 
-    logger.info(f"[run {workflow_run_id}] Vobiz transport created successfully (VAD enabled)")
+    logger.info(
+        f"[run {workflow_run_id}] Vobiz transport created successfully (VAD enabled)"
+    )
     return transport
 
 

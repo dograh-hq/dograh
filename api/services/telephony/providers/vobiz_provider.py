@@ -1,16 +1,16 @@
 """
 Vobiz implementation of the TelephonyProvider interface.
 """
-import json
+
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 from loguru import logger
 
+from api.enums import WorkflowRunMode
 from api.services.telephony.base import CallInitiationResult, TelephonyProvider
 from api.utils.tunnel import TunnelURLProvider
-from api.enums import WorkflowRunMode
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -71,15 +71,15 @@ class VobizProvider(TelephonyProvider):
         logger.info(f"Selected Vobiz phone number {from_number} for outbound call")
 
         # Remove + prefix if present (Vobiz expects E.164 without +)
-        to_number_clean = to_number.lstrip('+')
-        from_number_clean = from_number.lstrip('+')
+        to_number_clean = to_number.lstrip("+")
+        from_number_clean = from_number.lstrip("+")
 
         # Prepare call data (JSON format)
         data = {
             "from": from_number_clean,
             "to": to_number_clean,
             "answer_url": webhook_url,
-            "answer_method": "POST"
+            "answer_method": "POST",
         }
 
         # Add hangup callback if workflow_run_id provided
@@ -87,12 +87,14 @@ class VobizProvider(TelephonyProvider):
             backend_endpoint = await TunnelURLProvider.get_tunnel_url()
             hangup_url = f"https://{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
             ring_url = f"https://{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
-            data.update({
-                "hangup_url": hangup_url,
-                "hangup_method": "POST",
-                "ring_url": ring_url,
-                "ring_method": "POST"
-            })
+            data.update(
+                {
+                    "hangup_url": hangup_url,
+                    "hangup_method": "POST",
+                    "ring_url": ring_url,
+                    "ring_method": "POST",
+                }
+            )
 
         # Add optional parameters
         data.update(kwargs)
@@ -101,7 +103,7 @@ class VobizProvider(TelephonyProvider):
         headers = {
             "X-Auth-ID": self.auth_id,
             "X-Auth-Token": self.auth_token,
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         async with aiohttp.ClientSession() as session:
@@ -116,15 +118,19 @@ class VobizProvider(TelephonyProvider):
 
                 # Extract call_uuid with multiple fallback options
                 call_id = (
-                    response_data.get("call_uuid") or
-                    response_data.get("CallUUID") or
-                    response_data.get("request_uuid") or
-                    response_data.get("RequestUUID")
+                    response_data.get("call_uuid")
+                    or response_data.get("CallUUID")
+                    or response_data.get("request_uuid")
+                    or response_data.get("RequestUUID")
                 )
 
                 if not call_id:
-                    logger.error(f"No call ID found in Vobiz response. Available keys: {list(response_data.keys())}")
-                    raise Exception(f"Vobiz API response missing call identifier. Response: {response_data}")
+                    logger.error(
+                        f"No call ID found in Vobiz response. Available keys: {list(response_data.keys())}"
+                    )
+                    raise Exception(
+                        f"Vobiz API response missing call identifier. Response: {response_data}"
+                    )
 
                 logger.info(f"Vobiz call initiated successfully. Call ID: {call_id}")
 
@@ -132,7 +138,7 @@ class VobizProvider(TelephonyProvider):
                     call_id=call_id,
                     status="queued",  # Vobiz returns "message": "call fired"
                     provider_metadata={},
-                    raw_response=response_data
+                    raw_response=response_data,
                 )
 
     async def get_call_status(self, call_id: str) -> Dict[str, Any]:
@@ -148,10 +154,7 @@ class VobizProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/v1/Account/{self.auth_id}/Call/{call_id}/"
 
-        headers = {
-            "X-Auth-ID": self.auth_id,
-            "X-Auth-Token": self.auth_token
-        }
+        headers = {"X-Auth-ID": self.auth_id, "X-Auth-Token": self.auth_token}
 
         async with aiohttp.ClientSession() as session:
             async with session.get(endpoint, headers=headers) as response:
@@ -172,11 +175,7 @@ class VobizProvider(TelephonyProvider):
         """
         Validate Vobiz configuration.
         """
-        return bool(
-            self.auth_id and
-            self.auth_token and
-            self.from_numbers
-        )
+        return bool(self.auth_id and self.auth_token and self.from_numbers)
 
     async def verify_webhook_signature(
         self, url: str, params: Dict[str, Any], signature: str
@@ -231,10 +230,7 @@ class VobizProvider(TelephonyProvider):
         endpoint = f"{self.base_url}/v1/Account/{self.auth_id}/Call/{call_id}/"
 
         try:
-            headers = {
-                "X-Auth-ID": self.auth_id,
-                "X-Auth-Token": self.auth_token
-            }
+            headers = {"X-Auth-ID": self.auth_id, "X-Auth-Token": self.auth_token}
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(endpoint, headers=headers) as response:
@@ -245,7 +241,7 @@ class VobizProvider(TelephonyProvider):
                             "cost_usd": 0.0,
                             "duration": 0,
                             "status": "error",
-                            "error": str(error_data)
+                            "error": str(error_data),
                         }
 
                     call_data = await response.json()
@@ -263,17 +259,12 @@ class VobizProvider(TelephonyProvider):
                         "status": call_data.get("status", "unknown"),
                         "price_unit": "USD",  # Vobiz always uses USD
                         "call_rate": call_data.get("call_rate", "0"),
-                        "raw_response": call_data
+                        "raw_response": call_data,
                     }
 
         except Exception as e:
             logger.error(f"Exception fetching Vobiz call cost: {e}")
-            return {
-                "cost_usd": 0.0,
-                "duration": 0,
-                "status": "error",
-                "error": str(e)
-            }
+            return {"cost_usd": 0.0, "duration": 0, "status": "error", "error": str(e)}
 
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -290,7 +281,7 @@ class VobizProvider(TelephonyProvider):
             "to_number": data.get("to", data.get("To")),
             "direction": data.get("direction", data.get("Direction")),
             "duration": data.get("duration", data.get("Duration")),
-            "extra": data  # Include all original data
+            "extra": data,  # Include all original data
         }
 
     async def handle_websocket(
@@ -324,5 +315,7 @@ class VobizProvider(TelephonyProvider):
             logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed")
 
         except Exception as e:
-            logger.error(f"[run {workflow_run_id}] Error in Vobiz WebSocket handler: {e}")
+            logger.error(
+                f"[run {workflow_run_id}] Error in Vobiz WebSocket handler: {e}"
+            )
             raise

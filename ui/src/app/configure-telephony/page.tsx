@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet, saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost } from "@/client/sdk.gen";
-import type { TwilioConfigurationRequest, VonageConfigurationRequest, VobizConfigurationRequest } from "@/client/types.gen";
+import type { TwilioConfigurationRequest, VobizConfigurationRequest,VonageConfigurationRequest } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import {
   Card,

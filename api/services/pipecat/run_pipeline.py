@@ -233,7 +233,9 @@ async def run_pipeline_vobiz(
         logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed successfully")
 
     except Exception as e:
-        logger.error(f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True)
+        logger.error(
+            f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True
+        )
         raise
 
 

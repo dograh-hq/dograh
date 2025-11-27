@@ -1,18 +1,11 @@
 services:
   postgres:
     image: postgres:17
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: postgres
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    ports:
-      - "127.0.0.1:5432:5432" # Secure: Only accessible from localhost
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -25,16 +18,9 @@ services:
 
   redis:
     image: redis:7
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:6379:6379" # Secure: Only accessible from localhost
+    restart: always
     command: >
       --requirepass redissecret
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -47,21 +33,15 @@ services:
 
   minio:
     image: minio/minio
+    restart: always
     container_name: minio
-    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
       MINIO_API_CORS_ALLOW_ORIGIN: "*"
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    ports:
-      - "127.0.0.1:9000:9000" # Secure: Only accessible from localhost
-      - "127.0.0.1:9001:9001"
+      MINIO_SERVER_URL: "http://minio:9000"
+      MINIO_BROWSER_REDIRECT_URL: "http://minio:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -72,67 +52,32 @@ services:
     networks:
       - app-network
 
-  nginx:
-    image: nginx:alpine
-    container_name: nginx_https
-    restart: unless-stopped
-    profiles: ["remote"]
-    depends_on:
-      - ui
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./certs:/etc/nginx/certs:ro
-    networks:
-      - app-network
-
   api:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest
-    restart: unless-stopped
+    image: ghcr.io/dograh-hq/dograh-api:latest
+    restart: always
     volumes:
       - shared-tmp:/tmp
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
     environment:
-      # Core application config
-      ENVIRONMENT: "local"
+      ENVIRONMENT: "production"
       LOG_LEVEL: "INFO"
-
-      # Database configuration
+      
+      # Internal Docker Networking
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
-
-      # Redis configuration
       REDIS_URL: "redis://:redissecret@redis:6379"
 
-      # Storage configuration
+      # Storage
       ENABLE_AWS_S3: "false"
-
-      # MinIO
       MINIO_ENDPOINT: "minio:9000"
       MINIO_ACCESS_KEY: "minioadmin"
       MINIO_SECRET_KEY: "minioadmin"
       MINIO_BUCKET: "voice-audio"
       MINIO_SECURE: "false"
 
-      # Langfuse
+      # Telemetry
       ENABLE_TRACING: "false"
-
-      # Sentry
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
       SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
-
-    ports:
-      - "8001:8000" # CHANGED: Host port 8001 to avoid conflict
+    
     depends_on:
       postgres:
         condition: service_healthy
@@ -140,73 +85,25 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      cloudflared:
-        condition: service_started
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
     networks:
       - app-network
 
   ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:latest
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
+    image: ghcr.io/dograh-hq/dograh-ui:latest
+    restart: always
     environment:
-      # Server-side URL (internal Docker network)
+      # Change this to your Public Domain if login fails (e.g. https://api.yourdomain.com)
       BACKEND_URL: "http://api:8000"
-      NODE_ENV: "oss"
-
-      # Telemetry
+      NODE_ENV: "production"
+      
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
-
-      # Posthog
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.posthog.com"
-
-      # Sentry
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
-    ports:
-      - "3010:3010"
+    
     depends_on:
       api:
         condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - app-network
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared-tunnel
-    restart: unless-stopped
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
-    ports:
-      - "127.0.0.1:2000:2000" # Secured metrics endpoint
     networks:
       - app-network
 
@@ -214,9 +111,7 @@ volumes:
   postgres_data:
   redis_data:
   minio-data:
-    driver: local
   shared-tmp:
-    driver: local
 
 networks:
   app-network:

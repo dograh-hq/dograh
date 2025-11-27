@@ -41,7 +41,7 @@ export default function BaseHeader({ headerActions, backButton, showFeaturesNav 
                 <nav className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <Link href="/" className="text-xl font-semibold text-gray-800 hover:text-gray-600">
-                            Dograh
+                           CaveDevelopers
                         </Link>
                         {backButton}
                         {showFeaturesNav && (
@@ -143,7 +143,7 @@ export default function BaseHeader({ headerActions, backButton, showFeaturesNav 
                                     <HelpCircle className="w-4 h-4" />
                                     Get Help
                                 </a>
-                                <a
+                                {/* <a
                                     href="https://github.com/dograh-hq/dograh"
                                     target="_blank"
                                     rel="noopener noreferrer"
@@ -151,7 +151,7 @@ export default function BaseHeader({ headerActions, backButton, showFeaturesNav 
                                 >
                                     <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
                                     Star us on GitHub
-                                </a>
+                                </a> */}
                             </>
                         )}
                     </div>

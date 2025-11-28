@@ -10,7 +10,6 @@ import {
 import { BrushCleaning, Maximize2, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 
-import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -21,9 +20,9 @@ import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { AgentNode, EndCall, GlobalNode, StartCall } from "../../../components/flow/nodes";
 import { ConfigurationsDialog } from './components/ConfigurationsDialog';
 import { EmbedDialog } from './components/EmbedDialog';
+import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { TemplateContextVariablesDialog } from './components/TemplateContextVariablesDialog';
-import WorkflowHeader from "./components/WorkflowHeader";
-import { WorkflowTabs } from './components/WorkflowTabs';
+import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
 import { layoutNodes } from './utils/layoutNodes';
@@ -78,6 +77,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     const [isContextVarsDialogOpen, setIsContextVarsDialogOpen] = useState(false);
     const [isConfigurationsDialogOpen, setIsConfigurationsDialogOpen] = useState(false);
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
+    const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
 
     const {
         rfInstance,
@@ -115,29 +115,28 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         type: "custom"
     }), []);
 
-    const headerActions = (
-        <WorkflowHeader
-            workflowValidationErrors={workflowValidationErrors}
-            isDirty={isDirty}
-            workflowName={workflowName}
-            rfInstance={rfInstance}
-            onRun={onRun}
-            workflowId={workflowId}
-            saveWorkflow={saveWorkflow}
-            user={user}
-            getAccessToken={getAccessToken}
-        />
-    );
-
-    const stickyTabs = <WorkflowTabs workflowId={workflowId} currentTab="editor" />;
-
     // Memoize the context value to prevent unnecessary re-renders
     const workflowContextValue = useMemo(() => ({ saveWorkflow }), [saveWorkflow]);
 
     return (
         <WorkflowProvider value={workflowContextValue}>
-            <WorkflowLayout headerActions={headerActions} showFeaturesNav={false} stickyTabs={stickyTabs}>
-                <div className="h-[calc(100vh-128px)] relative">
+            <div className="flex flex-col h-screen">
+                {/* New Workflow Editor Header */}
+                <WorkflowEditorHeader
+                    workflowName={workflowName}
+                    isDirty={isDirty}
+                    workflowValidationErrors={workflowValidationErrors}
+                    rfInstance={rfInstance}
+                    onRun={onRun}
+                    workflowId={workflowId}
+                    saveWorkflow={saveWorkflow}
+                    user={user}
+                    getAccessToken={getAccessToken}
+                    onPhoneCallClick={() => setIsPhoneCallDialogOpen(true)}
+                />
+
+                {/* Workflow Canvas */}
+                <div className="flex-1 relative">
                     <ReactFlow
                         nodes={nodes}
                         edges={edges}
@@ -343,7 +342,15 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     workflowName={workflowName}
                     getAccessToken={getAccessToken}
                 />
-            </WorkflowLayout>
+
+                <PhoneCallDialog
+                    open={isPhoneCallDialogOpen}
+                    onOpenChange={setIsPhoneCallDialogOpen}
+                    workflowId={workflowId}
+                    getAccessToken={getAccessToken}
+                    user={user}
+                />
+            </div>
         </WorkflowProvider>
     );
 }

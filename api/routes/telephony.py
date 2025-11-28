@@ -277,7 +277,6 @@ async def handle_twilio_status_callback(
     # Parse form data
     form_data = await request.form()
     callback_data = dict(form_data)
-
     logger.info(
         f"[run {workflow_run_id}] Received status callback: {json.dumps(callback_data)}"
     )
@@ -529,20 +528,11 @@ async def handle_vobiz_hangup_callback(
     This includes call duration, status, and billing information.
     """
     # Parse the callback data (Vobiz sends form data or JSON)
-    try:
-        callback_data = await request.json()
-        logger.info(
-            f"[run {workflow_run_id}] Received Vobiz hangup callback (JSON): "
-            f"{json.dumps(callback_data)}"
-        )
-    except Exception:
-        # Fallback to form data if JSON fails
-        form_data = await request.form()
-        callback_data = dict(form_data)
-        logger.info(
-            f"[run {workflow_run_id}] Received Vobiz hangup callback (form): "
-            f"{json.dumps(callback_data)}"
-        )
+    form_data = await request.form()
+    callback_data = dict(form_data)
+    logger.info(
+        f"[run {workflow_run_id}] Received Vobiz hangup callback {json.dumps(callback_data)}"
+    )
 
     # Get workflow run for processing
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
@@ -601,19 +591,11 @@ async def handle_vobiz_ring_callback(
     This is optional and used for tracking ringing status.
     """
     # Parse the callback data
-    try:
-        callback_data = await request.json()
-        logger.info(
-            f"[run {workflow_run_id}] Received Vobiz ring callback (JSON): "
-            f"{json.dumps(callback_data)}"
-        )
-    except Exception:
-        form_data = await request.form()
-        callback_data = dict(form_data)
-        logger.info(
-            f"[run {workflow_run_id}] Received Vobiz ring callback (form): "
-            f"{json.dumps(callback_data)}"
-        )
+    form_data = await request.form()
+    callback_data = dict(form_data)
+    logger.info(
+        f"[run {workflow_run_id}] Received Vobiz ring callback {json.dumps(callback_data)}"
+    )
 
     # Get workflow run for processing
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)

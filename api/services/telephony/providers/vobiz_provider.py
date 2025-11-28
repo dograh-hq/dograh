@@ -275,13 +275,13 @@ class VobizProvider(TelephonyProvider):
         - status, from, to, duration, etc.
         """
         return {
-            "call_id": data.get("call_uuid", data.get("CallUUID", "")),
-            "status": data.get("status", data.get("Status", "")),
-            "from_number": data.get("from", data.get("From")),
-            "to_number": data.get("to", data.get("To")),
-            "direction": data.get("direction", data.get("Direction")),
-            "duration": data.get("duration", data.get("Duration")),
-            "extra": data,  # Include all original data
+            "call_id": data.get("CallUUID", ""),
+            "status": data.get("CallStatus", ""),
+            "from_number": data.get("From"),
+            "to_number": data.get("To"),
+            "direction": data.get("Direction"),
+            "duration": data.get("Duration"),
+            "extra": data,
         }
 
     async def handle_websocket(

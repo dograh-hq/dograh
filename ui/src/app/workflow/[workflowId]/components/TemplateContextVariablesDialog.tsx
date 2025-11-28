@@ -77,7 +77,7 @@ export const TemplateContextVariablesDialog = ({
                                 <div key={key} className="flex items-center gap-2 p-2 border rounded-md">
                                     <div className="flex-1">
                                         <div className="text-sm font-medium">{key}</div>
-                                        <div className="text-xs text-gray-500 truncate">{value}</div>
+                                        <div className="text-xs text-muted-foreground truncate">{value}</div>
                                     </div>
                                     <Button
                                         size="sm"

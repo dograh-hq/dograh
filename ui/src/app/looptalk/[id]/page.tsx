@@ -98,9 +98,9 @@ function TestSessionLoading() {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="space-y-4">
-                <div className="h-32 bg-gray-200 rounded-lg animate-pulse"></div>
-                <div className="h-20 bg-gray-200 rounded-lg animate-pulse"></div>
-                <div className="h-64 bg-gray-200 rounded-lg animate-pulse"></div>
+                <div className="h-32 bg-muted rounded-lg animate-pulse"></div>
+                <div className="h-20 bg-muted rounded-lg animate-pulse"></div>
+                <div className="h-64 bg-muted rounded-lg animate-pulse"></div>
             </div>
         </div>
     );

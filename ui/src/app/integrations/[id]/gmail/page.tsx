@@ -291,7 +291,7 @@ export default function GmailSearchPage() {
                     <button
                         onClick={searchEmails}
                         disabled={!accessToken || loading || !searchQuery.trim()}
-                        className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        className="px-6 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
                     >
                         {loading ? 'Searching...' : 'Search'}
                     </button>
@@ -306,13 +306,13 @@ export default function GmailSearchPage() {
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {/* Email List */}
-                <div className="bg-white border border-gray-200 rounded-lg">
-                    <div className="p-4 border-b border-gray-200">
+                <div className="bg-card border border-border rounded-lg">
+                    <div className="p-4 border-b border-border">
                         <h2 className="text-lg font-semibold">Search Results</h2>
                     </div>
-                    <div className="divide-y divide-gray-200 max-h-[600px] overflow-y-auto">
+                    <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
                         {emails.length === 0 && !loading && (
-                            <div className="p-8 text-center text-gray-500">
+                            <div className="p-8 text-center text-muted-foreground">
                                 {searchQuery ? 'No emails found' : 'Enter a search query to find emails'}
                             </div>
                         )}
@@ -320,27 +320,27 @@ export default function GmailSearchPage() {
                             <div
                                 key={email.id}
                                 onClick={() => loadEmailDetail(email.id)}
-                                className={`p-4 cursor-pointer hover:bg-gray-50 ${
-                                    selectedEmail?.id === email.id ? 'bg-blue-50' : ''
+                                className={`p-4 cursor-pointer hover:bg-muted/50 ${
+                                    selectedEmail?.id === email.id ? 'bg-accent' : ''
                                 }`}
                             >
                                 <div className="font-medium text-sm mb-1">{email.subject}</div>
-                                <div className="text-xs text-gray-600 mb-1">{email.from}</div>
-                                <div className="text-xs text-gray-500">{email.snippet}</div>
-                                <div className="text-xs text-gray-400 mt-1">{email.date}</div>
+                                <div className="text-xs text-muted-foreground mb-1">{email.from}</div>
+                                <div className="text-xs text-muted-foreground">{email.snippet}</div>
+                                <div className="text-xs text-muted-foreground/70 mt-1">{email.date}</div>
                             </div>
                         ))}
                     </div>
                 </div>
 
                 {/* Email Detail and Reply */}
-                <div className="bg-white border border-gray-200 rounded-lg">
-                    <div className="p-4 border-b border-gray-200">
+                <div className="bg-card border border-border rounded-lg">
+                    <div className="p-4 border-b border-border">
                         <h2 className="text-lg font-semibold">Email Details</h2>
                     </div>
                     {selectedEmail ? (
                         <div className="p-4">
-                            <div className="mb-4 pb-4 border-b border-gray-200">
+                            <div className="mb-4 pb-4 border-b border-border">
                                 <div className="mb-2">
                                     <span className="font-medium">Subject:</span> {selectedEmail.subject}
                                 </div>
@@ -350,36 +350,36 @@ export default function GmailSearchPage() {
                                 <div className="mb-2 text-sm">
                                     <span className="font-medium">To:</span> {selectedEmail.to}
                                 </div>
-                                <div className="text-sm text-gray-500">
+                                <div className="text-sm text-muted-foreground">
                                     <span className="font-medium">Date:</span> {selectedEmail.date}
                                 </div>
                             </div>
 
-                            <div className="mb-4 p-4 bg-gray-50 rounded max-h-[200px] overflow-y-auto">
+                            <div className="mb-4 p-4 bg-muted rounded max-h-[200px] overflow-y-auto">
                                 <pre className="whitespace-pre-wrap text-sm">{selectedEmail.body}</pre>
                             </div>
 
-                            <div className="border-t border-gray-200 pt-4">
+                            <div className="border-t border-border pt-4">
                                 <h3 className="font-medium mb-2">Reply</h3>
                                 <textarea
                                     value={replyText}
                                     onChange={(e) => setReplyText(e.target.value)}
                                     placeholder="Type your reply here..."
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                                    className="w-full px-3 py-2 border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-ring mb-2 bg-background"
                                     rows={6}
                                     disabled={sendingReply}
                                 />
                                 <button
                                     onClick={sendReply}
                                     disabled={sendingReply || !replyText.trim()}
-                                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                    className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed"
                                 >
                                     {sendingReply ? 'Sending...' : 'Send Reply'}
                                 </button>
                             </div>
                         </div>
                     ) : (
-                        <div className="p-8 text-center text-gray-500">
+                        <div className="p-8 text-center text-muted-foreground">
                             Select an email to view details and reply
                         </div>
                     )}

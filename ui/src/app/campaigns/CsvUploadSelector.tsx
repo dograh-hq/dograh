@@ -126,12 +126,12 @@ export default function CsvUploadSelector({ accessToken, onFileUploaded, selecte
         </Button>
         {selectedFileName && !uploading && (
           <div className="flex-1 text-sm">
-            <span className="text-gray-600">Selected: </span>
-            <span className="text-blue-600">{selectedFileName}</span>
+            <span className="text-muted-foreground">Selected: </span>
+            <span className="text-primary">{selectedFileName}</span>
           </div>
         )}
       </div>
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-muted-foreground">
         Upload a CSV file with contact data. Must include phone_number, first_name, and last_name columns. Max 10MB.
       </p>
     </div>

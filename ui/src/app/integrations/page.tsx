@@ -42,7 +42,7 @@ async function IntegrationList() {
 
         if (integrations.length === 0) {
             return (
-                <div className="text-center py-8 text-gray-500">
+                <div className="text-center py-8 text-muted-foreground">
                     No integrations found. Create your first integration to get started.
                 </div>
             );
@@ -51,39 +51,39 @@ async function IntegrationList() {
         return (
             <div className="space-y-6">
                 <div className="overflow-x-auto">
-                    <table className="min-w-full bg-white border border-gray-200">
-                        <thead className="bg-gray-50">
+                    <table className="min-w-full bg-card border border-border">
+                        <thead className="bg-muted">
                             <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Provider
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Channel
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Action
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Created At
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Actions
                                 </th>
                             </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
+                        <tbody className="bg-card divide-y divide-border">
                             {integrations.map((integration) => (
-                                <tr key={integration.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                <tr key={integration.id} className="hover:bg-muted/50">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                         {integration.provider}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                         {integration.provider === 'slack' && integration.provider_data ? (integration.provider_data.channel as string) || '-' : '-'}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                         {integration.action}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                         {new Date(integration.created_at).toLocaleDateString('en-US', {
                                             year: 'numeric',
                                             month: 'short',
@@ -92,7 +92,7 @@ async function IntegrationList() {
                                             minute: '2-digit'
                                         })}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                                         {integration.provider === 'google-mail' && (
                                             <Link
                                                 href={`/integrations/${integration.id}/gmail`}
@@ -140,41 +140,41 @@ function IntegrationsLoading() {
         <div className="container mx-auto px-4 py-8">
             <div className="mb-6">
                 <div className="flex justify-between items-center mb-6">
-                    <div className="h-8 w-48 bg-gray-200 rounded"></div>
-                    <div className="h-10 w-32 bg-gray-200 rounded"></div>
+                    <div className="h-8 w-48 bg-muted rounded"></div>
+                    <div className="h-10 w-32 bg-muted rounded"></div>
                 </div>
                 <div className="overflow-x-auto">
-                    <table className="min-w-full bg-white border border-gray-200">
-                        <thead className="bg-gray-50">
+                    <table className="min-w-full bg-card border border-border">
+                        <thead className="bg-muted">
                             <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Integration ID
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Channel
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Action
                                 </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                <th className="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                                     Created At
                                 </th>
                             </tr>
                         </thead>
-                        <tbody className="bg-white divide-y divide-gray-200">
+                        <tbody className="bg-card divide-y divide-border">
                             {Array.from({ length: 5 }, (_, i) => (
                                 <tr key={i}>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="h-4 w-32 bg-gray-200 rounded"></div>
+                                        <div className="h-4 w-32 bg-muted rounded"></div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                                        <div className="h-4 w-24 bg-muted rounded"></div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                                        <div className="h-4 w-24 bg-muted rounded"></div>
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap">
-                                        <div className="h-4 w-24 bg-gray-200 rounded"></div>
+                                        <div className="h-4 w-24 bg-muted rounded"></div>
                                     </td>
                                 </tr>
                             ))}

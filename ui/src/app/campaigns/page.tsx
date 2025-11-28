@@ -117,7 +117,7 @@ export default function CampaignsPage() {
                         {isLoading ? (
                             <div className="animate-pulse space-y-3">
                                 {[...Array(5)].map((_, i) => (
-                                    <div key={i} className="h-12 bg-gray-200 rounded"></div>
+                                    <div key={i} className="h-12 bg-muted rounded"></div>
                                 ))}
                             </div>
                         ) : campaignsData && campaignsData.campaigns.length > 0 ? (
@@ -136,7 +136,7 @@ export default function CampaignsPage() {
                                         {campaignsData.campaigns.map((campaign) => (
                                             <TableRow
                                                 key={campaign.id}
-                                                className="cursor-pointer hover:bg-gray-50"
+                                                className="cursor-pointer hover:bg-muted/50"
                                                 onClick={() => handleRowClick(campaign.id)}
                                             >
                                                 <TableCell className="font-medium">{campaign.name}</TableCell>

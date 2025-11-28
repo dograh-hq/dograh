@@ -328,8 +328,8 @@ export default function RunsPage() {
     return (
         <div className="container mx-auto p-6 space-y-6 max-w-full">
             <div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Workflow Runs</h1>
-                <p className="text-gray-600">View and manage all workflow runs across organizations</p>
+                <h1 className="text-3xl font-bold mb-2">Workflow Runs</h1>
+                <p className="text-muted-foreground">View and manage all workflow runs across organizations</p>
             </div>
 
             {error && (
@@ -368,15 +368,15 @@ export default function RunsPage() {
                     </CardHeader>
                     <CardContent>
                         {runs.length === 0 ? (
-                            <div className="text-center py-8 text-gray-500">
+                            <div className="text-center py-8 text-muted-foreground">
                                 No workflow runs found.
                             </div>
                         ) : (
                             <>
-                                <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
+                                <div className="bg-card border rounded-lg overflow-hidden shadow-sm">
                                     <Table>
                                         <TableHeader>
-                                            <TableRow className="bg-gray-50">
+                                            <TableRow className="bg-muted">
                                                 <TableHead className="font-semibold">ID</TableHead>
                                                 <TableHead className="font-semibold">Workflow</TableHead>
                                                 <TableHead className="font-semibold">Status</TableHead>
@@ -406,7 +406,7 @@ export default function RunsPage() {
                                                                         : run.workflow_name
                                                                 ) : 'Unknown Workflow'}
                                                             </span>
-                                                            <span className="text-xs text-gray-500 font-mono">
+                                                            <span className="text-xs text-muted-foreground font-mono">
                                                                 ID: {String(run.workflow_id).length > 12
                                                                     ? `${String(run.workflow_id).substring(0, 12)}...`
                                                                     : run.workflow_id}
@@ -446,7 +446,7 @@ export default function RunsPage() {
                                                         {run.admin_comment ? (
                                                             <span>{run.admin_comment}</span>
                                                         ) : (
-                                                            <span className="text-gray-400 italic">No comment</span>
+                                                            <span className="text-muted-foreground/70 italic">No comment</span>
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="text-sm whitespace-pre-wrap break-words">
@@ -464,7 +464,7 @@ export default function RunsPage() {
                                                             {(run.usage_info || run.cost_info) && (
                                                                 <Tooltip>
                                                                     <TooltipTrigger asChild>
-                                                                        <Info className="h-4 w-4 text-gray-500 cursor-pointer" />
+                                                                        <Info className="h-4 w-4 text-muted-foreground cursor-pointer" />
                                                                     </TooltipTrigger>
                                                                     <TooltipContent sideOffset={4} className="max-w-xs whitespace-pre-wrap break-words">
                                                                         <pre className="max-w-xs whitespace-pre-wrap break-words">
@@ -584,7 +584,7 @@ export default function RunsPage() {
                                 {/* Pagination */}
                                 {totalPages > 1 && (
                                     <div className="flex items-center justify-between mt-6">
-                                        <div className="text-sm text-gray-500">
+                                        <div className="text-sm text-muted-foreground">
                                             Page {currentPage} of {totalPages} ({totalCount} total runs)
                                         </div>
                                         <div className="flex space-x-2">

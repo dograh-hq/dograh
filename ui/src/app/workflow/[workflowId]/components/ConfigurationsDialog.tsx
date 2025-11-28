@@ -99,7 +99,7 @@ export const ConfigurationsDialog = ({
                     <div className="space-y-4">
                         <div>
                             <h3 className="text-sm font-semibold mb-1">Agent Name</h3>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                                 The name of your agent
                             </p>
                         </div>
@@ -121,7 +121,7 @@ export const ConfigurationsDialog = ({
                     <div className="space-y-4">
                         <div>
                             <h3 className="text-sm font-semibold mb-1">Voice Activity Detection</h3>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                                 Hyperparameters to set for voice activity detection. Already configured with defaults.
                             </p>
                         </div>
@@ -191,7 +191,7 @@ export const ConfigurationsDialog = ({
                     <div className="space-y-4">
                         <div>
                             <h3 className="text-sm font-semibold mb-1">Ambient Noise</h3>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                                 Add background office ambient noise to make the conversation sound more natural.
                             </p>
                         </div>
@@ -238,7 +238,7 @@ export const ConfigurationsDialog = ({
                     <div className="space-y-4">
                         <div>
                             <h3 className="text-sm font-semibold mb-1">Call Management</h3>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-muted-foreground">
                                 Configure call duration limits and idle timeout settings.
                             </p>
                         </div>
@@ -261,7 +261,7 @@ export const ConfigurationsDialog = ({
                                         }
                                     }}
                                 />
-                                <p className="text-xs text-gray-500">Default: 600 (10 minutes)</p>
+                                <p className="text-xs text-muted-foreground">Default: 600 (10 minutes)</p>
                             </div>
 
                             <div className="space-y-2">
@@ -281,7 +281,7 @@ export const ConfigurationsDialog = ({
                                         }
                                     }}
                                 />
-                                <p className="text-xs text-gray-500">Default: 10 seconds</p>
+                                <p className="text-xs text-muted-foreground">Default: 10 seconds</p>
                             </div>
                         </div>
                     </div>

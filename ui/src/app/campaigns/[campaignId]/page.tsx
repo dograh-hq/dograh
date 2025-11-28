@@ -314,8 +314,8 @@ export default function CampaignDetailPage() {
         return (
             <div className="container mx-auto p-6 space-y-6">
                 <div className="animate-pulse">
-                    <div className="h-8 bg-gray-200 rounded w-1/4 mb-4"></div>
-                    <div className="h-64 bg-gray-200 rounded"></div>
+                    <div className="h-8 bg-muted rounded w-1/4 mb-4"></div>
+                    <div className="h-64 bg-muted rounded"></div>
                 </div>
             </div>
         );
@@ -324,7 +324,7 @@ export default function CampaignDetailPage() {
     if (!campaign) {
         return (
             <div className="container mx-auto p-6 space-y-6">
-                <p className="text-center text-gray-500">Campaign not found</p>
+                <p className="text-center text-muted-foreground">Campaign not found</p>
             </div>
         );
     }
@@ -342,12 +342,12 @@ export default function CampaignDetailPage() {
                 </Button>
                 <div className="flex justify-between items-start">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900 mb-2">{campaign.name}</h1>
+                        <h1 className="text-3xl font-bold mb-2">{campaign.name}</h1>
                             <div className="flex items-center gap-4">
                                 <Badge variant={getStateBadgeVariant(campaign.state)}>
                                     {campaign.state}
                                 </Badge>
-                                <span className="text-gray-600">
+                                <span className="text-muted-foreground">
                                     Created {formatDate(campaign.created_at)}
                                 </span>
                             </div>
@@ -367,7 +367,7 @@ export default function CampaignDetailPage() {
                     <CardContent>
                         <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <dt className="text-sm font-medium text-gray-500">Workflow</dt>
+                                <dt className="text-sm font-medium">Workflow</dt>
                                 <dd className="mt-1">
                                     <button
                                         onClick={handleWorkflowClick}
@@ -378,11 +378,11 @@ export default function CampaignDetailPage() {
                                 </dd>
                             </div>
                             <div>
-                                <dt className="text-sm font-medium text-gray-500">Source Type</dt>
+                                <dt className="text-sm font-medium">Source Type</dt>
                                 <dd className="mt-1 capitalize">{campaign.source_type.replace('-', ' ')}</dd>
                             </div>
                             <div>
-                                <dt className="text-sm font-medium text-gray-500">
+                                <dt className="text-sm font-medium">
                                     {campaign.source_type === 'csv' ? 'Source File' : 'Source Sheet'}
                                 </dt>
                                 <dd className="mt-1">
@@ -406,18 +406,18 @@ export default function CampaignDetailPage() {
                                 </dd>
                             </div>
                             <div>
-                                <dt className="text-sm font-medium text-gray-500">State</dt>
+                                <dt className="text-sm font-medium">State</dt>
                                 <dd className="mt-1 capitalize">{campaign.state}</dd>
                             </div>
                             {campaign.started_at && (
                                 <div>
-                                    <dt className="text-sm font-medium text-gray-500">Started At</dt>
+                                    <dt className="text-sm font-medium">Started At</dt>
                                     <dd className="mt-1">{formatDateTime(campaign.started_at)}</dd>
                                 </div>
                             )}
                             {campaign.completed_at && (
                                 <div>
-                                    <dt className="text-sm font-medium text-gray-500">Completed At</dt>
+                                    <dt className="text-sm font-medium">Completed At</dt>
                                     <dd className="mt-1">{formatDateTime(campaign.completed_at)}</dd>
                                 </div>
                             )}
@@ -437,7 +437,7 @@ export default function CampaignDetailPage() {
                         {isLoadingRuns ? (
                             <div className="animate-pulse space-y-3">
                                 {[...Array(3)].map((_, i) => (
-                                    <div key={i} className="h-12 bg-gray-200 rounded"></div>
+                                    <div key={i} className="h-12 bg-muted rounded"></div>
                                 ))}
                             </div>
                         ) : runs.length > 0 ? (
@@ -455,7 +455,7 @@ export default function CampaignDetailPage() {
                                         {runs.map((run) => (
                                             <TableRow
                                                 key={run.id}
-                                                className="cursor-pointer hover:bg-gray-50"
+                                                className="cursor-pointer hover:bg-muted/50"
                                                 onClick={() => handleRunClick(run.id)}
                                             >
                                                 <TableCell className="font-mono text-sm">#{run.id}</TableCell>
@@ -483,7 +483,7 @@ export default function CampaignDetailPage() {
                                 </Table>
                             </div>
                         ) : (
-                            <p className="text-center py-8 text-gray-500">
+                            <p className="text-center py-8 text-muted-foreground">
                                 {campaign.state === 'created'
                                     ? 'No runs yet. Start the campaign to begin execution.'
                                     : 'No workflow runs found for this campaign.'}

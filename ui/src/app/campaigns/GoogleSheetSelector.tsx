@@ -178,7 +178,7 @@ export default function GoogleSheetSelector({ accessToken, onSheetSelected, sele
     return (
       <div className="space-y-2">
         <Label>Google Sheet</Label>
-        <div className="text-sm text-gray-500">Checking Google integration...</div>
+        <div className="text-sm text-muted-foreground">Checking Google integration...</div>
       </div>
     );
   }
@@ -217,7 +217,7 @@ export default function GoogleSheetSelector({ accessToken, onSheetSelected, sele
         </Button>
         {selectedSheetUrl && (
           <div className="flex-1 text-sm">
-            <span className="text-gray-600">Selected: </span>
+            <span className="text-muted-foreground">Selected: </span>
             <a
               href={selectedSheetUrl}
               target="_blank"
@@ -229,7 +229,7 @@ export default function GoogleSheetSelector({ accessToken, onSheetSelected, sele
           </div>
         )}
       </div>
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-muted-foreground">
         Select a Google Sheet from your connected Google account
       </p>
     </div>

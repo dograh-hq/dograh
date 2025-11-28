@@ -49,9 +49,9 @@ export const ContextVariablesSection = ({
                     <div className="space-y-2">
                         <Label className="text-sm font-medium">Current Variables</Label>
                         {Object.entries(initialContext).map(([key, value]) => (
-                            <div key={key} className="flex items-center gap-2 p-3 border rounded-md bg-gray-50">
+                            <div key={key} className="flex items-center gap-2 p-3 border rounded-md bg-muted">
                                 <div className="flex-1">
-                                    <Label className="text-xs text-gray-600">{key}</Label>
+                                    <Label className="text-xs text-muted-foreground">{key}</Label>
                                     <Input
                                         value={value}
                                         onChange={(e) => handleUpdateContextVar(key, e.target.value)}

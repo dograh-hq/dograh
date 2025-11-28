@@ -200,7 +200,7 @@ export function EmbedDialog({
 
                 {loading ? (
                     <div className="flex items-center justify-center py-8">
-                        <Loader2 className="h-8 w-8 animate-spin text-gray-500" />
+                        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
                     </div>
                 ) : (
                     <div className="space-y-6">

@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { ArrowLeft, ChevronDown, History, LoaderCircle, MoreVertical, Phone } from "lucide-react";
+import { ArrowLeft, ChevronDown, Download, History, LoaderCircle, MoreVertical, Phone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -33,6 +33,7 @@ export const WorkflowEditorHeader = ({
     workflowName,
     isDirty,
     workflowValidationErrors,
+    rfInstance,
     saveWorkflow,
     onRun,
     onPhoneCallClick,
@@ -52,6 +53,26 @@ export const WorkflowEditorHeader = ({
 
     const handleBack = () => {
         router.push("/workflow");
+    };
+
+    const handleDownloadWorkflow = () => {
+        if (!rfInstance.current) return;
+
+        const workflowDefinition = rfInstance.current.toObject();
+        const exportData = {
+            name: workflowName,
+            workflow_definition: workflowDefinition,
+        };
+
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `${workflowName}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
     };
 
     return (
@@ -147,6 +168,13 @@ export const WorkflowEditorHeader = ({
                         >
                             <History className="w-4 h-4 mr-2" />
                             View Runs
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={handleDownloadWorkflow}
+                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download Workflow
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

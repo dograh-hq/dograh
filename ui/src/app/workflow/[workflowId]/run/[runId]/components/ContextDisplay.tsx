@@ -27,11 +27,11 @@ export const ContextDisplay = ({ title, context }: ContextDisplayProps) => {
             <CardContent className="space-y-3">
                 {Object.entries(context).map(([key, value]) => (
                     <div key={key} className="space-y-1">
-                        <label className="text-sm font-medium text-gray-700">
+                        <label className="text-sm font-medium text-muted-foreground">
                             {key}
                         </label>
-                        <div className="p-3 bg-gray-50 border rounded-md">
-                            <p className="text-sm text-gray-900 whitespace-pre-wrap">
+                        <div className="p-3 bg-muted border rounded-md">
+                            <p className="text-sm whitespace-pre-wrap">
                                 {typeof value === 'object' && value !== null ? JSON.stringify(value, null, 2) : (value || 'No value')}
                             </p>
                         </div>

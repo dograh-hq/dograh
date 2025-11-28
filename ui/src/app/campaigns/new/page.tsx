@@ -141,8 +141,8 @@ export default function NewCampaignPage() {
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Back to Campaigns
                 </Button>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">Create New Campaign</h1>
-                <p className="text-gray-600">Set up a new campaign to execute workflows at scale</p>
+                <h1 className="text-3xl font-bold mb-2">Create New Campaign</h1>
+                <p className="text-muted-foreground">Set up a new campaign to execute workflows at scale</p>
             </div>
 
             <Card>
@@ -164,7 +164,7 @@ export default function NewCampaignPage() {
                                     maxLength={255}
                                     required
                                 />
-                                <p className="text-sm text-gray-500">
+                                <p className="text-sm text-muted-foreground">
                                     Choose a descriptive name for your campaign
                                 </p>
                             </div>
@@ -200,7 +200,7 @@ export default function NewCampaignPage() {
                                         )}
                                     </SelectContent>
                                 </Select>
-                                <p className="text-sm text-gray-500">
+                                <p className="text-sm text-muted-foreground">
                                     Select the workflow to execute for each row in the data source
                                 </p>
                             </div>
@@ -220,11 +220,11 @@ export default function NewCampaignPage() {
                                         <SelectValue placeholder="Select source type" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="google-sheet">Google Sheet</SelectItem>
+                                        {/* <SelectItem value="google-sheet">Google Sheet</SelectItem> */}
                                         <SelectItem value="csv">CSV File</SelectItem>
                                     </SelectContent>
                                 </Select>
-                                <p className="text-sm text-gray-500">
+                                <p className="text-sm text-muted-foreground">
                                     Choose where your contact data is stored
                                 </p>
                             </div>

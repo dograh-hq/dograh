@@ -84,7 +84,7 @@ export default function WorkflowRunPage() {
 
     if (isLoading) {
         returnValue = (
-            <div className="min-h-screen flex mt-40 justify-center">
+            <div className="h-full flex items-center justify-center">
                 <div className="w-full max-w-4xl p-6">
                     <Card>
                         <CardHeader>
@@ -106,7 +106,7 @@ export default function WorkflowRunPage() {
     }
     else if (workflowRun?.is_completed) {
         returnValue = (
-            <div className="min-h-screen flex mt-40 justify-center p-6">
+            <div className="h-full flex items-center justify-center p-6">
                 <div className="w-full max-w-4xl space-y-6">
                     <Card className="border-border">
                         <CardHeader className="flex flex-row items-center justify-between">
@@ -191,7 +191,7 @@ export default function WorkflowRunPage() {
     }
     else {
         returnValue =
-            <div className="min-h-screen mt-40">
+            <div className="h-full flex items-center justify-center">
                 <BrowserCall
                     workflowId={Number(params.workflowId)}
                     workflowRunId={Number(params.runId)}

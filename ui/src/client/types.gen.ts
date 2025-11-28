@@ -246,6 +246,8 @@ export type EmbedConfigResponse = {
     position: string;
     button_text: string;
     button_color: string;
+    size: string;
+    auto_start: boolean;
 };
 
 export type EmbedTokenRequest = {
@@ -451,6 +453,7 @@ export type SuperuserWorkflowRunsListResponse = {
 export type TelephonyConfigurationResponse = {
     twilio?: TwilioConfigurationResponse | null;
     vonage?: VonageConfigurationResponse | null;
+    vobiz?: VobizConfigurationResponse | null;
 };
 
 export type TestSessionResponse = {
@@ -561,6 +564,35 @@ export type ValidationError = {
     loc: Array<string | number>;
     msg: string;
     type: string;
+};
+
+/**
+ * Request schema for Vobiz configuration.
+ */
+export type VobizConfigurationRequest = {
+    provider?: string;
+    /**
+     * Vobiz Account ID (e.g., MA_SYQRLN1K)
+     */
+    auth_id: string;
+    /**
+     * Vobiz Auth Token
+     */
+    auth_token: string;
+    /**
+     * List of Vobiz phone numbers (E.164 without + prefix)
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * Response schema for Vobiz configuration with masked sensitive fields.
+ */
+export type VobizConfigurationResponse = {
+    provider: string;
+    auth_id: string;
+    auth_token: string;
+    from_numbers: Array<string>;
 };
 
 /**
@@ -806,6 +838,64 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}';
+};
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostError = HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostErrors[keyof HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostErrors];
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}';
+};
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostError = HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors[keyof HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors];
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
@@ -2145,7 +2235,7 @@ export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetRespons
 export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponse = GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses[keyof GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses];
 
 export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData = {
-    body: TwilioConfigurationRequest | VonageConfigurationRequest;
+    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest;
     headers?: {
         authorization?: string | null;
     };

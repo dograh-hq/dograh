@@ -85,7 +85,12 @@ def create_audio_config(transport_type: str) -> AudioConfig:
     Returns:
         AudioConfig instance with appropriate settings
     """
-    if transport_type in (WorkflowRunMode.STASIS.value, WorkflowRunMode.TWILIO.value):
+    if transport_type in (
+        WorkflowRunMode.STASIS.value,
+        WorkflowRunMode.TWILIO.value,
+        WorkflowRunMode.VOBIZ.value,
+    ):
+        # Twilio, Vobiz, and Stasis use MULAW at 8kHz
         return AudioConfig(
             transport_in_sample_rate=8000,
             transport_out_sample_rate=8000,

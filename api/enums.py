@@ -15,6 +15,7 @@ class Environment(Enum):
 class WorkflowRunMode(Enum):
     TWILIO = "twilio"
     VONAGE = "vonage"
+    VOBIZ = "vobiz"
     STASIS = "stasis"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"

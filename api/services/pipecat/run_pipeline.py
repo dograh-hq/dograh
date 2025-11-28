@@ -31,6 +31,7 @@ from api.services.pipecat.tracing_config import setup_pipeline_tracing
 from api.services.pipecat.transport_setup import (
     create_stasis_transport,
     create_twilio_transport,
+    create_vobiz_transport,
     create_vonage_transport,
     create_webrtc_transport,
 )
@@ -171,6 +172,70 @@ async def run_pipeline_vonage(
 
     except Exception as e:
         logger.error(f"Error in Vonage pipeline: {e}")
+        raise
+
+
+async def run_pipeline_vobiz(
+    websocket_client: WebSocket,
+    stream_id: str,
+    call_id: str,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+) -> None:
+    """Run pipeline for Vobiz using Plivo-compatible WebSocket protocol."""
+    logger.info(
+        f"[run {workflow_run_id}] Starting Vobiz pipeline - "
+        f"stream_id={stream_id}, call_id={call_id}, workflow_id={workflow_id}"
+    )
+    set_current_run_id(workflow_run_id)
+
+    cost_info = {"call_id": call_id}
+    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+
+    workflow = await db_client.get_workflow(workflow_id, user_id)
+    vad_config = None
+    ambient_noise_config = None
+    if workflow and workflow.workflow_configurations:
+        if "vad_configuration" in workflow.workflow_configurations:
+            vad_config = workflow.workflow_configurations["vad_configuration"]
+        if "ambient_noise_configuration" in workflow.workflow_configurations:
+            ambient_noise_config = workflow.workflow_configurations[
+                "ambient_noise_configuration"
+            ]
+
+    try:
+        audio_config = create_audio_config(WorkflowRunMode.VOBIZ.value)
+        logger.info(
+            f"[run {workflow_run_id}] Vobiz audio config: "
+            f"sample_rate={audio_config.transport_in_sample_rate}Hz, format=MULAW"
+        )
+
+        transport = await create_vobiz_transport(
+            websocket_client,
+            stream_id,
+            call_id,
+            workflow_run_id,
+            audio_config,
+            workflow.organization_id,
+            vad_config,
+            ambient_noise_config,
+        )
+
+        logger.info(f"[run {workflow_run_id}] Starting Vobiz pipeline execution")
+        await _run_pipeline(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            audio_config=audio_config,
+        )
+        logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed successfully")
+
+    except Exception as e:
+        logger.error(
+            f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True
+        )
         raise
 
 

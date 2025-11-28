@@ -6,7 +6,7 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet, saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost } from "@/client/sdk.gen";
-import type { TwilioConfigurationRequest, VonageConfigurationRequest } from "@/client/types.gen";
+import type { TwilioConfigurationRequest, VobizConfigurationRequest,VonageConfigurationRequest } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -37,6 +37,9 @@ interface TelephonyConfigForm {
   private_key?: string;
   api_key?: string;
   api_secret?: string;
+  // Vobiz fields
+  auth_id?: string;
+  vobiz_auth_token?: string;
   // Common field
   from_number: string;
 }
@@ -99,6 +102,14 @@ export default function ConfigureTelephonyPage() {
             if (response.data.vonage.from_numbers?.length > 0) {
               setValue("from_number", response.data.vonage.from_numbers[0]);
             }
+          } else if (response.data?.vobiz) {
+            setHasExistingConfig(true);
+            setValue("provider", "vobiz");
+            setValue("auth_id", response.data.vobiz.auth_id);
+            setValue("vobiz_auth_token", response.data.vobiz.auth_token);
+            if (response.data.vobiz.from_numbers?.length > 0) {
+              setValue("from_number", response.data.vobiz.from_numbers[0]);
+            }
           }
         }
       } catch (error) {
@@ -116,7 +127,7 @@ export default function ConfigureTelephonyPage() {
       const accessToken = await getAccessToken();
 
       // Build the request body based on provider
-      let requestBody: TwilioConfigurationRequest | VonageConfigurationRequest;
+      let requestBody: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest;
 
       if (data.provider === "twilio") {
         requestBody = {
@@ -125,7 +136,7 @@ export default function ConfigureTelephonyPage() {
           account_sid: data.account_sid,
           auth_token: data.auth_token,
         } as TwilioConfigurationRequest;
-      } else {
+      } else if (data.provider === "vonage") {
         requestBody = {
           provider: data.provider,
           from_numbers: [data.from_number],
@@ -134,6 +145,13 @@ export default function ConfigureTelephonyPage() {
           api_key: data.api_key || undefined,
           api_secret: data.api_secret || undefined,
         } as VonageConfigurationRequest;
+      } else {
+        requestBody = {
+          provider: data.provider,
+          from_numbers: [data.from_number],
+          auth_id: data.auth_id,
+          auth_token: data.vobiz_auth_token,
+        } as VobizConfigurationRequest;
       }
 
       const response = await saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost({
@@ -223,6 +241,7 @@ export default function ConfigureTelephonyPage() {
                       <SelectContent>
                         <SelectItem value="twilio">Twilio</SelectItem>
                         <SelectItem value="vonage">Vonage</SelectItem>
+                        <SelectItem value="vobiz">Vobiz</SelectItem>
                       </SelectContent>
                     </Select>
                     {hasExistingConfig && (
@@ -369,6 +388,73 @@ export default function ConfigureTelephonyPage() {
                               value: /^[1-9]\d{1,14}$/,
                               message:
                                 "Enter a valid phone number without + prefix (e.g., 14155551234)",
+                            },
+                          })}
+                        />
+                        {errors.from_number && (
+                          <p className="text-sm text-red-500">
+                            {errors.from_number.message}
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Vobiz-specific fields */}
+                  {selectedProvider === "vobiz" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="auth_id">Auth ID</Label>
+                        <Input
+                          id="auth_id"
+                          placeholder="MA_XXXXXXXX"
+                          {...register("auth_id", {
+                            required: selectedProvider === "vobiz" ? "Auth ID is required" : false,
+                          })}
+                        />
+                        {errors.auth_id && (
+                          <p className="text-sm text-red-500">
+                            {errors.auth_id.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="vobiz_auth_token">Auth Token</Label>
+                        <Input
+                          id="vobiz_auth_token"
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder={
+                            hasExistingConfig
+                              ? "Leave masked to keep existing"
+                              : "Enter your auth token"
+                          }
+                          {...register("vobiz_auth_token", {
+                            required: selectedProvider === "vobiz" && !hasExistingConfig
+                              ? "Auth token is required"
+                              : false,
+                          })}
+                        />
+                        {errors.vobiz_auth_token && (
+                          <p className="text-sm text-red-500">
+                            {errors.vobiz_auth_token.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="from_number">From Phone Number</Label>
+                        <Input
+                          id="from_number"
+                          autoComplete="tel"
+                          placeholder="918071387428 (E.164 without + prefix)"
+                          {...register("from_number", {
+                            required: "Phone number is required",
+                            pattern: {
+                              value: /^[1-9]\d{1,14}$/,
+                              message:
+                                "Enter a valid phone number without + prefix (e.g., 918071387428)",
                             },
                           })}
                         />

@@ -1,4 +1,5 @@
 import { Globe, Headset, OctagonX, Play, X } from 'lucide-react';
+import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
 
@@ -41,9 +42,20 @@ const GLOBAL_NODE_TYPES = [
 ]
 
 export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodePanelProps) {
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape' && isOpen) {
+                onClose();
+            }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
     return (
         <div
-            className={`fixed z-51 right-0 top-0 h-full w-80 bg-white shadow-lg transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
+            className={`fixed z-51 right-0 top-0 h-full w-80 bg-background shadow-lg transform transition-transform duration-300 ease-in-out ${isOpen ? 'translate-x-0' : 'translate-x-full'
                 }`}
         >
             <div className="p-4">
@@ -54,7 +66,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
                     </Button>
                 </div>
 
-                <h1 className="text-sm text-gray-500 mb-2">Agent Nodes</h1>
+                <h1 className="text-sm text-muted-foreground mb-2">Agent Nodes</h1>
 
                 <div className="space-y-2">
                     {NODE_TYPES.map((node) => (
@@ -65,19 +77,19 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
                             onClick={() => onNodeSelect(node.type)}
                         >
                             <div className="flex items-center">
-                                <div className="bg-gray-100 p-2 rounded-lg mr-3 border border-gray-200">
+                                <div className="bg-muted p-2 rounded-lg mr-3 border border-border">
                                     <node.icon className="h-6 w-6" />
                                 </div>
                                 <div className="flex flex-col items-start">
                                     <span className="font-medium">{node.label}</span>
-                                    <span className="text-sm text-gray-500">{node.description}</span>
+                                    <span className="text-sm text-muted-foreground">{node.description}</span>
                                 </div>
                             </div>
                         </Button>
                     ))}
                 </div>
 
-                <h1 className="text-sm text-gray-500 mb-2">Global Nodes</h1>
+                <h1 className="text-sm text-muted-foreground mb-2">Global Nodes</h1>
 
                 <div className="space-y-2">
                     {GLOBAL_NODE_TYPES.map((node) => (
@@ -88,12 +100,12 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
                             onClick={() => onNodeSelect(node.type)}
                         >
                             <div className="flex items-center">
-                                <div className="bg-gray-100 p-2 rounded-lg mr-3 border border-gray-200">
+                                <div className="bg-muted p-2 rounded-lg mr-3 border border-border">
                                     <node.icon className="h-6 w-6" />
                                 </div>
                                 <div className="flex flex-col items-start">
                                     <span className="font-medium">{node.label}</span>
-                                    <span className="text-sm text-gray-500">{node.description}</span>
+                                    <span className="text-sm text-muted-foreground">{node.description}</span>
                                 </div>
                             </div>
                         </Button>

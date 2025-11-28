@@ -107,14 +107,14 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                 hovered_through_edge={data.hovered_through_edge}
                 title="Start Call"
                 icon={<Play />}
-                bgColor="bg-green-300"
+                nodeType="start"
                 hasSourceHandle={true}
                 onDoubleClick={() => setOpen(true)}
                 nodeId={id}
             >
-                <div className="text-sm text-muted-foreground">
-                    {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}
-                </div>
+                <p className="text-sm text-muted-foreground line-clamp-5 leading-relaxed">
+                    {data.prompt || 'No prompt configured'}
+                </p>
             </NodeContent>
 
             <NodeToolbar isVisible={selected} position={Position.Right}>
@@ -173,7 +173,7 @@ const StartCallEditForm = ({
     return (
         <div className="grid gap-2">
             <Label>Name</Label>
-            <Label className="text-xs text-gray-500">
+            <Label className="text-xs text-muted-foreground">
                 The name of the agent that will be used to identify the agent in the call logs. It should be short and should identify the step in the call.
             </Label>
             <Input
@@ -182,7 +182,7 @@ const StartCallEditForm = ({
             />
 
             <Label>Prompt</Label>
-            <Label className="text-xs text-gray-500">
+            <Label className="text-xs text-muted-foreground">
                 Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
             </Label>
             <Textarea
@@ -197,7 +197,7 @@ const StartCallEditForm = ({
             <div className="flex items-center space-x-2">
                 <Switch id="allow-interrupt" checked={allowInterrupt} onCheckedChange={setAllowInterrupt} />
                 <Label htmlFor="allow-interrupt">Allow Interruption</Label>
-                <Label className="text-xs text-gray-500">
+                <Label className="text-xs text-muted-foreground">
                     Whether you would like user to be able to interrupt the bot.
                 </Label>
             </div>
@@ -221,7 +221,7 @@ const StartCallEditForm = ({
                     <Label htmlFor="detect-voicemail">
                         Detect Voicemail
                     </Label>
-                    <Label className="text-xs text-gray-500">
+                    <Label className="text-xs text-muted-foreground">
                         Automatically detect and end call if voicemail is reached.
                     </Label>
                 </div>
@@ -236,7 +236,7 @@ const StartCallEditForm = ({
                     <Label htmlFor="delayed-start">
                         Delayed Start
                     </Label>
-                    <Label className="text-xs text-gray-500">
+                    <Label className="text-xs text-muted-foreground">
                         Introduce a delay before the agent starts speaking.
                     </Label>
                 </div>

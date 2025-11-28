@@ -10,7 +10,10 @@ export const layoutNodes = (
     rfInstance: React.RefObject<ReactFlowInstance<FlowNode, FlowEdge> | null>
 ) => {
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir, nodesep: 250, ranksep: 250 });
+    // For TB (top-to-bottom) layout:
+    // - nodesep: horizontal spacing between nodes at the same depth level
+    // - ranksep: vertical spacing between depth levels
+    g.setGraph({ rankdir, nodesep: 400, ranksep: 300 });
     g.setDefaultEdgeLabel(() => ({}));
 
     // Sort nodes so startCall nodes come first and endCall nodes come last
@@ -22,8 +25,10 @@ export const layoutNodes = (
         return 0;
     });
 
+    // Use larger node dimensions to account for actual rendered size
+    // This prevents overlapping when dagre calculates positions
     sortedNodes.forEach((node) => {
-        g.setNode(node.id, { width: 180, height: 60 });
+        g.setNode(node.id, { width: 350, height: 120 });
     });
 
     edges.forEach((edge) => {
@@ -32,11 +37,45 @@ export const layoutNodes = (
 
     dagre.layout(g);
 
+    // Group nodes by their Y position (rank/depth level)
+    const nodesByRank = new Map<number, { node: FlowNode; dagreNode: dagre.Node }[]>();
+    sortedNodes.forEach((node) => {
+        const dagreNode = g.node(node.id);
+        const rankY = Math.round(dagreNode.y / 50) * 50; // Round to group nearby Y values
+        if (!nodesByRank.has(rankY)) {
+            nodesByRank.set(rankY, []);
+        }
+        nodesByRank.get(rankY)!.push({ node, dagreNode });
+    });
+
+    // Calculate horizontal offset for zigzag pattern
+    // Nodes at each rank level get staggered left/right
+    const horizontalStagger = 600; // How much to offset alternating ranks
+    const ranks = Array.from(nodesByRank.keys()).sort((a, b) => a - b);
+
     const newNodes = sortedNodes.map((node) => {
-        const nodeWithPosition = g.node(node.id);
+        const dagreNode = g.node(node.id);
+        const rankY = Math.round(dagreNode.y / 50) * 50;
+        const rankIndex = ranks.indexOf(rankY);
+        const nodesAtRank = nodesByRank.get(rankY)!;
+
+        let xOffset = 0;
+
+        // Apply zigzag pattern: alternate ranks offset left/right
+        // But only if there's a single node at this rank (linear chain)
+        if (nodesAtRank.length === 1) {
+            // Skip startCall (keep centered) and endCall (keep centered)
+            if (node.type !== 'startCall' && node.type !== 'endCall' && node.type !== 'global') {
+                xOffset = (rankIndex % 2 === 0) ? -horizontalStagger : horizontalStagger;
+            }
+        }
+
         return {
             ...node,
-            position: { x: nodeWithPosition.x, y: nodeWithPosition.y }
+            position: {
+                x: dagreNode.x + xOffset,
+                y: dagreNode.y
+            }
         };
     });
 

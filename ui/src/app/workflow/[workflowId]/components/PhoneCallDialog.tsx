@@ -58,7 +58,7 @@ export const PhoneCallDialog = ({
                     headers: { 'Authorization': `Bearer ${accessToken}` },
                 });
 
-                if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage)) {
+                if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage && !configResponse.data?.vobiz)) {
                     setNeedsConfiguration(true);
                     setConfigureDialogOpen(true);
                     onOpenChange(false);
@@ -102,7 +102,7 @@ export const PhoneCallDialog = ({
 
     const handleConfigureContinue = () => {
         setConfigureDialogOpen(false);
-        router.push(`/configure-telephony?returnTo=/workflow/${workflowId}`);
+        router.push('/telephony-configurations');
     };
 
     const handleStartCall = async () => {
@@ -167,7 +167,7 @@ export const PhoneCallDialog = ({
                             variant="outline"
                             onClick={() => {
                                 onOpenChange(false);
-                                router.push(`/configure-telephony?returnTo=/workflow/${workflowId}`);
+                                router.push('/telephony-configurations');
                             }}
                         >
                             Configure Telephony

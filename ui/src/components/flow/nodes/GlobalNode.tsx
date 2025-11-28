@@ -73,13 +73,13 @@ export const GlobalNode = memo(({ data, selected, id }: GlobalNodeProps) => {
                 hovered_through_edge={data.hovered_through_edge}
                 title={data.name || 'Global'}
                 icon={<Headset />}
-                bgColor="bg-orange-300"
+                nodeType="global"
                 onDoubleClick={() => setOpen(true)}
                 nodeId={id}
             >
-                <div className="text-sm text-muted-foreground">
-                    {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}
-                </div>
+                <p className="text-sm text-muted-foreground line-clamp-5 leading-relaxed">
+                    {data.prompt || 'No prompt configured'}
+                </p>
             </NodeContent>
 
             <NodeToolbar isVisible={selected} position={Position.Right}>
@@ -123,7 +123,7 @@ const GlobalNodeEditForm = ({
     return (
         <div className="grid gap-2">
             <Label>Name</Label>
-            <Label className="text-xs text-gray-500">
+            <Label className="text-xs text-muted-foreground">
                 The name of the global node.
             </Label>
             <Input
@@ -132,7 +132,7 @@ const GlobalNodeEditForm = ({
             />
 
             <Label>Prompt</Label>
-            <Label className="text-xs text-gray-500">
+            <Label className="text-xs text-muted-foreground">
                 This is the global prompt. This will be added to the system prompt of all the agents.
             </Label>
             <Textarea

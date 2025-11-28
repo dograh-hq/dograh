@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { ArrowLeft, ChevronDown, LoaderCircle, Phone } from "lucide-react";
+import { ArrowLeft, ChevronDown, History, LoaderCircle, MoreVertical, Phone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -36,6 +36,7 @@ export const WorkflowEditorHeader = ({
     saveWorkflow,
     onRun,
     onPhoneCallClick,
+    workflowId,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
@@ -127,6 +128,28 @@ export const WorkflowEditorHeader = ({
                         "Save"
                     )}
                 </Button>
+
+                {/* More options dropdown */}
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="text-gray-400 hover:text-white hover:bg-[#2a2a2a]"
+                        >
+                            <MoreVertical className="w-5 h-5" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
+                        <DropdownMenuItem
+                            onClick={() => router.push(`/workflow/${workflowId}/runs`)}
+                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
+                        >
+                            <History className="w-4 h-4 mr-2" />
+                            View Runs
+                        </DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
         </div>
     );

@@ -103,14 +103,14 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
                 hovered_through_edge={data.hovered_through_edge}
                 title="End Call"
                 icon={<OctagonX />}
-                bgColor="bg-red-300"
+                nodeType="end"
                 hasTargetHandle={true}
                 onDoubleClick={() => setOpen(true)}
                 nodeId={id}
             >
-                <div className="text-sm text-muted-foreground">
-                    {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}
-                </div>
+                <p className="text-sm text-muted-foreground line-clamp-5 leading-relaxed">
+                    {data.prompt || 'No prompt configured'}
+                </p>
             </NodeContent>
 
             <NodeToolbar isVisible={selected} position={Position.Right}>
@@ -191,13 +191,13 @@ const EndCallEditForm = ({
     return (
         <div className="grid gap-2">
             <Label>Name</Label>
-            <Label className="text-xs text-gray-500">
+            <Label className="text-xs text-muted-foreground">
                 The name of the agent that will be used to identify the agent in the call logs. It should be short and should identify the step in the call.
             </Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} />
 
             <Label>Prompt</Label>
-            <Label className="text-xs text-gray-500">
+            <Label className="text-xs text-muted-foreground">
                 Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
             </Label>
             <Textarea
@@ -212,7 +212,7 @@ const EndCallEditForm = ({
             <div className="flex items-center space-x-2">
                 <Switch id="add-global-prompt" checked={addGlobalPrompt} onCheckedChange={setAddGlobalPrompt} />
                 <Label htmlFor="add-global-prompt">Add Global Prompt</Label>
-                <Label className="text-xs text-gray-500">
+                <Label className="text-xs text-muted-foreground">
                     Whether you want to add global prompt with this node&apos;s prompt.
                 </Label>
             </div>
@@ -221,7 +221,7 @@ const EndCallEditForm = ({
             <div className="flex items-center space-x-2 pt-2">
                 <Switch id="enable-extraction" checked={extractionEnabled} onCheckedChange={setExtractionEnabled} />
                 <Label htmlFor="enable-extraction">Enable Variable Extraction</Label>
-                <Label className="text-xs text-gray-500 ml-2">
+                <Label className="text-xs text-muted-foreground ml-2">
                     Are there any variables you would like to extract from the conversation?
                 </Label>
             </div>
@@ -229,7 +229,7 @@ const EndCallEditForm = ({
             {extractionEnabled && (
                 <div className="border rounded-md p-3 mt-2 space-y-2 bg-muted/20">
                     <Label>Extraction Prompt</Label>
-                    <Label className="text-xs text-gray-500">
+                    <Label className="text-xs text-muted-foreground">
                         Provide an overall extraction prompt that guides how variables should be extracted from the conversation.
                     </Label>
                     <Textarea
@@ -240,7 +240,7 @@ const EndCallEditForm = ({
                     />
 
                     <Label>Variables</Label>
-                    <Label className="text-xs text-gray-500">
+                    <Label className="text-xs text-muted-foreground">
                         Define each variable you want to extract along with its data type.
                     </Label>
 

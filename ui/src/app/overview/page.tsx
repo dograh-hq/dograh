@@ -78,8 +78,8 @@ export default function OverviewPage() {
                         </CardHeader>
                         <CardContent>
                             <Button asChild variant="outline">
-                                <Link href="/service-configurations">
-                                    Configure Services
+                                <Link href="/model-configurations">
+                                    Configure Models
                                 </Link>
                             </Button>
                         </CardContent>

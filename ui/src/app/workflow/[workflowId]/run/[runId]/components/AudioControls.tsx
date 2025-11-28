@@ -63,13 +63,12 @@ export const AudioControls = ({
         return (
             <div className="flex flex-col items-center justify-center space-y-4 p-8">
                 <div className="text-center space-y-2">
-                    <p className="text-gray-700 font-medium">Audio permissions required</p>
-                    <p className="text-sm text-gray-500">Click below to grant microphone access</p>
+                    <p className="text-foreground font-medium">Audio permissions required</p>
+                    <p className="text-sm text-muted-foreground">Click below to grant microphone access</p>
                 </div>
                 <Button
                     onClick={requestAudioPermissions}
                     size="lg"
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
                 >
                     <Mic className="h-5 w-5 mr-2" />
                     Grant Audio Permissions
@@ -85,33 +84,33 @@ export const AudioControls = ({
                     <button
                         onClick={start}
                         disabled={isStarting}
-                        className="group relative h-20 w-20 rounded-full bg-green-600 hover:bg-green-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                        className="group relative h-20 w-20 rounded-full bg-emerald-600 hover:bg-emerald-700 transition-all duration-200 shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                         aria-label="Start Call"
                     >
-                        <div className="absolute inset-0 rounded-full bg-green-600 animate-ping opacity-25"></div>
+                        <div className="absolute inset-0 rounded-full bg-emerald-600 animate-ping opacity-25"></div>
                         <div className="relative flex items-center justify-center h-full">
                             <Phone className="h-8 w-8 text-white" />
                         </div>
                     </button>
-                    <p className="text-sm font-medium text-gray-700">Start Call</p>
+                    <p className="text-sm font-medium text-foreground">Start Call</p>
                 </>
             ) : (
                 <>
-                    <p className="text-sm text-gray-600">Call in progress</p>
+                    <p className="text-sm text-muted-foreground">Call in progress</p>
                     <button
                         onClick={stop}
-                        className="group relative h-20 w-20 rounded-full bg-red-600 hover:bg-red-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                        className="group relative h-20 w-20 rounded-full bg-destructive hover:bg-destructive/90 transition-all duration-200 shadow-lg hover:shadow-xl"
                         aria-label="End Call"
                     >
                         <div className="relative flex items-center justify-center h-full">
-                            <PhoneOff className="h-8 w-8 text-white" />
+                            <PhoneOff className="h-8 w-8 text-destructive-foreground" />
                         </div>
                     </button>
-                    <p className="text-sm font-medium text-gray-700">End Call</p>
+                    <p className="text-sm font-medium text-foreground">End Call</p>
                 </>
             )}
             {permissionError && (
-                <p className="text-sm text-red-500 text-center">{permissionError}</p>
+                <p className="text-sm text-destructive text-center">{permissionError}</p>
             )}
         </div>
     );

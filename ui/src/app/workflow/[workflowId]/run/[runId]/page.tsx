@@ -108,12 +108,12 @@ export default function WorkflowRunPage() {
         returnValue = (
             <div className="min-h-screen flex mt-40 justify-center p-6">
                 <div className="w-full max-w-4xl space-y-6">
-                    <Card className="border-gray-100">
+                    <Card className="border-border">
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div className="flex items-center gap-4">
                                 <CardTitle className="text-2xl">Agent Run Completed</CardTitle>
-                                <div className="h-8 w-8 bg-green-100 rounded-full flex items-center justify-center">
-                                    <svg className="h-5 w-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <div className="h-8 w-8 bg-emerald-500/20 rounded-full flex items-center justify-center">
+                                    <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
                                     </svg>
                                 </div>
@@ -137,11 +137,11 @@ export default function WorkflowRunPage() {
                             </Link>
                         </CardHeader>
                         <CardContent>
-                            <p className="text-gray-600 mb-8">Your voice agent run has been completed successfully. You can preview or download the transcript and recording.</p>
+                            <p className="text-muted-foreground mb-8">Your voice agent run has been completed successfully. You can preview or download the transcript and recording.</p>
 
                             <div className="flex flex-wrap gap-4">
                                 <div className="flex items-center gap-2">
-                                    <span className="text-sm text-gray-600">Preview:</span>
+                                    <span className="text-sm text-muted-foreground">Preview:</span>
                                     <MediaPreviewButtons
                                         recordingUrl={workflowRun?.recording_url}
                                         transcriptUrl={workflowRun?.transcript_url}
@@ -150,8 +150,8 @@ export default function WorkflowRunPage() {
                                         onOpenTranscript={openTranscriptModal}
                                     />
                                 </div>
-                                <div className="flex items-center gap-2 border-l pl-4">
-                                    <span className="text-sm text-gray-600">Download:</span>
+                                <div className="flex items-center gap-2 border-l border-border pl-4">
+                                    <span className="text-sm text-muted-foreground">Download:</span>
                                     <Button
                                         onClick={() => downloadFile(workflowRun?.transcript_url, accessToken!)}
                                         disabled={!workflowRun?.transcript_url || !accessToken}

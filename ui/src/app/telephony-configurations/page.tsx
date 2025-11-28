@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -45,14 +44,14 @@ interface TelephonyConfigForm {
 }
 
 export default function ConfigureTelephonyPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const { user, getAccessToken, loading: authLoading } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [hasExistingConfig, setHasExistingConfig] = useState(false);
 
-  // Get returnTo parameter from URL
-  const returnTo = searchParams.get("returnTo") || "/workflow";
+  // Clean up any stale pointer-events from dialogs that weren't properly closed before navigation
+  useEffect(() => {
+    document.body.style.pointerEvents = '';
+  }, []);
 
   const {
     register,
@@ -167,9 +166,6 @@ export default function ConfigureTelephonyPage() {
       }
 
       toast.success("Telephony configuration saved successfully");
-
-      // Redirect back to the page that sent us here
-      router.push(returnTo);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -182,14 +178,15 @@ export default function ConfigureTelephonyPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto p-6 space-y-6">
+      <div>
         <h1 className="text-3xl font-bold mb-2">Configure Telephony</h1>
-        <p className="text-gray-600 mb-6">
+        <p className="text-muted-foreground">
           Set up your telephony provider to make phone calls
         </p>
+      </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
             <Card className="h-full">
               <CardHeader>
@@ -245,7 +242,7 @@ export default function ConfigureTelephonyPage() {
                       </SelectContent>
                     </Select>
                     {hasExistingConfig && (
-                      <p className="text-sm text-amber-600">
+                      <p className="text-sm text-yellow-600 dark:text-yellow-500">
                         ⚠️ Switching providers will require entering new credentials
                       </p>
                     )}
@@ -481,7 +478,6 @@ export default function ConfigureTelephonyPage() {
             </form>
           </div>
 
-        </div>
       </div>
     </div>
   );

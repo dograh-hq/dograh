@@ -105,15 +105,15 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
                 hovered_through_edge={data.hovered_through_edge}
                 title={data.name || 'Agent'}
                 icon={<Headset />}
-                bgColor="bg-blue-300"
+                nodeType="agent"
                 hasSourceHandle={true}
                 hasTargetHandle={true}
                 onDoubleClick={() => setOpen(true)}
                 nodeId={id}
             >
-                <div className="text-sm text-muted-foreground">
-                    {data.prompt?.length > 30 ? `${data.prompt.substring(0, 30)}...` : data.prompt}
-                </div>
+                <p className="text-sm text-muted-foreground line-clamp-5 leading-relaxed">
+                    {data.prompt || 'No prompt configured'}
+                </p>
             </NodeContent>
 
             <NodeToolbar isVisible={selected} position={Position.Right}>
@@ -204,7 +204,7 @@ const AgentNodeEditForm = ({
     return (
         <div className="grid gap-2">
             <Label>Name</Label>
-            <Label className="text-xs text-gray-500">
+            <Label className="text-xs text-muted-foreground">
                 The name of the agent that will be used to identify the agent in the call logs. It should be short and should identify the step in the call.
             </Label>
             <Input
@@ -215,7 +215,7 @@ const AgentNodeEditForm = ({
             <div className="flex items-center space-x-2 p-2 border rounded-md bg-muted/20">
                 <Switch id="allow-interrupt" checked={allowInterrupt} onCheckedChange={setAllowInterrupt} />
                 <Label htmlFor="allow-interrupt">Allow Interruption</Label>
-                <Label className="text-xs text-gray-500 ml-2">
+                <Label className="text-xs text-muted-foreground ml-2">
                     Whether you would like user to be able to interrupt the bot.
                 </Label>
             </div>
@@ -223,7 +223,7 @@ const AgentNodeEditForm = ({
             <div className="flex items-center space-x-2 p-2 border rounded-md bg-muted/20">
                 <Switch id="add-global-prompt" checked={addGlobalPrompt} onCheckedChange={setAddGlobalPrompt} />
                 <Label htmlFor="add-global-prompt">Add Global Prompt</Label>
-                <Label className="text-xs text-gray-500 ml-2">
+                <Label className="text-xs text-muted-foreground ml-2">
                     Whether you want to add global prompt with this node&apos;s prompt.
                 </Label>
             </div>
@@ -231,7 +231,7 @@ const AgentNodeEditForm = ({
 
             <div className="pt-2 space-y-2">
                 <Label>Prompt</Label>
-                <Label className="text-xs text-gray-500">
+                <Label className="text-xs text-muted-foreground">
                     Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
                 </Label>
                 <Textarea
@@ -249,7 +249,7 @@ const AgentNodeEditForm = ({
             <div className="flex items-center space-x-2 pt-2">
                 <Switch id="enable-extraction" checked={extractionEnabled} onCheckedChange={setExtractionEnabled} />
                 <Label htmlFor="enable-extraction">Enable Variable Extraction</Label>
-                <Label className="text-xs text-gray-500 ml-2">
+                <Label className="text-xs text-muted-foreground ml-2">
                     Are there any variables you would like to extract from the conversation?
                 </Label>
             </div>
@@ -257,7 +257,7 @@ const AgentNodeEditForm = ({
             {extractionEnabled && (
                 <div className="border rounded-md p-3 mt-2 space-y-2 bg-muted/20">
                     <Label>Extraction Prompt</Label>
-                    <Label className="text-xs text-gray-500">
+                    <Label className="text-xs text-muted-foreground">
                         Provide an overall extraction prompt that guides how variables should be extracted from the conversation.
                     </Label>
                     <Textarea
@@ -268,7 +268,7 @@ const AgentNodeEditForm = ({
                     />
 
                     <Label>Variables</Label>
-                    <Label className="text-xs text-gray-500">
+                    <Label className="text-xs text-muted-foreground">
                         Define each variable you want to extract along with its data type.
                     </Label>
 

@@ -3,7 +3,6 @@ import '@xyflow/react/dist/style.css';
 import {
     Background,
     BackgroundVariant,
-    MiniMap,
     Panel,
     ReactFlow,
 } from "@xyflow/react";
@@ -37,22 +36,6 @@ const nodeTypes = {
 
 const edgeTypes = {
     custom: CustomEdge,
-};
-
-// Helper function for MiniMap node colors
-const getNodeColor = (node: FlowNode) => {
-    switch (node.type) {
-        case NodeType.START_CALL:
-            return '#10B981'; // green-500
-        case NodeType.AGENT_NODE:
-            return '#3B82F6'; // blue-500
-        case NodeType.END_CALL:
-            return '#EF4444'; // red-500
-        case NodeType.GLOBAL_NODE:
-            return '#F59E0B'; // orange-500
-        default:
-            return '#6B7280'; // gray-500
-    }
 };
 
 interface RenderWorkflowProps {
@@ -90,6 +73,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         templateContextVariables,
         workflowConfigurations,
         setNodes,
+        setIsDirty,
         setIsAddNodePanelOpen,
         handleNodeSelect,
         saveWorkflow,
@@ -160,12 +144,6 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                             gap={16}
                             size={1}
                             color="#94a3b8"
-                        />
-                        <MiniMap
-                            nodeColor={getNodeColor}
-                            position="bottom-right"
-                            className="bg-white/90 border rounded shadow-lg"
-                            maskColor="rgb(0, 0, 0, 0.1)"
                         />
 
                         {/* Top-right controls - vertical layout */}
@@ -300,7 +278,10 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                                     <Button
                                         variant="outline"
                                         size="icon"
-                                        onClick={() => setNodes(layoutNodes(nodes, edges, 'LR', rfInstance))}
+                                        onClick={() => {
+                                            setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
+                                            setIsDirty(true);
+                                        }}
                                         className="bg-white shadow-sm hover:shadow-md h-8 w-8"
                                     >
                                         <BrushCleaning className="h-4 w-4" />

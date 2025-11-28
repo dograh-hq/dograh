@@ -137,7 +137,6 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
 
     const updatePageInUrl = useCallback((page: number, filters?: ActiveFilter[]) => {
         const params = new URLSearchParams();
-        params.set('tab', 'executions');
         params.set('page', page.toString());
 
         // Add filters to URL if present
@@ -149,7 +148,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
             }
         }
 
-        router.push(`/workflow/${workflowId}?${params.toString()}`, { scroll: false });
+        router.push(`/workflow/${workflowId}/runs?${params.toString()}`, { scroll: false });
     }, [router, workflowId]);
 
     useEffect(() => {
@@ -194,12 +193,12 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                     <div className="animate-pulse">Loading workflow runs...</div>
                 </div>
             ) : error ? (
-                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                <div className="bg-destructive/10 border border-destructive/30 text-destructive px-4 py-3 rounded">
                     {error}
                 </div>
             ) : workflowRuns.length === 0 ? (
                 <div className="text-center py-8">
-                    <p className="text-gray-500">No workflow runs found</p>
+                    <p className="text-muted-foreground">No workflow runs found</p>
                 </div>
             ) : (
                 <Card>
@@ -210,10 +209,10 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        <div className="bg-white border rounded-lg overflow-hidden shadow-sm">
+                        <div className="bg-card border border-border rounded-lg overflow-hidden shadow-sm">
                             <Table>
                                 <TableHeader>
-                                    <TableRow className="bg-gray-50">
+                                    <TableRow className="bg-muted/50">
                                         <TableHead className="font-semibold">ID</TableHead>
                                         <TableHead className="font-semibold">Status</TableHead>
                                         <TableHead className="font-semibold">Created At</TableHead>
@@ -306,7 +305,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                         {/* Pagination */}
                         {totalPages > 1 && (
                             <div className="flex items-center justify-between mt-6">
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-muted-foreground">
                                     Page {currentPage} of {totalPages}
                                 </p>
                                 <div className="flex gap-2">

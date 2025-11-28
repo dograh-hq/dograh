@@ -1,4 +1,4 @@
-import { BaseEdge, type Edge, EdgeLabelRenderer, type EdgeProps, getBezierPath, useReactFlow } from '@xyflow/react';
+import { BaseEdge, type Edge, EdgeLabelRenderer, type EdgeProps, getSmoothStepPath, useReactFlow } from '@xyflow/react';
 import { AlertCircle, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -54,7 +54,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
                         <Label>Condition Label</Label>
-                        <Label className="text-xs text-gray-500">
+                        <Label className="text-xs text-muted-foreground">
                             Enter a short label which helps identify this pathway in logs
                         </Label>
                         <Input
@@ -63,13 +63,13 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                             maxLength={64}
                             onChange={(e) => setLabel(e.target.value)}
                         />
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted-foreground">
                             {label.length}/64 characters
                         </div>
                     </div>
                     <div className="grid gap-2">
                         <Label>Condition</Label>
-                        <Label className="text-xs text-gray-500">
+                        <Label className="text-xs text-muted-foreground">
                             Describe a condition that will be evaluated to determine if this pathway should be taken
                         </Label>
                         <Textarea
@@ -126,15 +126,44 @@ export default function CustomEdge(props: CustomEdgeProps) {
         }
     }
 
-    // 3) draw the bezier path + get label coords
-    const [edgePath, labelX, labelY] = getBezierPath({
-        sourceX,
-        sourceY,
-        sourcePosition,
-        targetX,
-        targetY,
-        targetPosition,
-    });
+    // Check if this is a self-loop (source and target are the same node)
+    const isSelfLoop = source === target;
+
+    // 3) draw the edge path + get label coords
+    // Use custom arc path for self-loops, smoothstep for regular edges
+    let edgePath: string;
+    let labelX: number;
+    let labelY: number;
+
+    if (isSelfLoop) {
+        // Create a loop arc that goes out and around the node
+        const loopRadius = 50;
+        const loopOffsetX = 80;
+        // Arc path: start from source, curve out and back to target
+        edgePath = `M ${sourceX} ${sourceY}
+                    C ${sourceX + loopOffsetX} ${sourceY - loopRadius},
+                      ${targetX + loopOffsetX} ${targetY + loopRadius},
+                      ${targetX} ${targetY}`;
+        labelX = sourceX + loopOffsetX;
+        labelY = sourceY;
+    } else {
+        // Use smoothstep path for orthogonal/elbow edges
+        // borderRadius: 8 gives slightly rounded corners for a clean look
+        // offset: 20 provides spacing before the first bend
+        const [path, lx, ly] = getSmoothStepPath({
+            sourceX,
+            sourceY,
+            sourcePosition,
+            targetX,
+            targetY,
+            targetPosition,
+            borderRadius: 8,
+            offset: 20,
+        });
+        edgePath = path;
+        labelX = lx;
+        labelY = ly;
+    }
 
     // Update connected nodes when edge is selected or hovered
     useEffect(() => {
@@ -221,22 +250,22 @@ export default function CustomEdge(props: CustomEdgeProps) {
                     {/* Show full EdgeLabel when selected or hovered, otherwise show simple label */}
                     {(selected || isHovered) ? (
                         <div className={cn(
-                            "flex flex-col gap-2 bg-white rounded-lg border-2 shadow-xl min-w-[200px]",
+                            "flex flex-col gap-2 bg-card rounded-lg border shadow-xl min-w-[220px]",
                             "animate-in fade-in zoom-in duration-200",
-                            data?.invalid ? "border-red-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]" : "border-gray-300"
+                            data?.invalid ? "border-destructive/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]" : "border-border"
                         )}>
                             {/* Header with label */}
                             <div className={cn(
                                 "flex items-center justify-between px-3 py-2 border-b",
-                                data?.invalid ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"
+                                data?.invalid ? "bg-destructive/10 border-destructive/30" : "bg-muted/50 border-border"
                             )}>
-                                <span className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
-                                    Condition - EdgeID: {id}
+                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                    Condition
                                 </span>
                                 <Button
                                     variant="ghost"
                                     size="icon"
-                                    className="h-6 w-6 p-0 hover:bg-gray-200"
+                                    className="h-6 w-6 p-0 hover:bg-muted text-muted-foreground"
                                     onClick={() => setOpen(true)}
                                 >
                                     <Pencil className="h-3 w-3" />
@@ -244,20 +273,21 @@ export default function CustomEdge(props: CustomEdgeProps) {
                             </div>
                             {/* Content */}
                             <div className="px-3 pb-3">
-                                <div className="text-sm font-medium text-gray-900 break-words">
+                                <div className="text-sm font-medium text-card-foreground break-words">
                                     {data?.label || data?.condition || 'Click to set condition'}
                                 </div>
                             </div>
                         </div>
                     ) : (
-                        /* Simple label shown by default */
+                        /* Simple label shown by default - amber/orange colored pill style */
                         <div className={cn(
-                            "px-2 py-1 bg-white rounded border shadow-sm",
-                            data?.invalid ? "border-red-400 text-red-600" : "border-gray-300 text-gray-700"
+                            "px-3 py-1.5 rounded-full text-xs font-medium shadow-md",
+                            "transition-all duration-200",
+                            data?.invalid
+                                ? "bg-destructive text-destructive-foreground"
+                                : "bg-amber-500 text-amber-950"
                         )}>
-                            <div className="text-xs font-medium">
-                                {data?.label || data?.condition || 'No condition'}
-                            </div>
+                            {data?.label || data?.condition || 'No condition'}
                         </div>
                     )}
                 </div>

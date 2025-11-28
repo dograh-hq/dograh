@@ -35,7 +35,7 @@ interface FormValues {
 }
 
 const TAB_CONFIG: { key: ServiceSegment; label: string }[] = [
-    { key: "llm", label: "Model" },
+    { key: "llm", label: "LLM" },
     { key: "tts", label: "Voice" },
     { key: "stt", label: "Transcriber" },
 ];
@@ -327,7 +327,7 @@ export default function ServiceConfiguration() {
     return (
         <div className="w-full max-w-2xl mx-auto">
             <div className="mb-6">
-                <h1 className="text-3xl font-bold mb-2">AI Services Configuration</h1>
+                <h1 className="text-3xl font-bold mb-2">AI Models Configuration</h1>
                 <p className="text-muted-foreground">
                     Configure your AI model, voice, and transcription services.
                 </p>

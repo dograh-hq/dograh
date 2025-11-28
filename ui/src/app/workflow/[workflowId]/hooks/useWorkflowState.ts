@@ -431,6 +431,7 @@ export const useWorkflowState = ({
         templateContextVariables,
         workflowConfigurations,
         setNodes,
+        setIsDirty,
         setIsAddNodePanelOpen,
         handleNodeSelect,
         handleNameChange,

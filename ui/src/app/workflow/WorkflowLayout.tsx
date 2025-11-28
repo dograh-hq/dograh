@@ -5,7 +5,6 @@ interface WorkflowLayoutProps {
     headerActions?: ReactNode,
     backButton?: ReactNode,
     showFeaturesNav?: boolean,
-    stickyTabs?: ReactNode
 }
 
 const WorkflowLayout: React.FC<WorkflowLayoutProps> = ({ children }) => {

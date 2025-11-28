@@ -101,10 +101,10 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
                 <CardContent>
                     {isCompleted && checkingForRecording ? (
                         <div className="flex flex-col items-center justify-center space-y-4 p-8">
-                            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
                             <div className="text-center space-y-2">
-                                <p className="text-gray-700 font-medium">Processing your call</p>
-                                <p className="text-sm text-gray-500">Fetching transcript and recording...</p>
+                                <p className="text-foreground font-medium">Processing your call</p>
+                                <p className="text-sm text-muted-foreground">Fetching transcript and recording...</p>
                             </div>
                         </div>
                     ) : (

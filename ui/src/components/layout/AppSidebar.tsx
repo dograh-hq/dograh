@@ -2,6 +2,7 @@
 
 import type { Team } from "@stackframe/stack";
 import {
+  Brain,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
@@ -11,7 +12,7 @@ import {
   Key,
   Megaphone,
   MessageSquare,
-  Settings,
+  Phone,
   Star,
   TrendingUp,
   Workflow,
@@ -97,9 +98,14 @@ export function AppSidebar() {
           icon: Zap,
         },
         {
-          title: "Services",
-          url: "/service-configurations",
-          icon: Settings,
+          title: "Models",
+          url: "/model-configurations",
+          icon: Brain,
+        },
+        {
+          title: "Telephony",
+          url: "/telephony-configurations",
+          icon: Phone,
         },
         // {
         //   title: "Integrations",

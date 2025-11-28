@@ -125,10 +125,10 @@ function WorkflowsLoading() {
             {/* Your Workflows Section Loading */}
             <div className="mb-6">
                 <div className="flex justify-between items-center mb-6">
-                    <div className="h-8 w-48 bg-gray-200 rounded"></div>
-                    <div className="h-10 w-32 bg-gray-200 rounded"></div>
+                    <div className="h-8 w-48 bg-muted rounded"></div>
+                    <div className="h-10 w-32 bg-muted rounded"></div>
                 </div>
-                <div className="bg-gray-200 rounded-lg h-96"></div>
+                <div className="bg-muted rounded-lg h-96"></div>
             </div>
         </div>
     );

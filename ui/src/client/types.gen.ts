@@ -246,6 +246,8 @@ export type EmbedConfigResponse = {
     position: string;
     button_text: string;
     button_color: string;
+    size: string;
+    auto_start: boolean;
 };
 
 export type EmbedTokenRequest = {
@@ -565,6 +567,35 @@ export type ValidationError = {
 };
 
 /**
+ * Request schema for Vobiz configuration.
+ */
+export type VobizConfigurationRequest = {
+    provider?: string;
+    /**
+     * Vobiz Account ID (e.g., MA_SYQRLN1K)
+     */
+    auth_id: string;
+    /**
+     * Vobiz Auth Token
+     */
+    auth_token: string;
+    /**
+     * List of Vobiz phone numbers (E.164 without + prefix)
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * Response schema for Vobiz configuration with masked sensitive fields.
+ */
+export type VobizConfigurationResponse = {
+    provider: string;
+    auth_id: string;
+    auth_token: string;
+    from_numbers: Array<string>;
+};
+
+/**
  * Request schema for Vonage configuration.
  */
 export type VonageConfigurationRequest = {
@@ -600,35 +631,6 @@ export type VonageConfigurationResponse = {
     api_key: string | null;
     api_secret: string | null;
     private_key: string;
-    from_numbers: Array<string>;
-};
-
-/**
- * Request schema for Vobiz telephony configuration.
- */
-export type VobizConfigurationRequest = {
-    provider: string;
-    /**
-     * Vobiz Account ID (e.g., MA_SYQRLN1K)
-     */
-    auth_id: string;
-    /**
-     * Vobiz Auth Token
-     */
-    auth_token: string;
-    /**
-     * List of Vobiz phone numbers (without + prefix, E.164 format)
-     */
-    from_numbers: Array<string>;
-};
-
-/**
- * Response schema for Vobiz configuration with masked sensitive fields.
- */
-export type VobizConfigurationResponse = {
-    provider: string;
-    auth_id: string;
-    auth_token: string;
     from_numbers: Array<string>;
 };
 
@@ -836,6 +838,64 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}';
+};
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostError = HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostErrors[keyof HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostErrors];
+
+export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}';
+};
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostError = HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors[keyof HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors];
+
+export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */

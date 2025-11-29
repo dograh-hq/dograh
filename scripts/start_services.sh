@@ -76,6 +76,45 @@ fi
 ###############################################################################
 
 mkdir -p "$RUN_DIR"
+
+# Function to get all descendant PIDs of a process (children, grandchildren, etc.)
+get_descendants() {
+  local parent_pid=$1
+  local descendants=""
+  local children
+
+  # Get direct children
+  children=$(pgrep -P "$parent_pid" 2>/dev/null || true)
+
+  for child in $children; do
+    # Recursively get descendants of each child
+    descendants="$descendants $child $(get_descendants "$child")"
+  done
+
+  echo "$descendants"
+}
+
+# Function to kill a process and all its descendants
+kill_process_tree() {
+  local pid=$1
+  local signal=$2
+  local descendants
+
+  descendants=$(get_descendants "$pid")
+
+  # Kill children first (bottom-up), then parent
+  for desc_pid in $descendants; do
+    if kill -0 "$desc_pid" 2>/dev/null; then
+      kill "$signal" "$desc_pid" 2>/dev/null || true
+    fi
+  done
+
+  # Kill the parent
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$signal" "$pid" 2>/dev/null || true
+  fi
+}
+
 for name in "${SERVICE_NAMES[@]}"; do
   pidfile="$RUN_DIR/$name.pid"
 
@@ -83,15 +122,28 @@ for name in "${SERVICE_NAMES[@]}"; do
     oldpid=$(<"$pidfile")
 
     if kill -0 "$oldpid" 2>/dev/null; then
-      echo "Stopping $name (PID $oldpid and its process group)…"
+      echo "Stopping $name (PID $oldpid and all descendants)…"
 
-      # Kill the entire process group (negative PID)
-      kill -TERM -"$oldpid" 2>/dev/null || kill -TERM "$oldpid" 2>/dev/null || true
+      # Kill the entire process tree (parent + all descendants)
+      kill_process_tree "$oldpid" "-TERM"
       sleep 4
 
+      # Check if parent or any descendants are still alive
+      still_alive=false
       if kill -0 "$oldpid" 2>/dev/null; then
+        still_alive=true
+      else
+        for desc_pid in $(get_descendants "$oldpid"); do
+          if kill -0 "$desc_pid" 2>/dev/null; then
+            still_alive=true
+            break
+          fi
+        done
+      fi
+
+      if $still_alive; then
         echo "⚠️  $name did not exit cleanly, forcing stop..."
-        kill -KILL -"$oldpid" 2>/dev/null || kill -KILL "$oldpid" 2>/dev/null || true
+        kill_process_tree "$oldpid" "-KILL"
         sleep 1
       fi
     fi

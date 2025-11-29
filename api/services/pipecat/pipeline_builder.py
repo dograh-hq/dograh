@@ -27,6 +27,7 @@ def create_pipeline_components(audio_config: AudioConfig, engine: "PipecatEngine
     audio_buffer = AudioBuffer(
         sample_rate=audio_config.pipeline_sample_rate,
         buffer_size=audio_config.buffer_size_bytes,
+        max_recording_bytes=audio_config.max_recording_bytes,
     )
 
     # Create synchronizer for merged audio (outside pipeline)

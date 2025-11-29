@@ -33,7 +33,8 @@ class AudioConfig:
     transport_out_sample_rate: int
     vad_sample_rate: int = 16000  # VAD typically resamples internally
     pipeline_sample_rate: Optional[int] = None  # If None, uses transport rates
-    buffer_size_seconds: float = 1.0  # This is how frequenly we will call merge_auido
+    buffer_size_seconds: float = 5.0  # This is how frequenly we will call merge_auido
+    max_recording_duration_seconds: float = 300.0  # 5 minutes max recording duration
 
     def __post_init__(self):
         # Validate VAD sample rate
@@ -74,6 +75,12 @@ class AudioConfig:
     def buffer_size_samples(self) -> int:
         """Calculate buffer size in samples based on pipeline sample rate."""
         return int(self.pipeline_sample_rate * self.buffer_size_seconds)
+
+    @property
+    def max_recording_bytes(self) -> int:
+        """Calculate max recording size in bytes based on pipeline sample rate and duration."""
+        # 2 bytes per sample (16-bit PCM)
+        return int(self.pipeline_sample_rate * 2 * self.max_recording_duration_seconds)
 
 
 def create_audio_config(transport_type: str) -> AudioConfig:

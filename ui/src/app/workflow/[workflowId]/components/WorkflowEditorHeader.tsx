@@ -125,7 +125,12 @@ export const WorkflowEditorHeader = ({
                             Web Call
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                            onClick={onPhoneCallClick}
+                            onClick={() => {
+                                // Delay opening dialog to next event cycle to allow DropdownMenu
+                                // to clean up first, preventing pointer-events: none stuck on body
+                                // See: https://github.com/radix-ui/primitives/issues/1241
+                                setTimeout(onPhoneCallClick, 0);
+                            }}
                             className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                         >
                             <Phone className="w-4 h-4 mr-2" />

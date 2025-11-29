@@ -2,6 +2,7 @@
 
 import 'react-international-phone/style.css';
 
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { PhoneInput } from 'react-international-phone';
@@ -44,14 +45,15 @@ export const PhoneCallDialog = ({
     const [callError, setCallError] = useState<string | null>(null);
     const [callSuccessMsg, setCallSuccessMsg] = useState<string | null>(null);
     const [phoneChanged, setPhoneChanged] = useState(false);
-    const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
-    const [needsConfiguration, setNeedsConfiguration] = useState(false);
+    const [checkingConfig, setCheckingConfig] = useState(false);
+    const [needsConfiguration, setNeedsConfiguration] = useState<boolean | null>(null);
 
     // Check telephony configuration when dialog opens
     useEffect(() => {
         const checkConfig = async () => {
             if (!open) return;
 
+            setCheckingConfig(true);
             try {
                 const accessToken = await getAccessToken();
                 const configResponse = await getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet({
@@ -60,18 +62,19 @@ export const PhoneCallDialog = ({
 
                 if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage && !configResponse.data?.vobiz)) {
                     setNeedsConfiguration(true);
-                    setConfigureDialogOpen(true);
-                    onOpenChange(false);
                 } else {
                     setNeedsConfiguration(false);
                 }
             } catch (err) {
                 console.error("Failed to check telephony config:", err);
+                setNeedsConfiguration(false);
+            } finally {
+                setCheckingConfig(false);
             }
         };
 
         checkConfig();
-    }, [open, getAccessToken, onOpenChange]);
+    }, [open, getAccessToken]);
 
     // Reset state when dialog closes
     useEffect(() => {
@@ -79,6 +82,7 @@ export const PhoneCallDialog = ({
             setCallError(null);
             setCallSuccessMsg(null);
             setCallLoading(false);
+            setNeedsConfiguration(null);
         }
     }, [open]);
 
@@ -101,7 +105,7 @@ export const PhoneCallDialog = ({
     };
 
     const handleConfigureContinue = () => {
-        setConfigureDialogOpen(false);
+        onOpenChange(false);
         router.push('/telephony-configurations');
     };
 
@@ -146,75 +150,96 @@ export const PhoneCallDialog = ({
         }
     };
 
-    return (
+    // Render loading state
+    const renderLoading = () => (
         <>
-            {/* Phone Call Dialog */}
-            <Dialog open={open && !needsConfiguration} onOpenChange={onOpenChange}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Phone Call</DialogTitle>
-                        <DialogDescription>
-                            Enter the phone number to call. The number will be saved automatically.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <PhoneInput
-                        defaultCountry="in"
-                        value={phoneNumber}
-                        onChange={handlePhoneInputChange}
-                    />
-                    <DialogFooter className="flex-col sm:flex-row gap-2">
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                onOpenChange(false);
-                                router.push('/telephony-configurations');
-                            }}
-                        >
-                            Configure Telephony
-                        </Button>
-                        <div className="flex gap-2 flex-1 justify-end">
-                            <DialogClose asChild>
-                                <Button variant="outline">Cancel</Button>
-                            </DialogClose>
-                            {!callSuccessMsg ? (
-                                <Button
-                                    onClick={handleStartCall}
-                                    disabled={callLoading || !phoneNumber}
-                                >
-                                    {callLoading ? "Calling..." : "Start Call"}
-                                </Button>
-                            ) : (
-                                <Button onClick={() => onOpenChange(false)}>
-                                    Close
-                                </Button>
-                            )}
-                        </div>
-                    </DialogFooter>
-                    {callError && <div className="text-red-500 text-sm mt-2">{callError}</div>}
-                    {callSuccessMsg && <div className="text-green-600 text-sm mt-2">{callSuccessMsg}</div>}
-                </DialogContent>
-            </Dialog>
-
-            {/* Configure Telephony Dialog */}
-            <Dialog open={configureDialogOpen} onOpenChange={setConfigureDialogOpen}>
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Configure Telephony</DialogTitle>
-                        <DialogDescription>
-                            You need to configure your telephony settings before making phone calls.
-                            You will be redirected to the telephony configuration page.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button variant="ghost" onClick={() => setConfigureDialogOpen(false)}>
-                            Do it Later
-                        </Button>
-                        <Button onClick={handleConfigureContinue}>
-                            Continue
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
+            <DialogHeader>
+                <DialogTitle>Phone Call</DialogTitle>
+            </DialogHeader>
+            <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
         </>
+    );
+
+    // Render configuration needed state
+    const renderConfigurationNeeded = () => (
+        <>
+            <DialogHeader>
+                <DialogTitle>Configure Telephony</DialogTitle>
+                <DialogDescription>
+                    You need to configure your telephony settings before making phone calls.
+                    You will be redirected to the telephony configuration page.
+                </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+                <Button variant="ghost" onClick={() => onOpenChange(false)}>
+                    Do it Later
+                </Button>
+                <Button onClick={handleConfigureContinue}>
+                    Continue
+                </Button>
+            </DialogFooter>
+        </>
+    );
+
+    // Render phone call form
+    const renderPhoneCallForm = () => (
+        <>
+            <DialogHeader>
+                <DialogTitle>Phone Call</DialogTitle>
+                <DialogDescription>
+                    Enter the phone number to call. The number will be saved automatically.
+                </DialogDescription>
+            </DialogHeader>
+            <PhoneInput
+                defaultCountry="in"
+                value={phoneNumber}
+                onChange={handlePhoneInputChange}
+            />
+            <DialogFooter className="flex-col sm:flex-row gap-2">
+                <Button
+                    variant="outline"
+                    onClick={() => {
+                        onOpenChange(false);
+                        router.push('/telephony-configurations');
+                    }}
+                >
+                    Configure Telephony
+                </Button>
+                <div className="flex gap-2 flex-1 justify-end">
+                    <DialogClose asChild>
+                        <Button variant="outline">Cancel</Button>
+                    </DialogClose>
+                    {!callSuccessMsg ? (
+                        <Button
+                            onClick={handleStartCall}
+                            disabled={callLoading || !phoneNumber}
+                        >
+                            {callLoading ? "Calling..." : "Start Call"}
+                        </Button>
+                    ) : (
+                        <Button onClick={() => onOpenChange(false)}>
+                            Close
+                        </Button>
+                    )}
+                </div>
+            </DialogFooter>
+            {callError && <div className="text-red-500 text-sm mt-2">{callError}</div>}
+            {callSuccessMsg && <div className="text-green-600 text-sm mt-2">{callSuccessMsg}</div>}
+        </>
+    );
+
+    return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+            <DialogContent>
+                {checkingConfig || needsConfiguration === null
+                    ? renderLoading()
+                    : needsConfiguration
+                        ? renderConfigurationNeeded()
+                        : renderPhoneCallForm()
+                }
+            </DialogContent>
+        </Dialog>
     );
 };

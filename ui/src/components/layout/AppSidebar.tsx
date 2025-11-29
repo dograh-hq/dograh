@@ -22,6 +22,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 
+import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -405,7 +406,7 @@ export function AppSidebar() {
           )}
 
           {/* Theme Toggle - at the very bottom */}
-          {/* <div className={cn(
+          <div className={cn(
             "mt-2 pt-2 border-t",
             state === "collapsed" ? "flex justify-center" : ""
           )}>
@@ -431,7 +432,7 @@ export function AppSidebar() {
                 className="hover:bg-accent hover:text-accent-foreground"
               />
             )}
-          </div> */}
+          </div>
         </div>
       </SidebarFooter>
       <SidebarRail />

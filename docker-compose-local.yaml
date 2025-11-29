@@ -38,9 +38,146 @@ services:
     networks:
       - app-network
 
+  # langfuse-worker:
+  #   image: docker.io/langfuse/langfuse-worker:3.131
+  #   restart: always
+  #   depends_on: &langfuse-depends-on
+  #     postgres:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     clickhouse:
+  #       condition: service_healthy
+  #   ports:
+  #     - 127.0.0.1:3030:3030
+  #   environment: &langfuse-worker-env
+  #     NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+  #     DATABASE_URL: ${DATABASE_URL_LF:-postgresql://postgres:postgres@postgres:5432/langfuse}
+  #     SALT: ${SALT:-blahbluh}
+  #     ENCRYPTION_KEY: ${ENCRYPTION_KEY:-208ac38e6da9dd09a8640505712c6f454bd20c53022104f3f56aee1596fb2c8d}
+  #     TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
+  #     LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: ${LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES:-true}
+  #     CLICKHOUSE_MIGRATION_URL: ${CLICKHOUSE_MIGRATION_URL:-clickhouse://clickhouse:9000}
+  #     CLICKHOUSE_URL: ${CLICKHOUSE_URL:-http://clickhouse:8123}
+  #     CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+  #     CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+  #     CLICKHOUSE_CLUSTER_ENABLED: ${CLICKHOUSE_CLUSTER_ENABLED:-false}
+  #     LANGFUSE_USE_AZURE_BLOB: ${LANGFUSE_USE_AZURE_BLOB:-false}
+  #     LANGFUSE_S3_EVENT_UPLOAD_BUCKET: ${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
+  #     LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}
+  #     LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-minio}
+  #     LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-miniosecret}
+  #     LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: ${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
+  #     LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
+  #     LANGFUSE_S3_EVENT_UPLOAD_PREFIX: ${LANGFUSE_S3_EVENT_UPLOAD_PREFIX:-events/}
+  #     LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: ${LANGFUSE_S3_MEDIA_UPLOAD_BUCKET:-langfuse}
+  #     LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_MEDIA_UPLOAD_REGION:-auto}
+  #     LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID:-minio}
+  #     LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY:-miniosecret}
+  #     LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: ${LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT:-http://localhost:9090}
+  #     LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: ${LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE:-true}
+  #     LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: ${LANGFUSE_S3_MEDIA_UPLOAD_PREFIX:-media/}
+  #     LANGFUSE_S3_BATCH_EXPORT_ENABLED: ${LANGFUSE_S3_BATCH_EXPORT_ENABLED:-false}
+  #     LANGFUSE_S3_BATCH_EXPORT_BUCKET: ${LANGFUSE_S3_BATCH_EXPORT_BUCKET:-langfuse}
+  #     LANGFUSE_S3_BATCH_EXPORT_PREFIX: ${LANGFUSE_S3_BATCH_EXPORT_PREFIX:-exports/}
+  #     LANGFUSE_S3_BATCH_EXPORT_REGION: ${LANGFUSE_S3_BATCH_EXPORT_REGION:-auto}
+  #     LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_ENDPOINT:-http://minio:9000}
+  #     LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT: ${LANGFUSE_S3_BATCH_EXPORT_EXTERNAL_ENDPOINT:-http://localhost:9090}
+  #     LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ${LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID:-minio}
+  #     LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ${LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY:-miniosecret}
+  #     LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: ${LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE:-true}
+  #     LANGFUSE_INGESTION_QUEUE_DELAY_MS: ${LANGFUSE_INGESTION_QUEUE_DELAY_MS:-}
+  #     LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS: ${LANGFUSE_INGESTION_CLICKHOUSE_WRITE_INTERVAL_MS:-}
+  #     REDIS_HOST: ${REDIS_HOST:-redis}
+  #     REDIS_PORT: ${REDIS_PORT:-6379}
+  #     REDIS_AUTH: ${REDIS_AUTH:-redissecret}
+  #     REDIS_TLS_ENABLED: ${REDIS_TLS_ENABLED:-false}
+  #     REDIS_TLS_CA: ${REDIS_TLS_CA:-/certs/ca.crt}
+  #     REDIS_TLS_CERT: ${REDIS_TLS_CERT:-/certs/redis.crt}
+  #     REDIS_TLS_KEY: ${REDIS_TLS_KEY:-/certs/redis.key}
+  #     EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+  #     SMTP_CONNECTION_URL: ${SMTP_CONNECTION_URL:-}
+  #   networks:
+  #     - app-network
+
+  # langfuse-web:
+  #   image: docker.io/langfuse/langfuse:3.131
+  #   restart: always
+  #   depends_on: *langfuse-depends-on
+  #   ports:
+  #     - 3000:3000
+  #   environment:
+  #     <<: *langfuse-worker-env
+  #     NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-mysecret}
+  #     LANGFUSE_INIT_ORG_ID: ${LANGFUSE_INIT_ORG_ID:-}
+  #     LANGFUSE_INIT_ORG_NAME: ${LANGFUSE_INIT_ORG_NAME:-}
+  #     LANGFUSE_INIT_PROJECT_ID: ${LANGFUSE_INIT_PROJECT_ID:-}
+  #     LANGFUSE_INIT_PROJECT_NAME: ${LANGFUSE_INIT_PROJECT_NAME:-}
+  #     LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY:-}
+  #     LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY:-}
+  #     LANGFUSE_INIT_USER_EMAIL: ${LANGFUSE_INIT_USER_EMAIL:-}
+  #     LANGFUSE_INIT_USER_NAME: ${LANGFUSE_INIT_USER_NAME:-}
+  #     LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD:-}
+  #   networks:
+  #     - app-network
+
+  # clickhouse:
+  #   image: docker.io/clickhouse/clickhouse-server
+  #   restart: always
+  #   user: "101:101"
+  #   environment:
+  #     CLICKHOUSE_DB: default
+  #     CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+  #     CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+  #   volumes:
+  #     - langfuse_clickhouse_data:/var/lib/clickhouse
+  #     - langfuse_clickhouse_logs:/var/log/clickhouse-server
+  #   ports:
+  #     - 127.0.0.1:8123:8123
+  #     - 127.0.0.1:9000:9000
+  #   healthcheck:
+  #     test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+  #     interval: 5s
+  #     timeout: 5s
+  #     retries: 10
+  #     start_period: 1s
+  #   networks:
+  #     - app-network
+
+  # minio:
+  #   image: docker.io/minio/minio
+  #   restart: always
+  #   entrypoint: sh
+  #   # create the 'langfuse' bucket before starting the service
+  #   command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+  #   environment:
+  #     MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+  #     MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-miniosecret}
+  #   ports:
+  #     - 9090:9000
+  #     - 127.0.0.1:9091:9001
+  #   volumes:
+  #     - langfuse_minio_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "mc", "ready", "local"]
+  #     interval: 1s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 1s
+  #   networks:
+  #     - app-network
+
 volumes:
   postgres_data:
   redis_data:
+  # langfuse_clickhouse_data:
+  #   driver: local
+  # langfuse_clickhouse_logs:
+  #   driver: local
+  # langfuse_minio_data:
+  #   driver: local
 
 networks:
   app-network:

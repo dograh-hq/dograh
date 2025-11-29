@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.6.0...dograh-v1.7.0) (2025-11-29)
+
+
+### Features
+
+* added vobiz telephony ([#65](https://github.com/dograh-hq/dograh/issues/65)) ([09897cb](https://github.com/dograh-hq/dograh/commit/09897cb5d8d04e196f209176ce239ecbcd938ef6))
+* Update Dograh's UI Design ([#67](https://github.com/dograh-hq/dograh/issues/67)) ([a7f2238](https://github.com/dograh-hq/dograh/commit/a7f2238044e480b4fd12d31679ae9e7b2a59dda8))
+
+
+### Bug Fixes
+
+* set provider during campaign run ([#69](https://github.com/dograh-hq/dograh/issues/69)) ([8342cd1](https://github.com/dograh-hq/dograh/commit/8342cd1ddaac7ed6e9c6f17fe3040a77ff67326d))
+
 ## [1.6.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.5.0...dograh-v1.6.0) (2025-11-26)
 
 

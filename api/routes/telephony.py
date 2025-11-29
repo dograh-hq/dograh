@@ -365,16 +365,6 @@ async def _process_status_update(
         # Mark workflow run as completed
         await db_client.update_workflow_run(run_id=workflow_run_id, is_completed=True)
 
-        # Publish campaign event if applicable
-        if workflow_run.campaign_id:
-            publisher = await get_campaign_event_publisher()
-            await publisher.publish_call_completed(
-                campaign_id=workflow_run.campaign_id,
-                workflow_run_id=workflow_run_id,
-                queued_run_id=workflow_run.queued_run_id,
-                call_duration=int(status.duration) if status.duration else 0,
-            )
-
     elif status.status in ["failed", "busy", "no-answer", "canceled"]:
         logger.warning(
             f"[run {workflow_run_id}] Call failed with status: {status.status}"

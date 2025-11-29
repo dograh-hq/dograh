@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Integer, and_, cast
+from sqlalchemy import Integer, and_, cast, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from api.db.models import WorkflowRunModel
@@ -128,10 +128,16 @@ def apply_workflow_run_filters(
             ):
                 tags = value.get("codes", [])
                 if tags:
+                    # The gathered_context column is JSON type (not JSONB)
+                    # JSON type doesn't support subscripting, so we must cast to JSONB first
+                    # Then extract call_tags and check containment with @>
+                    gathered_context_jsonb = cast(
+                        WorkflowRunModel.gathered_context, JSONB
+                    )
+                    # Use -> operator with literal text key to get call_tags as JSONB
+                    call_tags = gathered_context_jsonb.op("->")("call_tags")
                     filter_conditions.append(
-                        cast(WorkflowRunModel.gathered_context, JSONB)[
-                            "call_tags"
-                        ].contains(tags)
+                        call_tags.op("@>")(func.cast(tags, JSONB))
                     )
 
             elif filter_type == "text" and field == "initial_context.phone":

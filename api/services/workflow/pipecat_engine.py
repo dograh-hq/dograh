@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Union
 
 from api.constants import DEPLOYMENT_MODE, ENABLE_TRACING, VOICEMAIL_RECORDING_DURATION
-from api.services.gender.gender_service import GenderService
 from api.services.workflow.disposition_mapper import (
     apply_disposition_mapping,
     get_organization_id_from_workflow_run,
@@ -94,8 +93,6 @@ class PipecatEngine:
         # access to _context
         self._variable_extraction_manager = None
 
-        self._gender_service = GenderService(confidence_threshold=0.5)
-
         # Voicemail detection state
         self._detect_voicemail = False
         self._voicemail_detector = None
@@ -159,13 +156,6 @@ class PipecatEngine:
 
             # Register built-in functions with the LLM
             await self._register_builtin_functions()
-
-            # Set gender in initial context predicted from first name
-            if "first_name" in self._call_context_vars:
-                salutation = await self._gender_service.get_salutation(
-                    self._call_context_vars["first_name"]
-                )
-                self._call_context_vars["salutation"] = salutation
 
             await self.set_node(self.workflow.start_node_id)
             logger.debug(f"{self.__class__.__name__} initialized")

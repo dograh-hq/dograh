@@ -245,6 +245,16 @@ class CampaignCallDispatcher:
                 workflow_run_id=workflow_run.id,
             )
 
+            # Store provider type and metadata in gathered_context
+            # (required for WebSocket handler to route to correct provider)
+            await db_client.update_workflow_run(
+                run_id=workflow_run.id,
+                gathered_context={
+                    "provider": provider.PROVIDER_NAME,
+                    **(call_result.provider_metadata or {}),
+                },
+            )
+
             logger.info(
                 f"Call initiated for workflow run {workflow_run.id}, Call ID: {call_result.call_id}"
             )

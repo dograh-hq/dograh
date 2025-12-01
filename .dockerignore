@@ -1,1 +1,49 @@
+# Environment files
 api/.env
+.env
+.env.*
+
+# Git files
+.git
+.gitignore
+
+# Node modules (will be installed during build)
+**/node_modules
+
+# Next.js build output
+**/.next
+**/out
+
+# Python cache
+**/__pycache__
+**/*.py[cod]
+
+# IDE files
+.vscode
+.idea
+**/*.swp
+**/*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+logs/
+**/logs
+**/*.log
+tmp/
+temp/
+
+# Build artifacts not needed
+infrastructure/
+nginx/
+prd/
+.vercel
+postgres_data
+redis_data
+minio-data
+
+# Documentation (optional, comment out if needed in image)
+*.md
+docs/

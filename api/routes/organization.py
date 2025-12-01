@@ -6,11 +6,11 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
 from api.schemas.telephony_config import (
+    CloudonixConfigurationRequest,
+    CloudonixConfigurationResponse,
     TelephonyConfigurationResponse,
     TwilioConfigurationRequest,
     TwilioConfigurationResponse,
-    VobizConfigurationRequest,
-    VobizConfigurationResponse,
     VonageConfigurationRequest,
     VonageConfigurationResponse,
 )
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/organizations", tags=["organizations"])
 PROVIDER_MASKED_FIELDS = {
     "twilio": ["account_sid", "auth_token"],
     "vonage": ["private_key", "api_key", "api_secret"],
-    "vobiz": ["auth_id", "auth_token"],
+    "cloudonix": ["bearer_token"],
 }
 
 
@@ -59,7 +59,7 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
                 from_numbers=from_numbers,
             ),
             vonage=None,
-            vobiz=None,
+            cloudonix=None,
         )
     elif stored_provider == "vonage":
         application_id = config.value.get("application_id", "")
@@ -82,22 +82,20 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
                 api_secret=mask_key(api_secret) if api_secret else None,
                 from_numbers=from_numbers,
             ),
-            vobiz=None,
+            cloudonix=None,
         )
-    elif stored_provider == "vobiz":
-        auth_id = config.value.get("auth_id", "")
-        auth_token = config.value.get("auth_token", "")
-        from_numbers = (
-            config.value.get("from_numbers", []) if auth_id and auth_token else []
-        )
+    elif stored_provider == "cloudonix":
+        bearer_token = config.value.get("bearer_token", "")
+        domain_id = config.value.get("domain_id", "")
+        from_numbers = config.value.get("from_numbers", [])
 
         return TelephonyConfigurationResponse(
             twilio=None,
             vonage=None,
-            vobiz=VobizConfigurationResponse(
-                provider="vobiz",
-                auth_id=mask_key(auth_id) if auth_id else "",
-                auth_token=mask_key(auth_token) if auth_token else "",
+            cloudonix=CloudonixConfigurationResponse(
+                provider="cloudonix",
+                bearer_token=mask_key(bearer_token) if bearer_token else "",
+                domain_id=domain_id,
                 from_numbers=from_numbers,
             ),
         )
@@ -110,7 +108,7 @@ async def save_telephony_configuration(
     request: Union[
         TwilioConfigurationRequest,
         VonageConfigurationRequest,
-        VobizConfigurationRequest,
+        CloudonixConfigurationRequest,
     ],
     user: UserModel = Depends(get_user),
 ):
@@ -141,11 +139,11 @@ async def save_telephony_configuration(
             "api_secret": getattr(request, "api_secret", None),
             "from_numbers": request.from_numbers,
         }
-    elif request.provider == "vobiz":
+    elif request.provider == "cloudonix":
         config_value = {
-            "provider": "vobiz",
-            "auth_id": request.auth_id,
-            "auth_token": request.auth_token,
+            "provider": "cloudonix",
+            "bearer_token": request.bearer_token,
+            "domain_id": request.domain_id,
             "from_numbers": request.from_numbers,
         }
     else:

@@ -47,25 +47,23 @@ class VonageConfigurationResponse(BaseModel):
     from_numbers: List[str]
 
 
-class VobizConfigurationRequest(BaseModel):
-    """Request schema for Vobiz configuration."""
+class CloudonixConfigurationRequest(BaseModel):
+    """Request schema for Cloudonix configuration."""
 
-    provider: str = Field(default="vobiz")
-    auth_id: str = Field(..., description="Vobiz Account ID (e.g., MA_SYQRLN1K)")
-    auth_token: str = Field(..., description="Vobiz Auth Token")
+    provider: str = Field(default="cloudonix")
+    bearer_token: str = Field(..., description="Cloudonix API Bearer Token")
+    domain_id: str = Field(..., description="Cloudonix Domain ID")
     from_numbers: List[str] = Field(
-        ...,
-        min_length=1,
-        description="List of Vobiz phone numbers (E.164 without + prefix)",
+        default_factory=list, description="List of Cloudonix phone numbers (optional)"
     )
 
 
-class VobizConfigurationResponse(BaseModel):
-    """Response schema for Vobiz configuration with masked sensitive fields."""
+class CloudonixConfigurationResponse(BaseModel):
+    """Response schema for Cloudonix configuration with masked sensitive fields."""
 
     provider: str
-    auth_id: str  # Masked (e.g., "****************L1NK")
-    auth_token: str  # Masked (e.g., "****************KEFO")
+    bearer_token: str  # Masked (e.g., "****************abc1")
+    domain_id: str  # Not sensitive, can show full
     from_numbers: List[str]
 
 
@@ -74,4 +72,4 @@ class TelephonyConfigurationResponse(BaseModel):
 
     twilio: Optional[TwilioConfigurationResponse] = None
     vonage: Optional[VonageConfigurationResponse] = None
-    vobiz: Optional[VobizConfigurationResponse] = None
+    cloudonix: Optional[CloudonixConfigurationResponse] = None

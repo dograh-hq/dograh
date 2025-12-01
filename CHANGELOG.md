@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.7.0...dograh-v1.7.1) (2025-12-01)
+
+
+### Bug Fixes
+
+* fix pointer events on phone call dialog ([#70](https://github.com/dograh-hq/dograh/issues/70)) ([713c35d](https://github.com/dograh-hq/dograh/commit/713c35df649445721033e1a80f3d3d1b44933ac9))
+
 ## [1.7.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.6.0...dograh-v1.7.0) (2025-11-29)
 
 

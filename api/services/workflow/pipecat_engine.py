@@ -181,6 +181,9 @@ class PipecatEngine:
     async def _create_transition_func(self, name: str, transition_to_node: str):
         async def transition_func(function_call_params: FunctionCallParams) -> None:
             """Inner function that handles the node change tool calls"""
+            logger.info(f"LLM Function Call EXECUTED: {name}")
+            logger.info(f"Function: {name} -> transitioning to node: {transition_to_node}")
+            logger.info(f"Arguments: {function_call_params.arguments}")
             try:
 
                 async def on_context_updated() -> None:
@@ -240,6 +243,8 @@ class PipecatEngine:
 
         # Register calculator function
         async def calculate_func(function_call_params: FunctionCallParams) -> None:
+            logger.info(f"LLM Function Call EXECUTED: safe_calculator")
+            logger.info(f"Arguments: {function_call_params.arguments}")
             try:
                 expr = function_call_params.arguments.get("expression", "")
                 result = safe_calculator(expr)
@@ -255,6 +260,8 @@ class PipecatEngine:
         async def get_current_time_func(
             function_call_params: FunctionCallParams,
         ) -> None:
+            logger.info(f"LLM Function Call EXECUTED: get_current_time")
+            logger.info(f"Arguments: {function_call_params.arguments}")
             try:
                 timezone = function_call_params.arguments.get("timezone", "UTC")
                 result = get_current_time(timezone)
@@ -267,6 +274,8 @@ class PipecatEngine:
                 )
 
         async def convert_time_func(function_call_params: FunctionCallParams) -> None:
+            logger.info(f"LLM Function Call EXECUTED: convert_time")
+            logger.info(f"Arguments: {function_call_params.arguments}")
             try:
                 result = convert_time(
                     function_call_params.arguments.get("source_timezone"),

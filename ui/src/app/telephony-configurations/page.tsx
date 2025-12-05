@@ -6,15 +6,14 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet, saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost } from "@/client/sdk.gen";
-import type { TwilioConfigurationRequest, VonageConfigurationRequest } from "@/client/types.gen";
-
-// Temporary type until client is regenerated
-interface CloudonixConfigurationRequest {
-  provider: string;
-  bearer_token: string;
-  domain_id: string;
-  from_numbers: string[];
-}
+import type {
+  CloudonixConfigurationRequest,
+  CloudonixConfigurationResponse,
+  TelephonyConfigurationResponse,
+  TwilioConfigurationRequest,
+  VobizConfigurationRequest,
+  VonageConfigurationRequest
+} from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -45,6 +44,9 @@ interface TelephonyConfigForm {
   private_key?: string;
   api_key?: string;
   api_secret?: string;
+  // Vobiz fields
+  auth_id?: string;
+  vobiz_auth_token?: string;
   // Cloudonix fields
   bearer_token?: string;
   domain_id?: string;
@@ -110,13 +112,22 @@ export default function ConfigureTelephonyPage() {
             if (response.data.vonage.from_numbers?.length > 0) {
               setValue("from_number", response.data.vonage.from_numbers[0]);
             }
-          } else if ((response.data as any)?.cloudonix) {
+          } else if (response.data?.vobiz) {
+            setHasExistingConfig(true);
+            setValue("provider", "vobiz");
+            setValue("auth_id", response.data.vobiz.auth_id);
+            setValue("vobiz_auth_token", response.data.vobiz.auth_token);
+            if (response.data.vobiz.from_numbers?.length > 0) {
+              setValue("from_number", response.data.vobiz.from_numbers[0]);
+            }
+          } else if ((response.data as TelephonyConfigurationResponse)?.cloudonix) {
+            const cloudonixConfig = (response.data as TelephonyConfigurationResponse).cloudonix as CloudonixConfigurationResponse;
             setHasExistingConfig(true);
             setValue("provider", "cloudonix");
-            setValue("bearer_token", (response.data as any).cloudonix.bearer_token);
-            setValue("domain_id", (response.data as any).cloudonix.domain_id);
-            if ((response.data as any).cloudonix.from_numbers?.length > 0) {
-              setValue("from_number", (response.data as any).cloudonix.from_numbers[0]);
+            setValue("bearer_token", cloudonixConfig.bearer_token);
+            setValue("domain_id", cloudonixConfig.domain_id);
+            if (cloudonixConfig.from_numbers?.length > 0) {
+              setValue("from_number", cloudonixConfig.from_numbers[0]);
             }
           }
         }
@@ -138,6 +149,7 @@ export default function ConfigureTelephonyPage() {
       let requestBody:
         | TwilioConfigurationRequest
         | VonageConfigurationRequest
+        | VobizConfigurationRequest
         | CloudonixConfigurationRequest;
 
       if (data.provider === "twilio") {
@@ -156,6 +168,13 @@ export default function ConfigureTelephonyPage() {
           api_key: data.api_key || undefined,
           api_secret: data.api_secret || undefined,
         } as VonageConfigurationRequest;
+      } else if (data.provider === "vobiz") {
+        requestBody = {
+          provider: data.provider,
+          from_numbers: [data.from_number],
+          auth_id: data.auth_id,
+          auth_token: data.vobiz_auth_token,
+        } as VobizConfigurationRequest;
       } else {
         // Cloudonix
         requestBody = {
@@ -168,7 +187,7 @@ export default function ConfigureTelephonyPage() {
 
       const response = await saveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPost({
         headers: { Authorization: `Bearer ${accessToken}` },
-        body: requestBody as any, // Type assertion needed until client is regenerated with Cloudonix types
+        body: requestBody
       });
 
       if (response.error) {
@@ -210,6 +229,8 @@ export default function ConfigureTelephonyPage() {
                     ? "Twilio"
                     : selectedProvider === "vonage"
                     ? "Vonage"
+                    : selectedProvider === "vobiz"
+                    ? "Vobiz"
                     : "Cloudonix"}{" "}
                   Setup Guide
                 </CardTitle>
@@ -227,6 +248,11 @@ export default function ConfigureTelephonyPage() {
                       </a>{" "}
                       for documentation.
                     </>
+                  ) : selectedProvider === "vobiz" ? (
+                    <>
+                      Vobiz is a telephony provider. Visit their documentation
+                      for setup instructions.
+                    </>
                   ) : (
                     <>
                       Watch this video to learn how to setup{" "}
@@ -236,7 +262,7 @@ export default function ConfigureTelephonyPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {selectedProvider !== "cloudonix" ? (
+                {selectedProvider === "twilio" || selectedProvider === "vonage" ? (
                   <div className="aspect-video">
                     <iframe
                       style={{ border: 0 }}
@@ -250,6 +276,25 @@ export default function ConfigureTelephonyPage() {
                       allowFullScreen
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                     />
+                  </div>
+                ) : selectedProvider === "vobiz" ? (
+                  <div className="space-y-4 text-sm">
+                    <div>
+                      <h4 className="font-semibold mb-2">Getting Started with Vobiz:</h4>
+                      <ol className="list-decimal list-inside space-y-1 text-gray-600">
+                        <li>Sign up for a Vobiz account</li>
+                        <li>Get your Auth ID from the Vobiz dashboard</li>
+                        <li>Generate an Auth Token</li>
+                        <li>Configure phone numbers in your Vobiz account</li>
+                        <li>Enter your credentials below</li>
+                      </ol>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded p-3">
+                      <p className="text-sm text-blue-800">
+                        <strong>Note:</strong> Vobiz provides cloud-based telephony services
+                        with global reach and competitive pricing.
+                      </p>
+                    </div>
                   </div>
                 ) : (
                   <div className="space-y-4 text-sm">
@@ -298,6 +343,7 @@ export default function ConfigureTelephonyPage() {
                       <SelectContent>
                         <SelectItem value="twilio">Twilio</SelectItem>
                         <SelectItem value="vonage">Vonage</SelectItem>
+                        <SelectItem value="vobiz">Vobiz</SelectItem>
                         <SelectItem value="cloudonix">Cloudonix</SelectItem>
                       </SelectContent>
                     </Select>
@@ -439,6 +485,73 @@ export default function ConfigureTelephonyPage() {
                           id="from_number"
                           autoComplete="tel"
                           placeholder="14155551234 (no + prefix for Vonage)"
+                          {...register("from_number", {
+                            required: "Phone number is required",
+                            pattern: {
+                              value: /^[1-9]\d{1,14}$/,
+                              message:
+                                "Enter a valid phone number without + prefix (e.g., 14155551234)",
+                            },
+                          })}
+                        />
+                        {errors.from_number && (
+                          <p className="text-sm text-red-500">
+                            {errors.from_number.message}
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Vobiz-specific fields */}
+                  {selectedProvider === "vobiz" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="auth_id">Auth ID</Label>
+                        <Input
+                          id="auth_id"
+                          placeholder="MA_SYQRLN1K"
+                          {...register("auth_id", {
+                            required: selectedProvider === "vobiz" ? "Auth ID is required" : false,
+                          })}
+                        />
+                        {errors.auth_id && (
+                          <p className="text-sm text-red-500">
+                            {errors.auth_id.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="vobiz_auth_token">Auth Token</Label>
+                        <Input
+                          id="vobiz_auth_token"
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder={
+                            hasExistingConfig
+                              ? "Leave masked to keep existing"
+                              : "Enter your auth token"
+                          }
+                          {...register("vobiz_auth_token", {
+                            required: selectedProvider === "vobiz" && !hasExistingConfig
+                              ? "Auth token is required"
+                              : false,
+                          })}
+                        />
+                        {errors.vobiz_auth_token && (
+                          <p className="text-sm text-red-500">
+                            {errors.vobiz_auth_token.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="from_number">From Phone Number</Label>
+                        <Input
+                          id="from_number"
+                          autoComplete="tel"
+                          placeholder="14155551234 (no + prefix for Vobiz)"
                           {...register("from_number", {
                             required: "Phone number is required",
                             pattern: {

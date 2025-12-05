@@ -454,6 +454,7 @@ export type TelephonyConfigurationResponse = {
     twilio?: TwilioConfigurationResponse | null;
     vonage?: VonageConfigurationResponse | null;
     vobiz?: VobizConfigurationResponse | null;
+    cloudonix?: CloudonixConfigurationResponse | null;
 };
 
 export type TestSessionResponse = {
@@ -592,6 +593,35 @@ export type VobizConfigurationResponse = {
     provider: string;
     auth_id: string;
     auth_token: string;
+    from_numbers: Array<string>;
+};
+
+/**
+ * Request schema for Cloudonix configuration.
+ */
+export type CloudonixConfigurationRequest = {
+    provider?: string;
+    /**
+     * Cloudonix API Bearer Token
+     */
+    bearer_token: string;
+    /**
+     * Cloudonix Domain ID
+     */
+    domain_id: string;
+    /**
+     * List of Cloudonix phone numbers (optional)
+     */
+    from_numbers?: Array<string>;
+};
+
+/**
+ * Response schema for Cloudonix configuration with masked sensitive fields.
+ */
+export type CloudonixConfigurationResponse = {
+    provider: string;
+    bearer_token: string;
+    domain_id: string;
     from_numbers: Array<string>;
 };
 
@@ -2235,7 +2265,7 @@ export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetRespons
 export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponse = GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses[keyof GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses];
 
 export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData = {
-    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest;
+    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest;
     headers?: {
         authorization?: string | null;
     };

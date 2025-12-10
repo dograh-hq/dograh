@@ -235,6 +235,7 @@ class ElevenlabsVoice(str, Enum):
     LAUREN = "Lauren - 3liN8q8YoeB9Hk6AboKe"
     LINA = "Lina - oWjuL7HSoaEJRMDMP3HD"
     MONIKA = "Monika_Hindi_8 - 2bNrEsM0omyhLiEyOwqY"
+    NEHA = "Neha_Hindi - QTKSa2Iyv0yoxvXY2V8a"
     OLIVIA = "Olivia - 1rviaVF7GGGkTU36HNpz"
     PAUL = "Paul - 5Q0t7uMcjvnagumLfvZi"
     RACHEL = "Rachel - 21m00Tcm4TlvDq8ikWAM"
@@ -242,6 +243,7 @@ class ElevenlabsVoice(str, Enum):
     SAMI_REAL = "Sami_Real - O4cGUVdAocn0z4EpQ9yF"
     SARAH = "Sarah - EXAVITQu4vr4xnSDxMaL"
     SIA = "Sia_Hindi_10 - ryIIztHPLYSJ74ueXxnO"
+    ZARA = "Zara - MmQVkVZnQ0dUbfWzcW6f"
 
 
 class ElevenlabsModel(str, Enum):

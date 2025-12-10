@@ -136,9 +136,7 @@ def apply_workflow_run_filters(
                     )
                     # Use -> operator with literal text key to get call_tags as JSONB
                     call_tags = gathered_context_jsonb.op("->")("call_tags")
-                    filter_conditions.append(
-                        call_tags.op("@>")(func.cast(tags, JSONB))
-                    )
+                    filter_conditions.append(call_tags.op("@>")(func.cast(tags, JSONB)))
 
             elif filter_type == "text" and field == "initial_context.phone":
                 # Filter by phone number (contains search)

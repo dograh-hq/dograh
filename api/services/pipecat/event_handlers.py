@@ -58,16 +58,21 @@ def register_transport_event_handlers(
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, participant):
-        logger.debug("In on_client_disconnected callback handler")
-        await engine.handle_client_disconnected()
+        call_disposed = engine.is_call_disposed()
+
+        logger.debug(
+            f"In on_client_disconnected callback handler. Call disposed: {call_disposed}"
+        )
+        engine.handle_client_disconnected()
 
         # Stop recordings
         await audio_buffer.stop_recording()
         if audio_synchronizer:
             await audio_synchronizer.stop_recording()
 
-        # Cancel the task since the client is disconnected
-        await task.cancel()
+        # Only cancel the task if the call is not already disposed by the engine
+        if not call_disposed:
+            await task.cancel()
 
     # Return the buffers so they can be passed to other handlers
     return in_memory_audio_buffer, in_memory_transcript_buffer

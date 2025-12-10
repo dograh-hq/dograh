@@ -52,6 +52,7 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
             # Include TTSSpeakFrame here since for static nodes, we send TTSSpeakFrame
             # which can act as reference while fixing the aggregated trascript
             await self._llm_text_frame_callback(frame.text)
+
         await self.push_frame(frame, direction)
 
     async def _start(self, _: StartFrame):

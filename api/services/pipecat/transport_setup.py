@@ -7,9 +7,6 @@ from api.db import db_client
 from api.enums import OrganizationConfigurationKey
 from api.services.looptalk.internal_transport import InternalTransport
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.smart_turn.websocket_smart_turn import (
-    WebSocketSmartTurnAnalyzer,
-)
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.telephony.stasis_rtp_serializer import StasisRTPFrameSerializer
 from api.services.telephony.stasis_rtp_transport import (
@@ -20,6 +17,7 @@ from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.serializers.twilio import TwilioFrameSerializer
@@ -45,30 +43,7 @@ def create_turn_analyzer(workflow_run_id: int, audio_config: AudioConfig):
         audio_config: Audio configuration containing pipeline sample rate
     """
     if ENABLE_SMART_TURN:
-        service_url = os.getenv(
-            "SMART_TURN_WS_SERVICE_ENDPOINT", "ws://localhost:8010/ws"
-        )
-
-        # Prepare optional authentication headers for Smart Turn service
-        secret_key = os.getenv("SMART_TURN_HTTP_SERVICE_KEY")
-        headers = {"X-API-Key": secret_key} if secret_key else None
-
-        return WebSocketSmartTurnAnalyzer(
-            url=service_url,
-            headers=headers,
-            sample_rate=audio_config.pipeline_sample_rate,
-            params=SmartTurnParams(
-                stop_secs=1.5,  # send turn complete if silent for stop_secs seconds
-                pre_speech_ms=0,  # send speech segments before speech was detected by VAD
-                max_duration_secs=5,  # max duration of speech to be sent to the end of turn analyzer
-                # we don't want to _clear except when we have end of turn prediction as 1 from last run
-                # else if we have speaking -> queit -> trigger end of turn -> clear() and then
-                # we have speak -> queit, we may end up sending a very small segment of speech
-                # to end of turn model, which is not good
-                use_only_last_vad_segment=False,
-            ),
-            service_context=workflow_run_id,
-        )
+        return LocalSmartTurnAnalyzerV3(params=SmartTurnParams())
 
     return None
 

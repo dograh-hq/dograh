@@ -67,14 +67,6 @@ def create_user_idle_callback(engine: "PipecatEngine"):
     ) -> bool:
         logger.debug(f"Handling user_idle, attempt: {retry_count}")
 
-        # Check if we're on a StartNode - if yes, directly disconnect
-        if engine._current_node and engine._current_node.is_start:
-            logger.debug("User idle on StartNode - disconnecting immediately")
-            await engine.send_end_task_frame(
-                EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
-            )
-            return False
-
         if retry_count == 1:
             # Simulate an LLM generation, so that we can have the LLM context
             # updated with the new message

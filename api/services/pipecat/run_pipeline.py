@@ -1,3 +1,4 @@
+import asyncio
 from typing import Optional
 
 from fastapi import HTTPException, WebSocket
@@ -39,7 +40,7 @@ from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
-from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response import LLMAssistantAggregatorParams
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -513,9 +514,12 @@ async def _run_pipeline(
 
     try:
         # Run the pipeline
-        runner = PipelineRunner()
-        await runner.run(task)
-        logger.info(f"Pipeline runner completed for run {workflow_run_id}")
+        loop = asyncio.get_running_loop()
+        params = PipelineTaskParams(loop=loop)
+        await task.run(params)
+        logger.info(f"Task completed for run {workflow_run_id}")
+    except asyncio.CancelledError:
+        logger.warning("Received CancelledError in _run_pipeline")
     finally:
         ContextProviderRegistry.remove_providers(str(workflow_run_id))
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

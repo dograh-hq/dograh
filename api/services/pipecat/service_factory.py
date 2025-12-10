@@ -70,15 +70,15 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
     xml_function_tag_filter = XMLFunctionTagFilter()
     if user_config.tts.provider == ServiceProviders.DEEPGRAM.value:
         return DeepgramTTSService(
-            api_key=user_config.tts.api_key, 
+            api_key=user_config.tts.api_key,
             voice=user_config.tts.voice.value,
-            text_filters=[xml_function_tag_filter]
+            text_filters=[xml_function_tag_filter],
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
         return OpenAITTSService(
-            api_key=user_config.tts.api_key, 
+            api_key=user_config.tts.api_key,
             model=user_config.tts.model.value,
-            text_filters=[xml_function_tag_filter]
+            text_filters=[xml_function_tag_filter],
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
         voice_id = user_config.tts.voice.split(" - ")[1]
@@ -90,7 +90,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             params=ElevenLabsTTSService.InputParams(
                 stability=0.8, speed=user_config.tts.speed, similarity_boost=0.75
             ),
-            text_filters=[xml_function_tag_filter]
+            text_filters=[xml_function_tag_filter],
         )
     elif user_config.tts.provider == ServiceProviders.DOGRAH.value:
         # Convert HTTP URL to WebSocket URL for TTS
@@ -101,7 +101,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             model=user_config.tts.model.value,
             voice=user_config.tts.voice.value,
-            text_filters=[xml_function_tag_filter]
+            text_filters=[xml_function_tag_filter],
         )
     else:
         raise HTTPException(

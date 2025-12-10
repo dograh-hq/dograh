@@ -54,6 +54,12 @@ class StorageBackend(Enum):
             return cls.MINIO
 
 
+class WorkflowRunState(Enum):
+    INITIALIZED = "initialized"  # Workflow run created, ready for connection
+    RUNNING = "running"          # Websocket connected and pipeline active
+    COMPLETED = "completed"      # Workflow run finished
+
+
 class WorkflowRunStatus(Enum):
     # historical modes
     VOICE = "VOICE"

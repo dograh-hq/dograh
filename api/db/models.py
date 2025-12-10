@@ -19,7 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship
 
-from ..enums import IntegrationAction, WorkflowRunMode, WorkflowStatus
+from ..enums import IntegrationAction, WorkflowRunMode, WorkflowRunState, WorkflowStatus
 
 Base = declarative_base()
 
@@ -313,6 +313,12 @@ class WorkflowRunModel(Base):
     mode = Column(
         Enum(*[mode.value for mode in WorkflowRunMode], name="workflow_run_mode"),
         nullable=False,
+    )
+    state = Column(
+        Enum(*[state.value for state in WorkflowRunState], name="workflow_run_state"),
+        nullable=False,
+        default=WorkflowRunState.INITIALIZED.value,
+        server_default=text("'initialized'::workflow_run_state"),
     )
     is_completed = Column(Boolean, default=False)
     recording_url = Column(String, nullable=True)

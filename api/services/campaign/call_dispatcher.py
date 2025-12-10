@@ -7,7 +7,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
-from api.enums import OrganizationConfigurationKey
+from api.enums import OrganizationConfigurationKey, WorkflowRunState
 from api.services.campaign.rate_limiter import rate_limiter
 from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.factory import get_telephony_provider
@@ -277,6 +277,7 @@ class CampaignCallDispatcher:
             await db_client.update_workflow_run(
                 run_id=workflow_run.id,
                 is_completed=True,
+                state=WorkflowRunState.COMPLETED.value,
                 gathered_context={
                     "error": str(e),
                 },

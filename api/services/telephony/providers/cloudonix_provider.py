@@ -78,12 +78,22 @@ class CloudonixProvider(TelephonyProvider):
 
         from_number = random.choice(self.from_numbers)
         logger.info(f"Selected phone number {from_number} for outbound call to {to_number}")
+        workflow_id, user_id = kwargs["workflow_id"], kwargs["user_id"]
+        print("kwargs are: ",kwargs)
 
         # Prepare call data using Cloudonix callObject schema
         # Note: 'caller-id' is REQUIRED by Cloudonix API
+        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
         data: Dict[str, Any] = {
             "destination": to_number,
-            "url": webhook_url,  # TwiML webhook URL
+            "cxml": f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="wss://{backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
+    </Connect>
+    <Pause length="40"/>
+</Response>""",
+            #"url": webhook_url,  # TwiML webhook URL
             "caller-id": from_number,  # Required field
         }
 
@@ -271,7 +281,7 @@ class CloudonixProvider(TelephonyProvider):
         """
         Generate TwiML response for starting a call session.
         Cloudonix is TwiML-compatible, so we use the same format as Twilio.
-        """
+    """
         backend_endpoint = await TunnelURLProvider.get_tunnel_url()
 
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -356,7 +366,7 @@ class CloudonixProvider(TelephonyProvider):
         2. "start" event with streamSid and callSid
         3. Then audio messages
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_twilio
+        from api.services.pipecat.run_pipeline import run_pipeline_cloudonix
 
         try:
             # Wait for "connected" event
@@ -391,8 +401,8 @@ class CloudonixProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Missing stream identifiers")
                 return
 
-            # Run the Twilio pipeline (Cloudonix is compatible)
-            await run_pipeline_twilio(
+            # Run the Cloudonix pipeline
+            await run_pipeline_cloudonix(
                 websocket, stream_sid, call_sid, workflow_id, workflow_run_id, user_id
             )
 

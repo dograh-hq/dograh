@@ -21,6 +21,7 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.serializers.twilio import TwilioFrameSerializer
+from pipecat.serializers.vobiz import VobizFrameSerializer
 from pipecat.serializers.vonage import VonageFrameSerializer
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
@@ -256,20 +257,20 @@ async def create_vobiz_transport(
 
     turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
-    # Use PlivoFrameSerializer for Vobiz (Plivo-compatible protocol)
-    serializer = PlivoFrameSerializer(
+    # Use VobizFrameSerializer for Vobiz WebSocket protocol
+    serializer = VobizFrameSerializer(
         stream_id=stream_id,
         call_id=call_id,
         auth_id=auth_id,
         auth_token=auth_token,
-        params=PlivoFrameSerializer.InputParams(
-            plivo_sample_rate=8000,  # Vobiz uses MULAW at 8kHz
+        params=VobizFrameSerializer.InputParams(
+            vobiz_sample_rate=8000,  # Vobiz uses MULAW at 8kHz
             sample_rate=audio_config.pipeline_sample_rate,
         ),
     )
 
     logger.debug(
-        f"[run {workflow_run_id}] PlivoFrameSerializer created for Vobiz - "
+        f"[run {workflow_run_id}] VobizFrameSerializer created for Vobiz - "
         f"transport_rate=8000Hz, pipeline_rate={audio_config.pipeline_sample_rate}Hz"
     )
 

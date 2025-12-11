@@ -40,8 +40,8 @@ def upgrade() -> None:
     op.execute("""
         UPDATE workflow_runs 
         SET state = CASE 
-            WHEN is_completed = true THEN 'completed'
-            ELSE 'initialized'
+            WHEN is_completed = true THEN 'completed'::workflow_run_state
+            ELSE 'initialized'::workflow_run_state
         END
     """)
     

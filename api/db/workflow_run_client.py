@@ -306,6 +306,7 @@ class WorkflowRunClient(BaseDBClient):
         initial_context: dict | None = None,
         gathered_context: dict | None = None,
         logs: dict | None = None,
+        state: str | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             result = await session.execute(
@@ -337,6 +338,8 @@ class WorkflowRunClient(BaseDBClient):
                 run.logs = {**run.logs, **logs}
             if is_completed:
                 run.is_completed = is_completed
+            if state:
+                run.state = state
             try:
                 await session.commit()
             except Exception as e:

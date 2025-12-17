@@ -299,11 +299,11 @@ class VobizProvider(TelephonyProvider):
         message handling to VobizFrameSerializer.
         """
         from api.services.pipecat.run_pipeline import run_pipeline_vobiz
-        
+
         first_msg = await websocket.receive_text()
         start_msg = json.loads(first_msg)
         logger.debug(f"Received the first message: {start_msg}")
-        
+
         # Validate that this is a start event
         if start_msg.get("event") != "start":
             logger.error(f"Expected 'start' event, got: {start_msg.get('event')}")
@@ -317,7 +317,7 @@ class VobizProvider(TelephonyProvider):
             start_data = start_msg.get("start", {})
             stream_id = start_data.get("streamId")
             call_id = start_data.get("callId")
-            
+
             if not stream_id or not call_id:
                 logger.error(f"Missing streamId or callId in start event: {start_data}")
                 await websocket.close(code=4400, reason="Missing streamId or callId")

@@ -19,7 +19,6 @@ from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
-from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.serializers.vobiz import VobizFrameSerializer
 from pipecat.serializers.vonage import VonageFrameSerializer

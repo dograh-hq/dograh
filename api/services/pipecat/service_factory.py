@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
-from api.constants import MPS_API_URL
+from api.constants import MPS_API_URL, REDIS_URL
 from api.services.configuration.registry import ServiceProviders
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.cartesia.stt import CartesiaSTTService
@@ -11,6 +11,7 @@ from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService
 from pipecat.services.dograh.tts import DograhTTSService
+from pipecat.services.elevenlabs.elevenlabs_cached_tts import ElevenLabsCachedTTSService
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
 from pipecat.services.google.llm import GoogleLLMService
 from pipecat.services.groq.llm import GroqLLMService
@@ -82,7 +83,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
         voice_id = user_config.tts.voice.split(" - ")[1]
-        return ElevenLabsTTSService(
+        return ElevenLabsCachedTTSService(
             reconnect_on_error=False,
             api_key=user_config.tts.api_key,
             voice_id=voice_id,
@@ -91,6 +92,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 stability=0.8, speed=user_config.tts.speed, similarity_boost=0.75
             ),
             text_filters=[xml_function_tag_filter],
+            cache_redis_url=REDIS_URL,
         )
     elif user_config.tts.provider == ServiceProviders.DOGRAH.value:
         # Convert HTTP URL to WebSocket URL for TTS
@@ -102,6 +104,8 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             model=user_config.tts.model.value,
             voice=user_config.tts.voice.value,
             text_filters=[xml_function_tag_filter],
+            cache_enabled=True,
+            redis_url=REDIS_URL,
         )
     else:
         raise HTTPException(

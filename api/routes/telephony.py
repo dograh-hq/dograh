@@ -234,7 +234,9 @@ async def websocket_endpoint(
             logger.warning(
                 f"Workflow run {workflow_run_id} not in initialized state: {workflow_run.state}"
             )
-            await websocket.close(code=4409, reason="Workflow run not available for connection")
+            await websocket.close(
+                code=4409, reason="Workflow run not available for connection"
+            )
             return
 
         # Extract provider type from workflow run context
@@ -267,10 +269,9 @@ async def websocket_endpoint(
 
         # Set workflow run state to 'running' before starting the pipeline
         await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            state=WorkflowRunState.RUNNING.value
+            run_id=workflow_run_id, state=WorkflowRunState.RUNNING.value
         )
-        
+
         logger.info(
             f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_type} provider"
         )
@@ -382,9 +383,9 @@ async def _process_status_update(
 
         # Mark workflow run as completed
         await db_client.update_workflow_run(
-            run_id=workflow_run_id, 
+            run_id=workflow_run_id,
             is_completed=True,
-            state=WorkflowRunState.COMPLETED.value
+            state=WorkflowRunState.COMPLETED.value,
         )
 
     elif status.status in ["failed", "busy", "no-answer", "canceled"]:

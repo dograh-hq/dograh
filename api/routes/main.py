@@ -6,6 +6,7 @@ from api.routes.integration import router as integration_router
 from api.routes.looptalk import router as looptalk_router
 from api.routes.organization import router as organization_router
 from api.routes.organization_usage import router as organization_usage_router
+from api.routes.public_agent import router as public_agent_router
 from api.routes.public_embed import router as public_embed_router
 from api.routes.reports import router as reports_router
 from api.routes.rtc_offer import router as rtc_offer_router
@@ -38,6 +39,7 @@ router.include_router(organization_usage_router)
 router.include_router(reports_router)
 router.include_router(webrtc_signaling_router)
 router.include_router(public_embed_router)
+router.include_router(public_agent_router)
 router.include_router(workflow_embed_router)
 
 

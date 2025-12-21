@@ -9,6 +9,7 @@ class NodeType(str, Enum):
     endNode = "endCall"
     agentNode = "agentNode"
     globalNode = "globalNode"
+    trigger = "trigger"
 
 
 class Position(BaseModel):
@@ -30,7 +31,7 @@ class ExtractionVariableDTO(BaseModel):
 
 class NodeDataDTO(BaseModel):
     name: str = Field(..., min_length=1)
-    prompt: str = Field(..., min_length=1)
+    prompt: Optional[str] = Field(default=None)
     is_static: bool = False
     is_start: bool = False
     is_end: bool = False
@@ -44,6 +45,7 @@ class NodeDataDTO(BaseModel):
     detect_voicemail: bool = True
     delayed_start: bool = False
     delayed_start_duration: Optional[float] = None
+    trigger_path: Optional[str] = None
 
 
 class RFNodeDTO(BaseModel):
@@ -51,6 +53,14 @@ class RFNodeDTO(BaseModel):
     type: NodeType = Field(default=NodeType.agentNode)
     position: Position
     data: NodeDataDTO
+
+    @model_validator(mode="after")
+    def _validate_prompt_required(self):
+        """Require prompt for all node types except trigger."""
+        if self.type != NodeType.trigger:
+            if not self.data.prompt or len(self.data.prompt.strip()) == 0:
+                raise ValueError("Prompt is required for non-trigger nodes")
+        return self
 
 
 class EdgeDataDTO(BaseModel):

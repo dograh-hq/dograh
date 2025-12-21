@@ -477,6 +477,25 @@ export type TestSessionResponse = {
 };
 
 /**
+ * Request model for triggering a call via API
+ */
+export type TriggerCallRequest = {
+    phone_number: string;
+    initial_context?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * Response model for successful call initiation
+ */
+export type TriggerCallResponse = {
+    status: string;
+    workflow_run_id: number;
+    workflow_run_name: string;
+};
+
+/**
  * Request schema for Twilio configuration.
  */
 export type TwilioConfigurationRequest = {
@@ -3146,6 +3165,40 @@ export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsResponses = {
      */
     200: unknown;
 };
+
+export type InitiateCallApiV1PublicAgentUuidPostData = {
+    body: TriggerCallRequest;
+    headers: {
+        'X-API-Key': string;
+    };
+    path: {
+        uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/public/agent/{uuid}';
+};
+
+export type InitiateCallApiV1PublicAgentUuidPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallApiV1PublicAgentUuidPostError = InitiateCallApiV1PublicAgentUuidPostErrors[keyof InitiateCallApiV1PublicAgentUuidPostErrors];
+
+export type InitiateCallApiV1PublicAgentUuidPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TriggerCallResponse;
+};
+
+export type InitiateCallApiV1PublicAgentUuidPostResponse = InitiateCallApiV1PublicAgentUuidPostResponses[keyof InitiateCallApiV1PublicAgentUuidPostResponses];
 
 export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteData = {
     body?: never;

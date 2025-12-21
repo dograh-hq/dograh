@@ -2,7 +2,8 @@ export enum NodeType {
     START_CALL = 'startCall',
     AGENT_NODE = 'agentNode',
     END_CALL = 'endCall',
-    GLOBAL_NODE = 'globalNode'
+    GLOBAL_NODE = 'globalNode',
+    TRIGGER = 'trigger'
 }
 
 export type FlowNodeData = {
@@ -24,6 +25,8 @@ export type FlowNodeData = {
     detect_voicemail?: boolean;
     delayed_start?: boolean;
     delayed_start_duration?: number;
+    // Trigger node specific
+    trigger_path?: string;
 }
 
 export type FlowNode = {

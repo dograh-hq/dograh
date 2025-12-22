@@ -36,13 +36,14 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     } = useDeviceInputs();
 
     const useStun = true;
-    const useTurn = true; // Enable TURN server for NAT traversal
     const useAudio = true;
     const audioCodec = 'default';
 
-    // TURN server credentials (static for now, can be fetched from API later)
-    const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME || 'dograh';
-    const turnPassword = process.env.NEXT_PUBLIC_TURN_PASSWORD || 'dograh-turn-secret';
+    // TURN server configuration from environment variables (matching backend pattern)
+    const turnHost = process.env.NEXT_PUBLIC_TURN_HOST;
+    const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME;
+    const turnPassword = process.env.NEXT_PUBLIC_TURN_PASSWORD;
+    const useTurn = !!(turnHost && turnUsername && turnPassword);
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -79,11 +80,8 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
         }
 
-        if (useTurn) {
-            // Get TURN server host from current page URL (same server hosts coturn)
-            const turnHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-
-            // Add TURN server with static credentials
+        if (useTurn && turnHost && turnUsername && turnPassword) {
+            // Add TURN server with credentials from environment variables
             iceServers.push({
                 urls: [
                     `turn:${turnHost}:3478`,           // TURN over UDP

@@ -139,7 +139,6 @@ cat > .env << ENV_EOF
 TURN_HOST=$SERVER_IP
 TURN_USERNAME=dograh
 TURN_PASSWORD=$TURN_PASSWORD
-TURN_EXTERNAL_IP=$SERVER_IP
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=true

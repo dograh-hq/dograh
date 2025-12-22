@@ -109,10 +109,10 @@ services:
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
       SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
 
-      # TURN server configuration (for WebRTC NAT traversal)
+      # TURN server configuration (for WebRTC NAT traversal in remote server)
       TURN_HOST: "${TURN_HOST:-}"
-      TURN_USERNAME: "${TURN_USERNAME:-dograh}"
-      TURN_PASSWORD: "${TURN_PASSWORD:-dograh-turn-secret}"
+      TURN_USERNAME: "${TURN_USERNAME:-}"
+      TURN_PASSWORD: "${TURN_PASSWORD:-}"
 
     ports:
       - "8000:8000"
@@ -155,9 +155,10 @@ services:
       # Sentry
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
 
-      # TURN server credentials (for WebRTC NAT traversal)
-      NEXT_PUBLIC_TURN_USERNAME: "${TURN_USERNAME:-dograh}"
-      NEXT_PUBLIC_TURN_PASSWORD: "${TURN_PASSWORD:-dograh-turn-secret}"
+      # TURN server configuration (for WebRTC NAT traversal in remote server)
+      NEXT_PUBLIC_TURN_HOST: "${TURN_HOST:-}"
+      NEXT_PUBLIC_TURN_USERNAME: "${TURN_USERNAME:-}"
+      NEXT_PUBLIC_TURN_PASSWORD: "${TURN_PASSWORD:-}"
     ports:
       - "3010:3010"
     depends_on:
@@ -192,11 +193,8 @@ services:
     profiles: ["remote"]
     network_mode: host
     environment:
-      # Static credentials for TURN authentication
-      TURN_USERNAME: ${TURN_USERNAME:-dograh}
-      TURN_PASSWORD: ${TURN_PASSWORD:-dograh-turn-secret}
-    # NOTE: Set TURN_EXTERNAL_IP to your server's public IP for NAT traversal
-    # Example: TURN_EXTERNAL_IP=203.0.113.5
+      TURN_USERNAME: ${TURN_USERNAME}
+      TURN_PASSWORD: ${TURN_PASSWORD}
     command: >
       -n
       --listening-port=3478
@@ -204,7 +202,7 @@ services:
       --min-port=49152
       --max-port=49200
       --realm=${TURN_REALM:-dograh.com}
-      --user=${TURN_USERNAME:-dograh}:${TURN_PASSWORD:-dograh-turn-secret}
+      --user=${TURN_USERNAME}:${TURN_PASSWORD}
       --lt-cred-mech
       --fingerprint
       --no-cli
@@ -212,7 +210,7 @@ services:
       --no-multicast-peers
       --no-tlsv1
       --no-tlsv1_1
-      ${TURN_EXTERNAL_IP:+--external-ip=$TURN_EXTERNAL_IP}
+      ${TURN_HOST:+--external-ip=$TURN_HOST}
 
 volumes:
   postgres_data:

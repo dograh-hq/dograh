@@ -13,6 +13,7 @@ from api.enums import OrganizationConfigurationKey
 from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.providers.cloudonix_provider import CloudonixProvider
 from api.services.telephony.providers.twilio_provider import TwilioProvider
+from api.services.telephony.providers.vobiz_provider import VobizProvider
 from api.services.telephony.providers.vonage_provider import VonageProvider
 
 
@@ -59,6 +60,13 @@ async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
                 "api_secret": config.value.get("api_secret"),
                 "from_numbers": config.value.get("from_numbers", []),
             }
+        elif provider == "vobiz":
+            return {
+                "provider": "vobiz",
+                "auth_id": config.value.get("auth_id"),
+                "auth_token": config.value.get("auth_token"),
+                "from_numbers": config.value.get("from_numbers", []),
+            }
         elif provider == "cloudonix":
             return {
                 "provider": "cloudonix",
@@ -99,6 +107,9 @@ async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
 
     elif provider_type == "vonage":
         return VonageProvider(config)
+
+    elif provider_type == "vobiz":
+        return VobizProvider(config)
 
     elif provider_type == "cloudonix":
         return CloudonixProvider(config)

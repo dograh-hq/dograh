@@ -62,7 +62,7 @@ class CloudonixProvider(TelephonyProvider):
     ) -> CallInitiationResult:
         """
         Initiate an outbound call via Cloudonix.
-        
+
         Note: webhook_url parameter is ignored for Cloudonix. Unlike Twilio/Vonage,
         Cloudonix embeds CXML directly in the API call rather than using webhook callbacks.
         """
@@ -80,7 +80,9 @@ class CloudonixProvider(TelephonyProvider):
             )
 
         from_number = random.choice(self.from_numbers)
-        logger.info(f"Selected phone number {from_number} for outbound call to {to_number}")
+        logger.info(
+            f"Selected phone number {from_number} for outbound call to {to_number}"
+        )
         workflow_id, user_id = kwargs["workflow_id"], kwargs["user_id"]
 
         # Prepare call data using Cloudonix callObject schema
@@ -110,7 +112,10 @@ class CloudonixProvider(TelephonyProvider):
         headers = self._get_auth_headers()
 
         # Log request details (mask sensitive token)
-        masked_headers = {k: v if k != "Authorization" else f"Bearer {self.bearer_token[:8]}..." for k, v in headers.items()}
+        masked_headers = {
+            k: v if k != "Authorization" else f"Bearer {self.bearer_token[:8]}..."
+            for k, v in headers.items()
+        }
         logger.info(
             f"[Cloudonix] Initiating outbound call:\n"
             f"  Endpoint: {endpoint}\n"
@@ -220,10 +225,7 @@ class CloudonixProvider(TelephonyProvider):
         if not self.validate_config():
             raise ValueError("Cloudonix provider not properly configured")
 
-        endpoint = (
-            f"{self.base_url}/customers/self/domains/"
-            f"{self.domain_id}/dnids"
-        )
+        endpoint = f"{self.base_url}/customers/self/domains/{self.domain_id}/dnids"
 
         headers = self._get_auth_headers()
         try:
@@ -323,7 +325,9 @@ class CloudonixProvider(TelephonyProvider):
         mapped_status = status_map.get(call_status.lower(), call_status)
 
         return {
-            "call_id": data.get("token") or data.get("session_id") or data.get("CallSid", ""),
+            "call_id": data.get("token")
+            or data.get("session_id")
+            or data.get("CallSid", ""),
             "status": mapped_status,
             "from_number": data.get("caller_id") or data.get("From"),
             "to_number": data.get("destination") or data.get("To"),
@@ -331,6 +335,25 @@ class CloudonixProvider(TelephonyProvider):
             "duration": data.get("duration") or data.get("CallDuration"),
             "extra": data,  # Include all original data
         }
+
+    async def get_webhook_response(
+        self, workflow_id: int, user_id: int, workflow_run_id: int
+    ) -> str:
+        """
+        Dummy implementation - Cloudonix doesn't use webhook responses.
+        
+        Cloudonix embeds CXML directly in the API call during initiate_call(),
+        so this webhook endpoint is never actually called. This method only
+        exists to satisfy the abstract base class requirement.
+        """
+        logger.warning(
+            "get_webhook_response called for Cloudonix - this should not happen. "
+            "Cloudonix embeds CXML directly in API calls."
+        )
+        return """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Error: This endpoint should not be called for Cloudonix</Say>
+</Response>"""
 
     async def handle_websocket(
         self,

@@ -99,7 +99,7 @@ async def run_pipeline_twilio(
         call_sid,
         workflow_run_id,
         audio_config,
-        workflow.organization_id, 
+        workflow.organization_id,
         vad_config,
         ambient_noise_config,
     )
@@ -239,6 +239,7 @@ async def run_pipeline_vobiz(
             f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True
         )
         raise
+
 
 async def run_pipeline_cloudonix(
     websocket_client: WebSocket,

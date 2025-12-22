@@ -87,7 +87,7 @@ def create_audio_config(transport_type: str) -> AudioConfig:
     """Create audio configuration based on transport type.
 
     Args:
-        transport_type: Type of transport ("webrtc", "twilio", "vonage", "cloudonix", "stasis")
+        transport_type: Type of transport ("webrtc", "twilio", "vonage", "vobiz", "cloudonix", "stasis")
 
     Returns:
         AudioConfig instance with appropriate settings

@@ -81,7 +81,7 @@ services:
     environment:
       # Core application config
       ENVIRONMENT: "local"
-      LOG_LEVEL: "DEBUG"
+      LOG_LEVEL: "INFO"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"

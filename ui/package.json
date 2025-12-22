@@ -1,6 +1,6 @@
 {
   "name": "ui",
-  "version": "1.7.1",
+  "version": "1.8.0",
   "private": true,
   "scripts": {
     "dev": "NODE_OPTIONS='--enable-source-maps' next dev --turbopack",

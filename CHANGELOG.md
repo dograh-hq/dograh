@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.8.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.7.1...dograh-v1.8.0) (2025-12-22)
+
+
+### Features
+
+* add coturn for remote deployments ([#84](https://github.com/dograh-hq/dograh/issues/84)) ([1740999](https://github.com/dograh-hq/dograh/commit/17409998d2ebf4bec64b1418b423cdc789c40b19))
+* add smart turn v3 ([4640f69](https://github.com/dograh-hq/dograh/commit/4640f69f9bee0d5094dab2ca5a5794ed007e1395))
+* add voices to elevenlabs ([94b7d7e](https://github.com/dograh-hq/dograh/commit/94b7d7e2f224789a68337e7a13a44925df63a1c8))
+
+
+### Bug Fixes
+
+* add text filter for tts and logs for filter ([#74](https://github.com/dograh-hq/dograh/issues/74)) ([0a8ce3f](https://github.com/dograh-hq/dograh/commit/0a8ce3f644821f7b75d607d9c37753b632f14f0e))
+* call_id and stream_id for vobiz pipeline, add workflow run state ([#78](https://github.com/dograh-hq/dograh/issues/78)) ([c99bd29](https://github.com/dograh-hq/dograh/commit/c99bd29ef18467ffa80d6da13f5f23ee7d0bbddf))
+* fixes wrong selection in model config dropdown ([#80](https://github.com/dograh-hq/dograh/issues/80)) ([2e37c89](https://github.com/dograh-hq/dograh/commit/2e37c89310f739b3c0674a12e4a18ccefb3853d9))
+* prevent pipeline freezes when sending endframe ([#77](https://github.com/dograh-hq/dograh/issues/77)) ([909c258](https://github.com/dograh-hq/dograh/commit/909c258b6a807bddd26dd61d3d31bddf9ee60d6f))
+* use config for turn ([4ddb144](https://github.com/dograh-hq/dograh/commit/4ddb144dd00d753160fd0d7ffe962d32b9929d7f))
+
 ## [1.7.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.7.0...dograh-v1.7.1) (2025-12-01)
 
 

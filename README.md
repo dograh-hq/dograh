@@ -1,6 +1,6 @@
 # Dograh AI
 
-<h3 align="center">⭐ <strong>If you find value in this project, PLEASE STAR the Github repository to help others discover our FOSS platform!</strong></h3>
+<h3 align="center">⭐ <strong>If you find value in this project, please STAR the Github repository to help others discover our FOSS platform!</strong></h3>
 
 <p align="center">
   <a href="https://docs.dograh.com">
@@ -37,10 +37,13 @@
 
 The only command you need to run:
 
-##### Download and setup Dograh on your local machine
+##### Download and setup Dograh on your Local Machine
 
 > **Note**
 > We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.
+
+> **Note**
+> If you wish to run the platform on a remote server instead, checkout our [Documentation](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment)
 
 ```bash
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always

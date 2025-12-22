@@ -74,12 +74,12 @@ After the setup script completes, start Dograh:
 
 ```bash
 cd dograh
-docker compose --profile remote up -d
+sudo docker compose --profile remote up --pull always
 ```
 
 ### Access Your Application
 
-Your application will be available at:
+Your application will be available at
 ```
 https://YOUR_SERVER_IP
 ```
@@ -87,6 +87,8 @@ https://YOUR_SERVER_IP
 <Note>
 Since we are using a self-signed certificate, your browser will show a security warning. You can safely accept it to proceed.
 </Note>
+
+You should be able to create and test a voice agent now. 
 
 ### Configuration Notes
 
@@ -109,3 +111,6 @@ The setup script creates the following files in the `dograh/` directory:
 | `certs/local.crt` | Self-signed SSL certificate |
 | `certs/local.key` | SSL private key |
 | `.env` | Environment variables for TURN server |
+
+### Next Steps
+Now that you are able to create and test a voice agent, you can setup a custom domain and setup SSL using letsencrypt. Checkout [Custom Domain](custom-domain) for instructions on how to do that.

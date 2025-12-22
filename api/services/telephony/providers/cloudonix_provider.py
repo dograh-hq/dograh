@@ -62,6 +62,9 @@ class CloudonixProvider(TelephonyProvider):
     ) -> CallInitiationResult:
         """
         Initiate an outbound call via Cloudonix.
+        
+        Note: webhook_url parameter is ignored for Cloudonix. Unlike Twilio/Vonage,
+        Cloudonix embeds CXML directly in the API call rather than using webhook callbacks.
         """
         if not self.validate_config():
             raise ValueError("Cloudonix provider not properly configured")
@@ -79,7 +82,6 @@ class CloudonixProvider(TelephonyProvider):
         from_number = random.choice(self.from_numbers)
         logger.info(f"Selected phone number {from_number} for outbound call to {to_number}")
         workflow_id, user_id = kwargs["workflow_id"], kwargs["user_id"]
-        print("kwargs are: ",kwargs)
 
         # Prepare call data using Cloudonix callObject schema
         # Note: 'caller-id' is REQUIRED by Cloudonix API
@@ -93,13 +95,11 @@ class CloudonixProvider(TelephonyProvider):
     </Connect>
     <Pause length="40"/>
 </Response>""",
-            #"url": webhook_url,  # TwiML webhook URL
             "caller-id": from_number,  # Required field
         }
 
         # Add status callback if workflow_run_id provided
         if workflow_run_id:
-            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
             callback_url = f"https://{backend_endpoint}/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}"
             data["callback"] = callback_url
 
@@ -274,24 +274,6 @@ class CloudonixProvider(TelephonyProvider):
             "Cloudonix webhook signature verification not yet implemented - accepting all webhooks"
         )
         return True
-
-    async def get_webhook_response(
-        self, workflow_id: int, user_id: int, workflow_run_id: int
-    ) -> str:
-        """
-        Generate TwiML response for starting a call session.
-        Cloudonix is TwiML-compatible, so we use the same format as Twilio.
-    """
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-
-        twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Connect>
-        <Stream url="wss://{backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
-    </Connect>
-    <Pause length="40"/>
-</Response>"""
-        return twiml_content
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
         """

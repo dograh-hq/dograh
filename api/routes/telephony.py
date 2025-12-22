@@ -151,8 +151,9 @@ async def initiate_call(
         f"&workflow_run_id={workflow_run_id}"
         f"&organization_id={user.selected_organization_id}"
     )
-
+    
     keywords = {"workflow_id": request.workflow_id, "user_id": user.id}
+    
     # Initiate call via provider
     result = await provider.initiate_call(
         to_number=phone_number,

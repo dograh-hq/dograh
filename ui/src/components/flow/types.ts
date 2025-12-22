@@ -2,7 +2,9 @@ export enum NodeType {
     START_CALL = 'startCall',
     AGENT_NODE = 'agentNode',
     END_CALL = 'endCall',
-    GLOBAL_NODE = 'globalNode'
+    GLOBAL_NODE = 'globalNode',
+    TRIGGER = 'trigger',
+    WEBHOOK = 'webhook'
 }
 
 export type FlowNodeData = {
@@ -24,6 +26,20 @@ export type FlowNodeData = {
     detect_voicemail?: boolean;
     delayed_start?: boolean;
     delayed_start_duration?: number;
+    // Trigger node specific
+    trigger_path?: string;
+    // Webhook node specific
+    enabled?: boolean;
+    http_method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    endpoint_url?: string;
+    credential_uuid?: string;
+    custom_headers?: Array<{ key: string; value: string }>;
+    payload_template?: Record<string, unknown>;
+    retry_config?: {
+        enabled: boolean;
+        max_retries: number;
+        retry_delay_seconds: number;
+    };
 }
 
 export type FlowNode = {
@@ -83,4 +99,16 @@ export type ExtractionVariable = {
     type: 'string' | 'number' | 'boolean';
     prompt?: string;
 };
+
+// Credential types for webhook authentication
+export type CredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
+
+export interface Credential {
+    uuid: string;
+    name: string;
+    description?: string;
+    credential_type: CredentialType;
+    created_at: string;
+    updated_at: string;
+}
 

@@ -10,9 +10,11 @@ Uses the SmallWebRTC API contract:
 """
 
 import asyncio
+import os
 from datetime import UTC, datetime
-from typing import Dict
+from typing import Dict, List
 
+from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from loguru import logger
@@ -20,16 +22,41 @@ from loguru import logger
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user_ws
-from api.services.configuration.registry import ServiceProviders
-from api.services.mps_service_key_client import mps_service_key_client
 from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
+from api.services.quota_service import check_dograh_quota
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/ws")
 
+
+def get_ice_servers() -> List[RTCIceServer]:
+    """Build ICE servers configuration including TURN if configured."""
+    servers: List[RTCIceServer] = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+
+    # Add TURN server if configured
+    turn_host = os.getenv("TURN_HOST")
+    turn_username = os.getenv("TURN_USERNAME")
+    turn_password = os.getenv("TURN_PASSWORD")
+
+    if turn_host and turn_username and turn_password:
+        servers.append(
+            RTCIceServer(
+                urls=[
+                    f"turn:{turn_host}:3478",
+                    f"turn:{turn_host}:3478?transport=tcp",
+                ],
+                username=turn_username,
+                credential=turn_password,
+            )
+        )
+        logger.info(f"TURN server configured: {turn_host}:3478")
+
+    return servers
+
+
 # ICE servers configuration
-ice_servers = ["stun:stun.l.google.com:19302"]
+ice_servers = get_ice_servers()
 
 
 class SignalingManager:
@@ -38,75 +65,6 @@ class SignalingManager:
     def __init__(self):
         self._connections: Dict[str, WebSocket] = {}
         self._peer_connections: Dict[str, SmallWebRTCConnection] = {}
-
-    async def _check_dograh_quota(self, user: UserModel) -> tuple[bool, str]:
-        """Check if user has sufficient Dograh quota for making a call.
-
-        Args:
-            user_id: The user ID to check quota for
-
-        Returns:
-            Tuple of (has_quota, error_message)
-            - has_quota: True if user has sufficient quota or not using Dograh
-            - error_message: Error message if quota check fails, empty string otherwise
-        """
-        try:
-            # Get user configurations
-            user_config = await db_client.get_user_configurations(user.id)
-
-            # Check if user is using any Dograh service
-            using_dograh = False
-            dograh_api_keys = set()
-
-            if user_config.llm and user_config.llm.provider == ServiceProviders.DOGRAH:
-                using_dograh = True
-                dograh_api_keys.add(user_config.llm.api_key)
-
-            if user_config.stt and user_config.stt.provider == ServiceProviders.DOGRAH:
-                using_dograh = True
-                dograh_api_keys.add(user_config.stt.api_key)
-
-            if user_config.tts and user_config.tts.provider == ServiceProviders.DOGRAH:
-                using_dograh = True
-                dograh_api_keys.add(user_config.tts.api_key)
-
-            # If not using Dograh, quota check passes
-            if not using_dograh:
-                return True, ""
-
-            # Check quota for ALL Dograh keys
-            for api_key in dograh_api_keys:
-                try:
-                    usage = await mps_service_key_client.check_service_key_usage(
-                        api_key, created_by=user.provider_id
-                    )
-                    remaining = usage.get("remaining_credits", 0.0)
-
-                    # Require at least $0.10 for a short call
-                    if remaining < 0.10:
-                        logger.warning(
-                            f"Insufficient Dograh credits for key ...{api_key[-8:]}: "
-                            f"${remaining:.2f} remaining"
-                        )
-                        return False, (
-                            "You have exhausted your trial credits."
-                            "Please email founders@dograh.com for additional credits."
-                        )
-
-                    logger.info(
-                        f"Dograh quota check passed for key ...{api_key[-8:]}: "
-                        f"${remaining:.2f} remaining"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to check quota for Dograh key: {str(e)}")
-                    return False, "Could not verify Dograh credits. Please try again."
-
-            return True, ""
-
-        except Exception as e:
-            logger.error(f"Error during quota check: {str(e)}")
-            # On unexpected error, allow the call to proceed
-            return True, ""
 
     async def handle_websocket(
         self,
@@ -182,15 +140,15 @@ class SignalingManager:
         set_current_run_id(workflow_run_id)
 
         # Check Dograh quota before initiating the call
-        has_quota, error_message = await self._check_dograh_quota(user)
-        if not has_quota:
+        quota_result = await check_dograh_quota(user)
+        if not quota_result.has_quota:
             # Send error response for quota issues
             await ws.send_json(
                 {
                     "type": "error",
                     "payload": {
                         "error_type": "quota_exceeded",
-                        "message": error_message,
+                        "message": quota_result.error_message,
                     },
                 }
             )

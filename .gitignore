@@ -1,6 +1,7 @@
 __pycache__
 .DS_Store
 .env
+.env.test
 
 # logs and run directory on production
 /logs/

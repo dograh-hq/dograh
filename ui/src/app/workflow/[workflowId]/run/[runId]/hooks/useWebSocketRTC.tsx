@@ -39,6 +39,14 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const useAudio = true;
     const audioCodec = 'default';
 
+    // TURN server configuration fetched at runtime from /api/config/turn
+    const turnConfigRef = useRef<{
+        enabled: boolean;
+        host: string;
+        username: string;
+        password: string;
+    } | null>(null);
+
     const audioRef = useRef<HTMLAudioElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
@@ -67,8 +75,30 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     }, [workflowId, workflowRunId, accessToken]);
 
     const createPeerConnection = () => {
+        // Build ICE servers list
+        const iceServers: RTCIceServer[] = [];
+
+        if (useStun) {
+            iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
+        }
+
+        // Add TURN server if configured (fetched from /api/config/turn)
+        const turnConfig = turnConfigRef.current;
+        if (turnConfig?.enabled) {
+            iceServers.push({
+                urls: [
+                    `turn:${turnConfig.host}:3478`,           // TURN over UDP
+                    `turn:${turnConfig.host}:3478?transport=tcp`, // TURN over TCP
+                ],
+                username: turnConfig.username,
+                credential: turnConfig.password
+            });
+
+            logger.info(`TURN server configured: ${turnConfig.host}:3478`);
+        }
+
         const config: RTCConfiguration = {
-            iceServers: useStun ? [{ urls: ['stun:stun.l.google.com:19302'] }] : []
+            iceServers
         };
 
         const pc = new RTCPeerConnection(config);
@@ -302,6 +332,19 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         setConnectionStatus('connecting');
 
         try {
+            // Fetch TURN configuration at runtime
+            try {
+                const turnResponse = await fetch('/api/config/turn');
+                if (turnResponse.ok) {
+                    turnConfigRef.current = await turnResponse.json();
+                    if (turnConfigRef.current?.enabled) {
+                        logger.info('TURN server enabled via runtime config');
+                    }
+                }
+            } catch (e) {
+                logger.warn('Failed to fetch TURN config, continuing without TURN:', e);
+            }
+
             // Validate API keys
             const response = await validateUserConfigurationsApiV1UserConfigurationsUserValidateGet({
                 headers: {

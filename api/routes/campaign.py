@@ -9,6 +9,7 @@ from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
 from api.services.auth.depends import get_user
 from api.services.campaign.runner import campaign_runner_service
+from api.services.quota_service import check_dograh_quota
 from api.services.storage import storage_fs
 
 router = APIRouter(prefix="/campaign")
@@ -182,6 +183,11 @@ async def start_campaign(
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
+    # Check Dograh quota before starting campaign
+    quota_result = await check_dograh_quota(user)
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
+
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
@@ -289,6 +295,11 @@ async def resume_campaign(
             status_code=401,
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
+
+    # Check Dograh quota before resuming campaign
+    quota_result = await check_dograh_quota(user)
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)

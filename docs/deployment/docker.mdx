@@ -38,150 +38,55 @@ You can disable telemetry by setting `ENABLE_TELEMETRY=false` in the command abo
 
 ## Option 2: Remote Server Deployment
 
-Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates.
+Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates. We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS.
+
+**We highly recommend you set up the platform on a fresh server, so that there are less chances of confliciting dependencies, and ports from other applications.**
 
 ### Prerequisites
 
-- A server with Docker and Docker Compose installed
+- A server with Docker and Docker Compose installed. It should have minimum of 8 GB RAM and 2 vCPUs.
 - Public IP address for your server
-- Ports 80 and 443 accessible from the internet
+- TCP Ports 80, 443, 3478, 5349 and UDP Ports 3478, 5349 and 49152:49200 reachable from Internet (Port 80 and 443 to access the UI and rest of the ports for WebRTC Signaling)
 
-### Step 1: Create Project Directory
+<Note>Please refer to your server hosting provider's documentaion on how you can open these ports in the firewall of the server.</Note>
 
-Open your terminal and create a directory for Dograh:
+### Quick Setup
+
+Run the automated setup script that will configure everything for you:
 
 ```bash
-mkdir dograh
+curl -o setup_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_remote.sh && chmod +x setup_remote.sh && ./setup_remote.sh
+```
+
+The script will prompt you for:
+- Your server's public IP address
+- A password for the TURN server (optional, press Enter for default)
+
+It will automatically:
+- Download the docker-compose.yaml file
+- Create and configure nginx.conf with your IP address
+- Generate SSL certificates
+- Create an environment file with TURN server configuration
+
+### Start the Application
+
+After the setup script completes, start Dograh:
+
+```bash
 cd dograh
-```
-
-### Step 2: Download Docker Compose File
-
-Download the docker-compose.yaml file:
-
-```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
-```
-
-### Step 3: Generate SSL Certificates
-
-Create a script to generate self-signed certificates for HTTPS:
-
-```bash
-nano generate_certificate.sh
-```
-
-Copy the following content into the file:
-
-```bash
-mkdir -p certs
-openssl req -x509 -nodes -newkey rsa:2048 \
-  -keyout certs/local.key \
-  -out certs/local.crt \
-  -days 365 \
-  -subj "/CN=YOUR_SERVER_IP"
-```
-
-<Note>
-Replace `YOUR_SERVER_IP` with your server's public IP address.
-</Note>
-
-Make the script executable and run it:
-
-```bash
-chmod +x generate_certificate.sh
-./generate_certificate.sh
-```
-
-### Step 4: Configure nginx
-
-Create an nginx configuration file:
-
-```bash
-nano nginx.conf
-```
-
-Copy the following content into the file:
-
-```nginx
-server {
-    listen 80;
-    server_name YOUR_SERVER_IP;
-
-    # Optional: redirect all HTTP to HTTPS
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name YOUR_SERVER_IP;
-
-    ssl_certificate     /etc/nginx/certs/local.crt;
-    ssl_certificate_key /etc/nginx/certs/local.key;
-
-    # Basic TLS settings for dev
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-
-    location / {
-        proxy_pass         http://ui:3010;
-        proxy_http_version 1.1;
-
-        # Important for WebSockets / hot reload etc.
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        
-        # Rewrite localhost MinIO URLs in API responses to use current domain
-        sub_filter 'http://localhost:9000/voice-audio/' 'https://$host/voice-audio/';
-        sub_filter_once off;
-        sub_filter_types application/json text/html;
-    }
-
-    location /voice-audio/ {
-        proxy_pass http://minio:9000/voice-audio/;
-
-        proxy_http_version 1.1;
-
-        # Headers for file downloads from MinIO
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        
-        # Allow large file downloads
-        proxy_buffering off;
-        client_max_body_size 100M;
-    }
-}
-```
-
-<Note>
-Replace `YOUR_SERVER_IP` with your server's public IP address in both locations (lines 3 and 11).
-</Note>
-
-### Step 5: Deploy with Remote Profile
-
-Start the application with the remote profile to include nginx:
-
-```bash
 docker compose --profile remote up -d
 ```
 
-This command starts all services including the nginx reverse proxy with HTTPS support.
-
-### Step 6: Access Your Application
+### Access Your Application
 
 Your application will be available at:
 ```
 https://YOUR_SERVER_IP
 ```
 
-Replace `YOUR_SERVER_IP` with your actual server IP address.
+<Note>
+Since we are using a self-signed certificate, your browser will show a security warning. You can safely accept it to proceed.
+</Note>
 
 ### Configuration Notes
 
@@ -189,4 +94,18 @@ Replace `YOUR_SERVER_IP` with your actual server IP address.
 - File downloads (transcripts, recordings) are automatically routed through nginx
 - WebSocket connections for real-time features are properly proxied
 - The setup uses self-signed certificates - browsers will show a security warning that you can safely accept for testing
+- The TURN server (coturn) is configured for WebRTC NAT traversal
 - For production deployments with proper SSL and domain names, see the [Custom Domain](custom-domain) documentation
+
+### Files Created
+
+The setup script creates the following files in the `dograh/` directory:
+
+| File | Purpose |
+|------|---------|
+| `docker-compose.yaml` | Main Docker Compose configuration |
+| `nginx.conf` | nginx reverse proxy configuration with your IP |
+| `generate_certificate.sh` | Script to regenerate SSL certificates |
+| `certs/local.crt` | Self-signed SSL certificate |
+| `certs/local.key` | SSL private key |
+| `.env` | Environment variables for TURN server |

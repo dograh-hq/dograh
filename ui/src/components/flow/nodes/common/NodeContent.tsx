@@ -12,7 +12,7 @@ interface NodeContentProps {
     hovered_through_edge?: boolean;
     title: string;
     icon: ReactNode;
-    nodeType?: 'start' | 'agent' | 'end' | 'global';
+    nodeType?: 'start' | 'agent' | 'end' | 'global' | 'trigger' | 'webhook';
     hasSourceHandle?: boolean;
     hasTargetHandle?: boolean;
     children?: ReactNode;
@@ -32,6 +32,10 @@ const getNodeTypeBadge = (nodeType?: string) => {
             return { label: 'End Node', className: 'bg-rose-500 text-white' };
         case 'global':
             return { label: 'Global Node', className: 'bg-amber-500 text-white' };
+        case 'trigger':
+            return { label: 'API Trigger', className: 'bg-purple-500 text-white' };
+        case 'webhook':
+            return { label: 'Webhook', className: 'bg-indigo-500 text-white' };
         default:
             return { label: 'Node', className: 'bg-zinc-500 text-white' };
     }
@@ -50,6 +54,7 @@ export const NodeContent = ({
     children,
     className = "",
     onDoubleClick,
+    nodeId,
 }: NodeContentProps) => {
     const badge = getNodeTypeBadge(nodeType);
 
@@ -80,6 +85,11 @@ export const NodeContent = ({
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-foreground truncate">
                         {title}
+                        {nodeId && (
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">
+                                #{nodeId}
+                            </span>
+                        )}
                     </h3>
                 </div>
             </div>

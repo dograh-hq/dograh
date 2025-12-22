@@ -46,17 +46,6 @@
               "features/campaigns",
               "features/looptalk"
             ]
-          }
-        ]
-      },
-      {
-        "tab": "Integrations",
-        "groups": [
-          {
-            "group": "Overview",
-            "pages": [
-              "integrations/overview"
-            ]
           },
           {
             "group": "Telephony",

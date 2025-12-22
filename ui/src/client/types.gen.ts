@@ -100,6 +100,18 @@ export type CreateCampaignRequest = {
     source_id: string;
 };
 
+/**
+ * Request schema for creating a webhook credential.
+ */
+export type CreateCredentialRequest = {
+    name: string;
+    description?: string | null;
+    credential_type: WebhookCredentialType;
+    credential_data: {
+        [key: string]: unknown;
+    };
+};
+
 export type CreateLoadTestRequest = {
     name_prefix: string;
     actor_workflow_id: number;
@@ -160,6 +172,18 @@ export type CreateWorkflowTemplateRequest = {
     call_type: 'INBOUND' | 'OUTBOUND';
     use_case: string;
     activity_description: string;
+};
+
+/**
+ * Response schema for a webhook credential (never includes sensitive data).
+ */
+export type CredentialResponse = {
+    uuid: string;
+    name: string;
+    description: string | null;
+    credential_type: string;
+    created_at: string;
+    updated_at: string | null;
 };
 
 export type CurrentUsageResponse = {
@@ -478,6 +502,25 @@ export type TestSessionResponse = {
 };
 
 /**
+ * Request model for triggering a call via API
+ */
+export type TriggerCallRequest = {
+    phone_number: string;
+    initial_context?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * Response model for successful call initiation
+ */
+export type TriggerCallResponse = {
+    status: string;
+    workflow_run_id: number;
+    workflow_run_name: string;
+};
+
+/**
  * Request schema for Twilio configuration.
  */
 export type TwilioConfigurationRequest = {
@@ -504,6 +547,18 @@ export type TwilioConfigurationResponse = {
     account_sid: string;
     auth_token: string;
     from_numbers: Array<string>;
+};
+
+/**
+ * Request schema for updating a webhook credential.
+ */
+export type UpdateCredentialRequest = {
+    name?: string | null;
+    description?: string | null;
+    credential_type?: WebhookCredentialType | null;
+    credential_data?: {
+        [key: string]: unknown;
+    } | null;
 };
 
 export type UpdateIntegrationRequest = {
@@ -663,6 +718,11 @@ export type VonageConfigurationResponse = {
     private_key: string;
     from_numbers: Array<string>;
 };
+
+/**
+ * Webhook credential authentication types
+ */
+export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
 
 export type WorkflowError = {
     kind: ItemKind;
@@ -2100,6 +2160,174 @@ export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrl
 
 export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponse = GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses[keyof GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses];
 
+export type ListCredentialsApiV1CredentialsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/credentials/';
+};
+
+export type ListCredentialsApiV1CredentialsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListCredentialsApiV1CredentialsGetError = ListCredentialsApiV1CredentialsGetErrors[keyof ListCredentialsApiV1CredentialsGetErrors];
+
+export type ListCredentialsApiV1CredentialsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: Array<CredentialResponse>;
+};
+
+export type ListCredentialsApiV1CredentialsGetResponse = ListCredentialsApiV1CredentialsGetResponses[keyof ListCredentialsApiV1CredentialsGetResponses];
+
+export type CreateCredentialApiV1CredentialsPostData = {
+    body: CreateCredentialRequest;
+    headers?: {
+        authorization?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/credentials/';
+};
+
+export type CreateCredentialApiV1CredentialsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateCredentialApiV1CredentialsPostError = CreateCredentialApiV1CredentialsPostErrors[keyof CreateCredentialApiV1CredentialsPostErrors];
+
+export type CreateCredentialApiV1CredentialsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CredentialResponse;
+};
+
+export type CreateCredentialApiV1CredentialsPostResponse = CreateCredentialApiV1CredentialsPostResponses[keyof CreateCredentialApiV1CredentialsPostResponses];
+
+export type DeleteCredentialApiV1CredentialsCredentialUuidDeleteData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        credential_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/credentials/{credential_uuid}';
+};
+
+export type DeleteCredentialApiV1CredentialsCredentialUuidDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteCredentialApiV1CredentialsCredentialUuidDeleteError = DeleteCredentialApiV1CredentialsCredentialUuidDeleteErrors[keyof DeleteCredentialApiV1CredentialsCredentialUuidDeleteErrors];
+
+export type DeleteCredentialApiV1CredentialsCredentialUuidDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type DeleteCredentialApiV1CredentialsCredentialUuidDeleteResponse = DeleteCredentialApiV1CredentialsCredentialUuidDeleteResponses[keyof DeleteCredentialApiV1CredentialsCredentialUuidDeleteResponses];
+
+export type GetCredentialApiV1CredentialsCredentialUuidGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        credential_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/credentials/{credential_uuid}';
+};
+
+export type GetCredentialApiV1CredentialsCredentialUuidGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCredentialApiV1CredentialsCredentialUuidGetError = GetCredentialApiV1CredentialsCredentialUuidGetErrors[keyof GetCredentialApiV1CredentialsCredentialUuidGetErrors];
+
+export type GetCredentialApiV1CredentialsCredentialUuidGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CredentialResponse;
+};
+
+export type GetCredentialApiV1CredentialsCredentialUuidGetResponse = GetCredentialApiV1CredentialsCredentialUuidGetResponses[keyof GetCredentialApiV1CredentialsCredentialUuidGetResponses];
+
+export type UpdateCredentialApiV1CredentialsCredentialUuidPutData = {
+    body: UpdateCredentialRequest;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        credential_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/credentials/{credential_uuid}';
+};
+
+export type UpdateCredentialApiV1CredentialsCredentialUuidPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateCredentialApiV1CredentialsCredentialUuidPutError = UpdateCredentialApiV1CredentialsCredentialUuidPutErrors[keyof UpdateCredentialApiV1CredentialsCredentialUuidPutErrors];
+
+export type UpdateCredentialApiV1CredentialsCredentialUuidPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: CredentialResponse;
+};
+
+export type UpdateCredentialApiV1CredentialsCredentialUuidPutResponse = UpdateCredentialApiV1CredentialsCredentialUuidPutResponses[keyof UpdateCredentialApiV1CredentialsCredentialUuidPutResponses];
+
 export type GetIntegrationsApiV1IntegrationGetData = {
     body?: never;
     headers?: {
@@ -3176,6 +3404,40 @@ export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsResponses = {
      */
     200: unknown;
 };
+
+export type InitiateCallApiV1PublicAgentUuidPostData = {
+    body: TriggerCallRequest;
+    headers: {
+        'X-API-Key': string;
+    };
+    path: {
+        uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/public/agent/{uuid}';
+};
+
+export type InitiateCallApiV1PublicAgentUuidPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallApiV1PublicAgentUuidPostError = InitiateCallApiV1PublicAgentUuidPostErrors[keyof InitiateCallApiV1PublicAgentUuidPostErrors];
+
+export type InitiateCallApiV1PublicAgentUuidPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TriggerCallResponse;
+};
+
+export type InitiateCallApiV1PublicAgentUuidPostResponse = InitiateCallApiV1PublicAgentUuidPostResponses[keyof InitiateCallApiV1PublicAgentUuidPostResponses];
 
 export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteData = {
     body?: never;

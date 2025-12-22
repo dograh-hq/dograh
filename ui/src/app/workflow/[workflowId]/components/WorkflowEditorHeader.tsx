@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { ArrowLeft, ChevronDown, Download, History, LoaderCircle, MoreVertical, Phone } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, Download, History, LoaderCircle, MoreVertical, Phone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -14,6 +14,11 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import { WORKFLOW_RUN_MODES } from "@/constants/workflowRunModes";
 
 interface WorkflowEditorHeaderProps {
@@ -101,6 +106,52 @@ export const WorkflowEditorHeader = ({
                         <div className="w-2 h-2 rounded-full bg-yellow-500" />
                         <span className="text-sm text-yellow-500">Unsaved changes</span>
                     </div>
+                )}
+
+                {/* Validation errors indicator */}
+                {hasValidationErrors && (
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <button className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 transition-colors cursor-pointer">
+                                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                <AlertCircle className="w-4 h-4 text-red-500" />
+                                <span className="text-sm text-red-500">
+                                    {workflowValidationErrors.length} {workflowValidationErrors.length === 1 ? "error" : "errors"}
+                                </span>
+                            </button>
+                        </PopoverTrigger>
+                        <PopoverContent
+                            align="end"
+                            className="w-80 bg-[#1a1a1a] border-[#3a3a3a] p-0"
+                        >
+                            <div className="px-4 py-3 border-b border-[#3a3a3a]">
+                                <h3 className="text-sm font-medium text-white">Validation Errors</h3>
+                            </div>
+                            <div className="max-h-64 overflow-y-auto">
+                                {workflowValidationErrors.map((error, index) => (
+                                    <div
+                                        key={index}
+                                        className="px-4 py-3 border-b border-[#2a2a2a] last:border-b-0"
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                            <div className="flex-1 min-w-0">
+                                                {(error.kind === "node" || error.kind === "edge") && error.id && (
+                                                    <p className="text-xs text-gray-400 mb-1">
+                                                        {error.kind === "node" ? "Node" : "Edge"}: {error.id}
+                                                        {error.field && <span className="text-gray-500"> • {error.field}</span>}
+                                                    </p>
+                                                )}
+                                                <p className="text-sm text-white break-words">
+                                                    {error.message}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </PopoverContent>
+                    </Popover>
                 )}
 
                 {/* Call button with dropdown */}

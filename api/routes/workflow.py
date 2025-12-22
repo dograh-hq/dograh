@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime
 from typing import List, Literal, Optional
 
@@ -17,6 +18,62 @@ from api.services.mps_service_key_client import mps_service_key_client
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.workflow import WorkflowGraph
+
+
+def extract_trigger_paths(workflow_definition: dict) -> List[str]:
+    """Extract trigger UUIDs from workflow definition.
+
+    Args:
+        workflow_definition: The workflow definition JSON
+
+    Returns:
+        List of trigger UUIDs found in the workflow
+    """
+    if not workflow_definition:
+        return []
+
+    nodes = workflow_definition.get("nodes", [])
+    trigger_paths = []
+
+    for node in nodes:
+        if node.get("type") == "trigger":
+            trigger_path = node.get("data", {}).get("trigger_path")
+            if trigger_path:
+                trigger_paths.append(trigger_path)
+
+    return trigger_paths
+
+
+def regenerate_trigger_uuids(workflow_definition: dict) -> dict:
+    """Regenerate UUIDs for all trigger nodes in a workflow definition.
+
+    This should be called when creating a new workflow from a template or
+    duplicating a workflow to avoid trigger UUID conflicts.
+
+    Args:
+        workflow_definition: The workflow definition JSON
+
+    Returns:
+        Updated workflow definition with new trigger UUIDs
+    """
+    if not workflow_definition:
+        return workflow_definition
+
+    # Deep copy to avoid modifying the original
+    import copy
+
+    updated_definition = copy.deepcopy(workflow_definition)
+
+    nodes = updated_definition.get("nodes", [])
+    for node in nodes:
+        if node.get("type") == "trigger":
+            # Generate a new UUID for this trigger
+            if "data" not in node:
+                node["data"] = {}
+            node["data"]["trigger_path"] = str(uuid.uuid4())
+
+    return updated_definition
+
 
 router = APIRouter(prefix="/workflow")
 
@@ -181,6 +238,17 @@ async def create_workflow(
         user.id,
         user.selected_organization_id,
     )
+
+    # Sync agent triggers if workflow definition contains any
+    if request.workflow_definition:
+        trigger_paths = extract_trigger_paths(request.workflow_definition)
+        if trigger_paths:
+            await db_client.sync_triggers_for_workflow(
+                workflow_id=workflow.id,
+                organization_id=user.selected_organization_id,
+                trigger_paths=trigger_paths,
+            )
+
     return {
         "id": workflow.id,
         "name": workflow.name,
@@ -238,12 +306,26 @@ async def create_workflow_from_template(
             )
 
         # Create the workflow in our database
+        # Regenerate trigger UUIDs to avoid conflicts with existing triggers
+        workflow_def = regenerate_trigger_uuids(
+            workflow_data.get("workflow_definition", {})
+        )
         workflow = await db_client.create_workflow(
             name=workflow_data.get("name", f"{request.use_case} - {request.call_type}"),
-            workflow_definition=workflow_data.get("workflow_definition", {}),
+            workflow_definition=workflow_def,
             user_id=user.id,
             organization_id=user.selected_organization_id,
         )
+
+        # Sync agent triggers if workflow definition contains any
+        if workflow_def:
+            trigger_paths = extract_trigger_paths(workflow_def)
+            if trigger_paths:
+                await db_client.sync_triggers_for_workflow(
+                    workflow_id=workflow.id,
+                    organization_id=user.selected_organization_id,
+                    trigger_paths=trigger_paths,
+                )
 
         return {
             "id": workflow.id,
@@ -434,6 +516,16 @@ async def update_workflow(
             workflow_configurations=request.workflow_configurations,
             organization_id=user.selected_organization_id,
         )
+
+        # Sync agent triggers if workflow definition was updated
+        if request.workflow_definition:
+            trigger_paths = extract_trigger_paths(request.workflow_definition)
+            await db_client.sync_triggers_for_workflow(
+                workflow_id=workflow.id,
+                organization_id=user.selected_organization_id,
+                trigger_paths=trigger_paths,
+            )
+
         return {
             "id": workflow.id,
             "name": workflow.name,
@@ -645,12 +737,24 @@ async def duplicate_workflow_template(
         )
 
     # Create a new workflow from the template
+    # Regenerate trigger UUIDs to avoid conflicts with existing triggers
+    workflow_def = regenerate_trigger_uuids(template.template_json)
     workflow = await db_client.create_workflow(
         request.workflow_name,
-        template.template_json,
+        workflow_def,
         user.id,
         user.selected_organization_id,
     )
+
+    # Sync agent triggers if template contains any
+    if workflow_def:
+        trigger_paths = extract_trigger_paths(workflow_def)
+        if trigger_paths:
+            await db_client.sync_triggers_for_workflow(
+                workflow_id=workflow.id,
+                organization_id=user.selected_organization_id,
+                trigger_paths=trigger_paths,
+            )
 
     return {
         "id": workflow.id,

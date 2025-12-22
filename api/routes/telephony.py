@@ -14,9 +14,11 @@ from starlette.responses import HTMLResponse
 
 from api.db import db_client
 from api.db.models import UserModel
+from api.enums import WorkflowRunState
 from api.services.auth.depends import get_user
 from api.services.campaign.call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
+from api.services.quota_service import check_dograh_quota
 from api.services.telephony.factory import get_telephony_provider
 from api.utils.tunnel import TunnelURLProvider
 from pipecat.utils.context import set_current_run_id
@@ -98,6 +100,11 @@ async def initiate_call(
             status_code=400,
             detail="telephony_not_configured",
         )
+
+    # Check Dograh quota before initiating the call
+    quota_result = await check_dograh_quota(user)
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
@@ -230,6 +237,16 @@ async def websocket_endpoint(
             await websocket.close(code=4404, reason="Workflow not found")
             return
 
+        # Check workflow run state - only allow 'initialized' state
+        if workflow_run.state != WorkflowRunState.INITIALIZED.value:
+            logger.warning(
+                f"Workflow run {workflow_run_id} not in initialized state: {workflow_run.state}"
+            )
+            await websocket.close(
+                code=4409, reason="Workflow run not available for connection"
+            )
+            return
+
         # Extract provider type from workflow run context
         provider_type = None
         if workflow_run.gathered_context:
@@ -254,6 +271,15 @@ async def websocket_endpoint(
             )
             await websocket.close(code=4400, reason="Provider mismatch")
             return
+
+        # Set workflow run state to 'running' before starting the pipeline
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id, state=WorkflowRunState.RUNNING.value
+        )
+
+        logger.info(
+            f"[run {workflow_run_id}] Set workflow run state to 'running' for {provider_type} provider"
+        )
 
         # Delegate to provider-specific handler
         await provider.handle_websocket(
@@ -362,7 +388,11 @@ async def _process_status_update(
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
 
         # Mark workflow run as completed
-        await db_client.update_workflow_run(run_id=workflow_run_id, is_completed=True)
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
+        )
 
         # Publish campaign event if applicable
         if workflow_run.campaign_id:
@@ -406,6 +436,7 @@ async def _process_status_update(
         await db_client.update_workflow_run(
             run_id=workflow_run_id,
             is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
             gathered_context={"call_tags": call_tags},
         )
 

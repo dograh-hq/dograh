@@ -1,6 +1,7 @@
 from loguru import logger
 
 from api.db import db_client
+from api.enums import WorkflowRunState
 from api.services.campaign.call_dispatcher import campaign_call_dispatcher
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_transcript_buffers import (
@@ -176,6 +177,7 @@ def register_task_event_handler(
             usage_info=usage_info,
             gathered_context=gathered_context,
             is_completed=True,
+            state=WorkflowRunState.COMPLETED.value,
         )
 
         # Release concurrent slot for campaign calls

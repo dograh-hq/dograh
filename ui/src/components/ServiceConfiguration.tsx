@@ -110,9 +110,11 @@ export default function ServiceConfiguration() {
             setServicePropertyValues("tts");
             setServicePropertyValues("stt");
 
-            setServiceProviders(selectedProviders);
-
+            // IMPORTANT: Reset form values BEFORE changing providers
+            // Otherwise, Radix Select sees old values that don't match new provider's enum
+            // and calls onValueChange('') to clear "invalid" values
             reset(defaultValues);
+            setServiceProviders(selectedProviders);
         };
         fetchConfigurations();
     }, [reset, userConfig]);
@@ -294,6 +296,9 @@ export default function ServiceConfiguration() {
                 <Select
                     value={watch(`${service}_${field}`) as string || ""}
                     onValueChange={(value) => {
+                        // Ignore empty string - Radix Select sometimes calls onValueChange('')
+                        // when options change, even if current value is valid
+                        if (!value) return;
                         setValue(`${service}_${field}`, value, { shouldDirty: true });
                     }}
                 >

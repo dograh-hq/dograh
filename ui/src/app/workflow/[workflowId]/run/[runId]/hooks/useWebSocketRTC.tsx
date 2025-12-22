@@ -36,8 +36,13 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     } = useDeviceInputs();
 
     const useStun = true;
+    const useTurn = true; // Enable TURN server for NAT traversal
     const useAudio = true;
     const audioCodec = 'default';
+
+    // TURN server credentials (static for now, can be fetched from API later)
+    const turnUsername = process.env.NEXT_PUBLIC_TURN_USERNAME || 'dograh';
+    const turnPassword = process.env.NEXT_PUBLIC_TURN_PASSWORD || 'dograh-turn-secret';
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -67,8 +72,32 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     }, [workflowId, workflowRunId, accessToken]);
 
     const createPeerConnection = () => {
+        // Build ICE servers list
+        const iceServers: RTCIceServer[] = [];
+
+        if (useStun) {
+            iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
+        }
+
+        if (useTurn) {
+            // Get TURN server host from current page URL (same server hosts coturn)
+            const turnHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+
+            // Add TURN server with static credentials
+            iceServers.push({
+                urls: [
+                    `turn:${turnHost}:3478`,           // TURN over UDP
+                    `turn:${turnHost}:3478?transport=tcp`, // TURN over TCP
+                ],
+                username: turnUsername,
+                credential: turnPassword
+            });
+
+            logger.info(`TURN server configured: ${turnHost}:3478`);
+        }
+
         const config: RTCConfiguration = {
-            iceServers: useStun ? [{ urls: ['stun:stun.l.google.com:19302'] }] : []
+            iceServers
         };
 
         const pc = new RTCPeerConnection(config);

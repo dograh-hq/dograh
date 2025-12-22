@@ -109,6 +109,11 @@ services:
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
       SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
 
+      # TURN server configuration (for WebRTC NAT traversal)
+      TURN_HOST: "${TURN_HOST:-}"
+      TURN_USERNAME: "${TURN_USERNAME:-dograh}"
+      TURN_PASSWORD: "${TURN_PASSWORD:-dograh-turn-secret}"
+
     ports:
       - "8000:8000"
     depends_on:
@@ -149,6 +154,10 @@ services:
 
       # Sentry
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
+
+      # TURN server credentials (for WebRTC NAT traversal)
+      NEXT_PUBLIC_TURN_USERNAME: "${TURN_USERNAME:-dograh}"
+      NEXT_PUBLIC_TURN_PASSWORD: "${TURN_PASSWORD:-dograh-turn-secret}"
     ports:
       - "3010:3010"
     depends_on:
@@ -175,6 +184,32 @@ services:
       - "2000:2000" # Expose metrics endpoint
     networks:
       - app-network
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    container_name: coturn
+    restart: unless-stopped
+    profiles: ["remote"]
+    network_mode: host
+    environment:
+      # Static credentials for TURN authentication
+      TURN_USERNAME: ${TURN_USERNAME:-dograh}
+      TURN_PASSWORD: ${TURN_PASSWORD:-dograh-turn-secret}
+    command:
+      - --listening-port=3478
+      - --tls-listening-port=5349
+      - --min-port=49152
+      - --max-port=49200
+      - --realm=${TURN_REALM:-dograh.com}
+      - --user=${TURN_USERNAME:-dograh}:${TURN_PASSWORD:-dograh-turn-secret}
+      - --lt-cred-mech
+      - --fingerprint
+      - --no-cli
+      - --log-file=stdout
+      - --external-ip=${TURN_EXTERNAL_IP:-}
+      # Allow localhost for testing
+      - --no-loopback-peers=false
+      - --no-multicast-peers
 
 volumes:
   postgres_data:

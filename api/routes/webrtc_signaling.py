@@ -10,8 +10,9 @@ Uses the SmallWebRTC API contract:
 """
 
 import asyncio
+import os
 from datetime import UTC, datetime
-from typing import Dict
+from typing import Dict, List, Union
 
 from aiortc.sdp import candidate_from_sdp
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
@@ -28,8 +29,34 @@ from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/ws")
 
+
+def get_ice_servers() -> List[Union[str, dict]]:
+    """Build ICE servers configuration including TURN if configured."""
+    servers: List[Union[str, dict]] = [
+        "stun:stun.l.google.com:19302"
+    ]
+
+    # Add TURN server if configured
+    turn_host = os.getenv("TURN_HOST")
+    turn_username = os.getenv("TURN_USERNAME")
+    turn_password = os.getenv("TURN_PASSWORD")
+
+    if turn_host and turn_username and turn_password:
+        servers.append({
+            "urls": [
+                f"turn:{turn_host}:3478",
+                f"turn:{turn_host}:3478?transport=tcp",
+            ],
+            "username": turn_username,
+            "credential": turn_password,
+        })
+        logger.info(f"TURN server configured: {turn_host}:3478")
+
+    return servers
+
+
 # ICE servers configuration
-ice_servers = ["stun:stun.l.google.com:19302"]
+ice_servers = get_ice_servers()
 
 
 class SignalingManager:

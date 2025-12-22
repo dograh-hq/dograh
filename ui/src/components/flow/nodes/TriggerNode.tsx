@@ -1,5 +1,6 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
 import { Check, Copy, Edit, Trash2Icon, Webhook } from "lucide-react";
+import Link from "next/link";
 import { memo, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
@@ -190,7 +191,10 @@ const TriggerNodeEditForm = ({
             <div className="grid gap-2">
                 <Label>API Endpoint</Label>
                 <Label className="text-xs text-muted-foreground">
-                    Use this endpoint to trigger calls via API. Requires an API key in the X-API-Key header.
+                    Use this endpoint to trigger calls via API. Requires an API key in the X-API-Key header.{" "}
+                    <Link href="/api-keys" target="_blank" className="text-primary underline hover:no-underline">
+                        Get your API key
+                    </Link>
                 </Label>
                 <div className="flex items-center gap-2">
                     <code className="text-xs break-all bg-muted px-2 py-1 rounded flex-1">

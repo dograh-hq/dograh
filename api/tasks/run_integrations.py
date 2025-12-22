@@ -1,227 +1,227 @@
-import os
+"""Execute webhook integrations after workflow run completion."""
 
-import aiohttp
+import base64
+from typing import Any, Dict
+
 import httpx
 from loguru import logger
 
 from api.db import db_client
-from api.db.models import IntegrationModel
-from api.enums import OrganizationConfigurationKey, WorkflowRunMode
+from api.db.models import ExternalCredentialModel, WorkflowRunModel
 from api.utils.template_renderer import render_template
 from pipecat.utils.context import set_current_run_id
 
 
-async def run_integrations_post_workflow_run(ctx, workflow_run_id: int):
+async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
     """
-    Run integrations after a workflow run completes.
+    Run webhook integrations after a workflow run completes.
 
     This function:
-    1. Gets the workflow run and its gathered_context
-    2. Determines the organization_id through the workflow -> user -> organization chain
-    3. Fetches all active integrations for that organization
-    4. For Slack integrations, sends the gathered_context to the webhook URL
-
-    Args:
-        workflow_run_id: The ID of the completed workflow run
+    1. Gets the workflow run and its contexts
+    2. Extracts webhook nodes from workflow definition
+    3. Executes each enabled webhook node
     """
-    # Set the workflow_run_id in context variable for consistent logging format
     set_current_run_id(workflow_run_id)
-    logger.info("Running integrations for workflow run")
+    logger.info("Running webhook integrations for workflow run")
 
     try:
-        # Step 1: Get workflow run details with gathered_context using DB client
+        # Step 1: Get workflow run with full context
         workflow_run, organization_id = await db_client.get_workflow_run_with_context(
             workflow_run_id
         )
 
-        if not workflow_run:
-            logger.error("Workflow run not found")
+        if not workflow_run or not workflow_run.workflow:
+            logger.error("Workflow run or workflow not found")
             return
 
-        if not workflow_run.workflow:
-            logger.error("Workflow not found for workflow run")
-            return
-
-        if not workflow_run.workflow.user:
-            logger.error("User not found for workflow run")
-            return
-
-        gathered_context = workflow_run.gathered_context
-        initial_context = workflow_run.initial_context
-
-        if not gathered_context:
-            logger.info("No gathered context for workflow run, skipping integrations")
-            return
-
-        # Check if workflow run mode is stasis and sync with vendor
-        if workflow_run.mode == WorkflowRunMode.STASIS.value:
-            await _sync_vendor_data(initial_context, gathered_context)
-
-        # Step 2: Check if organization_id is available
         if not organization_id:
-            logger.warning(
-                f"No organization found for workflow run, skipping integrations"
-            )
+            logger.warning("No organization found, skipping webhooks")
             return
 
-        logger.debug(f"Found organization_id {organization_id} for workflow run")
+        # Step 2: Get workflow definition
+        workflow_definition = workflow_run.workflow.workflow_definition_with_fallback
+        if not workflow_definition:
+            logger.debug("No workflow definition, skipping webhooks")
+            return
 
-        # Step 3: Get all active integrations for the organization using DB client
-        integrations = await db_client.get_active_integrations_by_organization(
-            organization_id
-        )
+        # Step 3: Extract webhook nodes
+        nodes = workflow_definition.get("nodes", [])
+        webhook_nodes = [n for n in nodes if n.get("type") == "webhook"]
 
-        logger.info(
-            f"Found {len(integrations)} active integrations for organization {organization_id}"
-        )
+        if not webhook_nodes:
+            logger.debug("No webhook nodes in workflow")
+            return
 
-        # Step 4: Process each integration
-        for integration in integrations:
-            await _process_integration(integration, gathered_context)
+        logger.info(f"Found {len(webhook_nodes)} webhook nodes to execute")
+
+        # Step 4: Build render context
+        render_context = _build_render_context(workflow_run)
+
+        # Step 5: Execute each webhook node
+        for node in webhook_nodes:
+            webhook_data = node.get("data", {})
+            try:
+                await _execute_webhook_node(
+                    webhook_data=webhook_data,
+                    render_context=render_context,
+                    organization_id=organization_id,
+                )
+            except Exception as e:
+                # Log error but continue with other webhooks
+                logger.error(
+                    f"Failed to execute webhook '{webhook_data.get('name', 'unknown')}': {e}"
+                )
 
     except Exception as e:
-        logger.error(f"Error running integrations for workflow run: {str(e)}")
+        logger.error(f"Error running webhook integrations: {e}", exc_info=True)
         raise
 
 
-async def _sync_vendor_data(initial_context: dict, gathered_context: dict):
+def _build_render_context(workflow_run: WorkflowRunModel) -> Dict[str, Any]:
+    """Build the context dict for template rendering."""
+    return {
+        # Top-level fields
+        "workflow_run_id": workflow_run.id,
+        "workflow_run_name": workflow_run.name,
+        "workflow_id": workflow_run.workflow_id,
+        "workflow_name": workflow_run.workflow.name if workflow_run.workflow else None,
+        # Nested contexts
+        "initial_context": workflow_run.initial_context or {},
+        "gathered_context": workflow_run.gathered_context or {},
+        "cost_info": workflow_run.usage_info or {},
+        "recording_url": getattr(workflow_run, "recording_url", None),
+        "transcript_url": getattr(workflow_run, "transcript_url", None),
+    }
+
+
+async def _execute_webhook_node(
+    webhook_data: Dict[str, Any],
+    render_context: Dict[str, Any],
+    organization_id: int,
+) -> bool:
     """
-    Sync data with external vendor for stasis mode workflow runs.
+    Execute a single webhook node.
 
     Args:
-        initial_context: The initial context containing lead_id
-        gathered_context: The gathered context containing mapped_call_disposition
+        webhook_data: The webhook node's data dict from workflow definition
+        render_context: Context for template rendering
+        organization_id: For credential lookup
+
+    Returns:
+        True if successful, False otherwise
     """
-    if not os.getenv("ARI_DATA_SYNCING_URI"):
-        logger.info("ARI_DATA_SYNCING_URI not configured, skipping vendor sync")
-        return
+    webhook_name = webhook_data.get("name", "Unnamed Webhook")
 
-    try:
-        lead_id = initial_context.get("lead_id")
-        status = gathered_context.get("mapped_call_disposition")
+    # 1. Check if enabled
+    if not webhook_data.get("enabled", True):
+        logger.debug(f"Webhook '{webhook_name}' is disabled, skipping")
+        return True
 
-        if lead_id and status:
-            ari_data_uri = os.getenv("ARI_DATA_SYNCING_URI")
-            # Add URL params to the base URL
-            sync_url = f"{ari_data_uri}&lead_id={lead_id}&status={status}"
+    # 2. Validate endpoint URL
+    url = webhook_data.get("endpoint_url")
+    if not url:
+        logger.error(f"Webhook '{webhook_name}' has no endpoint URL")
+        return False
 
-            async with httpx.AsyncClient() as client:
-                response = await client.post(sync_url, timeout=10.0)
-                response.raise_for_status()
-                logger.info(
-                    f"Successfully synced data for lead_id: {lead_id} with status: {status}"
-                )
+    # 3. Build headers
+    headers = {"Content-Type": "application/json"}
+
+    # 4. Add auth header if credential configured
+    credential_uuid = webhook_data.get("credential_uuid")
+    if credential_uuid:
+        credential = await db_client.get_credential_by_uuid(
+            credential_uuid, organization_id
+        )
+        if credential:
+            auth_header = _build_auth_header(credential)
+            headers.update(auth_header)
+            logger.debug(f"Applied credential '{credential.name}' to webhook")
         else:
             logger.warning(
-                f"Missing lead_id or status for syncing - lead_id: {lead_id}, status: {status}"
+                f"Credential {credential_uuid} not found for webhook '{webhook_name}'"
             )
-    except Exception as e:
-        logger.error(f"Failed to sync data to ARI_DATA_SYNCING_URI: {e}")
 
+    # 5. Add custom headers
+    custom_headers = webhook_data.get("custom_headers", [])
+    for h in custom_headers:
+        if h.get("key") and h.get("value"):
+            headers[h["key"]] = h["value"]
 
-async def _process_integration(
-    integration: IntegrationModel,
-    gathered_context: dict,
-):
-    """
-    Process a single integration.
+    # 6. Render payload template
+    payload_template = webhook_data.get("payload_template", {})
+    payload = render_template(payload_template, render_context)
 
-    Args:
-        integration: The integration model
-        gathered_context: The gathered context from the workflow run
-        workflow_run_name: Name of the workflow run
-        run_id: The workflow run ID for logging context
-    """
-    logger.info(
-        f"Processing integration {integration.id} (provider: {integration.provider})"
-    )
+    # 7. Make HTTP request
+    method = webhook_data.get("http_method", "POST").upper()
+
+    logger.info(f"Executing webhook '{webhook_name}': {method}")
 
     try:
-        if integration.provider.lower() == "slack":
-            await _process_slack_integration(integration, gathered_context)
-        else:
-            logger.info(
-                f"Integration provider '{integration.provider}' not supported yet"
-            )
+        async with httpx.AsyncClient() as client:
+            if method in ("POST", "PUT", "PATCH"):
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    json=payload,
+                    headers=headers,
+                    timeout=30.0,
+                )
+            else:  # GET, DELETE
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    headers=headers,
+                    timeout=30.0,
+                )
 
+            response.raise_for_status()
+            logger.info(f"Webhook '{webhook_name}' succeeded: {response.status_code}")
+            return True
+
+    except httpx.HTTPStatusError as e:
+        logger.error(
+            f"Webhook '{webhook_name}' failed: {e.response.status_code} - {e.response.text[:200]}"
+        )
+        return False
+    except httpx.RequestError as e:
+        logger.error(f"Webhook '{webhook_name}' request error: {e}")
+        return False
     except Exception as e:
-        logger.error(f"Error processing integration {integration.id}: {str(e)}")
+        logger.error(f"Webhook '{webhook_name}' unexpected error: {e}")
+        return False
 
 
-async def _process_slack_integration(
-    integration: IntegrationModel, gathered_context: dict
-):
+def _build_auth_header(credential: ExternalCredentialModel) -> Dict[str, str]:
     """
-    Process a Slack integration by sending gathered_context to the webhook.
+    Build authentication header based on credential type.
 
     Args:
-        integration: The Slack integration model
-        gathered_context: The gathered context from the workflow run
-        workflow_run_name: Name of the workflow run
-        run_id: The workflow run ID for logging context
+        credential: The credential model
+
+    Returns:
+        Dict with header name and value
     """
-    logger.info(f"Processing Slack integration {integration.id}")
+    cred_type = credential.credential_type
+    cred_data = credential.credential_data or {}
 
-    # TODO: Generalise this
-    if gathered_context.get("mapped_call_disposition") != "XFER":
-        logger.debug(
-            f"Not sending message on slack since not XFER: {gathered_context.get('mapped_call_disposition')}"
-        )
-        return
+    if cred_type == "bearer_token":
+        token = cred_data.get("token", "")
+        return {"Authorization": f"Bearer {token}"}
 
-    try:
-        # Extract webhook URL from connection_details
-        connection_details = integration.connection_details
+    elif cred_type == "api_key":
+        header_name = cred_data.get("header_name", "X-API-Key")
+        api_key = cred_data.get("api_key", "")
+        return {header_name: api_key}
 
-        if not connection_details:
-            logger.error(
-                f"No connection details found for Slack integration {integration.id}"
-            )
-            return
+    elif cred_type == "basic_auth":
+        username = cred_data.get("username", "")
+        password = cred_data.get("password", "")
+        encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
+        return {"Authorization": f"Basic {encoded}"}
 
-        # Navigate to incoming_webhook.url in the connection_details
-        webhook_url = connection_details.get("connection_config", {}).get(
-            "incoming_webhook.url"
-        )
-        if not webhook_url:
-            logger.error(
-                f"No incoming_webhook found in connection details for integration {integration.id}"
-            )
-            return
+    elif cred_type == "custom_header":
+        header_name = cred_data.get("header_name", "X-Custom")
+        header_value = cred_data.get("header_value", "")
+        return {header_name: header_value}
 
-        logger.info(f"Found Slack webhook URL for integration {integration.id}")
-
-        # Get message template configuration
-        # Get organization_id from the integration model
-        organization_id = integration.organisation_id
-        message_templates = await db_client.get_configuration_value(
-            organization_id,
-            OrganizationConfigurationKey.DISPOSITION_MESSAGE_TEMPLATE.value,
-            default={},
-        )
-
-        # Check if there's a custom template for Slack
-        slack_template = message_templates.get("slack", {})
-        rendered_text = render_template(slack_template, gathered_context)
-
-        slack_message = {"text": rendered_text}
-
-        # Send to Slack webhook
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                webhook_url,
-                json=slack_message,
-                headers={"Content-Type": "application/json"},
-            ) as response:
-                if response.status == 200:
-                    logger.info(
-                        f"Successfully sent message to Slack for integration {integration.id}"
-                    )
-                else:
-                    error_text = await response.text()
-                    logger.error(
-                        f"Failed to send Slack message for integration {integration.id}: {response.status} - {error_text}"
-                    )
-
-    except Exception as e:
-        logger.error(f"Error processing Slack integration {integration.id}: {str(e)}")
+    return {}

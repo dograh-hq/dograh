@@ -10,6 +10,7 @@ class NodeType(str, Enum):
     agentNode = "agentNode"
     globalNode = "globalNode"
     trigger = "trigger"
+    webhook = "webhook"
 
 
 class Position(BaseModel):
@@ -29,6 +30,17 @@ class ExtractionVariableDTO(BaseModel):
     prompt: Optional[str] = None
 
 
+class CustomHeaderDTO(BaseModel):
+    key: str
+    value: str
+
+
+class RetryConfigDTO(BaseModel):
+    enabled: bool = False
+    max_retries: int = 3
+    retry_delay_seconds: int = 5
+
+
 class NodeDataDTO(BaseModel):
     name: str = Field(..., min_length=1)
     prompt: Optional[str] = Field(default=None)
@@ -46,6 +58,14 @@ class NodeDataDTO(BaseModel):
     delayed_start: bool = False
     delayed_start_duration: Optional[float] = None
     trigger_path: Optional[str] = None
+    # Webhook node specific fields
+    enabled: bool = True
+    http_method: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    credential_uuid: Optional[str] = None
+    custom_headers: Optional[list[CustomHeaderDTO]] = None
+    payload_template: Optional[dict] = None
+    retry_config: Optional[RetryConfigDTO] = None
 
 
 class RFNodeDTO(BaseModel):
@@ -56,8 +76,8 @@ class RFNodeDTO(BaseModel):
 
     @model_validator(mode="after")
     def _validate_prompt_required(self):
-        """Require prompt for all node types except trigger."""
-        if self.type != NodeType.trigger:
+        """Require prompt for all node types except trigger and webhook."""
+        if self.type not in (NodeType.trigger, NodeType.webhook):
             if not self.data.prompt or len(self.data.prompt.strip()) == 0:
                 raise ValueError("Prompt is required for non-trigger nodes")
         return self

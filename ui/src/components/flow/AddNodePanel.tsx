@@ -1,8 +1,7 @@
-import { Globe, Headset, LucideIcon, OctagonX, Play, Webhook, X } from 'lucide-react';
+import { Globe, Headset, Link2, LucideIcon, OctagonX, Play, Webhook, X } from 'lucide-react';
 import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 
 import { NodeType } from './types';
 
@@ -58,6 +57,15 @@ const TRIGGER_NODE_TYPES: NodeTypeConfig[] = [
     }
 ];
 
+const WEBHOOK_NODE_TYPES: NodeTypeConfig[] = [
+    {
+        type: NodeType.WEBHOOK,
+        label: 'Webhook',
+        description: 'Send HTTP request after workflow completion',
+        icon: Link2
+    }
+];
+
 function NodeSection({
     title,
     nodes,
@@ -84,9 +92,9 @@ function NodeSection({
                             <div className="bg-muted p-2 rounded-lg mr-3 border border-border">
                                 <node.icon className="h-5 w-5" />
                             </div>
-                            <div className="flex flex-col items-start">
+                            <div className="flex flex-col items-start text-left min-w-0">
                                 <span className="font-medium text-sm">{node.label}</span>
-                                <span className="text-xs text-muted-foreground">
+                                <span className="text-xs text-muted-foreground whitespace-normal">
                                     {node.description}
                                 </span>
                             </div>
@@ -139,6 +147,12 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
                     <NodeSection
                         title="Global Nodes"
                         nodes={GLOBAL_NODE_TYPES}
+                        onNodeSelect={onNodeSelect}
+                    />
+
+                    <NodeSection
+                        title="Integrations"
+                        nodes={WEBHOOK_NODE_TYPES}
                         onNodeSelect={onNodeSelect}
                     />
                 </div>

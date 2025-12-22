@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 from loguru import logger
@@ -22,6 +23,7 @@ from sqlalchemy.orm import declarative_base, relationship
 from ..enums import (
     IntegrationAction,
     TriggerState,
+    WebhookCredentialType,
     WorkflowRunMode,
     WorkflowRunState,
     WorkflowStatus,
@@ -725,4 +727,76 @@ class AgentTriggerModel(Base):
     __table_args__ = (
         Index("ix_agent_triggers_workflow_id", "workflow_id"),
         Index("ix_agent_triggers_state", "state"),
+    )
+
+
+class ExternalCredentialModel(Base):
+    """Model for storing external authentication credentials.
+
+    Credentials are stored separately from webhook configurations to allow
+    reuse across multiple workflows and secure storage of sensitive data.
+    """
+
+    __tablename__ = "external_credentials"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Public UUID reference (used in APIs and workflow definitions)
+    # This prevents enumeration attacks and hides internal IDs
+    credential_uuid = Column(
+        String(36),
+        unique=True,
+        nullable=False,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    # Organization scoping
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Credential metadata
+    name = Column(String, nullable=False)  # Display name, e.g., "Salesforce API"
+    description = Column(String, nullable=True)  # Optional description
+
+    # Credential type - uses enum from api/enums.py
+    credential_type = Column(
+        Enum(
+            *[t.value for t in WebhookCredentialType],
+            name="webhook_credential_type",
+        ),
+        nullable=False,
+        default=WebhookCredentialType.NONE.value,
+    )
+
+    # Encrypted credential data (JSON)
+    # Structure depends on credential_type:
+    # - api_key: {"header_name": "X-API-Key", "api_key": "value"}
+    # - bearer_token: {"token": "value"}
+    # - basic_auth: {"username": "user", "password": "value"}
+    # - custom_header: {"header_name": "X-Custom", "header_value": "value"}
+    credential_data = Column(JSON, nullable=False, default=dict)
+
+    # Audit fields
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    # Soft delete for safety
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # Relationships
+    organization = relationship("OrganizationModel")
+    created_by_user = relationship("UserModel")
+
+    # Indexes and constraints
+    __table_args__ = (
+        Index("ix_webhook_credentials_organization_id", "organization_id"),
+        Index("ix_webhook_credentials_uuid", "credential_uuid"),
+        UniqueConstraint("organization_id", "name", name="unique_org_credential_name"),
     )

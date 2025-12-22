@@ -9,6 +9,7 @@ from api.db.organization_configuration_client import OrganizationConfigurationCl
 from api.db.organization_usage_client import OrganizationUsageClient
 from api.db.reports_client import ReportsClient
 from api.db.user_client import UserClient
+from api.db.webhook_credential_client import WebhookCredentialClient
 from api.db.workflow_client import WorkflowClient
 from api.db.workflow_run_client import WorkflowRunClient
 from api.db.workflow_template_client import WorkflowTemplateClient
@@ -29,6 +30,7 @@ class DBClient(
     APIKeyClient,
     EmbedTokenClient,
     AgentTriggerClient,
+    WebhookCredentialClient,
 ):
     """
     Unified database client that combines all specialized database operations.
@@ -48,6 +50,7 @@ class DBClient(
     - APIKeyClient: handles API key operations
     - EmbedTokenClient: handles embed token and session operations
     - AgentTriggerClient: handles agent trigger operations for API-based call triggering
+    - WebhookCredentialClient: handles webhook credential operations
     """
 
     pass

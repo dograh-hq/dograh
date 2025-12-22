@@ -99,3 +99,13 @@ class TriggerState(Enum):
 
     ACTIVE = "active"
     ARCHIVED = "archived"
+
+
+class WebhookCredentialType(Enum):
+    """Webhook credential authentication types"""
+
+    NONE = "none"  # No authentication
+    API_KEY = "api_key"  # API key in header
+    BEARER_TOKEN = "bearer_token"  # Bearer token auth
+    BASIC_AUTH = "basic_auth"  # Username/password
+    CUSTOM_HEADER = "custom_header"  # Custom header key-value

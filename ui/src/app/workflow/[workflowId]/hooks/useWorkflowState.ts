@@ -48,7 +48,8 @@ const defaultNodes: FlowNode[] = [
 ];
 
 const getNewNode = (type: string, position: { x: number, y: number }, existingNodes: FlowNode[]) => {
-    return {
+    // Base node configuration
+    const baseNode = {
         id: getNextNodeId(existingNodes),
         type,
         position,
@@ -60,10 +61,28 @@ const getNewNode = (type: string, position: { x: number, y: number }, existingNo
                 [NodeType.GLOBAL_NODE]: "Global Node",
                 [NodeType.START_CALL]: "Start Call",
                 [NodeType.END_CALL]: "End Call",
+                [NodeType.WEBHOOK]: "Webhook",
             }[type] || "",
             allow_interrupt: getDefaultAllowInterrupt(type),
         },
     };
+
+    // Add webhook-specific defaults
+    if (type === NodeType.WEBHOOK) {
+        return {
+            ...baseNode,
+            data: {
+                ...baseNode.data,
+                enabled: true,
+                http_method: "POST" as const,
+                endpoint_url: "",
+                custom_headers: [],
+                payload_template: {},
+            },
+        };
+    }
+
+    return baseNode;
 };
 
 interface UseWorkflowStateProps {

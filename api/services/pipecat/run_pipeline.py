@@ -271,6 +271,13 @@ async def run_pipeline_cloudonix(
                 "ambient_noise_configuration"
             ]
 
+    # Retrieve session_token from workflow_run gathered_context
+    workflow_run = await db_client.get_workflow_run(workflow_run_id)
+    session_token = None
+    if workflow_run and workflow_run.gathered_context:
+        session_token = workflow_run.gathered_context.get("session_token")
+        logger.debug(f"Retrieved session_token from workflow_run: {session_token}")
+
     # Create audio configuration for Twilio
     audio_config = create_audio_config(WorkflowRunMode.CLOUDONIX.value)
 
@@ -283,6 +290,7 @@ async def run_pipeline_cloudonix(
         workflow.organization_id,
         vad_config,
         ambient_noise_config,
+        session_token,
     )
     await _run_pipeline(
         transport,

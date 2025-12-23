@@ -136,6 +136,7 @@ async def create_cloudonix_transport(
     organization_id: int,
     vad_config: dict | None = None,
     ambient_noise_config: dict | None = None,
+    session_token: str | None = None,
 ):
     """Create a transport for Cloudonix connections"""
 
@@ -165,6 +166,7 @@ async def create_cloudonix_transport(
         call_sid=call_sid,
         domain_id=domain_id,
         bearer_token=bearer_token,
+        session_token=session_token,
     )
 
     return FastAPIWebsocketTransport(

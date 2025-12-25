@@ -240,6 +240,28 @@ async def websocket_endpoint(
             logger.warning(
                 f"Workflow run {workflow_run_id} not in initialized state: {workflow_run.state}"
             )
+            
+            # For Vobiz calls, stop audio streams to prevent WebSocket retries
+            if workflow_run.gathered_context and workflow_run.gathered_context.get("provider") == "vobiz":
+                try:
+                    logger.info(f"[run {workflow_run_id}] Stopping Vobiz audio streams due to completed workflow state")
+                    provider = await get_telephony_provider(workflow.organization_id)
+                    call_id = workflow_run.gathered_context.get("call_id")
+                    if call_id:
+                        logger.debug(f"[run {workflow_run_id}] Using call_id from gathered_context: {call_id}")
+                        
+                        # 1: Stop audio streams
+                        stream_result = await provider.stop_audio_stream(call_id)
+                        logger.info(f"[run {workflow_run_id}] Vobiz stop audio streams - call {call_id}: {stream_result}")
+                        
+                        # 2: Hang up the call as well
+                        hangup_result = await provider.hangup_call(call_id)
+                        logger.info(f"[run {workflow_run_id}] Vobiz hangup call - call {call_id}: {hangup_result}")
+                    else:
+                        logger.warning(f"[run {workflow_run_id}] No call_id found in gathered_context")
+                except Exception as e:
+                    logger.warning(f"[run {workflow_run_id}] Failed to stop Vobiz streams during state check: {e}")
+            
             await websocket.close(
                 code=4409, reason="Workflow run not available for connection"
             )

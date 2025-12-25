@@ -20,6 +20,7 @@ class ServiceProviders(str, Enum):
     GOOGLE = "google"
     AZURE = "azure"
     DOGRAH = "dograh"
+    SARVAM = "sarvam"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -31,6 +32,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
         ServiceProviders.DOGRAH,
+        # ServiceProviders.SARVAM,
     ]
     api_key: str
 
@@ -92,82 +94,56 @@ def register_stt(cls: Type[BaseSTTConfiguration]):
 
 ###################################################### LLM ########################################################################
 
-
-class OpenAIModel(str, Enum):
-    GPT3_5_TURBO = "gpt-3.5-turbo"
-    GPT4_1 = "gpt-4.1"
-    GPT4_1_MINI = "gpt-4.1-mini"
-    GPT4_1_NANO = "gpt-4.1-nano"
-    GPT5 = "gpt-5"
-    GPT5_MINI = "gpt-5-mini"
-    GPT5_NANO = "gpt-5-nano"
+# Suggested models for each provider (used for UI dropdown)
+OPENAI_MODELS = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano", "gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-3.5-turbo"]
+GOOGLE_MODELS = ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "deepseek-r1-distill-llama-70b",
+    "qwen-qwq-32b",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "gemma2-9b-it",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-120b",
+]
+AZURE_MODELS = ["gpt-4.1-mini"]
+DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen", "zen_lite"]
 
 
 @register_llm
 class OpenAILLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
-    model: OpenAIModel = OpenAIModel.GPT4_1
+    model: str = Field(default="gpt-4.1", json_schema_extra={"examples": OPENAI_MODELS})
     api_key: str
-
-
-class GoogleModel(str, Enum):
-    GEMINI_2_0_FLASH = "gemini-2.0-flash"
-    GEMINI_2_0_FLASH_LITE = "gemini-2.0-flash-lite"
-    GEMINI_2_5_FLASH = "gemini-2.5-flash"
-    GEMINI_2_5_FLASH_LITE = "gemini-2.5-flash-lite"
 
 
 @register_llm
 class GoogleLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
-    model: GoogleModel = GoogleModel.GEMINI_2_0_FLASH
+    model: str = Field(default="gemini-2.0-flash", json_schema_extra={"examples": GOOGLE_MODELS})
     api_key: str
-
-
-class GroqModel(str, Enum):
-    LLAMA_3_3_70B = "llama-3.3-70b-versatile"
-    DEEPSEEK_R1_DISTILL_LLAMA_70B = "deepseek-r1-distill-llama-70b"
-    QUEN_QWQ_32B = "qwen-qwq-32b"
-    LLAMA_4_SCOUT_17B_16E_INSTRUCT = "meta-llama/llama-4-scout-17b-16e-instruct"
-    LLAMA_4_MAVERICK_17B_128E_INSTRUCT = "meta-llama/llama-4-maverick-17b-128e-instruct"
-    GEMMA2_9B_IT = "gemma2-9b-it"
-    LLAMA_3_1_8B_INSTANT = "llama-3.1-8b-instant"
-    OPENAI_GPT_OSS_120B = "openai/gpt-oss-120b"
 
 
 @register_llm
 class GroqLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.GROQ] = ServiceProviders.GROQ
-    model: GroqModel = GroqModel.LLAMA_3_3_70B
+    model: str = Field(default="llama-3.3-70b-versatile", json_schema_extra={"examples": GROQ_MODELS})
     api_key: str
-
-
-class AzureModel(str, Enum):
-    GPT4_1_MINI = "gpt-4.1-mini"
 
 
 @register_llm
 class AzureLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
-    model: AzureModel = AzureModel.GPT4_1_MINI
+    model: str = Field(default="gpt-4.1-mini", json_schema_extra={"examples": AZURE_MODELS})
     api_key: str
     endpoint: str
-
-
-# Dograh LLM Service
-class DograhLLMModel(str, Enum):
-    DEFAULT = "default"
-    ACCURATE = "accurate"
-    FAST = "fast"
-    LITE = "lite"
-    ZEN = "zen"
-    ZEN_LITE = "zen_lite"
 
 
 @register_llm
 class DograhLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
-    model: DograhLLMModel = DograhLLMModel.DEFAULT
+    model: str = Field(default="default", json_schema_extra={"examples": DOGRAH_LLM_MODELS})
     api_key: str
 
 
@@ -185,15 +161,10 @@ LLMConfig = Annotated[
 ###################################################### TTS ########################################################################
 
 
-class DeepgramVoice(str, Enum):
-    HELENA = "aura-2-helena-en"
-    THALIA = "aura-2-thalia-en"
-
-
 @register_tts
 class DeepgramTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
-    voice: DeepgramVoice = DeepgramVoice.HELENA
+    voice: str = "aura-2-helena-en"
     api_key: str
 
     @computed_field
@@ -210,42 +181,6 @@ class DeepgramTTSConfiguration(BaseServiceConfiguration):
             return "aura-2"
 
 
-class ElevenlabsVoice(str, Enum):
-    ALEXANDRA = "Alexandra - 3dzJXoCYueSQiptQ6euE"
-    AMY = "Amy - oGn4Ha2pe2vSJkmIJgLQ"
-    ANGELA = "Angela - FUfBrNit0NNZAwb58KWH"
-    ARIA = "Aria - 9BWtsMINqrJLrRacOk9x"
-    CHELSEA = "Chelsea - NHRgOEwqx5WZNClv5sat"
-    CHRISTINA = "Christina - X03mvPuTfprif8QBAVeJ"
-    CLARA = "Clara - ZIlrSGI4jZqobxRKprJz"
-    CLYDE = "Clyde - 2EiwWnXFnvU5JabPnv8n"
-    DAVE = "Dave - CYw3kZ02Hs0563khs1Fj"
-    DOMI = "Domi - AZnzlk1XvdvUeBnXmlld"
-    DREW = "Drew - 29vD33N1CtxCmqQRPOHJ"
-    ELENA = "Elena_German - iFJwt4O7E3aafIpJFfcu"
-    EVE = "Eve - BZgkqPqms7Kj9ulSkVzn"
-    FIN = "Fin - D38z5RcWu1voky8WS1ja"
-    HOPE_BESTIE = "Hope_Bestie - uYXf8XasLslADfZ2MB4u"
-    HOPE_NATURAL = "Hope_Natural - OYTbf65OHHFELVut7v2H"
-    JARNATHAN = "Jarnathan - c6SfcYrb2t09NHXiT80T"
-    JENNA = "Jenna - C2BkQxlGNzBn7WD2bqfR"
-    JESSICA = "Jessica - cgSgspJ2msm6clMCkdW9"
-    JOHANNA = "Johanna_German - YYDsZT3K2y6tv7X1aj6N"
-    JUNIPER = "Juniper - aMSt68OGf4xUZAnLpTU8"
-    LAUREN = "Lauren - 3liN8q8YoeB9Hk6AboKe"
-    LINA = "Lina - oWjuL7HSoaEJRMDMP3HD"
-    MONIKA = "Monika_Hindi_8 - 2bNrEsM0omyhLiEyOwqY"
-    NEHA = "Neha_Hindi - QTKSa2Iyv0yoxvXY2V8a"
-    OLIVIA = "Olivia - 1rviaVF7GGGkTU36HNpz"
-    PAUL = "Paul - 5Q0t7uMcjvnagumLfvZi"
-    RACHEL = "Rachel - 21m00Tcm4TlvDq8ikWAM"
-    ROGER = "Roger - CwhRBWXzGAHq8TQ4Fs17"
-    SAMI_REAL = "Sami_Real - O4cGUVdAocn0z4EpQ9yF"
-    SARAH = "Sarah - EXAVITQu4vr4xnSDxMaL"
-    SIA = "Sia_Hindi_10 - ryIIztHPLYSJ74ueXxnO"
-    ZARA = "Zara - MmQVkVZnQ0dUbfWzcW6f"
-
-
 class ElevenlabsModel(str, Enum):
     FLASH_2 = "eleven_flash_v2_5"
 
@@ -253,14 +188,10 @@ class ElevenlabsModel(str, Enum):
 @register_tts
 class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.ELEVENLABS] = ServiceProviders.ELEVENLABS
-    voice: ElevenlabsVoice = ElevenlabsVoice.RACHEL
+    voice: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel voice ID
     speed: float = Field(default=1.0, ge=0.1, le=2.0, description="Speed of the voice")
     model: ElevenlabsModel = ElevenlabsModel.FLASH_2
     api_key: str
-
-
-class OpenAIVoice(str, Enum):
-    ALLY = "alloy"
 
 
 class OpenAITTSModel(str, Enum):
@@ -271,27 +202,8 @@ class OpenAITTSModel(str, Enum):
 class OpenAITTSService(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: OpenAITTSModel = OpenAITTSModel.GPT_4o_MINI
-    voice: OpenAIVoice = OpenAIVoice.ALLY
+    voice: str = "alloy"
     api_key: str
-
-
-# class NeuphonicVoice(str, Enum):
-#     EMILY = "Emily - fc854436-2dac-4d21-aa69-ae17b54e98eb"
-
-
-# @register_tts
-# class NeuphonicTTSService(BaseTTSConfiguration):
-#     provider: Literal[ServiceProviders.NEUPHONIC] = ServiceProviders.NEUPHONIC
-#     voice: NeuphonicVoice = NeuphonicVoice.EMILY
-#     model: str = "NA"
-#     api_key: str
-
-
-# Dograh TTS Service
-class DograhVoice(str, Enum):
-    DEFAULT = "default"
-    JOEY = "joey"
-    RACHEL = "rachel"
 
 
 class DograhTTSModel(str, Enum):
@@ -302,8 +214,49 @@ class DograhTTSModel(str, Enum):
 class DograhTTSService(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: DograhTTSModel = DograhTTSModel.DEFAULT
-    voice: DograhVoice = DograhVoice.DEFAULT
+    voice: str = "default"
     api_key: str
+
+
+class SarvamTTSModel(str, Enum):
+    BULBUL_V2 = "bulbul:v2"
+    BULBUL_V3 = "bulbul:v3"
+
+
+class SarvamVoice(str, Enum):
+    # Female voices
+    ANUSHKA = "anushka"
+    MANISHA = "manisha"
+    VIDYA = "vidya"
+    ARYA = "arya"
+    # Male voices
+    ABHILASH = "abhilash"
+    KARUN = "karun"
+    HITESH = "hitesh"
+
+
+class SarvamLanguage(str, Enum):
+    BENGALI = "bn-IN"
+    ENGLISH_INDIA = "en-IN"
+    GUJARATI = "gu-IN"
+    HINDI = "hi-IN"
+    KANNADA = "kn-IN"
+    MALAYALAM = "ml-IN"
+    MARATHI = "mr-IN"
+    ODIA = "od-IN"
+    PUNJABI = "pa-IN"
+    TAMIL = "ta-IN"
+    TELUGU = "te-IN"
+    ASSAMESE = "as-IN"
+
+
+# @register_tts
+# class SarvamTTSConfiguration(BaseTTSConfiguration):
+#     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+#     model: SarvamTTSModel = SarvamTTSModel.BULBUL_V2
+#     voice: SarvamVoice = SarvamVoice.ANUSHKA
+#     language: SarvamLanguage = SarvamLanguage.HINDI
+#     api_key: str
 
 
 TTSConfig = Annotated[
@@ -312,6 +265,7 @@ TTSConfig = Annotated[
         OpenAITTSService,
         ElevenlabsTTSConfiguration,
         DograhTTSService,
+        # SarvamTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -323,10 +277,45 @@ class DeepgramSTTModel(str, Enum):
     NOVA_3_GENERAL = "nova-3-general"
 
 
+class DeepgramLanguage(str, Enum):
+    MULTI = "multi"
+    ENGLISH = "en"
+    ENGLISH_US = "en-US"
+    ENGLISH_GB = "en-GB"
+    ENGLISH_AU = "en-AU"
+    ENGLISH_IN = "en-IN"
+    SPANISH = "es"
+    SPANISH_LATAM = "es-419"
+    FRENCH = "fr"
+    FRENCH_CA = "fr-CA"
+    GERMAN = "de"
+    ITALIAN = "it"
+    PORTUGUESE = "pt"
+    PORTUGUESE_BR = "pt-BR"
+    DUTCH = "nl"
+    HINDI = "hi"
+    JAPANESE = "ja"
+    KOREAN = "ko"
+    CHINESE_SIMPLIFIED = "zh-CN"
+    CHINESE_TRADITIONAL = "zh-TW"
+    RUSSIAN = "ru"
+    POLISH = "pl"
+    TURKISH = "tr"
+    UKRAINIAN = "uk"
+    VIETNAMESE = "vi"
+    SWEDISH = "sv"
+    DANISH = "da"
+    NORWEGIAN = "no"
+    FINNISH = "fi"
+    INDONESIAN = "id"
+    THAI = "th"
+
+
 @register_stt
 class DeepgramSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
     model: DeepgramSTTModel = DeepgramSTTModel.NOVA_3_GENERAL
+    language: DeepgramLanguage = DeepgramLanguage.MULTI
     api_key: str
 
 
@@ -359,8 +348,27 @@ class DograhSTTService(BaseSTTConfiguration):
     api_key: str
 
 
+# Sarvam STT Service
+class SarvamSTTModel(str, Enum):
+    SAARIKA_V2_5 = "saarika:v2.5"
+    SAARAS_V2 = "saaras:v2"  # STT-Translate model (auto-detects language)
+
+
+# @register_stt
+# class SarvamSTTConfiguration(BaseSTTConfiguration):
+#     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+#     model: SarvamSTTModel = SarvamSTTModel.SAARIKA_V2_5
+#     language: SarvamLanguage = SarvamLanguage.HINDI
+#     api_key: str
+
+
 STTConfig = Annotated[
-    Union[DeepgramSTTConfiguration, OpenAISTTConfiguration, DograhSTTService],
+    Union[
+        DeepgramSTTConfiguration,
+        OpenAISTTConfiguration,
+        DograhSTTService,
+        # SarvamSTTConfiguration,
+    ],
     Field(discriminator="provider"),
 ]
 

@@ -5,7 +5,6 @@ from api.schemas.user_configuration import UserConfiguration
 from api.services.configuration.masking import is_mask_of, mask_key, mask_user_config
 from api.services.configuration.merge import merge_user_configurations
 from api.services.configuration.registry import (
-    GroqModel,
     OpenAILLMService,
 )
 
@@ -70,7 +69,7 @@ def test_merge_drops_old_key_when_provider_changes():
     incoming_partial = {
         "llm": {
             "provider": "groq",
-            "model": GroqModel.LLAMA_3_3_70B,
+            "model": "llama-3.3-70b-versatile",
             # api_key intentionally absent – should NOT inherit old key
         }
     }

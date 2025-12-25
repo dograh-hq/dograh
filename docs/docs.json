@@ -30,6 +30,9 @@
             "group": "Configurations",
             "pages": [
               "configurations/inference-providers",
+              "configurations/llm",
+              "configurations/voice",
+              "configurations/transcriber",
               "configurations/api-keys"
             ]
           },

@@ -650,6 +650,21 @@ export type VobizConfigurationResponse = {
     from_numbers: Array<string>;
 };
 
+export type VoiceInfo = {
+    voice_id: string;
+    name: string;
+    description?: string | null;
+    accent?: string | null;
+    gender?: string | null;
+    language?: string | null;
+    preview_url?: string | null;
+};
+
+export type VoicesResponse = {
+    provider: string;
+    voices: Array<VoiceInfo>;
+};
+
 /**
  * Request schema for Vonage configuration.
  */
@@ -1827,6 +1842,40 @@ export type ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutResponses = {
 };
 
 export type ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutResponse = ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutResponses[keyof ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutResponses];
+
+export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        provider: 'elevenlabs' | 'deepgram' | 'sarvam' | 'cartesia' | 'dograh';
+    };
+    query?: never;
+    url: '/api/v1/user/configurations/voices/{provider}';
+};
+
+export type GetVoicesApiV1UserConfigurationsVoicesProviderGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetVoicesApiV1UserConfigurationsVoicesProviderGetError = GetVoicesApiV1UserConfigurationsVoicesProviderGetErrors[keyof GetVoicesApiV1UserConfigurationsVoicesProviderGetErrors];
+
+export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: VoicesResponse;
+};
+
+export type GetVoicesApiV1UserConfigurationsVoicesProviderGetResponse = GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses[keyof GetVoicesApiV1UserConfigurationsVoicesProviderGetResponses];
 
 export type CreateCampaignApiV1CampaignCreatePostData = {
     body: CreateCampaignRequest;

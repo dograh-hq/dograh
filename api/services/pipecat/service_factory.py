@@ -17,6 +17,9 @@ from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
+from pipecat.services.sarvam.stt import SarvamSTTService
+from pipecat.services.sarvam.tts import SarvamTTSService
+from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
 if TYPE_CHECKING:
@@ -26,8 +29,13 @@ if TYPE_CHECKING:
 def create_stt_service(user_config):
     """Create and return appropriate STT service based on user configuration"""
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
+        # Use language from user config, defaulting to "multi" for multilingual support
+        language = getattr(user_config.stt, "language", None)
+        language_value = (
+            language.value if hasattr(language, "value") else (language or "multi")
+        )
         live_options = LiveOptions(
-            language="multi", profanity_filter=False, endpointing=100
+            language=language_value, profanity_filter=False, endpointing=100
         )
         return DeepgramSTTService(
             live_options=live_options,
@@ -52,6 +60,32 @@ def create_stt_service(user_config):
             api_key=user_config.stt.api_key,
             model=user_config.stt.model.value,
             audio_passthrough=False,  # Disable passthrough since audio is buffered separately
+        )
+    elif user_config.stt.provider == ServiceProviders.SARVAM.value:
+        # Map Sarvam language code to pipecat Language enum
+        language_mapping = {
+            "bn-IN": Language.BN_IN,
+            "gu-IN": Language.GU_IN,
+            "hi-IN": Language.HI_IN,
+            "kn-IN": Language.KN_IN,
+            "ml-IN": Language.ML_IN,
+            "mr-IN": Language.MR_IN,
+            "ta-IN": Language.TA_IN,
+            "te-IN": Language.TE_IN,
+            "pa-IN": Language.PA_IN,
+            "od-IN": Language.OR_IN,
+            "en-IN": Language.EN_IN,
+            "as-IN": Language.AS_IN,
+        }
+        language = getattr(user_config.stt, "language", None)
+        language_value = language.value if hasattr(language, "value") else language
+        pipecat_language = language_mapping.get(language_value, Language.HI_IN)
+
+        return SarvamSTTService(
+            api_key=user_config.stt.api_key,
+            model=user_config.stt.model.value,
+            params=SarvamSTTService.InputParams(language=pipecat_language),
+            audio_passthrough=False,
         )
     else:
         raise HTTPException(
@@ -81,7 +115,12 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             text_filters=[xml_function_tag_filter],
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
-        voice_id = user_config.tts.voice.split(" - ")[1]
+        # Backward compatible with older configuration "Name - voice_id"
+        try:
+            voice_id = user_config.tts.voice.split(" - ")[1]
+        except IndexError:
+            voice_id = user_config.tts.voice
+
         return ElevenLabsTTSService(
             reconnect_on_error=False,
             api_key=user_config.tts.api_key,
@@ -101,6 +140,35 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             model=user_config.tts.model.value,
             voice=user_config.tts.voice.value,
+            text_filters=[xml_function_tag_filter],
+        )
+    elif user_config.tts.provider == ServiceProviders.SARVAM.value:
+        # Map Sarvam language code to pipecat Language enum for TTS
+        language_mapping = {
+            "bn-IN": Language.BN,
+            "en-IN": Language.EN,
+            "gu-IN": Language.GU,
+            "hi-IN": Language.HI,
+            "kn-IN": Language.KN,
+            "ml-IN": Language.ML,
+            "mr-IN": Language.MR,
+            "od-IN": Language.OR,
+            "pa-IN": Language.PA,
+            "ta-IN": Language.TA,
+            "te-IN": Language.TE,
+        }
+        language = getattr(user_config.tts, "language", None)
+        language_value = language.value if hasattr(language, "value") else language
+        pipecat_language = language_mapping.get(language_value, Language.HI)
+
+        voice = getattr(user_config.tts, "voice", None)
+        voice_value = voice.value if hasattr(voice, "value") else (voice or "anushka")
+
+        return SarvamTTSService(
+            api_key=user_config.tts.api_key,
+            model=user_config.tts.model.value,
+            voice_id=voice_value,
+            params=SarvamTTSService.InputParams(language=pipecat_language),
             text_filters=[xml_function_tag_filter],
         )
     else:

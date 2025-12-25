@@ -6,10 +6,12 @@ import { useForm } from "react-hook-form";
 import { getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet } from '@/client/sdk.gen';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { VoiceSelector } from "@/components/VoiceSelector";
 import { useUserConfig } from "@/context/UserConfigContext";
 
 type ServiceSegment = "llm" | "tts" | "stt";
@@ -18,6 +20,7 @@ interface SchemaProperty {
     type?: string;
     default?: string | number | boolean;
     enum?: string[];
+    examples?: string[];
     $ref?: string;
     description?: string;
     format?: string;
@@ -40,6 +43,65 @@ const TAB_CONFIG: { key: ServiceSegment; label: string }[] = [
     { key: "stt", label: "Transcriber" },
 ];
 
+// Display names for language codes (Deepgram + Sarvam)
+const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
+    // Deepgram languages
+    "multi": "Multilingual (Auto-detect)",
+    "en": "English",
+    "en-US": "English (US)",
+    "en-GB": "English (UK)",
+    "en-AU": "English (Australia)",
+    "en-IN": "English (India)",
+    "es": "Spanish",
+    "es-419": "Spanish (Latin America)",
+    "fr": "French",
+    "fr-CA": "French (Canada)",
+    "de": "German",
+    "it": "Italian",
+    "pt": "Portuguese",
+    "pt-BR": "Portuguese (Brazil)",
+    "nl": "Dutch",
+    "hi": "Hindi",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "zh-CN": "Chinese (Simplified)",
+    "zh-TW": "Chinese (Traditional)",
+    "ru": "Russian",
+    "pl": "Polish",
+    "tr": "Turkish",
+    "uk": "Ukrainian",
+    "vi": "Vietnamese",
+    "sv": "Swedish",
+    "da": "Danish",
+    "no": "Norwegian",
+    "fi": "Finnish",
+    "id": "Indonesian",
+    "th": "Thai",
+    // Sarvam Indian languages
+    "bn-IN": "Bengali",
+    "gu-IN": "Gujarati",
+    "hi-IN": "Hindi",
+    "kn-IN": "Kannada",
+    "ml-IN": "Malayalam",
+    "mr-IN": "Marathi",
+    "od-IN": "Odia",
+    "pa-IN": "Punjabi",
+    "ta-IN": "Tamil",
+    "te-IN": "Telugu",
+    "as-IN": "Assamese",
+};
+
+// Display names for Sarvam voices
+const VOICE_DISPLAY_NAMES: Record<string, string> = {
+    "anushka": "Anushka (Female)",
+    "manisha": "Manisha (Female)",
+    "vidya": "Vidya (Female)",
+    "arya": "Arya (Female)",
+    "abhilash": "Abhilash (Male)",
+    "karun": "Karun (Male)",
+    "hitesh": "Hitesh (Male)",
+};
+
 export default function ServiceConfiguration() {
     const [apiError, setApiError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -54,6 +116,8 @@ export default function ServiceConfiguration() {
         tts: "",
         stt: ""
     });
+    const [isManualModelInput, setIsManualModelInput] = useState(false);
+    const [hasCheckedManualMode, setHasCheckedManualMode] = useState(false);
 
     const {
         register,
@@ -119,6 +183,29 @@ export default function ServiceConfiguration() {
         fetchConfigurations();
     }, [reset, userConfig]);
 
+    // Check if the saved LLM model is not in the suggested options (custom model)
+    useEffect(() => {
+        if (hasCheckedManualMode) return;
+
+        const currentProvider = serviceProviders.llm;
+        const providerSchema = schemas?.llm?.[currentProvider];
+        if (!providerSchema) return;
+
+        const modelSchema = providerSchema.properties.model;
+        const actualModelSchema = modelSchema?.$ref && providerSchema.$defs
+            ? providerSchema.$defs[modelSchema.$ref.split('/').pop() || '']
+            : modelSchema;
+
+        if (actualModelSchema?.examples && userConfig?.llm?.model) {
+            const savedModel = userConfig.llm.model as string;
+            const isInOptions = actualModelSchema.examples.includes(savedModel);
+            if (!isInOptions) {
+                setIsManualModelInput(true);
+            }
+            setHasCheckedManualMode(true);
+        }
+    }, [schemas, serviceProviders.llm, userConfig?.llm?.model, hasCheckedManualMode]);
+
     const handleProviderChange = (service: ServiceSegment, providerName: string) => {
         if (!providerName) {
             return;
@@ -147,6 +234,11 @@ export default function ServiceConfiguration() {
         preservedValues[`${service}_provider`] = providerName;
         reset(preservedValues);
         setServiceProviders(prev => ({ ...prev, [service]: providerName }));
+
+        // Reset manual model input when LLM provider changes
+        if (service === "llm") {
+            setIsManualModelInput(false);
+        }
     }
 
 
@@ -266,7 +358,7 @@ export default function ServiceConfiguration() {
                     <div className="space-y-2">
                         <Label>API Key</Label>
                         <Input
-                            type="password"
+                            type="text"
                             placeholder="Enter API key"
                             {...register(`${service}_api_key`, {
                                 required: providerSchema.required?.includes("api_key"),
@@ -291,7 +383,113 @@ export default function ServiceConfiguration() {
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
             : schema;
 
+        // Use VoiceSelector for voice field in TTS service (except Sarvam which uses enum)
+        if (service === "tts" && field === "voice") {
+            const currentProvider = serviceProviders.tts;
+            // Sarvam uses enum-based voice selection, not VoiceSelector
+            if (currentProvider !== "sarvam" && !actualSchema?.enum) {
+                return (
+                    <VoiceSelector
+                        provider={currentProvider}
+                        value={watch(`${service}_${field}`) as string || ""}
+                        onChange={(voiceId) => {
+                            setValue(`${service}_${field}`, voiceId, { shouldDirty: true });
+                        }}
+                    />
+                );
+            }
+        }
+
+        // Handle LLM model field with manual input toggle (uses examples from schema)
+        if (service === "llm" && field === "model" && actualSchema?.examples) {
+            const currentValue = watch(`${service}_${field}`) as string || "";
+            const modelOptions = actualSchema.examples;
+
+            if (isManualModelInput) {
+                return (
+                    <div className="space-y-2">
+                        <Input
+                            type="text"
+                            placeholder="Enter model name"
+                            value={currentValue}
+                            onChange={(e) => {
+                                setValue(`${service}_${field}`, e.target.value, { shouldDirty: true });
+                            }}
+                        />
+                        <div className="flex items-center space-x-2">
+                            <Checkbox
+                                id="manual-model-input"
+                                checked={isManualModelInput}
+                                onCheckedChange={(checked) => {
+                                    setIsManualModelInput(checked as boolean);
+                                    if (!checked && modelOptions.length > 0) {
+                                        // Reset to first option when switching back
+                                        setValue(`${service}_${field}`, modelOptions[0], { shouldDirty: true });
+                                    }
+                                }}
+                            />
+                            <Label
+                                htmlFor="manual-model-input"
+                                className="text-sm font-normal cursor-pointer"
+                            >
+                                Add Model Manually
+                            </Label>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="space-y-2">
+                    <Select
+                        value={currentValue}
+                        onValueChange={(value) => {
+                            if (!value) return;
+                            setValue(`${service}_${field}`, value, { shouldDirty: true });
+                        }}
+                    >
+                        <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select model" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {modelOptions.map((value: string) => (
+                                <SelectItem key={value} value={value}>
+                                    {value}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <div className="flex items-center space-x-2">
+                        <Checkbox
+                            id="manual-model-input-dropdown"
+                            checked={isManualModelInput}
+                            onCheckedChange={(checked) => {
+                                setIsManualModelInput(checked as boolean);
+                            }}
+                        />
+                        <Label
+                            htmlFor="manual-model-input-dropdown"
+                            className="text-sm font-normal cursor-pointer"
+                        >
+                            Add Model Manually
+                        </Label>
+                    </div>
+                </div>
+            );
+        }
+
         if (actualSchema?.enum) {
+            // Use friendly display names for language and voice fields
+            const getDisplayName = (value: string) => {
+                if (field === "language") {
+                    return LANGUAGE_DISPLAY_NAMES[value] || value;
+                }
+                if (field === "voice") {
+                    return VOICE_DISPLAY_NAMES[value] || value;
+                }
+                return value;
+            };
+
             return (
                 <Select
                     value={watch(`${service}_${field}`) as string || ""}
@@ -308,7 +506,7 @@ export default function ServiceConfiguration() {
                     <SelectContent>
                         {actualSchema.enum.map((value: string) => (
                             <SelectItem key={value} value={value}>
-                                {value}
+                                {getDisplayName(value)}
                             </SelectItem>
                         ))}
                     </SelectContent>

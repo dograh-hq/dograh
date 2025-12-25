@@ -111,9 +111,7 @@ def apply_workflow_run_filters(
                     # (subscript [] only works in PostgreSQL 14+)
                     filter_conditions.append(
                         cast(WorkflowRunModel.gathered_context, JSONB)
-                        .op("->>")(
-                            "mapped_call_disposition"
-                        )
+                        .op("->>")("mapped_call_disposition")
                         .in_(codes)
                     )
 
@@ -147,9 +145,7 @@ def apply_workflow_run_filters(
                     # Use ->> operator for compatibility with all PostgreSQL versions
                     filter_conditions.append(
                         cast(WorkflowRunModel.initial_context, JSONB)
-                        .op("->>")(
-                            "phone"
-                        )
+                        .op("->>")("phone")
                         .contains(phone)
                     )
 
@@ -178,13 +174,9 @@ def apply_workflow_run_filters(
                         "total_cost_usd"
                     )
                     if min_val is not None:
-                        filter_conditions.append(
-                            cast(cost_text, Integer) >= min_val
-                        )
+                        filter_conditions.append(cast(cost_text, Integer) >= min_val)
                     if max_val is not None:
-                        filter_conditions.append(
-                            cast(cost_text, Integer) <= max_val
-                        )
+                        filter_conditions.append(cast(cost_text, Integer) <= max_val)
 
     if filter_conditions:
         base_query = base_query.where(and_(*filter_conditions))

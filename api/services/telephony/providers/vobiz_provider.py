@@ -11,6 +11,7 @@ from loguru import logger
 
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import CallInitiationResult, TelephonyProvider
+from api.services.telephony.vobiz_api_client import VobizApiClient
 from api.utils.tunnel import TunnelURLProvider
 
 if TYPE_CHECKING:
@@ -45,6 +46,9 @@ class VobizProvider(TelephonyProvider):
             self.from_numbers = [self.from_numbers]
 
         self.base_url = "https://api.vobiz.ai/api"
+        
+        # API client for centralized api calls
+        self._api_client = VobizApiClient(self.auth_id, self.auth_token) if self.validate_config() else None
 
     async def initiate_call(
         self,
@@ -138,7 +142,7 @@ class VobizProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=call_id,
                     status="queued",  # Vobiz returns "message": "call fired"
-                    provider_metadata={},
+                    provider_metadata={"call_id": call_id},
                     raw_response=response_data,
                 )
 
@@ -267,6 +271,20 @@ class VobizProvider(TelephonyProvider):
             logger.error(f"Exception fetching Vobiz call cost: {e}")
             return {"cost_usd": 0.0, "duration": 0, "status": "error", "error": str(e)}
 
+    async def stop_audio_stream(self, call_id: str, stream_id: Optional[str] = None) -> Dict[str, Any]:
+        """Stop Vobiz audio stream(s) using the centralized API client."""
+        if not self._api_client:
+            return {"success": False, "error": "Vobiz api client missing in provider implementation"}
+            
+        return await self._api_client.stop_audio_stream(call_id, stream_id)
+
+    async def hangup_call(self, call_id: str) -> Dict[str, Any]:
+        """Hangup Vobiz call using the centralized API client."""
+        if not self._api_client:
+            return {"success": False, "error": "Vobiz api client missing in provider implementation"}
+            
+        return await self._api_client.hangup_call(call_id)
+
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Parse Vobiz status callback data into generic format.
@@ -338,4 +356,5 @@ class VobizProvider(TelephonyProvider):
             logger.error(
                 f"[run {workflow_run_id}] Error in Vobiz WebSocket handler: {e}"
             )
+            
             raise

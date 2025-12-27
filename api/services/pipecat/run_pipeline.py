@@ -176,6 +176,67 @@ async def run_pipeline_vonage(
         raise
 
 
+async def _send_vobiz_termination_signal(transport, workflow_run_id: int, reason: str = "unknown"):
+    """Send termination signal to Vobiz and cleanup transport resources when pipeline fails to start.
+    
+    This function performs complete pipeline cleanup by:
+    1. Sending EndFrame to VobizFrameSerializer to trigger cleanup
+    2. Cleaning up transport input/output processors and WebSocket connections
+    
+    Args:
+        transport: The Vobiz transport containing the serializer
+        workflow_run_id: The workflow run ID for logging
+        reason: Reason for termination (for logging)
+    """
+    try:
+        from pipecat.frames.frames import EndFrame, CancelFrame
+        
+        logger.info(
+            f"[run {workflow_run_id}] Starting complete Vobiz termination - reason: {reason}"
+        )
+        
+        # Send termination signal to Vobiz API via serializer (handles both stream stop and hangup)
+        if hasattr(transport, '_params') and hasattr(transport._params, 'serializer'):
+            serializer = transport._params.serializer
+            if serializer:
+                logger.debug(f"[run {workflow_run_id}] Sending Vobiz API termination signal")
+                end_frame = EndFrame()
+                await serializer.serialize(end_frame)
+                logger.debug(f"[run {workflow_run_id}] Vobiz API termination signal sent")
+            else:
+                logger.warning(f"[run {workflow_run_id}] No serializer found for Vobiz API termination")
+        else:
+            logger.warning(f"[run {workflow_run_id}] Transport missing params/serializer for Vobiz API termination")
+        
+        # 2: Cleanup transport input and output processors
+        cancel_frame = CancelFrame()
+        
+        # Cleanup input transport
+        if hasattr(transport, 'input') and callable(getattr(transport.input(), 'cancel', None)):
+            logger.debug(f"[run {workflow_run_id}] Cleaning up transport input processor")
+            await transport.input().cancel(cancel_frame)
+        
+        # Cleanup output transport
+        if hasattr(transport, 'output') and callable(getattr(transport.output(), 'cancel', None)):
+            logger.debug(f"[run {workflow_run_id}] Cleaning up transport output processor")
+            await transport.output().cancel(cancel_frame)
+        
+        # 3: Final transport cleanup
+        if hasattr(transport, 'cleanup') and callable(transport.cleanup):
+            logger.debug(f"[run {workflow_run_id}] Running final transport cleanup")
+            await transport.cleanup()
+        
+        logger.info(
+            f"[run {workflow_run_id}] Complete Vobiz termination successful - API hangup sent, transport cleaned up"
+        )
+        
+    except Exception as cleanup_error:
+        logger.error(
+            f"[run {workflow_run_id}] Failed during Vobiz termination cleanup: {cleanup_error}",
+            exc_info=True
+        )
+
+
 async def run_pipeline_vobiz(
     websocket_client: WebSocket,
     stream_id: str,
@@ -237,6 +298,18 @@ async def run_pipeline_vobiz(
         logger.error(
             f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True
         )
+        
+        # Attempt cleanup for Vobiz when transport exists
+        if "transport" in locals():
+            logger.info(
+                f"[run {workflow_run_id}] Performing Vobiz cleanup due to pipeline failure: {type(e).__name__}"
+            )
+            await _send_vobiz_termination_signal(transport, workflow_run_id, str(type(e).__name__))
+        else:
+            logger.debug(
+                f"[run {workflow_run_id}] No transport to cleanup (error before transport creation)"
+            )
+        
         raise
 
 

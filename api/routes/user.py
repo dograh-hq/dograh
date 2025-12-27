@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
-from typing import List, Optional, TypedDict, Union
+from typing import List, Literal, Optional, TypedDict, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from pydantic import BaseModel
 
 from api.db import db_client
@@ -17,6 +18,7 @@ from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.masking import mask_user_config
 from api.services.configuration.merge import merge_user_configurations
 from api.services.configuration.registry import REGISTRY, ServiceType
+from api.services.mps_service_key_client import mps_service_key_client
 
 router = APIRouter(prefix="/user")
 
@@ -274,3 +276,46 @@ async def reactivate_api_key(
         raise HTTPException(status_code=500, detail="Failed to reactivate API key")
 
     return {"success": True, "message": "API key reactivated successfully"}
+
+
+# Voice Configuration Endpoints
+TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh"]
+
+
+class VoiceInfo(BaseModel):
+    voice_id: str
+    name: str
+    description: Optional[str] = None
+    accent: Optional[str] = None
+    gender: Optional[str] = None
+    language: Optional[str] = None
+    preview_url: Optional[str] = None
+
+
+class VoicesResponse(BaseModel):
+    provider: str
+    voices: List[VoiceInfo]
+
+
+@router.get("/configurations/voices/{provider}")
+async def get_voices(
+    provider: TTSProvider,
+    user: UserModel = Depends(get_user),
+) -> VoicesResponse:
+    """Get available voices for a TTS provider."""
+    try:
+        result = await mps_service_key_client.get_voices(
+            provider=provider,
+            organization_id=user.selected_organization_id,
+            created_by=user.provider_id,
+        )
+        return VoicesResponse(
+            provider=result.get("provider", provider),
+            voices=[VoiceInfo(**voice) for voice in result.get("voices", [])],
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch voices for {provider}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch voices for {provider}",
+        )

@@ -1,5 +1,5 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { AlertCircle, Check, Circle, Copy, Edit, Link2, Loader2, PlusIcon, Trash2Icon } from "lucide-react";
+import { AlertCircle, Circle, Edit, Link2, Loader2, PlusIcon, Trash2Icon } from "lucide-react";
 import { memo, useCallback, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
@@ -19,6 +19,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { JsonEditor, validateJson } from "@/components/ui/json-editor";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -29,7 +30,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
 
 import { NodeContent } from "./common/NodeContent";
@@ -93,13 +93,25 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
         }
     }, [getAccessToken]);
 
+    // Validation state - only shown on save attempt
+    const [jsonError, setJsonError] = useState<string | null>(null);
+    const [endpointError, setEndpointError] = useState<string | null>(null);
+
     const handleSave = async () => {
-        let parsedPayload = {};
-        try {
-            parsedPayload = JSON.parse(payloadTemplate);
-        } catch {
-            // Keep empty object if invalid JSON
+        // Validate endpoint URL
+        if (!endpointUrl.trim()) {
+            setEndpointError('Endpoint URL is required');
+            return;
         }
+        setEndpointError(null);
+
+        // Validate JSON payload
+        const validation = validateJson(payloadTemplate);
+        if (!validation.valid) {
+            setJsonError(validation.error || 'Invalid JSON. Please fix the payload template before saving.');
+            return;
+        }
+        setJsonError(null);
 
         handleSaveNodeData({
             ...data,
@@ -109,7 +121,7 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
             endpoint_url: endpointUrl,
             credential_uuid: credentialUuid || undefined,
             custom_headers: customHeaders.filter((h) => h.key && h.value),
-            payload_template: parsedPayload,
+            payload_template: validation.parsed as Record<string, unknown>,
         });
         setOpen(false);
         setTimeout(async () => {
@@ -128,6 +140,9 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
             setPayloadTemplate(
                 data.payload_template ? JSON.stringify(data.payload_template, null, 2) : "{}"
             );
+            // Clear any previous errors
+            setJsonError(null);
+            setEndpointError(null);
             // Fetch credentials when dialog opens
             fetchCredentials();
         }
@@ -204,6 +219,7 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
                 nodeData={data}
                 title="Edit Webhook"
                 onSave={handleSave}
+                error={endpointError || jsonError}
             >
                 {open && (
                     <WebhookNodeEditForm
@@ -273,8 +289,6 @@ const WebhookNodeEditForm = ({
     payloadTemplate,
     setPayloadTemplate,
 }: WebhookNodeEditFormProps) => {
-    const [copied, setCopied] = useState(false);
-
     // Add Credential Dialog state
     const [isAddCredentialOpen, setIsAddCredentialOpen] = useState(false);
     const [newCredName, setNewCredName] = useState("");
@@ -365,12 +379,6 @@ const WebhookNodeEditForm = ({
         }
     };
 
-    const handleCopyPayload = async () => {
-        await navigator.clipboard.writeText(payloadTemplate);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
-
     const addHeader = () => {
         setCustomHeaders([...customHeaders, { key: "", value: "" }]);
     };
@@ -387,14 +395,11 @@ const WebhookNodeEditForm = ({
 
     const availableVariables = [
         { name: "workflow_run_id", description: "Unique ID of the workflow run" },
-        { name: "workflow_run_name", description: "Name of the workflow run" },
         { name: "workflow_id", description: "ID of the workflow" },
         { name: "workflow_name", description: "Name of the workflow" },
         { name: "initial_context.*", description: "Initial context variables" },
         { name: "gathered_context.*", description: "Extracted variables" },
         { name: "cost_info.call_duration_seconds", description: "Call duration" },
-        { name: "completed_at", description: "Completion timestamp" },
-        { name: "disposition_code", description: "Final disposition code" },
         { name: "recording_url", description: "Call recording URL" },
         { name: "transcript_url", description: "Transcript URL" },
     ];
@@ -643,32 +648,14 @@ const WebhookNodeEditForm = ({
             </TabsContent>
 
             <TabsContent value="payload" className="space-y-4 mt-4">
-                <div className="grid gap-2">
-                    <div className="flex items-center justify-between">
-                        <Label>Payload Template (JSON)</Label>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleCopyPayload}
-                        >
-                            {copied ? (
-                                <Check className="h-4 w-4 mr-1" />
-                            ) : (
-                                <Copy className="h-4 w-4 mr-1" />
-                            )}
-                            Copy
-                        </Button>
-                    </div>
-                    <Label className="text-xs text-muted-foreground">
-                        Define the JSON payload. Use {"{{variable}}"} syntax for dynamic values.
-                    </Label>
-                    <Textarea
-                        value={payloadTemplate}
-                        onChange={(e) => setPayloadTemplate(e.target.value)}
-                        className="min-h-[200px] font-mono text-sm"
-                        placeholder='{"call_id": "{{workflow_run_id}}"}'
-                    />
-                </div>
+                <JsonEditor
+                    value={payloadTemplate}
+                    onChange={setPayloadTemplate}
+                    label="Payload Template (JSON)"
+                    description='Define the JSON payload. Use "{{variable}}" syntax for dynamic values (must be quoted strings).'
+                    placeholder='{"call_id": "{{workflow_run_id}}", "name": "{{initial_context.name}}"}'
+                    minHeight="200px"
+                />
 
                 <div className="border rounded-md p-3 bg-muted/20">
                     <Label className="text-sm font-medium">Available Variables</Label>

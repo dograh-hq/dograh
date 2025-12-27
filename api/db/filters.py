@@ -107,11 +107,11 @@ def apply_workflow_run_filters(
             ):
                 codes = value.get("codes", [])
                 if codes:
+                    # Use ->> operator for compatibility with all PostgreSQL versions
+                    # (subscript [] only works in PostgreSQL 14+)
                     filter_conditions.append(
-                        cast(WorkflowRunModel.gathered_context, JSONB)[
-                            "mapped_call_disposition"
-                        ]
-                        .as_string()
+                        cast(WorkflowRunModel.gathered_context, JSONB)
+                        .op("->>")("mapped_call_disposition")
                         .in_(codes)
                     )
 
@@ -142,9 +142,10 @@ def apply_workflow_run_filters(
                 # Filter by phone number (contains search)
                 phone = value.get("value", "").strip()
                 if phone:
+                    # Use ->> operator for compatibility with all PostgreSQL versions
                     filter_conditions.append(
-                        cast(WorkflowRunModel.initial_context, JSONB)["phone"]
-                        .as_string()
+                        cast(WorkflowRunModel.initial_context, JSONB)
+                        .op("->>")("phone")
                         .contains(phone)
                     )
 
@@ -153,48 +154,29 @@ def apply_workflow_run_filters(
                 max_val = value.get("max")
 
                 if field == "usage_info.call_duration_seconds":
+                    # Use ->> operator for compatibility with all PostgreSQL versions
+                    # (subscript [] only works in PostgreSQL 14+)
+                    duration_text = cast(WorkflowRunModel.usage_info, JSONB).op("->>")(
+                        "call_duration_seconds"
+                    )
                     if min_val is not None:
                         filter_conditions.append(
-                            cast(
-                                cast(WorkflowRunModel.usage_info, JSONB)[
-                                    "call_duration_seconds"
-                                ],
-                                Integer,
-                            )
-                            >= min_val
+                            cast(duration_text, Integer) >= min_val
                         )
                     if max_val is not None:
                         filter_conditions.append(
-                            cast(
-                                cast(WorkflowRunModel.usage_info, JSONB)[
-                                    "call_duration_seconds"
-                                ],
-                                Integer,
-                            )
-                            <= max_val
+                            cast(duration_text, Integer) <= max_val
                         )
 
                 elif field == "cost_info.total_cost_usd":
+                    # Use ->> operator for compatibility with all PostgreSQL versions
+                    cost_text = cast(WorkflowRunModel.cost_info, JSONB).op("->>")(
+                        "total_cost_usd"
+                    )
                     if min_val is not None:
-                        filter_conditions.append(
-                            cast(
-                                cast(WorkflowRunModel.cost_info, JSONB)[
-                                    "total_cost_usd"
-                                ],
-                                Integer,
-                            )
-                            >= min_val
-                        )
+                        filter_conditions.append(cast(cost_text, Integer) >= min_val)
                     if max_val is not None:
-                        filter_conditions.append(
-                            cast(
-                                cast(WorkflowRunModel.cost_info, JSONB)[
-                                    "total_cost_usd"
-                                ],
-                                Integer,
-                            )
-                            <= max_val
-                        )
+                        filter_conditions.append(cast(cost_text, Integer) <= max_val)
 
     if filter_conditions:
         base_query = base_query.where(and_(*filter_conditions))

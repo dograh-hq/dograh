@@ -460,7 +460,7 @@ export default function APIKeysPage() {
                                             {showServiceArchived ? 'Hide' : 'Show'} Archived
                                         </Button>
                                     )}
-                                    {canCreateServiceKey && (
+                                    {canCreateServiceKey ? (
                                         <Button
                                             onClick={() => setIsCreateServiceDialogOpen(true)}
                                             size="sm"
@@ -468,6 +468,10 @@ export default function APIKeysPage() {
                                             <Plus className="w-4 h-4 mr-2" />
                                             Create Service Key
                                         </Button>
+                                    ) : (
+                                        <span className="text">
+                                            To generate additional service keys, <a href="https://app.dograh.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Sign up on app.dograh.com</a>
+                                        </span>
                                     )}
                                 </div>
                             </div>

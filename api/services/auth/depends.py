@@ -10,13 +10,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.schemas.user_configuration import UserConfiguration
 from api.services.auth.stack_auth import stackauth
-from api.services.configuration.registry import (
-    DograhLLMModel,
-    DograhSTTModel,
-    DograhTTSModel,
-    DograhVoice,
-    ServiceProviders,
-)
+from api.services.configuration.registry import ServiceProviders
 
 
 async def get_user(
@@ -244,18 +238,18 @@ async def create_user_configuration_with_mps_key(
                     "llm": {
                         "provider": ServiceProviders.DOGRAH.value,
                         "api_key": service_key,
-                        "model": DograhLLMModel.DEFAULT.value,  # Default model
+                        "model": "default",
                     },
                     "tts": {
                         "provider": ServiceProviders.DOGRAH.value,
                         "api_key": service_key,
-                        "model": DograhTTSModel.DEFAULT.value,  # Default model
-                        "voice": DograhVoice.DEFAULT.value,  # Default voice
+                        "model": "default",
+                        "voice": "default",
                     },
                     "stt": {
                         "provider": ServiceProviders.DOGRAH.value,
                         "api_key": service_key,
-                        "model": DograhSTTModel.DEFAULT.value,  # Default model
+                        "model": "default",
                     },
                 }
                 user_config = UserConfiguration(**configuration)

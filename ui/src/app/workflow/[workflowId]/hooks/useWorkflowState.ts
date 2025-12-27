@@ -77,7 +77,14 @@ const getNewNode = (type: string, position: { x: number, y: number }, existingNo
                 http_method: "POST" as const,
                 endpoint_url: "",
                 custom_headers: [],
-                payload_template: {},
+                payload_template: {
+                    call_id: "{{workflow_run_id}}",
+                    first_name: "{{initial_context.first_name}}",
+                    rsvp: "{{gathered_context.rsvp}}",
+                    duration: "{{cost_info.call_duration_seconds}}",
+                    recording_url: "{{recording_url}}",
+                    transcript_url: "{{transcript_url}}",
+                },
             },
         };
     }

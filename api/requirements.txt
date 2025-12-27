@@ -12,3 +12,4 @@ alembic-postgresql-enum==1.8.0
 python-multipart==0.0.20
 sentry-sdk[fastapi]==2.38.0
 sqlalchemy[asyncio]==2.0.43
+msgpack==1.1.2

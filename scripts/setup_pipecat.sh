@@ -16,7 +16,7 @@ git submodule update --init --recursive
 
 # Install pipecat in editable mode with all extras
 echo "Installing pipecat dependencies..."
-pip install -e ./pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,soundfile,silero,webrtc,local-smart-turn-v3]
+pip install -e ./pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,local-smart-turn-v3]
 
 # Install other requirements
 echo "Installing dograh API requirements..."

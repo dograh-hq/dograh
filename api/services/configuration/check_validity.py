@@ -38,6 +38,7 @@ class UserConfigurationValidator:
             ServiceProviders.AZURE.value: self._check_azure_api_key,
             ServiceProviders.CARTESIA.value: self._check_cartesia_api_key,
             ServiceProviders.DOGRAH.value: self._check_dograh_api_key,
+            ServiceProviders.SARVAM.value: self._check_sarvam_api_key,
         }
 
     async def validate(self, configuration: UserConfiguration) -> APIKeyStatusResponse:
@@ -134,20 +135,5 @@ class UserConfigurationValidator:
     def _check_dograh_api_key(self, model: str, api_key: str) -> bool:
         return True
 
-    # def _check_neuphonic_api_key(self, model: str, api_key: str) -> bool:
-    #     if not Neuphonic:
-    #         self._provider_api_key_validity_status[model] = False
-    #         return self._provider_api_key_validity_status[model]
-
-    #     if model in self._provider_api_key_validity_status:
-    #         return self._provider_api_key_validity_status[model]
-
-    #     client = Neuphonic(api_key=api_key)
-    #     try:
-    #         response = client.voices.list()  # get's all available voices
-    #         voices = response.data["voices"]
-    #         self._provider_api_key_validity_status[model] = True
-    #     except Exception:
-    #         self._provider_api_key_validity_status[model] = False
-
-    #     return self._provider_api_key_validity_status[model]
+    def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
+        return True

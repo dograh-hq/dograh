@@ -1,0 +1,81 @@
+---
+title: Setup
+description: You can use this document to setup the dev environment for yourself. 
+---
+<Note>
+If the below steps do not work out for you, it would be great if you can open an issue on [Github](https://github.com/dograh-hq/dograh/issues). 
+</Note>
+
+### System Requirements
+- git to clone the forked repository
+- Node.js 24 to run the UI (we recommend using [NVM](https://github.com/nvm-sh/nvm) to manage your node versions locally)
+- Python 3.13 to run the backend
+- Docker to run the database and redis cache locally
+
+### Steps
+1. Fork the Dograh repository by going to https://github.com/dograh-hq/dograh
+2. Clone the forked repository on your machine
+```
+git clone https://github.com/<GITHUB_HANDLE>/dograh
+cd dograh
+```
+3. Create a python virtual environment
+```
+python3 -m venv venv
+source venv/bin/activate
+```
+4. Install the requirements
+```
+pip install -r api/requirements.txt
+```
+5. Ensure you are on right version of Node.js using `node --version`
+```
+nvm use 24
+```
+6. Install UI dependencies
+```
+cd ui && npm install && cd ..
+```
+7. Start local docker services 
+<Note>Please ensure you dont have any other instance of conflicting services running by checking `docker ps`</Note>
+```
+docker compose -f docker-compose-local.yaml up -d
+```
+Verify that the processes have started by running `docker ps`
+```
+abhishek$ docker ps
+CONTAINER ID   IMAGE         COMMAND                  CREATED          STATUS                    PORTS                                         NAMES
+9066b7244b2f   postgres:17   "docker-entrypoint.s…"   18 seconds ago   Up 18 seconds (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp   dograh-postgres-1
+6c7cb8afdf18   redis:7       "docker-entrypoint.s…"   18 seconds ago   Up 18 seconds (healthy)   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp   dograh-redis-1
+a57e3e92b02c   minio/minio   "/usr/bin/docker-ent…"   18 seconds ago   Up 18 seconds (healthy)   127.0.0.1:9000-9001->9000-9001/tcp            dograh-minio-1
+```
+8. Setup environment variables
+``
+cp api/.env.example api/.env && cp ui/.env.example ui/.env
+``
+9. Setup pipecat git submodule
+```
+bash scripts/setup_pipecat.sh
+```
+10. Start backend services 
+```
+bash scripts/start_services.sh --dev
+```
+Verify that your backend server is running
+```
+(venv)abhishek$ curl -X GET localhost:8000/api/v1/health
+{"message":"OK"}                                                                                                                                                                      
+(venv)abhishek$
+```
+You would be able to see the logs in logs/ directory.
+```
+tail -f logs/latest/*.log
+```
+11. Start the UI
+```
+cd ui && npm run dev
+```
+12. You should be able to open the application on `localhost:3000` now
+
+### Next Steps
+We ship with AGENTS.md and CLAUDE.md which will help the Coding Agents get started quickly with the codebase. This should help your favourite coding agents to be able to navigate the codebase quickly and you can make changes to it and suit your specification better. 

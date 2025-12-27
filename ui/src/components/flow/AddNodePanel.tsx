@@ -1,4 +1,4 @@
-import { Globe, Headset, Link2, LucideIcon, OctagonX, Play, Webhook, X } from 'lucide-react';
+import { ExternalLink, Globe, Headset, Link2, LucideIcon, OctagonX, Play, Webhook, X } from 'lucide-react';
 import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -125,7 +125,18 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
         >
             <div className="p-4 h-full overflow-y-auto">
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="text-lg font-semibold">Add New Node</h2>
+                    <div className="flex flex-col gap-1">
+                        <h2 className="text-lg font-semibold">Add New Node</h2>
+                        <a
+                            href="https://docs.dograh.com/voice-agent/introduction"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1 transition-colors"
+                        >
+                            <ExternalLink className="w-3 h-3" />
+                            View Nodes Documentation
+                        </a>
+                    </div>
                     <Button variant="ghost" size="icon" onClick={onClose}>
                         <X className="w-5 h-5" />
                     </Button>

@@ -49,7 +49,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const [name, setName] = useState(data.name);
     const [allowInterrupt, setAllowInterrupt] = useState(data.allow_interrupt ?? true);
     const [addGlobalPrompt, setAddGlobalPrompt] = useState(data.add_global_prompt ?? true);
-    const [detectVoicemail, setDetectVoicemail] = useState(data.detect_voicemail ?? true);
+    const [detectVoicemail, setDetectVoicemail] = useState(data.detect_voicemail ?? false);
     const [delayedStart, setDelayedStart] = useState(data.delayed_start ?? false);
     const [delayedStartDuration, setDelayedStartDuration] = useState(data.delayed_start_duration ?? 2);
 
@@ -78,7 +78,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
-            setDetectVoicemail(data.detect_voicemail ?? true);
+            setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
         }
@@ -92,7 +92,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
-            setDetectVoicemail(data.detect_voicemail ?? true);
+            setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
         }

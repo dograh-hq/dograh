@@ -54,7 +54,7 @@ class NodeDataDTO(BaseModel):
     add_global_prompt: bool = True
     wait_for_user_response: bool = False
     wait_for_user_response_timeout: Optional[float] = None
-    detect_voicemail: bool = True
+    detect_voicemail: bool = False
     delayed_start: bool = False
     delayed_start_duration: Optional[float] = None
     trigger_path: Optional[str] = None

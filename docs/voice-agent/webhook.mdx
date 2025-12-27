@@ -1,0 +1,33 @@
+---
+title: "Webhook"
+description: "Webhook node allow you to sync the result of Voice Agent runs to your external systems, like CRM or to other workflow orchestrator like Zapier or n8n."
+---
+
+<Note>
+You can have multiple Webhook Nodes for a single Voice Agent, if you want to sync the result of the call at multiple places.
+</Note>
+
+### Creating the Webhook Payload
+The payload can contain a valid JSON, and you can reference variables while constructing that payload. You can reference below variables while constructing the payload. 
+
+- `{{workflow_run_id}}` Unique ID of the Agent run
+- `{{workflow_id}}` ID of the Agent
+- `{{workflow_name}}` Name of the workflow
+- `{{initial_context.*}}` Initial context variables
+- `{{gathered_context.*}}` Extracted variables
+- `{{cost_info.call_duration_seconds}}` Call duration
+- `{{recording_url}}` Call recording URL
+- `{{transcript_url}}` Transcript URL
+
+An example of the payload is given below
+
+```
+{
+  "call_id": "{{workflow_run_id}}",
+  "first_name": "{{initial_context.first_name}}",
+  "rsvp": "{{gathered_context.rsvp}}",
+  "duration": "{{cost_info.call_duration_seconds}}",
+  "recording_url": "{{recording_url}}",
+  "transcript_url": "{{transcript_url}}"
+}
+```

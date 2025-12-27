@@ -29,12 +29,42 @@
           {
             "group": "Configurations",
             "pages": [
-              "configurations/inference-providers"
+              "configurations/inference-providers",
+              "configurations/llm",
+              "configurations/voice",
+              "configurations/transcriber",
+              "configurations/api-keys"
+            ]
+          },
+          {
+            "group": "Voice Agent Builder",
+            "pages": [
+              "voice-agent/introduction",
+              "voice-agent/template-variables",
+              {
+                "group": "Nodes",
+                "pages": [
+                  "voice-agent/start-call",
+                  "voice-agent/end-call",
+                  "voice-agent/agent",
+                  "voice-agent/global",
+                  "voice-agent/api-trigger",
+                  "voice-agent/webhook"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Contribution",
+            "pages": [
+              "contribution/introduction",
+              "contribution/setup"
             ]
           },
           {
             "group": "Deployment",
             "pages": [
+              "deployment/introduction",
               "deployment/docker",
               "deployment/custom-domain",
               "deployment/heroku"

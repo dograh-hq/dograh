@@ -285,6 +285,44 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def get_voices(
+        self,
+        provider: str,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """
+        Get available voices for a TTS provider from MPS.
+
+        Args:
+            provider: TTS provider name (elevenlabs, deepgram, sarvam, cartesia)
+            organization_id: Organization ID (for authenticated mode)
+            created_by: User provider ID (for OSS mode)
+
+        Returns:
+            Dictionary containing provider name and list of voices
+
+        Raises:
+            HTTPException: If the API call fails
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/voice-proxy/{provider}/voices",
+                headers=self._get_headers(organization_id, created_by),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(
+                    f"Failed to get voices for {provider}: {response.status_code} - {response.text}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Failed to get voices: {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+
     async def call_workflow_api(
         self,
         call_type: str,

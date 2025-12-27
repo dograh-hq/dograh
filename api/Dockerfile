@@ -20,7 +20,7 @@ RUN pip install --user --no-cache-dir -r requirements.txt && \
 
 # Copy and install pipecat from local submodule
 COPY pipecat /tmp/pipecat
-RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,soundfile,silero,webrtc,local-smart-turn-v3]' && \
+RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,local-smart-turn-v3]' && \
     # Clean up pip cache and temporary pipecat directory
     rm -rf /root/.cache/pip /tmp/pipecat
 

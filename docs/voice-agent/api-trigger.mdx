@@ -1,0 +1,23 @@
+---
+title: "API Trigger"
+description: "API Trigger helps you trigger your Voice Agent using external systems, like N8n or Zapier"
+---
+
+### API Payload 
+The API Trigger is a POST request, which requires an [API Key](configurations/api-keys). It expects a valid JSON with `phone_number` and `initial_context`. 
+
+### Initial Context
+`initial_context` is a valid JSON object, which contains any contextual information that you would want your voice agent to access. You can refer to these values in your prompts using **Handle Bars**, which are values enclosed in `{{` and `}}`. 
+
+Example: If you have below JSON as your `initial_context`
+```
+{
+    "initial_context": {
+        "user": {
+            "name": "John"
+        }
+    }
+}
+```
+
+you can refer to the user name in your prompts as `{{initial_context.user.name}}`.

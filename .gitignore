@@ -10,6 +10,10 @@ infrastructure/
 nginx/
 prd/
 .vercel
+
+venv/
+.venv/
+
 .claude/
 docker-compose.override.yaml
 docker-compose.override.yaml.README.md

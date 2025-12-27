@@ -600,7 +600,7 @@ async def get_workflow_run(
             "call_duration_seconds": int(
                 round(run.cost_info.get("call_duration_seconds"))
             )
-            if run.cost_info
+            if run.cost_info and run.cost_info.get("call_duration_seconds") is not None
             else None,
         }
         if run.cost_info

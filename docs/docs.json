@@ -55,6 +55,13 @@
             ]
           },
           {
+            "group": "Contribution",
+            "pages": [
+              "contribution/introduction",
+              "contribution/setup"
+            ]
+          },
+          {
             "group": "Deployment",
             "pages": [
               "deployment/introduction",

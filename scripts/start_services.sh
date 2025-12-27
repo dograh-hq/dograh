@@ -2,6 +2,42 @@
 set -e  # Exit on error
 
 ###############################################################################
+### ARGUMENT PARSING
+###############################################################################
+
+DEV_MODE=false
+
+show_help() {
+  echo "Usage: $0 [OPTIONS]"
+  echo ""
+  echo "Options:"
+  echo "  --dev     Enable development mode with auto-reload for API changes"
+  echo "  --help    Show this help message"
+  echo ""
+  echo "Examples:"
+  echo "  $0           # Start in production mode"
+  echo "  $0 --dev     # Start in development mode with auto-reload"
+}
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --dev)
+      DEV_MODE=true
+      shift
+      ;;
+    --help|-h)
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      show_help
+      exit 1
+      ;;
+  esac
+done
+
+###############################################################################
 ### CONFIGURATION
 ###############################################################################
 
@@ -21,7 +57,12 @@ ARQ_WORKERS=${ARQ_WORKERS:-1}
 
 # Log startup
 cd "$BASE_DIR"
-echo "Starting Dograh Services at $(date) in BASE_DIR: ${BASE_DIR}"
+if $DEV_MODE; then
+  echo "Starting Dograh Services (DEV MODE) at $(date) in BASE_DIR: ${BASE_DIR}"
+  echo "Auto-reload enabled for api/ directory changes"
+else
+  echo "Starting Dograh Services at $(date) in BASE_DIR: ${BASE_DIR}"
+fi
 
 ###############################################################################
 ### 1) Load environment variables
@@ -47,10 +88,19 @@ SERVICE_NAMES=(
   "uvicorn"
 )
 
+# Build uvicorn command based on mode
+if $DEV_MODE; then
+  # Dev mode: single worker with auto-reload (--reload is incompatible with --workers > 1)
+  UVICORN_CMD="uvicorn api.app:app --host 0.0.0.0 --port $FASTAPI_PORT --reload --reload-dir api"
+else
+  # Production mode: multiple workers, no reload
+  UVICORN_CMD="uvicorn api.app:app --host 0.0.0.0 --port $FASTAPI_PORT --workers $FASTAPI_WORKERS"
+fi
+
 SERVICE_COMMANDS=(
   "python -m api.services.telephony.ari_manager"
   "python -m api.services.campaign.campaign_orchestrator"
-  "uvicorn api.app:app --host 0.0.0.0 --port $FASTAPI_PORT --workers $FASTAPI_WORKERS"
+  "$UVICORN_CMD"
 )
 
 # Add ARQ workers dynamically
@@ -208,14 +258,21 @@ done
 
 echo
 echo "──────────────────────────────────────────────────"
+if $DEV_MODE; then
+  echo "Mode: DEVELOPMENT (auto-reload enabled)"
+else
+  echo "Mode: PRODUCTION"
+fi
+echo ""
 for name in "${SERVICE_NAMES[@]}"; do
   pid=$(<"$RUN_DIR/$name.pid")
   echo "✓ $name (PID $pid) → $LOG_DIR/$name.log"
 done
+echo ""
 echo "  Rotation: ${LOG_ROTATION_SIZE:-100 MB}"
 echo "  Retention: ${LOG_RETENTION:-7 days}"
 echo "  Compression: ${LOG_COMPRESSION:-gz}"
 echo "Logs: tail -f $LOG_DIR/*.log"
 echo "Rotated logs: ls $LOG_DIR/*.log.*"
-echo "To stop: run this script again or kill -TERM -<PID> for process groups"
+echo "To stop: ./scripts/stop_services.sh"
 echo "──────────────────────────────────────────────────"

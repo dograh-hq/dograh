@@ -81,6 +81,35 @@ export type CampaignsResponse = {
     campaigns: Array<CampaignResponse>;
 };
 
+/**
+ * Request schema for Cloudonix configuration.
+ */
+export type CloudonixConfigurationRequest = {
+    provider?: string;
+    /**
+     * Cloudonix API Bearer Token
+     */
+    bearer_token: string;
+    /**
+     * Cloudonix Domain ID
+     */
+    domain_id: string;
+    /**
+     * List of Cloudonix phone numbers (optional)
+     */
+    from_numbers?: Array<string>;
+};
+
+/**
+ * Response schema for Cloudonix configuration with masked sensitive fields.
+ */
+export type CloudonixConfigurationResponse = {
+    provider: string;
+    bearer_token: string;
+    domain_id: string;
+    from_numbers: Array<string>;
+};
+
 export type CreateApiKeyRequest = {
     name: string;
 };
@@ -544,6 +573,7 @@ export type TelephonyConfigurationResponse = {
     twilio?: TwilioConfigurationResponse | null;
     vonage?: VonageConfigurationResponse | null;
     vobiz?: VobizConfigurationResponse | null;
+    cloudonix?: CloudonixConfigurationResponse | null;
 };
 
 export type TestSessionResponse = {
@@ -1087,6 +1117,35 @@ export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdP
 export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostError = HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors[keyof HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostErrors];
 
 export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}';
+};
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostError = HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors[keyof HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors];
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
@@ -2799,7 +2858,7 @@ export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetRespons
 export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponse = GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses[keyof GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses];
 
 export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData = {
-    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest;
+    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest;
     headers?: {
         authorization?: string | null;
     };

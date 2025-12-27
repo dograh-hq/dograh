@@ -3,6 +3,12 @@
  * These modes determine how a workflow run is executed
  */
 export const WORKFLOW_RUN_MODES = {
+    TWILIO: 'twilio',
+    VONAGE: 'vonage',
+    VOBIZ: 'vobiz',
+    CLOUDONIX: 'cloudonix',
+    STASIS: 'stasis',
+    WEBRTC: 'webrtc',
     SMALL_WEBRTC: 'smallwebrtc',
 } as const;
 

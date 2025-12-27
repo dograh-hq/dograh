@@ -152,11 +152,14 @@ async def initiate_call(
         f"&organization_id={user.selected_organization_id}"
     )
 
+    keywords = {"workflow_id": request.workflow_id, "user_id": user.id}
+
     # Initiate call via provider
     result = await provider.initiate_call(
         to_number=phone_number,
         webhook_url=webhook_url,
         workflow_run_id=workflow_run_id,
+        **keywords,
     )
 
     # Store provider type and any provider-specific metadata in workflow run context
@@ -303,6 +306,7 @@ async def handle_twilio_status_callback(
     # Parse form data
     form_data = await request.form()
     callback_data = dict(form_data)
+
     logger.info(
         f"[run {workflow_run_id}] Received status callback: {json.dumps(callback_data)}"
     )
@@ -644,5 +648,62 @@ async def handle_vobiz_ring_callback(
     )
 
     logger.info(f"[run {workflow_run_id}] Vobiz ring callback logged")
+
+    return {"status": "success"}
+
+
+@router.post("/cloudonix/status-callback/{workflow_run_id}")
+async def handle_cloudonix_status_callback(
+    workflow_run_id: int,
+    request: Request,
+):
+    """Handle Cloudonix-specific status callbacks.
+
+    Cloudonix sends call status updates to the callback URL specified during call initiation.
+    """
+    # Parse callback data - determine if JSON or form data
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        callback_data = await request.json()
+    else:
+        # Assume form data (like Twilio)
+        form_data = await request.form()
+        callback_data = dict(form_data)
+
+    logger.info(
+        f"[run {workflow_run_id}] Received Cloudonix status callback: {json.dumps(callback_data)}"
+    )
+
+    # Get workflow run to find organization
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    if not workflow_run:
+        logger.warning(f"Workflow run {workflow_run_id} not found for status callback")
+        return {"status": "ignored", "reason": "workflow_run_not_found"}
+
+    # Get workflow and provider
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    if not workflow:
+        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
+        return {"status": "ignored", "reason": "workflow_not_found"}
+
+    provider = await get_telephony_provider(workflow.organization_id)
+
+    # Parse the callback data into generic format
+    parsed_data = provider.parse_status_callback(callback_data)
+
+    # Create StatusCallbackRequest from parsed data
+    status_update = StatusCallbackRequest(
+        call_id=parsed_data["call_id"],
+        status=parsed_data["status"],
+        from_number=parsed_data.get("from_number"),
+        to_number=parsed_data.get("to_number"),
+        direction=parsed_data.get("direction"),
+        duration=parsed_data.get("duration"),
+        extra=parsed_data.get("extra", {}),
+    )
+
+    # Process the status update
+    await _process_status_update(workflow_run_id, status_update, workflow_run)
 
     return {"status": "success"}

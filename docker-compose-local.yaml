@@ -40,7 +40,6 @@ services:
 
   minio:
     image: minio/minio
-    container_name: minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: minioadmin

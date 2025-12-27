@@ -34,11 +34,19 @@ nvm use 24
 ```
 6. Install UI dependencies
 ```
-cd ui && npm install
+cd ui && npm install && cd ..
 ```
 7. Start local docker services after making sure you dont have any other instance of postgres or redis running by checking `docker ps`
 ```
-cd .. && docker compose -f docker-compose-local.yaml up
+docker compose -f docker-compose-local.yaml up -d
+```
+Verify that the processes have started by running `docker ps`
+```
+(dograh) abhishek$ docker ps
+CONTAINER ID   IMAGE         COMMAND                  CREATED              STATUS                            PORTS                                         NAMES
+35b0121f6bd1   minio/minio   "/usr/bin/docker-ent…"   6 seconds ago        Up 5 seconds (health: starting)   127.0.0.1:9000-9001->9000-9001/tcp            dograh-minio-1
+82650ee515ec   redis:7       "docker-entrypoint.s…"   About a minute ago   Up 5 seconds (healthy)            0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp   dograh-redis-1
+9636f5d85232   postgres:17   "docker-entrypoint.s…"   About a minute ago   Up 5 seconds (healthy)            0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp   dograh-postgres-1
 ```
 8. Setup environment variables
 ``
@@ -51,6 +59,23 @@ bash scripts/setup_pipecat.sh
 10. Start backend services 
 <Note>If you wish to start the services in debug mode, we ship a launch.json file which you can use in VSCode.</Note>
 ```
-bash scripts/start_services.sh
+bash scripts/start_services.sh --dev
 ```
-11. 
+Verify that your backend server is running
+```
+(venv) (dograh) abhishek$ curl -X GET localhost:8000/api/v1/health
+{"message":"OK"}                                                                                                                                                                      
+(venv) (dograh) abhishek$
+```
+You would be able to see the logs in logs/ directory.
+```
+tail -f logs/latest/*.log
+```
+11. Start the UI
+```
+cd ui && npm run dev
+```
+12. You should be able to open the application on `localhost:3000` now
+
+### Next Steps
+We ship with AGENTS.md and CLAUDE.md which will help the Coding Agents get started quickly with the codebase. This should help your favourite coding agents to be able to navigate the codebase quickly and you can make changes to it and suit your specification better. 

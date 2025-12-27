@@ -6,6 +6,9 @@
   <a href="https://docs.dograh.com">
     <img src="https://img.shields.io/badge/docs-https://docs.dograh.com-blue.svg" alt="Docs: https://docs.dograh.com">
   </a>
+  <a href="https://deepwiki.com/dograh-hq/dograh">
+    <img src="https://deepwiki.com/badge.svg" alt="Deepwiki: https://deepwiki.com/dograh-hq/dograh">
+  </a>
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-BSD%202--Clause-blue.svg" alt="License: BSD 2-Clause">
   </a>
@@ -34,8 +37,6 @@
 </div>
 
 ## 🚀 Get Started
-
-The only command you need to run:
 
 ##### Download and setup Dograh on your Local Machine
 
@@ -78,7 +79,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ### Voice Capabilities
 
-- Telephony: Built-in Twilio integration (easily add others)
+- Telephony: Built-in telephony integration like Twilio, Vonage, Vobiz, Cloudonix (easily add others)
 - Languages: English support (expandable to other languages)
 - Custom Models: Bring your own TTS/STT models
 - Real-time Processing: Low-latency voice interactions
@@ -104,7 +105,7 @@ Architecture diagram _(coming soon)_
 
 ### Local Development
 
-Refer [prerequisites](https://docs.dograh.com/getting-started/prerequisites) and [first steps](#-get-started)
+Refer [Local Setup](https://docs.dograh.com/contribution/setup)
 
 ### Self-Hosted Deployment
 

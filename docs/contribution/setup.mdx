@@ -1,5 +1,5 @@
 ---
-title: Setting Up
+title: Setup
 description: You can use this document to setup the dev environment for yourself. 
 ---
 <Note>
@@ -36,36 +36,36 @@ nvm use 24
 ```
 cd ui && npm install && cd ..
 ```
-7. Start local docker services after making sure you dont have any other instance of postgres or redis running by checking `docker ps`
+7. Start local docker services 
+<Note>Please ensure you dont have any other instance of conflicting services running by checking `docker ps`</Note>
 ```
 docker compose -f docker-compose-local.yaml up -d
 ```
 Verify that the processes have started by running `docker ps`
 ```
-(dograh) abhishek$ docker ps
-CONTAINER ID   IMAGE         COMMAND                  CREATED              STATUS                            PORTS                                         NAMES
-35b0121f6bd1   minio/minio   "/usr/bin/docker-ent…"   6 seconds ago        Up 5 seconds (health: starting)   127.0.0.1:9000-9001->9000-9001/tcp            dograh-minio-1
-82650ee515ec   redis:7       "docker-entrypoint.s…"   About a minute ago   Up 5 seconds (healthy)            0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp   dograh-redis-1
-9636f5d85232   postgres:17   "docker-entrypoint.s…"   About a minute ago   Up 5 seconds (healthy)            0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp   dograh-postgres-1
+abhishek$ docker ps
+CONTAINER ID   IMAGE         COMMAND                  CREATED          STATUS                    PORTS                                         NAMES
+9066b7244b2f   postgres:17   "docker-entrypoint.s…"   18 seconds ago   Up 18 seconds (healthy)   0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp   dograh-postgres-1
+6c7cb8afdf18   redis:7       "docker-entrypoint.s…"   18 seconds ago   Up 18 seconds (healthy)   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp   dograh-redis-1
+a57e3e92b02c   minio/minio   "/usr/bin/docker-ent…"   18 seconds ago   Up 18 seconds (healthy)   127.0.0.1:9000-9001->9000-9001/tcp            dograh-minio-1
 ```
 8. Setup environment variables
 ``
 cp api/.env.example api/.env && cp ui/.env.example ui/.env
 ``
-9. Setup pipecat
+9. Setup pipecat git submodule
 ```
 bash scripts/setup_pipecat.sh
 ```
 10. Start backend services 
-<Note>If you wish to start the services in debug mode, we ship a launch.json file which you can use in VSCode.</Note>
 ```
 bash scripts/start_services.sh --dev
 ```
 Verify that your backend server is running
 ```
-(venv) (dograh) abhishek$ curl -X GET localhost:8000/api/v1/health
+(venv)abhishek$ curl -X GET localhost:8000/api/v1/health
 {"message":"OK"}                                                                                                                                                                      
-(venv) (dograh) abhishek$
+(venv)abhishek$
 ```
 You would be able to see the logs in logs/ directory.
 ```

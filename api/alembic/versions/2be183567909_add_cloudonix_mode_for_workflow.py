@@ -1,7 +1,7 @@
 """add cloudonix mode for workflow
 
 Revision ID: 2be183567909
-Revises: a188ff90e76f
+Revises: 36b5dbf670e4
 Create Date: 2025-12-02 18:30:36.286830
 
 """
@@ -13,7 +13,7 @@ from alembic_postgresql_enum import TableReference
 
 # revision identifiers, used by Alembic.
 revision: str = "2be183567909"
-down_revision: Union[str, None] = "a188ff90e76f"
+down_revision: Union[str, None] = "36b5dbf670e4"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

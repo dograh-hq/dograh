@@ -11,6 +11,7 @@ from loguru import logger
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey
 from api.services.telephony.base import TelephonyProvider
+from api.services.telephony.providers.cloudonix_provider import CloudonixProvider
 from api.services.telephony.providers.twilio_provider import TwilioProvider
 from api.services.telephony.providers.vobiz_provider import VobizProvider
 from api.services.telephony.providers.vonage_provider import VonageProvider
@@ -66,6 +67,13 @@ async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
                 "auth_token": config.value.get("auth_token"),
                 "from_numbers": config.value.get("from_numbers", []),
             }
+        elif provider == "cloudonix":
+            return {
+                "provider": "cloudonix",
+                "bearer_token": config.value.get("bearer_token"),
+                "domain_id": config.value.get("domain_id"),
+                "from_numbers": config.value.get("from_numbers", []),
+            }
         else:
             raise ValueError(f"Unknown provider in config: {provider}")
 
@@ -102,6 +110,9 @@ async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
 
     elif provider_type == "vobiz":
         return VobizProvider(config)
+
+    elif provider_type == "cloudonix":
+        return CloudonixProvider(config)
 
     else:
         raise ValueError(f"Unknown telephony provider: {provider_type}")

@@ -44,8 +44,13 @@ ENV NEXT_TELEMETRY_DISABLED="1"
 ENV NEXT_PUBLIC_CHATWOOT_URL="https://chat.dograh.com"
 ENV NEXT_PUBLIC_CHATWOOT_TOKEN="3fkFx2mCEjNHjM9gaNc4A82X"
 
+# Limit Node.js memory usage during build to prevent OOM errors
+# Using 4096MB (4GB) - requires Podman/Docker machine with 8GB+ allocated
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+
 # Build the application with standalone mode
-RUN npm run build && \
+# Using sequential builds instead of parallel to reduce memory pressure
+RUN NODE_ENV=production npm run build && \
     rm -rf /tmp/* /root/.npm /root/.next/cache
 
 # Stage 3: Runner (production image)

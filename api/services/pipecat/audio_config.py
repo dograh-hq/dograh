@@ -87,7 +87,7 @@ def create_audio_config(transport_type: str) -> AudioConfig:
     """Create audio configuration based on transport type.
 
     Args:
-        transport_type: Type of transport ("webrtc", "twilio", "vonage", "stasis")
+        transport_type: Type of transport ("webrtc", "twilio", "vonage", "vobiz", "cloudonix", "stasis")
 
     Returns:
         AudioConfig instance with appropriate settings
@@ -96,8 +96,9 @@ def create_audio_config(transport_type: str) -> AudioConfig:
         WorkflowRunMode.STASIS.value,
         WorkflowRunMode.TWILIO.value,
         WorkflowRunMode.VOBIZ.value,
+        WorkflowRunMode.CLOUDONIX.value,
     ):
-        # Twilio, Vobiz, and Stasis use MULAW at 8kHz
+        # Twilio, Cloudonix, Vobiz, and Stasis use MULAW at 8kHz
         return AudioConfig(
             transport_in_sample_rate=8000,
             transport_out_sample_rate=8000,

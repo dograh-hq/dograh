@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.9.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.8.0...dograh-v1.9.0) (2025-12-27)
+
+
+### Features
+
+* add voice selectors in elevenlabs ([#88](https://github.com/dograh-hq/dograh/issues/88)) ([45c5b7c](https://github.com/dograh-hq/dograh/commit/45c5b7c304f6c0e5c4d6846c3591051588f73a32))
+
+
+### Bug Fixes
+
+* change type definition from enum to str for consistency ([e83f3a3](https://github.com/dograh-hq/dograh/commit/e83f3a36d2b422171113ecdf6432d8aaf9c63789))
+* fix configuration option ([74b0693](https://github.com/dograh-hq/dograh/commit/74b069354b721e310a7d5b9cd93a4666ec197e5c))
+* fix db filters ([de09f1c](https://github.com/dograh-hq/dograh/commit/de09f1c5016bf4b4cb44b58a6526f6b51e3389c1))
+* fix links ([480e8a5](https://github.com/dograh-hq/dograh/commit/480e8a5f602583c000c1ecc0e1643024fe1a4757))
+
 ## [1.8.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.7.1...dograh-v1.8.0) (2025-12-22)
 
 

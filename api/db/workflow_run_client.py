@@ -14,7 +14,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import StorageBackend
+from api.enums import StorageBackend, CallType
 from api.schemas.workflow import WorkflowRunResponseSchema
 
 
@@ -25,6 +25,7 @@ class WorkflowRunClient(BaseDBClient):
         workflow_id: int,
         mode: str,
         user_id: int,
+        call_type: CallType = CallType.OUTBOUND,
         initial_context: dict = None,
         campaign_id: int = None,
         queued_run_id: int = None,
@@ -80,6 +81,7 @@ class WorkflowRunClient(BaseDBClient):
                 campaign_id=campaign_id,
                 queued_run_id=queued_run_id,
                 storage_backend=current_backend.value,
+                call_type=call_type.value,
             )
             session.add(new_run)
             try:
@@ -288,6 +290,7 @@ class WorkflowRunClient(BaseDBClient):
                         "definition_id": run.definition_id,
                         "initial_context": run.initial_context,
                         "gathered_context": run.gathered_context,
+                        "call_type": run.call_type,
                     }
                 )
                 for run in result.scalars().all()

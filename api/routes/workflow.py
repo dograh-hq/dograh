@@ -12,6 +12,7 @@ from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
+from api.enums import CallType
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
 from api.services.mps_service_key_client import mps_service_key_client
@@ -141,7 +142,7 @@ class CreateWorkflowRunResponse(BaseModel):
 
 
 class CreateWorkflowTemplateRequest(BaseModel):
-    call_type: Literal["INBOUND", "OUTBOUND"]
+    call_type: Literal[CallType.INBOUND.value, CallType.OUTBOUND.value]
     use_case: str
     activity_description: str
 
@@ -289,7 +290,7 @@ async def create_workflow_from_template(
         # Call MPS API to generate workflow using the client
         if DEPLOYMENT_MODE == "oss":
             workflow_data = await mps_service_key_client.call_workflow_api(
-                call_type=request.call_type,
+                call_type=request.call_type.upper(),
                 use_case=request.use_case,
                 activity_description=request.activity_description,
                 created_by=str(user.provider_id),
@@ -299,7 +300,7 @@ async def create_workflow_from_template(
                 raise HTTPException(status_code=400, detail="No organization selected")
 
             workflow_data = await mps_service_key_client.call_workflow_api(
-                call_type=request.call_type,
+                call_type=request.call_type.upper(),
                 use_case=request.use_case,
                 activity_description=request.activity_description,
                 organization_id=user.selected_organization_id,
@@ -609,6 +610,7 @@ async def get_workflow_run(
         "definition_id": run.definition_id,
         "initial_context": run.initial_context,
         "gathered_context": run.gathered_context,
+        "call_type": run.call_type,
     }
 
 

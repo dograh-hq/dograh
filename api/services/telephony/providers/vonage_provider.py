@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 import jwt
+from fastapi import Response
 from loguru import logger
 
 from api.enums import WorkflowRunMode
-from api.services.telephony.base import CallInitiationResult, TelephonyProvider
+from api.services.telephony.base import CallInitiationResult, TelephonyProvider, NormalizedInboundData
 from api.utils.tunnel import TunnelURLProvider
 
 if TYPE_CHECKING:
@@ -378,3 +379,95 @@ class VonageProvider(TelephonyProvider):
         except Exception as e:
             logger.error(f"Error in Vonage WebSocket handler: {e}")
             raise
+
+    # ======== INBOUND CALL METHODS ========
+
+    @classmethod
+    def can_handle_webhook(cls, webhook_data: Dict[str, Any], headers: Dict[str, str]) -> bool:
+        """
+        Determine if this provider can handle the incoming webhook.
+        """
+        return False
+
+    @staticmethod
+    def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+        """
+        Parse Vonage-specific inbound webhook data into normalized format.
+        """
+        return NormalizedInboundData(
+            provider=VonageProvider.PROVIDER_NAME,
+            call_id=webhook_data.get("uuid", ""),
+            from_number=webhook_data.get("from", ""),
+            to_number=webhook_data.get("to", ""),
+            direction=webhook_data.get("direction", ""),
+            call_status=webhook_data.get("status", ""),
+            account_id=webhook_data.get("account_id"),
+            raw_data=webhook_data
+        )
+
+    @staticmethod
+    def normalize_phone_number(phone_number: str) -> str:
+        """
+        Normalize a phone number to E.164 format for Vonage.
+        """
+        if not phone_number:
+            return ""
+        
+        if phone_number.startswith("+"):
+            return phone_number
+        
+        return f"+{phone_number}"
+
+    @staticmethod
+    def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
+        """Validate Vonage account_id from webhook matches configuration"""
+        if not webhook_account_id:
+            return False
+        
+        stored_api_key = config_data.get("api_key")
+        return stored_api_key == webhook_account_id
+
+    async def verify_inbound_signature(
+        self, url: str, webhook_data: Dict[str, Any], signature: str
+    ) -> bool:
+        """
+        Vonage inbound signature verification - minimalist implementation.
+        """
+        return True
+
+    @staticmethod
+    async def generate_inbound_response(websocket_url: str, workflow_run_id: int = None) -> tuple:
+        """
+        Generate NCCO response for inbound Vonage webhook.
+        """
+        # Minimalist NCCO response for interface compliance
+        ncco_response = [
+            {
+                "action": "talk",
+                "text": "Vonage inbound calls are not currently supported."
+            },
+            {
+                "action": "hangup"
+            }
+        ]
+        
+        return Response(content=json.dumps(ncco_response), media_type="application/json")
+
+    @staticmethod
+    def generate_error_response(error_type: str, message: str) -> tuple:
+        """
+        Generate a Vonage-specific error response.
+        """
+        from fastapi import Response
+        
+        error_ncco = [
+            {
+                "action": "talk",
+                "text": f"Sorry, there was an error processing your call. {message}"
+            },
+            {
+                "action": "hangup"
+            }
+        ]
+        
+        return Response(content=json.dumps(error_ncco), media_type="application/json")

@@ -26,6 +26,22 @@ class CallInitiationResult:
     )  # Full provider response for debugging
 
 
+@dataclass
+class NormalizedInboundData:
+    """Standardized inbound call data across all providers."""
+
+    provider: str  # Provider name (twilio, vobiz, etc.)
+    call_id: str  # Provider's call identifier
+    from_number: str  # Caller phone number (E.164 format)
+    to_number: str  # Called phone number (E.164 format)
+    direction: str  # Call direction (should be "inbound")
+    call_status: str  # Call status (ringing, answered, etc.)
+    account_id: Optional[str] = None  # Provider account ID
+    raw_data: Dict[str, Any] = field(
+        default_factory=dict
+    )  # Original webhook data
+
+
 class TelephonyProvider(ABC):
     """
     Abstract base class for telephony providers.
@@ -179,5 +195,109 @@ class TelephonyProvider(ABC):
             workflow_id: The workflow ID
             user_id: The user ID
             workflow_run_id: The workflow run ID
+        """
+        pass
+
+    # ======== INBOUND CALL METHODS ========
+
+    @classmethod
+    @abstractmethod
+    def can_handle_webhook(cls, webhook_data: Dict[str, Any], headers: Dict[str, str]) -> bool:
+        """
+        Determine if this provider can handle the incoming webhook.
+
+        Args:
+            webhook_data: The parsed webhook payload
+            headers: HTTP headers from the webhook request
+
+        Returns:
+            True if this provider should handle this webhook, False otherwise
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+        """
+        Parse provider-specific inbound webhook data into normalized format.
+
+        Args:
+            webhook_data: Raw webhook data from the provider
+
+        Returns:
+            NormalizedInboundData with standardized fields
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
+        """
+        Validate that the account_id from webhook matches the provider configuration.
+        
+        Args:
+            config_data: Provider configuration data from organization
+            webhook_account_id: Account ID from the webhook
+            
+        Returns:
+            True if account_id matches, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def normalize_phone_number(self, phone_number: str) -> str:
+        """
+        Normalize a phone number to E.164 format for this provider.
+
+        Args:
+            phone_number: Raw phone number from webhook
+
+        Returns:
+            Phone number in E.164 format (+country_code_number)
+        """
+        pass
+
+    @abstractmethod
+    async def verify_inbound_signature(
+        self, url: str, webhook_data: Dict[str, Any], signature: str
+    ) -> bool:
+        """
+        Verify the signature of an inbound webhook for security.
+
+        Args:
+            url: The full webhook URL
+            webhook_data: The webhook payload
+            signature: The signature header from the provider
+
+        Returns:
+            True if signature is valid, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    def generate_inbound_response(self, websocket_url: str) -> tuple:
+        """
+        Generate the appropriate response for an inbound webhook.
+
+        Args:
+            websocket_url: WebSocket URL for audio streaming
+
+        Returns:
+            Tuple of (Response, media_type) - Response object and content type
+        """
+        pass
+
+    @staticmethod
+    @abstractmethod
+    def generate_error_response(error_type: str, message: str) -> tuple:
+        """
+        Generate a provider-specific error response.
+
+        Args:
+            error_type: Type of error (auth_failed, not_configured, etc.)
+            message: Error message
+
+        Returns:
+            Tuple of (Response, media_type) - Response object and content type
         """
         pass

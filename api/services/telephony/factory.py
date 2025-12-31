@@ -4,7 +4,7 @@ Handles configuration loading from environment (OSS) or database (SaaS).
 The providers themselves don't know or care where config comes from.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Type
 
 from loguru import logger
 
@@ -116,3 +116,13 @@ async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
 
     else:
         raise ValueError(f"Unknown telephony provider: {provider_type}")
+
+
+async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:
+    """
+    Get all available telephony provider classes for webhook detection.
+    
+    Returns:
+        List of provider classes that can be used for webhook detection
+    """
+    return [TwilioProvider, VobizProvider, VonageProvider]

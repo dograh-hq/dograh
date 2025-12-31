@@ -1,0 +1,59 @@
+/* Custom search bar styling - Highlighted border with better text visibility */
+
+[data-search-button],
+.search-button,
+[aria-label*="search"],
+[placeholder*="Search"],
+button[data-testid*="search"],
+.mintlify-search,
+.DocSearch-Button {
+  background: rgba(22, 163, 74, 0.05) !important;
+  border: 3px solid #16A34A !important;
+  box-shadow: 0 0 0 2px rgba(22, 163, 74, 0.2), 0 4px 12px rgba(22, 163, 74, 0.15) !important;
+  border-radius: 10px !important;
+  transition: all 0.3s ease !important;
+  min-width: 280px !important;
+  padding: 12px 16px !important;
+}
+
+[data-search-button]:hover,
+.search-button:hover,
+[aria-label*="search"]:hover,
+[placeholder*="Search"]:hover,
+button[data-testid*="search"]:hover,
+.mintlify-search:hover,
+.DocSearch-Button:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.4) !important;
+}
+
+/* Search text and icon styling - Better visibility */
+[data-search-button] *,
+.search-button *,
+[aria-label*="search"] *,
+[placeholder*="Search"] *,
+button[data-testid*="search"] *,
+.mintlify-search *,
+.DocSearch-Button * {
+  color: #16A34A !important;
+  font-weight: 500 !important;
+}
+
+/* Pulse animation */
+@keyframes search-pulse {
+  0% { box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3); }
+  50% { box-shadow: 0 4px 12px rgba(22, 163, 74, 0.6); }
+  100% { box-shadow: 0 4px 12px rgba(22, 163, 74, 0.3); }
+}
+
+/* Apply animation to all search elements */
+[data-search-button],
+.search-button,
+[aria-label*="search"],
+[placeholder*="Search"],
+button[data-testid*="search"],
+.mintlify-search,
+.DocSearch-Button {
+  animation: search-pulse 2s ease-in-out infinite !important;
+}
+

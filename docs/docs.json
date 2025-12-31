@@ -40,6 +40,7 @@
             "group": "Voice Agent Builder",
             "pages": [
               "voice-agent/introduction",
+              "voice-agent/editing-a-workflow",
               "voice-agent/template-variables",
               {
                 "group": "Nodes",
@@ -110,6 +111,10 @@
       "href": "https://app.dograh.com"
     }
   },
+  "search": {
+    "prompt": "Search for Webhook, Deployment, etc..."
+  },
+  "customCSS": "/custom.css",
   "contextual": {
     "options": [
      "copy",

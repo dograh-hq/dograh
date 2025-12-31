@@ -1,0 +1,67 @@
+---
+title: "Editing a Workflow"
+description: "Learn the fundamentals of building workflows with nodes, pathways, and conversation flow in the voice agent builder."
+---
+
+## Overview
+
+A workflow is a graph of connected nodes representing conversation stages, with pathways defining agent movement between stages.
+
+<iframe 
+  width="560" 
+  height="315" 
+  src="https://www.youtube.com/embed/Sfx_wRg9CSY?si=34-eN1sQEQ_BFROn" 
+  title="YouTube video player" 
+  frameborder="0" 
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+  referrerpolicy="strict-origin-when-cross-origin" 
+  allowfullscreen>
+</iframe>
+
+## Global Node
+
+Contains instructions applicable across the entire call:
+- Company context
+- Overall agent goal
+- Tone and personality
+- Common objection handling
+
+## Node-Level Toggles
+
+### Add Global Prompt
+- Recommended to inject Global Node instructions into most nodes
+
+### Allow Interruption
+- **Default "On"**: Bot stops and responds to user interruption
+- **"Off"**: Bot continues speaking, ignoring user input
+
+### Detect Voicemail
+- Available only in Start Node
+- Automatically disconnects if voicemail detected
+
+## Variable Extraction
+
+Supported in Agent and End Call Nodes:
+- Extract structured variables
+- Define name, type, and description
+- Examples: customer name, budget, interest
+
+## Webhook Node
+
+- Executed at call end
+- Sends payload to specific endpoint
+- Use for:
+  - Storing call data
+  - Triggering automation
+  - Syncing with CRMs
+
+## Editing Workflows
+
+- Selectively delete nodes/pathways
+- Completely reset workflow
+
+## Pathways and Tool Calls
+
+- Define agent node movement
+- Use tool calls to transition between nodes
+- **"tool"** is a reserved keyword for function calls and actions

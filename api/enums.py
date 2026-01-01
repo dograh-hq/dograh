@@ -109,3 +109,19 @@ class WebhookCredentialType(Enum):
     BEARER_TOKEN = "bearer_token"  # Bearer token auth
     BASIC_AUTH = "basic_auth"  # Username/password
     CUSTOM_HEADER = "custom_header"  # Custom header key-value
+
+
+class ToolCategory(Enum):
+    """Tool category types"""
+
+    HTTP_API = "http_api"  # Custom HTTP API calls (implemented)
+    NATIVE = "native"  # Built-in integrations (future: call_transfer, dtmf_input, end_call)
+    INTEGRATION = "integration"  # Third-party integrations (future: Google Calendar, Salesforce, etc.)
+
+
+class ToolStatus(Enum):
+    """Tool status values"""
+
+    ACTIVE = "active"  # Tool is available for use
+    ARCHIVED = "archived"  # Tool is soft-deleted
+    DRAFT = "draft"  # Tool is being configured (not ready for use)

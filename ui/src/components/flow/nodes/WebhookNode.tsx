@@ -1,36 +1,22 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { AlertCircle, Circle, Edit, Link2, Loader2, PlusIcon, Trash2Icon } from "lucide-react";
-import { memo, useCallback, useEffect, useState } from "react";
+import { Circle, Edit, Link2, Trash2Icon } from "lucide-react";
+import { memo, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
-import {
-    createCredentialApiV1CredentialsPost,
-    listCredentialsApiV1CredentialsGet,
-} from "@/client";
-import { CredentialResponse, WebhookCredentialType } from "@/client/types.gen";
 import { FlowNodeData } from "@/components/flow/types";
-import { Button } from "@/components/ui/button";
 import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
+    CredentialSelector,
+    HttpMethodSelector,
+    KeyValueEditor,
+    type HttpMethod,
+    type KeyValueItem,
+} from "@/components/http";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { JsonEditor, validateJson } from "@/components/ui/json-editor";
 import { Label } from "@/components/ui/label";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useAuth } from "@/lib/auth";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -40,17 +26,9 @@ interface WebhookNodeProps extends NodeProps {
     data: FlowNodeData;
 }
 
-type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-
-interface CustomHeader {
-    key: string;
-    value: string;
-}
-
 export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
     const { open, setOpen, handleSaveNodeData, handleDeleteNode } = useNodeHandlers({ id });
     const { saveWorkflow } = useWorkflow();
-    const { getAccessToken } = useAuth();
 
     // Form state
     const [name, setName] = useState(data.name || "Webhook");
@@ -58,40 +36,12 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
     const [httpMethod, setHttpMethod] = useState<HttpMethod>(data.http_method || "POST");
     const [endpointUrl, setEndpointUrl] = useState(data.endpoint_url || "");
     const [credentialUuid, setCredentialUuid] = useState(data.credential_uuid || "");
-    const [customHeaders, setCustomHeaders] = useState<CustomHeader[]>(
+    const [customHeaders, setCustomHeaders] = useState<KeyValueItem[]>(
         data.custom_headers || []
     );
     const [payloadTemplate, setPayloadTemplate] = useState(
         data.payload_template ? JSON.stringify(data.payload_template, null, 2) : "{}"
     );
-
-    // Credentials state
-    const [credentials, setCredentials] = useState<CredentialResponse[]>([]);
-    const [credentialsLoading, setCredentialsLoading] = useState(false);
-
-    // Fetch credentials when dialog opens
-    const fetchCredentials = useCallback(async () => {
-        setCredentialsLoading(true);
-        try {
-            const accessToken = await getAccessToken();
-            const response = await listCredentialsApiV1CredentialsGet({
-                headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            if (response.error) {
-                console.error("Failed to fetch credentials:", response.error);
-                setCredentials([]);
-                return;
-            }
-            if (response.data) {
-                setCredentials(response.data);
-            }
-        } catch (error) {
-            console.error("Failed to fetch credentials:", error);
-            setCredentials([]);
-        } finally {
-            setCredentialsLoading(false);
-        }
-    }, [getAccessToken]);
 
     // Validation state - only shown on save attempt
     const [jsonError, setJsonError] = useState<string | null>(null);
@@ -143,8 +93,6 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
             // Clear any previous errors
             setJsonError(null);
             setEndpointError(null);
-            // Fetch credentials when dialog opens
-            fetchCredentials();
         }
         setOpen(newOpen);
     };
@@ -233,10 +181,6 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
                         setEndpointUrl={setEndpointUrl}
                         credentialUuid={credentialUuid}
                         setCredentialUuid={setCredentialUuid}
-                        credentials={credentials}
-                        credentialsLoading={credentialsLoading}
-                        onRefreshCredentials={fetchCredentials}
-                        getAccessToken={getAccessToken}
                         customHeaders={customHeaders}
                         setCustomHeaders={setCustomHeaders}
                         payloadTemplate={payloadTemplate}
@@ -259,15 +203,22 @@ interface WebhookNodeEditFormProps {
     setEndpointUrl: (value: string) => void;
     credentialUuid: string;
     setCredentialUuid: (value: string) => void;
-    credentials: CredentialResponse[];
-    credentialsLoading: boolean;
-    onRefreshCredentials: () => Promise<void>;
-    getAccessToken: () => Promise<string>;
-    customHeaders: CustomHeader[];
-    setCustomHeaders: (value: CustomHeader[]) => void;
+    customHeaders: KeyValueItem[];
+    setCustomHeaders: (value: KeyValueItem[]) => void;
     payloadTemplate: string;
     setPayloadTemplate: (value: string) => void;
 }
+
+const availableVariables = [
+    { name: "workflow_run_id", description: "Unique ID of the workflow run" },
+    { name: "workflow_id", description: "ID of the workflow" },
+    { name: "workflow_name", description: "Name of the workflow" },
+    { name: "initial_context.*", description: "Initial context variables" },
+    { name: "gathered_context.*", description: "Extracted variables" },
+    { name: "cost_info.call_duration_seconds", description: "Call duration" },
+    { name: "recording_url", description: "Call recording URL" },
+    { name: "transcript_url", description: "Transcript URL" },
+];
 
 const WebhookNodeEditForm = ({
     name,
@@ -280,130 +231,11 @@ const WebhookNodeEditForm = ({
     setEndpointUrl,
     credentialUuid,
     setCredentialUuid,
-    credentials,
-    credentialsLoading,
-    onRefreshCredentials,
-    getAccessToken,
     customHeaders,
     setCustomHeaders,
     payloadTemplate,
     setPayloadTemplate,
 }: WebhookNodeEditFormProps) => {
-    // Add Credential Dialog state
-    const [isAddCredentialOpen, setIsAddCredentialOpen] = useState(false);
-    const [newCredName, setNewCredName] = useState("");
-    const [newCredDescription, setNewCredDescription] = useState("");
-    const [newCredType, setNewCredType] = useState<WebhookCredentialType>("bearer_token");
-    const [newCredData, setNewCredData] = useState<Record<string, string>>({});
-    const [isCreatingCredential, setIsCreatingCredential] = useState(false);
-    const [credentialError, setCredentialError] = useState<string | null>(null);
-
-    const handleCreateCredential = async () => {
-        if (!newCredName.trim()) return;
-
-        setIsCreatingCredential(true);
-        setCredentialError(null);
-        try {
-            const accessToken = await getAccessToken();
-            const response = await createCredentialApiV1CredentialsPost({
-                headers: { Authorization: `Bearer ${accessToken}` },
-                body: {
-                    name: newCredName,
-                    description: newCredDescription || undefined,
-                    credential_type: newCredType,
-                    credential_data: newCredData,
-                },
-            });
-
-            if (response.error) {
-                const errorDetail = (response.error as { detail?: string })?.detail
-                    || "Failed to create credential";
-                setCredentialError(errorDetail);
-                return;
-            }
-
-            if (response.data) {
-                // Refresh credentials list
-                await onRefreshCredentials();
-                // Select the newly created credential
-                setCredentialUuid(response.data.uuid);
-                // Close dialog and reset form
-                setIsAddCredentialOpen(false);
-                setNewCredName("");
-                setNewCredDescription("");
-                setNewCredType("bearer_token");
-                setNewCredData({});
-                setCredentialError(null);
-            }
-        } catch (error) {
-            console.error("Failed to create credential:", error);
-            setCredentialError(
-                error instanceof Error ? error.message : "An unexpected error occurred"
-            );
-        } finally {
-            setIsCreatingCredential(false);
-        }
-    };
-
-    const handleAddCredentialDialogChange = (open: boolean) => {
-        setIsAddCredentialOpen(open);
-        if (!open) {
-            // Reset error when closing dialog
-            setCredentialError(null);
-        }
-    };
-
-    const getCredentialDataFields = (type: WebhookCredentialType) => {
-        switch (type) {
-            case "api_key":
-                return [
-                    { key: "header_name", label: "Header Name", placeholder: "X-API-Key" },
-                    { key: "api_key", label: "API Key", placeholder: "your-api-key", isSecret: true },
-                ];
-            case "bearer_token":
-                return [
-                    { key: "token", label: "Token", placeholder: "your-bearer-token", isSecret: true },
-                ];
-            case "basic_auth":
-                return [
-                    { key: "username", label: "Username", placeholder: "username" },
-                    { key: "password", label: "Password", placeholder: "password", isSecret: true },
-                ];
-            case "custom_header":
-                return [
-                    { key: "header_name", label: "Header Name", placeholder: "X-Custom-Header" },
-                    { key: "header_value", label: "Header Value", placeholder: "header-value", isSecret: true },
-                ];
-            default:
-                return [];
-        }
-    };
-
-    const addHeader = () => {
-        setCustomHeaders([...customHeaders, { key: "", value: "" }]);
-    };
-
-    const updateHeader = (index: number, field: "key" | "value", value: string) => {
-        const newHeaders = [...customHeaders];
-        newHeaders[index] = { ...newHeaders[index], [field]: value };
-        setCustomHeaders(newHeaders);
-    };
-
-    const removeHeader = (index: number) => {
-        setCustomHeaders(customHeaders.filter((_, i) => i !== index));
-    };
-
-    const availableVariables = [
-        { name: "workflow_run_id", description: "Unique ID of the workflow run" },
-        { name: "workflow_id", description: "ID of the workflow" },
-        { name: "workflow_name", description: "Name of the workflow" },
-        { name: "initial_context.*", description: "Initial context variables" },
-        { name: "gathered_context.*", description: "Extracted variables" },
-        { name: "cost_info.call_duration_seconds", description: "Call duration" },
-        { name: "recording_url", description: "Call recording URL" },
-        { name: "transcript_url", description: "Transcript URL" },
-    ];
-
     return (
         <Tabs defaultValue="basic" className="w-full">
             <TabsList className="grid w-full grid-cols-4">
@@ -432,18 +264,10 @@ const WebhookNodeEditForm = ({
 
                 <div className="grid gap-2">
                     <Label>HTTP Method</Label>
-                    <Select value={httpMethod} onValueChange={(v) => setHttpMethod(v as HttpMethod)}>
-                        <SelectTrigger>
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="GET">GET</SelectItem>
-                            <SelectItem value="POST">POST</SelectItem>
-                            <SelectItem value="PUT">PUT</SelectItem>
-                            <SelectItem value="PATCH">PATCH</SelectItem>
-                            <SelectItem value="DELETE">DELETE</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <HttpMethodSelector
+                        value={httpMethod}
+                        onChange={setHttpMethod}
+                    />
                 </div>
 
                 <div className="grid gap-2">
@@ -460,154 +284,10 @@ const WebhookNodeEditForm = ({
             </TabsContent>
 
             <TabsContent value="auth" className="space-y-4 mt-4">
-                <div className="grid gap-2">
-                    <Label>Credential</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        Select a credential for authentication, or leave empty for no auth.
-                    </Label>
-                    <div className="flex gap-2">
-                        <Select
-                            value={credentialUuid || "none"}
-                            onValueChange={(v) => setCredentialUuid(v === "none" ? "" : v)}
-                            disabled={credentialsLoading}
-                        >
-                            <SelectTrigger className="flex-1">
-                                {credentialsLoading ? (
-                                    <div className="flex items-center gap-2">
-                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                        <span>Loading...</span>
-                                    </div>
-                                ) : (
-                                    <SelectValue placeholder="No authentication" />
-                                )}
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="none">No authentication</SelectItem>
-                                {credentials.map((cred) => (
-                                    <SelectItem key={cred.uuid} value={cred.uuid}>
-                                        {cred.name} ({cred.credential_type})
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                        <Button
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setIsAddCredentialOpen(true)}
-                            title="Add new credential"
-                        >
-                            <PlusIcon className="h-4 w-4" />
-                        </Button>
-                    </div>
-                </div>
-
-                {credentials.length === 0 && !credentialsLoading && (
-                    <div className="p-3 border rounded-md bg-muted/20">
-                        <p className="text-sm text-muted-foreground">
-                            No credentials found. Click the + button to create one.
-                        </p>
-                    </div>
-                )}
-
-                {/* Add Credential Dialog */}
-                <Dialog open={isAddCredentialOpen} onOpenChange={handleAddCredentialDialogChange}>
-                    <DialogContent className="sm:max-w-md">
-                        <DialogHeader>
-                            <DialogTitle>Add Credential</DialogTitle>
-                            <DialogDescription>
-                                Create a new credential for webhook authentication.
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        {/* Error display */}
-                        {credentialError && (
-                            <div className="flex items-start gap-2 p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
-                                <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                                <span>{credentialError}</span>
-                            </div>
-                        )}
-
-                        <div className="space-y-4 py-4">
-                            <div className="grid gap-2">
-                                <Label htmlFor="cred-name">Name *</Label>
-                                <Input
-                                    id="cred-name"
-                                    value={newCredName}
-                                    onChange={(e) => setNewCredName(e.target.value)}
-                                    placeholder="My API Key"
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label htmlFor="cred-description">Description</Label>
-                                <Input
-                                    id="cred-description"
-                                    value={newCredDescription}
-                                    onChange={(e) => setNewCredDescription(e.target.value)}
-                                    placeholder="Optional description"
-                                />
-                            </div>
-                            <div className="grid gap-2">
-                                <Label>Credential Type</Label>
-                                <Select
-                                    value={newCredType}
-                                    onValueChange={(v) => {
-                                        setNewCredType(v as WebhookCredentialType);
-                                        setNewCredData({});
-                                    }}
-                                >
-                                    <SelectTrigger>
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="bearer_token">Bearer Token</SelectItem>
-                                        <SelectItem value="api_key">API Key</SelectItem>
-                                        <SelectItem value="basic_auth">Basic Auth</SelectItem>
-                                        <SelectItem value="custom_header">Custom Header</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                            {getCredentialDataFields(newCredType).map((field) => (
-                                <div key={field.key} className="grid gap-2">
-                                    <Label htmlFor={`cred-${field.key}`}>{field.label}</Label>
-                                    <Input
-                                        id={`cred-${field.key}`}
-                                        type={field.isSecret ? "password" : "text"}
-                                        value={newCredData[field.key] || ""}
-                                        onChange={(e) =>
-                                            setNewCredData((prev) => ({
-                                                ...prev,
-                                                [field.key]: e.target.value,
-                                            }))
-                                        }
-                                        placeholder={field.placeholder}
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                        <DialogFooter>
-                            <Button
-                                variant="outline"
-                                onClick={() => setIsAddCredentialOpen(false)}
-                                disabled={isCreatingCredential}
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                onClick={handleCreateCredential}
-                                disabled={!newCredName.trim() || isCreatingCredential}
-                            >
-                                {isCreatingCredential ? (
-                                    <>
-                                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                        Creating...
-                                    </>
-                                ) : (
-                                    "Create"
-                                )}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+                <CredentialSelector
+                    value={credentialUuid}
+                    onChange={setCredentialUuid}
+                />
             </TabsContent>
 
             <TabsContent value="headers" className="space-y-4 mt-4">
@@ -616,34 +296,13 @@ const WebhookNodeEditForm = ({
                     <Label className="text-xs text-muted-foreground">
                         Add custom headers to include in the webhook request.
                     </Label>
-
-                    {customHeaders.map((header, index) => (
-                        <div key={index} className="flex items-center gap-2">
-                            <Input
-                                placeholder="Header name"
-                                value={header.key}
-                                onChange={(e) => updateHeader(index, "key", e.target.value)}
-                                className="flex-1"
-                            />
-                            <Input
-                                placeholder="Header value"
-                                value={header.value}
-                                onChange={(e) => updateHeader(index, "value", e.target.value)}
-                                className="flex-1"
-                            />
-                            <Button
-                                variant="outline"
-                                size="icon"
-                                onClick={() => removeHeader(index)}
-                            >
-                                <Trash2Icon className="h-4 w-4" />
-                            </Button>
-                        </div>
-                    ))}
-
-                    <Button variant="outline" size="sm" onClick={addHeader} className="w-fit">
-                        <PlusIcon className="h-4 w-4 mr-1" /> Add Header
-                    </Button>
+                    <KeyValueEditor
+                        items={customHeaders}
+                        onChange={setCustomHeaders}
+                        keyPlaceholder="Header name"
+                        valuePlaceholder="Header value"
+                        addButtonText="Add Header"
+                    />
                 </div>
             </TabsContent>
 

@@ -16,6 +16,7 @@ import {
   Star,
   TrendingUp,
   Workflow,
+  Wrench,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -107,6 +108,11 @@ export function AppSidebar() {
           title: "Telephony",
           url: "/telephony-configurations",
           icon: Phone,
+        },
+        {
+          title: "Tools",
+          url: "/tools",
+          icon: Wrench,
         },
         // {
         //   title: "Integrations",

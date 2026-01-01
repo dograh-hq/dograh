@@ -22,6 +22,8 @@ from sqlalchemy.orm import declarative_base, relationship
 
 from ..enums import (
     IntegrationAction,
+    ToolCategory,
+    ToolStatus,
     TriggerState,
     WebhookCredentialType,
     WorkflowRunMode,
@@ -799,4 +801,86 @@ class ExternalCredentialModel(Base):
         Index("ix_webhook_credentials_organization_id", "organization_id"),
         Index("ix_webhook_credentials_uuid", "credential_uuid"),
         UniqueConstraint("organization_id", "name", name="unique_org_credential_name"),
+    )
+
+
+class ToolModel(Base):
+    """Model for storing reusable tools that can be invoked during workflows.
+
+    Tools provide a standardized way to integrate external functionality - from
+    HTTP API calls to native integrations.
+    """
+
+    __tablename__ = "tools"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Public identifier (used in APIs and workflow references)
+    tool_uuid = Column(
+        String(36),
+        unique=True,
+        nullable=False,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    # Organization scoping
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Tool metadata
+    name = Column(String(255), nullable=False)
+    description = Column(String, nullable=True)
+
+    # Tool category - uses enum from api/enums.py
+    category = Column(
+        Enum(
+            *[c.value for c in ToolCategory],
+            name="tool_category",
+        ),
+        nullable=False,
+        default=ToolCategory.HTTP_API.value,
+    )
+
+    # Icon configuration (for UI display)
+    icon = Column(String(50), nullable=True)  # Icon identifier
+    icon_color = Column(String(7), nullable=True)  # Hex color code
+
+    # Status management
+    status = Column(
+        Enum(
+            *[s.value for s in ToolStatus],
+            name="tool_status",
+        ),
+        nullable=False,
+        default=ToolStatus.ACTIVE.value,
+        server_default=text("'active'::tool_status"),
+    )
+
+    # The tool definition (JSONB) - contains schema_version for compatibility
+    # Structure depends on category:
+    # - http_api: {"schema_version": 1, "type": "http_api", "config": {...}}
+    definition = Column(JSON, nullable=False, default=dict)
+
+    # Audit fields
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    # Relationships
+    organization = relationship("OrganizationModel")
+    created_by_user = relationship("UserModel")
+
+    # Indexes and constraints
+    __table_args__ = (
+        Index("ix_tools_organization_id", "organization_id"),
+        Index("ix_tools_uuid", "tool_uuid"),
+        Index("ix_tools_status", "status"),
+        Index("ix_tools_category", "category"),
+        UniqueConstraint("organization_id", "name", name="unique_org_tool_name"),
     )

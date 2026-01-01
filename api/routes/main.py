@@ -15,6 +15,7 @@ from api.routes.s3_signed_url import router as s3_router
 from api.routes.service_keys import router as service_keys_router
 from api.routes.superuser import router as superuser_router
 from api.routes.telephony import router as telephony_router
+from api.routes.tool import router as tool_router
 from api.routes.user import router as user_router
 from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
@@ -32,6 +33,7 @@ router.include_router(workflow_router)
 router.include_router(user_router)
 router.include_router(campaign_router)
 router.include_router(credentials_router)
+router.include_router(tool_router)
 router.include_router(integration_router)
 router.include_router(organization_router)
 router.include_router(s3_router)

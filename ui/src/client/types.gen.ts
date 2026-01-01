@@ -144,6 +144,18 @@ export type CreateTestSessionRequest = {
     };
 };
 
+/**
+ * Request schema for creating a tool.
+ */
+export type CreateToolRequest = {
+    name: string;
+    description?: string | null;
+    category?: string;
+    icon?: string | null;
+    icon_color?: string | null;
+    definition: ToolDefinition;
+};
+
 export type CreateWorkflowRequest = {
     name: string;
     workflow_definition: {
@@ -172,6 +184,14 @@ export type CreateWorkflowTemplateRequest = {
     call_type: 'INBOUND' | 'OUTBOUND';
     use_case: string;
     activity_description: string;
+};
+
+/**
+ * Response schema for the user who created a tool.
+ */
+export type CreatedByResponse = {
+    id: number;
+    provider_id: string;
 };
 
 /**
@@ -307,6 +327,52 @@ export type FileMetadataResponse = {
 
 export type HttpValidationError = {
     detail?: Array<ValidationError>;
+};
+
+/**
+ * Configuration for HTTP API tools.
+ */
+export type HttpApiConfig = {
+    /**
+     * HTTP method (GET, POST, PUT, PATCH, DELETE)
+     */
+    method: string;
+    /**
+     * Target URL (supports {{variable}} placeholders)
+     */
+    url: string;
+    /**
+     * Static headers to include
+     */
+    headers?: {
+        [key: string]: string;
+    } | null;
+    /**
+     * Reference to ExternalCredentialModel for auth
+     */
+    credential_uuid?: string | null;
+    /**
+     * Request body with {{variable}} placeholders
+     */
+    body_template?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Request timeout in milliseconds
+     */
+    timeout_ms?: number | null;
+    /**
+     * Retry configuration
+     */
+    retry_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * JSONPath mappings for response extraction
+     */
+    response_mapping?: {
+        [key: string]: string;
+    } | null;
 };
 
 /**
@@ -501,6 +567,44 @@ export type TestSessionResponse = {
 };
 
 /**
+ * Tool definition schema.
+ */
+export type ToolDefinition = {
+    /**
+     * Schema version for compatibility
+     */
+    schema_version?: number;
+    /**
+     * Tool type (http_api)
+     */
+    type: string;
+    /**
+     * Tool configuration
+     */
+    config: HttpApiConfig;
+};
+
+/**
+ * Response schema for a tool.
+ */
+export type ToolResponse = {
+    id: number;
+    tool_uuid: string;
+    name: string;
+    description: string | null;
+    category: string;
+    icon: string | null;
+    icon_color: string | null;
+    status: string;
+    definition: {
+        [key: string]: unknown;
+    };
+    created_at: string;
+    updated_at: string | null;
+    created_by?: CreatedByResponse | null;
+};
+
+/**
  * Request model for triggering a call via API
  */
 export type TriggerCallRequest = {
@@ -564,6 +668,18 @@ export type UpdateIntegrationRequest = {
     selected_files: Array<{
         [key: string]: unknown;
     }>;
+};
+
+/**
+ * Request schema for updating a tool.
+ */
+export type UpdateToolRequest = {
+    name?: string | null;
+    description?: string | null;
+    icon?: string | null;
+    icon_color?: string | null;
+    definition?: ToolDefinition | null;
+    status?: string | null;
 };
 
 export type UpdateWorkflowRequest = {
@@ -2346,6 +2462,177 @@ export type UpdateCredentialApiV1CredentialsCredentialUuidPutResponses = {
 };
 
 export type UpdateCredentialApiV1CredentialsCredentialUuidPutResponse = UpdateCredentialApiV1CredentialsCredentialUuidPutResponses[keyof UpdateCredentialApiV1CredentialsCredentialUuidPutResponses];
+
+export type ListToolsApiV1ToolsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path?: never;
+    query?: {
+        status?: string | null;
+        category?: string | null;
+    };
+    url: '/api/v1/tools/';
+};
+
+export type ListToolsApiV1ToolsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListToolsApiV1ToolsGetError = ListToolsApiV1ToolsGetErrors[keyof ListToolsApiV1ToolsGetErrors];
+
+export type ListToolsApiV1ToolsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: Array<ToolResponse>;
+};
+
+export type ListToolsApiV1ToolsGetResponse = ListToolsApiV1ToolsGetResponses[keyof ListToolsApiV1ToolsGetResponses];
+
+export type CreateToolApiV1ToolsPostData = {
+    body: CreateToolRequest;
+    headers?: {
+        authorization?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/tools/';
+};
+
+export type CreateToolApiV1ToolsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateToolApiV1ToolsPostError = CreateToolApiV1ToolsPostErrors[keyof CreateToolApiV1ToolsPostErrors];
+
+export type CreateToolApiV1ToolsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolResponse;
+};
+
+export type CreateToolApiV1ToolsPostResponse = CreateToolApiV1ToolsPostResponses[keyof CreateToolApiV1ToolsPostResponses];
+
+export type DeleteToolApiV1ToolsToolUuidDeleteData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        tool_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{tool_uuid}';
+};
+
+export type DeleteToolApiV1ToolsToolUuidDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteToolApiV1ToolsToolUuidDeleteError = DeleteToolApiV1ToolsToolUuidDeleteErrors[keyof DeleteToolApiV1ToolsToolUuidDeleteErrors];
+
+export type DeleteToolApiV1ToolsToolUuidDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: {
+        [key: string]: unknown;
+    };
+};
+
+export type DeleteToolApiV1ToolsToolUuidDeleteResponse = DeleteToolApiV1ToolsToolUuidDeleteResponses[keyof DeleteToolApiV1ToolsToolUuidDeleteResponses];
+
+export type GetToolApiV1ToolsToolUuidGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        tool_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{tool_uuid}';
+};
+
+export type GetToolApiV1ToolsToolUuidGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetToolApiV1ToolsToolUuidGetError = GetToolApiV1ToolsToolUuidGetErrors[keyof GetToolApiV1ToolsToolUuidGetErrors];
+
+export type GetToolApiV1ToolsToolUuidGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolResponse;
+};
+
+export type GetToolApiV1ToolsToolUuidGetResponse = GetToolApiV1ToolsToolUuidGetResponses[keyof GetToolApiV1ToolsToolUuidGetResponses];
+
+export type UpdateToolApiV1ToolsToolUuidPutData = {
+    body: UpdateToolRequest;
+    headers?: {
+        authorization?: string | null;
+    };
+    path: {
+        tool_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{tool_uuid}';
+};
+
+export type UpdateToolApiV1ToolsToolUuidPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateToolApiV1ToolsToolUuidPutError = UpdateToolApiV1ToolsToolUuidPutErrors[keyof UpdateToolApiV1ToolsToolUuidPutErrors];
+
+export type UpdateToolApiV1ToolsToolUuidPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolResponse;
+};
+
+export type UpdateToolApiV1ToolsToolUuidPutResponse = UpdateToolApiV1ToolsToolUuidPutResponses[keyof UpdateToolApiV1ToolsToolUuidPutResponses];
 
 export type GetIntegrationsApiV1IntegrationGetData = {
     body?: never;

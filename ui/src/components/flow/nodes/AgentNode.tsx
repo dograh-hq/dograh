@@ -1,9 +1,11 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { Edit, Headset, PlusIcon,Trash2Icon } from "lucide-react";
+import { Edit, Headset, PlusIcon, Trash2Icon, Wrench } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
-import { ExtractionVariable,FlowNodeData } from "@/components/flow/types";
+import { ToolBadges } from "@/components/flow/ToolBadges";
+import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
+import { ToolSelector } from "@/components/flow/ToolSelector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,6 +32,8 @@ interface AgentNodeEditFormProps {
     setVariables: (vars: ExtractionVariable[]) => void;
     addGlobalPrompt: boolean;
     setAddGlobalPrompt: (value: boolean) => void;
+    toolUuids: string[];
+    setToolUuids: (value: string[]) => void;
 }
 
 interface AgentNodeProps extends NodeProps {
@@ -50,6 +54,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
     const [extractionPrompt, setExtractionPrompt] = useState(data.extraction_prompt ?? "");
     const [variables, setVariables] = useState<ExtractionVariable[]>(data.extraction_variables ?? []);
     const [addGlobalPrompt, setAddGlobalPrompt] = useState(data.add_global_prompt ?? true);
+    const [toolUuids, setToolUuids] = useState<string[]>(data.tool_uuids ?? []);
 
     const handleSave = async () => {
         handleSaveNodeData({
@@ -61,6 +66,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             extraction_prompt: extractionPrompt,
             extraction_variables: variables,
             add_global_prompt: addGlobalPrompt,
+            tool_uuids: toolUuids.length > 0 ? toolUuids : undefined,
         });
         setOpen(false);
         // Save the workflow after updating node data with a small delay to ensure state is updated
@@ -79,6 +85,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             setExtractionPrompt(data.extraction_prompt ?? "");
             setVariables(data.extraction_variables ?? []);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
+            setToolUuids(data.tool_uuids ?? []);
         }
         setOpen(newOpen);
     };
@@ -93,6 +100,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             setExtractionPrompt(data.extraction_prompt ?? "");
             setVariables(data.extraction_variables ?? []);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
+            setToolUuids(data.tool_uuids ?? []);
         }
     }, [data, open]);
 
@@ -114,6 +122,15 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
                 <p className="text-sm text-muted-foreground line-clamp-5 leading-relaxed">
                     {data.prompt || 'No prompt configured'}
                 </p>
+                {data.tool_uuids && data.tool_uuids.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border/50">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+                            <Wrench className="h-3 w-3" />
+                            <span>Tools:</span>
+                        </div>
+                        <ToolBadges toolUuids={data.tool_uuids} />
+                    </div>
+                )}
             </NodeContent>
 
             <NodeToolbar isVisible={selected} position={Position.Right}>
@@ -151,6 +168,8 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
                         setVariables={setVariables}
                         addGlobalPrompt={addGlobalPrompt}
                         setAddGlobalPrompt={setAddGlobalPrompt}
+                        toolUuids={toolUuids}
+                        setToolUuids={setToolUuids}
                     />
                 )}
             </NodeEditDialog>
@@ -173,6 +192,8 @@ const AgentNodeEditForm = ({
     setVariables,
     addGlobalPrompt,
     setAddGlobalPrompt,
+    toolUuids,
+    setToolUuids,
 }: AgentNodeEditFormProps) => {
     const handleVariableNameChange = (idx: number, value: string) => {
         const newVars = [...variables];
@@ -307,6 +328,15 @@ const AgentNodeEditForm = ({
                     </Button>
                 </div>
             )}
+
+            {/* Tools Section */}
+            <div className="pt-4 border-t mt-4">
+                <ToolSelector
+                    value={toolUuids}
+                    onChange={setToolUuids}
+                    description="Select tools that the agent can invoke during this conversation step."
+                />
+            </div>
         </div>
     );
 };

@@ -40,6 +40,8 @@ export type FlowNodeData = {
         max_retries: number;
         retry_delay_seconds: number;
     };
+    // Tools - array of tool UUIDs that can be invoked by this node
+    tool_uuids?: string[];
 }
 
 export type FlowNode = {

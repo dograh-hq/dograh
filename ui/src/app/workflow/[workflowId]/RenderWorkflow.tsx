@@ -221,7 +221,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     </ReactFlow>
 
                     {/* Bottom-left controls - horizontal layout with custom buttons */}
-                    <div className="absolute bottom-12 left-8 z-[1000] flex gap-2">
+                    <div className="absolute bottom-12 left-8 z-10 flex gap-2">
                         <TooltipProvider>
                             {/* Zoom In */}
                             <Tooltip>

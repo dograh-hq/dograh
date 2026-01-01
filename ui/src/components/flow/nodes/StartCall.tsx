@@ -1,9 +1,11 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { Edit, Play } from "lucide-react";
+import { Edit, Play, Wrench } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import { ToolBadges } from "@/components/flow/ToolBadges";
 import { FlowNodeData } from "@/components/flow/types";
+import { ToolSelector } from "@/components/flow/ToolSelector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,6 +33,8 @@ interface StartCallEditFormProps {
     setDelayedStart: (value: boolean) => void;
     delayedStartDuration: number;
     setDelayedStartDuration: (value: number) => void;
+    toolUuids: string[];
+    setToolUuids: (value: string[]) => void;
 }
 
 interface StartCallNodeProps extends NodeProps {
@@ -52,6 +56,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const [detectVoicemail, setDetectVoicemail] = useState(data.detect_voicemail ?? false);
     const [delayedStart, setDelayedStart] = useState(data.delayed_start ?? false);
     const [delayedStartDuration, setDelayedStartDuration] = useState(data.delayed_start_duration ?? 2);
+    const [toolUuids, setToolUuids] = useState<string[]>(data.tool_uuids ?? []);
 
     const handleSave = async () => {
         handleSaveNodeData({
@@ -62,7 +67,8 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             add_global_prompt: addGlobalPrompt,
             detect_voicemail: detectVoicemail,
             delayed_start: delayedStart,
-            delayed_start_duration: delayedStart ? delayedStartDuration : undefined
+            delayed_start_duration: delayedStart ? delayedStartDuration : undefined,
+            tool_uuids: toolUuids.length > 0 ? toolUuids : undefined,
         });
         setOpen(false);
         // Save the workflow after updating node data with a small delay to ensure state is updated
@@ -81,6 +87,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
+            setToolUuids(data.tool_uuids ?? []);
         }
         setOpen(newOpen);
     };
@@ -95,6 +102,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
+            setToolUuids(data.tool_uuids ?? []);
         }
     }, [data, open]);
 
@@ -115,6 +123,15 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                 <p className="text-sm text-muted-foreground line-clamp-5 leading-relaxed">
                     {data.prompt || 'No prompt configured'}
                 </p>
+                {data.tool_uuids && data.tool_uuids.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border/50">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+                            <Wrench className="h-3 w-3" />
+                            <span>Tools:</span>
+                        </div>
+                        <ToolBadges toolUuids={data.tool_uuids} />
+                    </div>
+                )}
             </NodeContent>
 
             <NodeToolbar isVisible={selected} position={Position.Right}>
@@ -147,6 +164,8 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                         setDelayedStart={setDelayedStart}
                         delayedStartDuration={delayedStartDuration}
                         setDelayedStartDuration={setDelayedStartDuration}
+                        toolUuids={toolUuids}
+                        setToolUuids={setToolUuids}
                     />
                 )}
             </NodeEditDialog>
@@ -168,7 +187,9 @@ const StartCallEditForm = ({
     delayedStart,
     setDelayedStart,
     delayedStartDuration,
-    setDelayedStartDuration
+    setDelayedStartDuration,
+    toolUuids,
+    setToolUuids,
 }: StartCallEditFormProps) => {
     return (
         <div className="grid gap-2">
@@ -257,6 +278,15 @@ const StartCallEditForm = ({
                         />
                     </div>
                 )}
+            </div>
+
+            {/* Tools Section */}
+            <div className="pt-4 border-t mt-4">
+                <ToolSelector
+                    value={toolUuids}
+                    onChange={setToolUuids}
+                    description="Select tools that the agent can invoke during this conversation step."
+                />
             </div>
         </div>
     );

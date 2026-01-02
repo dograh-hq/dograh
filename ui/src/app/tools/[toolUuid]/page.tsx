@@ -8,13 +8,25 @@ import {
     getToolApiV1ToolsToolUuidGet,
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
-import type { HttpApiConfig, ToolResponse } from "@/client/types.gen";
+import type { ToolResponse } from "@/client/types.gen";
+
+// Extended HttpApiConfig with parameters (until client types are regenerated)
+interface HttpApiConfigWithParams {
+    method?: string;
+    url?: string;
+    headers?: Record<string, string>;
+    credential_uuid?: string;
+    parameters?: ToolParameter[];
+    timeout_ms?: number;
+}
 import {
     CredentialSelector,
+    type HttpMethod,
     HttpMethodSelector,
     KeyValueEditor,
-    type HttpMethod,
     type KeyValueItem,
+    ParameterEditor,
+    type ToolParameter,
 } from "@/components/http";
 import { Button } from "@/components/ui/button";
 import {
@@ -32,7 +44,6 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { JsonEditor, validateJson } from "@/components/ui/json-editor";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -58,9 +69,8 @@ export default function ToolDetailPage() {
     const [url, setUrl] = useState("");
     const [credentialUuid, setCredentialUuid] = useState("");
     const [headers, setHeaders] = useState<KeyValueItem[]>([]);
-    const [bodyTemplate, setBodyTemplate] = useState("{}");
+    const [parameters, setParameters] = useState<ToolParameter[]>([]);
     const [timeoutMs, setTimeoutMs] = useState(5000);
-    const [responseMapping, setResponseMapping] = useState<KeyValueItem[]>([]);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -100,7 +110,7 @@ export default function ToolDetailPage() {
         setName(tool.name);
         setDescription(tool.description || "");
 
-        const config = tool.definition?.config as HttpApiConfig | undefined;
+        const config = tool.definition?.config as HttpApiConfigWithParams | undefined;
         if (config) {
             setHttpMethod((config.method as HttpMethod) || "POST");
             setUrl(config.url || "");
@@ -119,23 +129,18 @@ export default function ToolDetailPage() {
                 setHeaders([]);
             }
 
-            // Convert body template to string
-            if (config.body_template) {
-                setBodyTemplate(JSON.stringify(config.body_template, null, 2));
-            } else {
-                setBodyTemplate("{}");
-            }
-
-            // Convert response mapping to array
-            if (config.response_mapping) {
-                setResponseMapping(
-                    Object.entries(config.response_mapping).map(([key, value]) => ({
-                        key,
-                        value: value as string,
+            // Load parameters
+            if (config.parameters && Array.isArray(config.parameters)) {
+                setParameters(
+                    config.parameters.map((p: ToolParameter) => ({
+                        name: p.name || "",
+                        type: p.type || "string",
+                        description: p.description || "",
+                        required: p.required ?? true,
                     }))
                 );
             } else {
-                setResponseMapping([]);
+                setParameters([]);
             }
         }
     };
@@ -145,16 +150,16 @@ export default function ToolDetailPage() {
     }, [fetchTool]);
 
     const handleSave = async () => {
-        // Validate body template
-        const validation = validateJson(bodyTemplate);
-        if (!validation.valid) {
-            setError("Invalid JSON in body template: " + validation.error);
-            return;
-        }
-
         // Validate URL
         if (!url.trim()) {
             setError("URL is required");
+            return;
+        }
+
+        // Validate parameters have names
+        const invalidParams = parameters.filter((p) => !p.name.trim());
+        if (invalidParams.length > 0) {
+            setError("All parameters must have a name");
             return;
         }
 
@@ -164,45 +169,41 @@ export default function ToolDetailPage() {
             setSaveSuccess(false);
             const accessToken = await getAccessToken();
 
-            // Convert arrays back to objects
+            // Convert headers array to object
             const headersObject: Record<string, string> = {};
             headers.filter((h) => h.key && h.value).forEach((h) => {
                 headersObject[h.key] = h.value;
             });
 
-            const responseMappingObject: Record<string, string> = {};
-            responseMapping.filter((r) => r.key && r.value).forEach((r) => {
-                responseMappingObject[r.key] = r.value;
-            });
+            // Filter out empty parameters
+            const validParameters = parameters.filter((p) => p.name.trim());
+
+            // Build the request body (cast needed until client types are regenerated)
+            const requestBody = {
+                name,
+                description: description || undefined,
+                definition: {
+                    schema_version: 1,
+                    type: "http_api",
+                    config: {
+                        method: httpMethod,
+                        url,
+                        credential_uuid: credentialUuid || undefined,
+                        headers:
+                            Object.keys(headersObject).length > 0
+                                ? headersObject
+                                : undefined,
+                        parameters:
+                            validParameters.length > 0 ? validParameters : undefined,
+                        timeout_ms: timeoutMs,
+                    },
+                },
+            };
 
             const response = await updateToolApiV1ToolsToolUuidPut({
                 path: { tool_uuid: toolUuid },
-                body: {
-                    name,
-                    description: description || undefined,
-                    definition: {
-                        schema_version: 1,
-                        type: "http_api",
-                        config: {
-                            method: httpMethod,
-                            url,
-                            credential_uuid: credentialUuid || undefined,
-                            headers:
-                                Object.keys(headersObject).length > 0
-                                    ? headersObject
-                                    : undefined,
-                            body_template:
-                                bodyTemplate !== "{}"
-                                    ? (validation.parsed as Record<string, unknown>)
-                                    : undefined,
-                            timeout_ms: timeoutMs,
-                            response_mapping:
-                                Object.keys(responseMappingObject).length > 0
-                                    ? responseMappingObject
-                                    : undefined,
-                        },
-                    },
-                },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                body: requestBody as any,
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },
@@ -224,21 +225,34 @@ export default function ToolDetailPage() {
     const getCodeSnippet = () => {
         if (!tool) return "";
 
-        const config = tool.definition?.config as HttpApiConfig | undefined;
-        if (!config) return "";
-
-        const headersObj: Record<string, string> = {};
+        const headersObj: Record<string, string> = {
+            "Content-Type": "application/json",
+        };
         headers.filter((h) => h.key && h.value).forEach((h) => {
             headersObj[h.key] = h.value;
         });
+
+        // Build example body from parameters
+        const exampleBody: Record<string, unknown> = {};
+        parameters.forEach((p) => {
+            if (p.type === "number") {
+                exampleBody[p.name] = 0;
+            } else if (p.type === "boolean") {
+                exampleBody[p.name] = true;
+            } else {
+                exampleBody[p.name] = `<${p.name}>`;
+            }
+        });
+
+        const hasBody = httpMethod !== "GET" && httpMethod !== "DELETE" && parameters.length > 0;
 
         return `// ${tool.name}
 // ${tool.description || "HTTP API Tool"}
 
 const response = await fetch("${url}", {
     method: "${httpMethod}",
-    headers: ${JSON.stringify(headersObj, null, 4)},
-    ${bodyTemplate !== "{}" ? `body: JSON.stringify(${bodyTemplate}),` : ""}
+    headers: ${JSON.stringify(headersObj, null, 4)},${hasBody ? `
+    body: JSON.stringify(${JSON.stringify(exampleBody, null, 4)}),` : ""}
 });
 
 const data = await response.json();`;
@@ -361,16 +375,18 @@ const data = await response.json();`;
                         </CardHeader>
                         <CardContent>
                             <Tabs defaultValue="settings" className="w-full">
-                                <TabsList className="grid w-full grid-cols-4">
+                                <TabsList className="grid w-full grid-cols-3">
                                     <TabsTrigger value="settings">Settings</TabsTrigger>
                                     <TabsTrigger value="auth">Authentication</TabsTrigger>
-                                    <TabsTrigger value="request">Request</TabsTrigger>
-                                    <TabsTrigger value="response">Response</TabsTrigger>
+                                    <TabsTrigger value="parameters">Parameters</TabsTrigger>
                                 </TabsList>
 
                                 <TabsContent value="settings" className="space-y-4 mt-4">
                                     <div className="grid gap-2">
                                         <Label>Tool Name</Label>
+                                        <Label className="text-xs text-muted-foreground">
+                                            Use a descriptive name, like &quot;Get Weather using API&quot; for a tool that fetches weather
+                                        </Label>
                                         <Input
                                             value={name}
                                             onChange={(e) => setName(e.target.value)}
@@ -380,6 +396,9 @@ const data = await response.json();`;
 
                                     <div className="grid gap-2">
                                         <Label>Description</Label>
+                                        <Label className="text-xs text-muted-foreground">
+                                            Provide a description which makes it easy for LLM to understand what this tool does
+                                        </Label>
                                         <Textarea
                                             value={description}
                                             onChange={(e) => setDescription(e.target.value)}
@@ -412,9 +431,6 @@ const data = await response.json();`;
 
                                     <div className="grid gap-2">
                                         <Label>Endpoint URL</Label>
-                                        <Label className="text-xs text-muted-foreground">
-                                            Use {"{{variable}}"} for dynamic placeholders
-                                        </Label>
                                         <Input
                                             value={url}
                                             onChange={(e) => setUrl(e.target.value)}
@@ -430,11 +446,23 @@ const data = await response.json();`;
                                     />
                                 </TabsContent>
 
-                                <TabsContent value="request" className="space-y-4 mt-4">
+                                <TabsContent value="parameters" className="space-y-4 mt-4">
                                     <div className="grid gap-2">
+                                        <Label>Tool Parameters</Label>
+                                        <Label className="text-xs text-muted-foreground">
+                                            Define the parameters that the LLM will provide when calling this tool.
+                                            These will be sent as JSON body for POST/PUT/PATCH or as URL query params for GET/DELETE.
+                                        </Label>
+                                        <ParameterEditor
+                                            parameters={parameters}
+                                            onChange={setParameters}
+                                        />
+                                    </div>
+
+                                    <div className="grid gap-2 pt-4 border-t">
                                         <Label>Custom Headers</Label>
                                         <Label className="text-xs text-muted-foreground">
-                                            Add custom headers to include in the request
+                                            Add custom headers to include in the request (optional)
                                         </Label>
                                         <KeyValueEditor
                                             items={headers}
@@ -443,64 +471,6 @@ const data = await response.json();`;
                                             valuePlaceholder="Header value"
                                             addButtonText="Add Header"
                                         />
-                                    </div>
-
-                                    <JsonEditor
-                                        value={bodyTemplate}
-                                        onChange={setBodyTemplate}
-                                        label="Request Body Template (JSON)"
-                                        description='Define the JSON body. Use "{{variable}}" for dynamic values.'
-                                        placeholder='{"customer_name": "{{customer_name}}", "date": "{{date}}"}'
-                                        minHeight="200px"
-                                    />
-                                </TabsContent>
-
-                                <TabsContent value="response" className="space-y-4 mt-4">
-                                    <div className="grid gap-2">
-                                        <Label>Response Mapping</Label>
-                                        <Label className="text-xs text-muted-foreground">
-                                            Map response fields to variables using JSONPath
-                                            expressions
-                                        </Label>
-                                        <KeyValueEditor
-                                            items={responseMapping}
-                                            onChange={setResponseMapping}
-                                            keyPlaceholder="Variable name"
-                                            valuePlaceholder="JSONPath (e.g., $.data.id)"
-                                            addButtonText="Add Mapping"
-                                        />
-                                    </div>
-
-                                    <div className="border rounded-md p-3 bg-muted/20">
-                                        <Label className="text-sm font-medium">
-                                            JSONPath Examples
-                                        </Label>
-                                        <div className="mt-2 space-y-1 text-xs">
-                                            <div>
-                                                <code className="bg-muted px-1 py-0.5 rounded">
-                                                    $.data.id
-                                                </code>
-                                                <span className="text-muted-foreground ml-2">
-                                                    - Access nested property
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <code className="bg-muted px-1 py-0.5 rounded">
-                                                    $.items[0].name
-                                                </code>
-                                                <span className="text-muted-foreground ml-2">
-                                                    - Access first array item
-                                                </span>
-                                            </div>
-                                            <div>
-                                                <code className="bg-muted px-1 py-0.5 rounded">
-                                                    $.status
-                                                </code>
-                                                <span className="text-muted-foreground ml-2">
-                                                    - Access root property
-                                                </span>
-                                            </div>
-                                        </div>
                                     </div>
                                 </TabsContent>
                             </Tabs>

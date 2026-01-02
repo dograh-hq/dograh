@@ -1,13 +1,13 @@
 """Execute webhook integrations after workflow run completion."""
 
-import base64
 from typing import Any, Dict
 
 import httpx
 from loguru import logger
 
 from api.db import db_client
-from api.db.models import ExternalCredentialModel, WorkflowRunModel
+from api.db.models import WorkflowRunModel
+from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 from pipecat.utils.context import set_current_run_id
 
@@ -133,7 +133,7 @@ async def _execute_webhook_node(
             credential_uuid, organization_id
         )
         if credential:
-            auth_header = _build_auth_header(credential)
+            auth_header = build_auth_header(credential)
             headers.update(auth_header)
             logger.debug(f"Applied credential '{credential.name}' to webhook")
         else:
@@ -189,39 +189,3 @@ async def _execute_webhook_node(
     except Exception as e:
         logger.error(f"Webhook '{webhook_name}' unexpected error: {e}")
         return False
-
-
-def _build_auth_header(credential: ExternalCredentialModel) -> Dict[str, str]:
-    """
-    Build authentication header based on credential type.
-
-    Args:
-        credential: The credential model
-
-    Returns:
-        Dict with header name and value
-    """
-    cred_type = credential.credential_type
-    cred_data = credential.credential_data or {}
-
-    if cred_type == "bearer_token":
-        token = cred_data.get("token", "")
-        return {"Authorization": f"Bearer {token}"}
-
-    elif cred_type == "api_key":
-        header_name = cred_data.get("header_name", "X-API-Key")
-        api_key = cred_data.get("api_key", "")
-        return {header_name: api_key}
-
-    elif cred_type == "basic_auth":
-        username = cred_data.get("username", "")
-        password = cred_data.get("password", "")
-        encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
-        return {"Authorization": f"Basic {encoded}"}
-
-    elif cred_type == "custom_header":
-        header_name = cred_data.get("header_name", "X-Custom")
-        header_value = cred_data.get("header_value", "")
-        return {header_name: header_value}
-
-    return {}

@@ -15,35 +15,42 @@ router = APIRouter(prefix="/tools")
 
 
 # Request/Response schemas
+class ToolParameter(BaseModel):
+    """A parameter that the tool accepts."""
+
+    name: str = Field(description="Parameter name (used as key in request body)")
+    type: str = Field(description="Parameter type: string, number, or boolean")
+    description: str = Field(description="Description of what this parameter is for")
+    required: bool = Field(
+        default=True, description="Whether this parameter is required"
+    )
+
+
 class HttpApiConfig(BaseModel):
     """Configuration for HTTP API tools."""
 
     method: str = Field(description="HTTP method (GET, POST, PUT, PATCH, DELETE)")
-    url: str = Field(description="Target URL (supports {{variable}} placeholders)")
+    url: str = Field(description="Target URL")
     headers: Optional[Dict[str, str]] = Field(
         default=None, description="Static headers to include"
     )
     credential_uuid: Optional[str] = Field(
         default=None, description="Reference to ExternalCredentialModel for auth"
     )
-    body_template: Optional[Dict[str, Any]] = Field(
-        default=None, description="Request body with {{variable}} placeholders"
+    parameters: Optional[List[ToolParameter]] = Field(
+        default=None, description="Parameters that the tool accepts from LLM"
     )
     timeout_ms: Optional[int] = Field(
         default=5000, description="Request timeout in milliseconds"
-    )
-    retry_config: Optional[Dict[str, Any]] = Field(
-        default=None, description="Retry configuration"
-    )
-    response_mapping: Optional[Dict[str, str]] = Field(
-        default=None, description="JSONPath mappings for response extraction"
     )
 
 
 class ToolDefinition(BaseModel):
     """Tool definition schema."""
 
-    schema_version: int = Field(default=1, description="Schema version for compatibility")
+    schema_version: int = Field(
+        default=1, description="Schema version for compatibility"
+    )
     type: str = Field(description="Tool type (http_api)")
     config: HttpApiConfig = Field(description="Tool configuration")
 
@@ -321,9 +328,7 @@ async def delete_tool(
             status_code=400, detail="No organization selected for the user"
         )
 
-    deleted = await db_client.archive_tool(
-        tool_uuid, user.selected_organization_id
-    )
+    deleted = await db_client.archive_tool(tool_uuid, user.selected_organization_id)
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Tool not found")

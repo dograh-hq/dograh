@@ -115,7 +115,9 @@ class ToolCategory(Enum):
     """Tool category types"""
 
     HTTP_API = "http_api"  # Custom HTTP API calls (implemented)
-    NATIVE = "native"  # Built-in integrations (future: call_transfer, dtmf_input, end_call)
+    NATIVE = (
+        "native"  # Built-in integrations (future: call_transfer, dtmf_input, end_call)
+    )
     INTEGRATION = "integration"  # Third-party integrations (future: Google Calendar, Salesforce, etc.)
 
 

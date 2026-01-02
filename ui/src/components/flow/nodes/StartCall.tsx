@@ -4,8 +4,8 @@ import { memo, useEffect, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { ToolBadges } from "@/components/flow/ToolBadges";
-import { FlowNodeData } from "@/components/flow/types";
 import { ToolSelector } from "@/components/flow/ToolSelector";
+import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";

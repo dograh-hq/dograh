@@ -38,6 +38,7 @@ import asyncio
 from loguru import logger
 
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
+from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.services.workflow.pipecat_engine_utils import (
     get_function_schema,
     render_template,
@@ -105,6 +106,16 @@ class PipecatEngine:
         # Track current LLM reference text for TTS aggregation correction
         self._current_llm_reference_text: str = ""
 
+        # Custom tool manager (initialized in initialize())
+        self._custom_tool_manager: Optional[CustomToolManager] = None
+
+    async def _get_organization_id(self) -> Optional[int]:
+        """Get and cache the organization ID from workflow run."""
+        if self._custom_tool_manager:
+            return await self._custom_tool_manager.get_organization_id()
+        # Fallback for when manager is not yet initialized
+        return await get_organization_id_from_workflow_run(self._workflow_run_id)
+
     @property
     def builtin_function_schemas(self) -> list[dict]:
         """Get built-in function schemas (calculator and timezone tools)."""
@@ -145,6 +156,9 @@ class PipecatEngine:
 
             # Helper that encapsulates variable extraction logic
             self._variable_extraction_manager = VariableExtractionManager(self)
+
+            # Helper that encapsulates custom tool management
+            self._custom_tool_manager = CustomToolManager(self)
 
             # Add current time in EST (America/New_York) to gathered context
             try:
@@ -360,6 +374,10 @@ class PipecatEngine:
                     outgoing_edge.get_function_name(), outgoing_edge.target
                 )
 
+        # Register custom tool handlers for this node
+        if node.tool_uuids and self._custom_tool_manager:
+            await self._custom_tool_manager.register_handlers(node.tool_uuids)
+
         # Set up system message and functions
         (
             system_message,
@@ -492,9 +510,7 @@ class PipecatEngine:
         # Apply disposition mapping - first try call_disposition if it is,
         # extracted from the call conversation then fall back to reason
         call_disposition = self._gathered_context.get("call_disposition", "")
-        organization_id = await get_organization_id_from_workflow_run(
-            self._workflow_run_id
-        )
+        organization_id = await self._get_organization_id()
 
         # If client is disconnected before we get a chance to disconnect from
         # the bot, lets consider that as final disposition
@@ -617,6 +633,13 @@ class PipecatEngine:
 
         # Add built-in function schemas (calculator and timezone tools)
         functions.extend(self.builtin_function_schemas)
+
+        # Add custom tools from node.tool_uuids
+        if node.tool_uuids and self._custom_tool_manager:
+            custom_tool_schemas = await self._custom_tool_manager.get_tool_schemas(
+                node.tool_uuids
+            )
+            functions.extend(custom_tool_schemas)
 
         # Transition functions (schema only; registration handled elsewhere)
         for outgoing_edge in node.out_edges:

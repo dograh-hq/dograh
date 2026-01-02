@@ -390,6 +390,9 @@ export default function ToolsPage() {
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="name">Tool Name</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Use a descriptive name, like &quot;Get Weather using API&quot; for a tool that fetches weather
+                            </Label>
                             <Input
                                 id="name"
                                 value={newToolName}
@@ -399,6 +402,9 @@ export default function ToolsPage() {
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="description">Description (Optional)</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Provide a description which makes it easy for LLM to understand what this tool does
+                            </Label>
                             <Input
                                 id="description"
                                 value={newToolDescription}

@@ -198,14 +198,10 @@ class ToolClient(BaseDBClient):
             )
             updated_tool = result.scalar_one()
 
-            logger.info(
-                f"Updated tool {tool_uuid} for organization {organization_id}"
-            )
+            logger.info(f"Updated tool {tool_uuid} for organization {organization_id}")
             return updated_tool
 
-    async def archive_tool(
-        self, tool_uuid: str, organization_id: int
-    ) -> bool:
+    async def archive_tool(self, tool_uuid: str, organization_id: int) -> bool:
         """Soft delete a tool by setting its status to archived.
 
         Args:
@@ -237,9 +233,7 @@ class ToolClient(BaseDBClient):
                 return True
             return False
 
-    async def validate_tool_uuid(
-        self, tool_uuid: str, organization_id: int
-    ) -> bool:
+    async def validate_tool_uuid(self, tool_uuid: str, organization_id: int) -> bool:
         """Check if a tool UUID exists and belongs to the organization.
 
         This is useful for workflow validation to ensure referenced tools exist.
@@ -253,3 +247,30 @@ class ToolClient(BaseDBClient):
         """
         tool = await self.get_tool_by_uuid(tool_uuid, organization_id)
         return tool is not None
+
+    async def get_tools_by_uuids(
+        self,
+        tool_uuids: List[str],
+        organization_id: int,
+    ) -> List[ToolModel]:
+        """Get multiple tools by their UUIDs.
+
+        Args:
+            tool_uuids: List of tool UUIDs to fetch
+            organization_id: ID of the organization (for authorization)
+
+        Returns:
+            List of ToolModel instances (only active tools)
+        """
+        if not tool_uuids:
+            return []
+
+        async with self.async_session() as session:
+            query = select(ToolModel).where(
+                ToolModel.tool_uuid.in_(tool_uuids),
+                ToolModel.organization_id == organization_id,
+                ToolModel.status == ToolStatus.ACTIVE.value,
+            )
+
+            result = await session.execute(query)
+            return list(result.scalars().all())

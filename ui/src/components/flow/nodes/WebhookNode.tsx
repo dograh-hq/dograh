@@ -6,9 +6,9 @@ import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContex
 import { FlowNodeData } from "@/components/flow/types";
 import {
     CredentialSelector,
+    type HttpMethod,
     HttpMethodSelector,
     KeyValueEditor,
-    type HttpMethod,
     type KeyValueItem,
 } from "@/components/http";
 import { Button } from "@/components/ui/button";

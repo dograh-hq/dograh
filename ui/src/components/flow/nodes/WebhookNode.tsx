@@ -10,6 +10,8 @@ import {
     HttpMethodSelector,
     KeyValueEditor,
     type KeyValueItem,
+    UrlInput,
+    validateUrl,
 } from "@/components/http";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,8 +59,9 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
 
     const handleSave = async () => {
         // Validate endpoint URL
-        if (!endpointUrl.trim()) {
-            setEndpointError('Endpoint URL is required');
+        const urlValidation = validateUrl(endpointUrl);
+        if (!urlValidation.valid) {
+            setEndpointError(urlValidation.error || 'Invalid URL');
             return;
         }
         setEndpointError(null);
@@ -284,10 +287,11 @@ const WebhookNodeEditForm = ({
                     <Label className="text-xs text-muted-foreground">
                         The URL to send the webhook request to.
                     </Label>
-                    <Input
+                    <UrlInput
                         value={endpointUrl}
-                        onChange={(e) => setEndpointUrl(e.target.value)}
+                        onChange={setEndpointUrl}
                         placeholder="https://api.example.com/webhook"
+                        showValidation
                     />
                 </div>
             </TabsContent>

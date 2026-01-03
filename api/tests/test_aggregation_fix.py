@@ -10,14 +10,14 @@ def test_aggregation_fixer():
     creates a fresh callback for every (reference, corrupted) pair.
 
     The production callback now needs a PipecatEngine instance with the
-    `_current_llm_reference_text` set.  For test-friendliness we mock a bare
+    `_current_llm_generation_reference_text` set.  For test-friendliness we mock a bare
     object providing just that attribute for each assertion so the original
     two-argument test cases remain unchanged.
     """
 
     def fixer(reference: str, corrupted: str) -> str:  # noqa: D401
         mock_engine = Mock()
-        mock_engine._current_llm_reference_text = reference
+        mock_engine._current_llm_generation_reference_text = reference
         return create_aggregation_correction_callback(mock_engine)(corrupted)
 
     ##### Trailing extra Chars #####
@@ -172,7 +172,7 @@ def test_create_aggregation_correction_callback():
     """Test the new aggregation correction callback creator."""
     # Mock engine with reference text
     mock_engine = Mock()
-    mock_engine._current_llm_reference_text = "Good Morning Mr NARGES, My name is Alex and I am calling you from Consumer Services."
+    mock_engine._current_llm_generation_reference_text = "Good Morning Mr NARGES, My name is Alex and I am calling you from Consumer Services."
 
     # Create callback
     callback = create_aggregation_correction_callback(mock_engine)
@@ -187,6 +187,6 @@ def test_create_aggregation_correction_callback():
     )
 
     # Test with no reference text
-    mock_engine._current_llm_reference_text = ""
+    mock_engine._current_llm_generation_reference_text = ""
     corrected = callback("Some corrupted text")
     assert corrected == "Some corrupted text"  # Should return as-is when no reference

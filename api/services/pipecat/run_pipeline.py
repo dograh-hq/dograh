@@ -433,7 +433,6 @@ async def _run_pipeline(
         max_duration_end_task_callback=engine.create_max_duration_callback(),
         generation_started_callback=engine.create_generation_started_callback(),
         llm_text_frame_callback=engine.handle_llm_text_frame,
-        # Note: speaking event callbacks are now handled by pre-aggregator processor
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()

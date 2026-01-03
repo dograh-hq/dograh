@@ -6,9 +6,7 @@ This module tests the full flow of:
 3. Verifying the context is properly configured for LLM generation
 """
 
-from dataclasses import dataclass
-from typing import Any, Dict
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -17,125 +15,13 @@ from api.services.workflow.pipecat_engine_utils import (
     get_function_schema,
     update_llm_context,
 )
+from api.tests.conftest import MockToolModel
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 
-@dataclass
-class MockToolModel:
-    """Mock tool model for testing."""
-
-    tool_uuid: str
-    name: str
-    description: str
-    definition: Dict[str, Any]
-
-
 class TestCustomToolManagerContextIntegration:
     """Integration tests for CustomToolManager with LLMContext."""
-
-    @pytest.fixture
-    def mock_engine(self):
-        """Create a mock PipecatEngine."""
-        engine = Mock()
-        engine._workflow_run_id = 1
-        engine._call_context_vars = {"customer_name": "John Doe"}
-        engine.llm = Mock()
-        engine.llm.register_function = Mock()
-        return engine
-
-    @pytest.fixture
-    def sample_tools(self):
-        """Create sample mock tools for testing."""
-        return [
-            MockToolModel(
-                tool_uuid="weather-uuid-123",
-                name="Get Weather",
-                description="Get current weather for a location",
-                definition={
-                    "schema_version": 1,
-                    "type": "http_api",
-                    "config": {
-                        "method": "GET",
-                        "url": "https://api.weather.com/current",
-                        "parameters": [
-                            {
-                                "name": "location",
-                                "type": "string",
-                                "description": "City name (e.g., San Francisco, CA)",
-                                "required": True,
-                            },
-                            {
-                                "name": "units",
-                                "type": "string",
-                                "description": "Temperature units: celsius or fahrenheit",
-                                "required": False,
-                            },
-                        ],
-                    },
-                },
-            ),
-            MockToolModel(
-                tool_uuid="booking-uuid-456",
-                name="Book Appointment",
-                description="Book an appointment for the customer",
-                definition={
-                    "schema_version": 1,
-                    "type": "http_api",
-                    "config": {
-                        "method": "POST",
-                        "url": "https://api.example.com/appointments",
-                        "parameters": [
-                            {
-                                "name": "customer_name",
-                                "type": "string",
-                                "description": "Customer's full name",
-                                "required": True,
-                            },
-                            {
-                                "name": "date",
-                                "type": "string",
-                                "description": "Appointment date (YYYY-MM-DD)",
-                                "required": True,
-                            },
-                            {
-                                "name": "time",
-                                "type": "string",
-                                "description": "Appointment time (HH:MM)",
-                                "required": True,
-                            },
-                            {
-                                "name": "notes",
-                                "type": "string",
-                                "description": "Additional notes",
-                                "required": False,
-                            },
-                        ],
-                    },
-                },
-            ),
-            MockToolModel(
-                tool_uuid="lookup-uuid-789",
-                name="Customer Lookup",
-                description="Look up customer information by phone number",
-                definition={
-                    "schema_version": 1,
-                    "type": "http_api",
-                    "config": {
-                        "method": "GET",
-                        "url": "https://api.example.com/customers/lookup",
-                        "parameters": [
-                            {
-                                "name": "phone",
-                                "type": "string",
-                                "description": "Customer phone number",
-                                "required": True,
-                            },
-                        ],
-                    },
-                },
-            ),
-        ]
 
     @pytest.mark.asyncio
     async def test_get_tool_schemas_and_update_context(self, mock_engine, sample_tools):

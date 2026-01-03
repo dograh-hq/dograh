@@ -27,6 +27,8 @@ import {
     type KeyValueItem,
     ParameterEditor,
     type ToolParameter,
+    UrlInput,
+    validateUrl,
 } from "@/components/http";
 import { Button } from "@/components/ui/button";
 import {
@@ -151,8 +153,9 @@ export default function ToolDetailPage() {
 
     const handleSave = async () => {
         // Validate URL
-        if (!url.trim()) {
-            setError("URL is required");
+        const urlValidation = validateUrl(url);
+        if (!urlValidation.valid) {
+            setError(urlValidation.error || "Invalid URL");
             return;
         }
 
@@ -431,10 +434,11 @@ const data = await response.json();`;
 
                                     <div className="grid gap-2">
                                         <Label>Endpoint URL</Label>
-                                        <Input
+                                        <UrlInput
                                             value={url}
-                                            onChange={(e) => setUrl(e.target.value)}
+                                            onChange={setUrl}
                                             placeholder="https://api.example.com/appointments"
+                                            showValidation
                                         />
                                     </div>
                                 </TabsContent>

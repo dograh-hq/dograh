@@ -114,10 +114,10 @@ def create_max_duration_callback(engine: "PipecatEngine"):
 def create_generation_started_callback(engine: "PipecatEngine"):
     """Return a callback that resets flags at the start of each LLM generation."""
 
-    async def handle_generation_started():  # noqa: D401
+    async def handle_generation_started():
         logger.debug("LLM generation started in callback processor")
         # Clear reference text from previous generation
-        engine._current_llm_reference_text = ""
+        engine._current_llm_generation_reference_text = ""
 
     return handle_generation_started
 
@@ -184,7 +184,7 @@ def create_aggregation_correction_callback(engine: "PipecatEngine"):
         return "".join(out_chars)
 
     def correct_aggregation(corrupted: str) -> str:
-        reference = engine._current_llm_reference_text
+        reference = engine._current_llm_generation_reference_text
 
         if not reference:
             logger.warning("No reference text available for aggregation correction")

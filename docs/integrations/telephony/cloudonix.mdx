@@ -1,0 +1,98 @@
+---
+title: "Cloudonix Integration"
+description: "Configure Cloudonix for voice communication in Dograh AI"
+---
+
+## Overview
+
+Cloudonix is a cloud communications platform that enables Dograh voice agents to connect to SIP communications
+platform, either on-premise or in the cloud. In addition, Cloudonix exposes a full set of voice APIs, that provide 
+a full suite of call-control capabilities and more.
+
+## Prerequisites
+
+Before setting up Cloudonix integration, you'll need:
+
+- A [Cloudonix account](https://cockpit.cloudonix.io/onboarding?affiliate=DOGRAH)
+- A Cloudonix domain UUID (or the domain name)
+- A Cloudonix domain API Key
+- A Cloudonix outbound voice trunk service provider connection
+- Dograh AI instance running and accessible
+
+## Video Tutorial
+
+Watch this step-by-step guide to set up Cloudonix with Dograh AI:
+
+<iframe
+  className="w-full aspect-video rounded-xl"
+  src="https://www.youtube.com/embed/qLKX0F99jpU?si=tA3zwCsNRKe-WCI1"
+  title="Dograh Cloudonix Setup"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+></iframe>
+
+## Configuration
+
+### Step 1: Get Cloudonix Credentials
+
+1. Log in to your [Cloudonix Console](https://cockpit.cloudonix.io/onboarding?affiliate=DOGRAH)
+2. Find your **Domain UUID** and **Domain API Key** on the dashboard
+
+### Step 2: Configure in Dograh AI
+
+1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
+2. Watch the Cloudonix setup video tutorial above for detailed guidance
+3. Select **Cloudonix** as your provider
+4. Enter your credentials:
+   - Domain UUID
+   - Domain API Key
+5. Click **Save Configuration**
+
+### Step 3: Test Your Configuration
+
+1. Create a test workflow
+2. Click "Test Call" to verify connection
+3. Check call logs for successful connection
+
+## How It Works
+
+### Outbound Calling
+When you initiate a call through Dograh AI:
+1. The system selects a phone number from your configured pool
+2. Cloudonix places the call to your recipient, via a pre-configured Cloudonix outbound voice trunk
+3. Once connected, audio streams through WebSocket for real-time voice interaction
+4. Call status updates are tracked throughout the lifecycle
+
+
+## Campaign Features
+
+When using Cloudonix with campaigns:
+- **Rate Limiting**: Enforced per organization to prevent overwhelming
+- **Automatic Retry**: Failed calls (busy/no-answer) are retried automatically
+- **Concurrent Call Management**: System manages call slots to optimize throughput
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid phone number error">
+    Ensure phone numbers include country code in E.164 format: `+1234567890`
+  </Accordion>
+  
+  <Accordion title="Authentication failed">
+    - Verify Domain UUID and Domain API Key are correct
+    - Check for extra spaces in credentials
+    - Ensure credentials haven't been disabled or deleted in Cloudonix Console
+  </Accordion>
+  
+  <Accordion title="No audio on calls">
+    - Verify WebSocket connection is established
+    - Check firewall rules for WebSocket traffic
+    - Ensure audio pipeline is configured correctly
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- Store credentials securely in the database
+- Test your configuration with a single call before running campaigns
+- Monitor Cloudonix Sessions for usage

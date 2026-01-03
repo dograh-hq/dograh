@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+from loguru import logger
+from pydantic import ValidationError
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
@@ -66,12 +68,21 @@ class UserClient(BaseDBClient):
             if not configuration_obj:
                 return UserConfiguration()
 
-            return UserConfiguration.model_validate(
-                {
-                    **configuration_obj.configuration,
-                    "last_validated_at": configuration_obj.last_validated_at,
-                }
-            )
+            try:
+                return UserConfiguration.model_validate(
+                    {
+                        **configuration_obj.configuration,
+                        "last_validated_at": configuration_obj.last_validated_at,
+                    }
+                )
+            except ValidationError as e:
+                # If configuration contains an unsupported provider,
+                # return a default configuration without failing
+                logger.warning(
+                    f"Failed to validate user configuration for user {user_id}: {e}. "
+                    "Returning default configuration."
+                )
+                return UserConfiguration()
 
     async def update_user_configuration(
         self, user_id: int, configuration: UserConfiguration

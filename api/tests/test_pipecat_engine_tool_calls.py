@@ -117,16 +117,10 @@ async def run_pipeline_with_tool_calls(
         workflow_run_id=1,
     )
 
-    pipeline_engine_callback_processor = PipelineEngineCallbacksProcessor(
-        generation_started_callback=engine.create_generation_started_callback(),
-        generation_tool_calls_info_callback=engine.create_generation_tool_calls_info_callback(),
-    )
-
     # Create the pipeline with the mock LLM
     pipeline = Pipeline(
         [
             llm,
-            pipeline_engine_callback_processor,
             mock_transport_emulator,
             assistant_context_aggregator,
         ]

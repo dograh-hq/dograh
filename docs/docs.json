@@ -50,7 +50,8 @@
                   "voice-agent/agent",
                   "voice-agent/global",
                   "voice-agent/api-trigger",
-                  "voice-agent/webhook"
+                  "voice-agent/webhook",
+                  "voice-agent/tools"
                 ]
               }
             ]

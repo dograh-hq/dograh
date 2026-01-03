@@ -1,0 +1,167 @@
+---
+title: "Tools in Workflow Nodes"
+---
+
+Dograh AI lets you attach multiple tools (e.g. API calls) directly to workflow nodes. This allows your voice agents to call any internal or external system during a live conversation-based on LLM judgment and your prompts.
+
+This works similar to a tool call on any agentic platforms and is 100% open source and fully customizable.
+
+## Video Tutorial
+
+<iframe 
+  width="560" 
+  height="315" 
+  src="https://www.youtube.com/embed/er-YTX5Eocs?si=5tw9rWfaWp2DOSIv" 
+  title="YouTube video player" 
+  frameBorder="0" 
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+  referrerPolicy="strict-origin-when-cross-origin" 
+  allowFullScreen
+></iframe>
+
+## What Are Tools?
+
+A tool is a REST API definition that the LLM can invoke at runtime.
+
+**Typical use cases:**
+- Call your own backend endpoints
+- Trigger n8n automations
+- Sync data with a CRM
+- Fetch data from external APIs (weather, pricing, availability, etc.)
+- Write/update/read data using Rest API
+
+**The LLM decides:**
+- which tool to call
+- when to call it
+- what parameters to send
+
+**All based on:**
+- Your prompts: node-level instructions in simple english (or any language)
+- Tool name
+- Tool description
+- Parameter definitions
+
+<br/>
+<div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
+
+## Defining Tools
+
+### 1. Tool Name
+
+- Must be clear and action-oriented.
+
+- **Examples:** `capture_lead_interest`, `fetch_weather`, 'create_crm_contact', etc
+
+### 2. Tool Description
+
+
+- Extremely important
+- This is how the LLM decides **when** to use the tool. 
+- Write it in plain, explicit English.
+
+**Bad:**
+"API to capture data"
+
+**Good:**
+"This tool is to capture interest. Use this tool when the user clearly expresses interest in the product or wants to be contacted"
+
+![Tool Description Example](/images/tool%20description.png)
+
+### 3. Endpoint Configuration
+
+- Full URL (**must include `http://` or `https://`**)
+- Supports **REST** methods
+
+<Note>Common mistake: forgetting https:// in the URL.</Note>
+
+<br/>
+<div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
+
+### 4. Authentication & Headers
+
+- Add custom authentication
+- Add custom headers
+- Works with internal services and third-party APIs
+
+<br/>
+<div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
+
+### 5. Parameters
+
+Each parameter must have:
+- Name
+- Type
+- Description
+- Required/Optional flag
+
+**Parameter descriptions matter more than types.**
+
+Guidelines:
+- Start with string parameters when possible
+- Be explicit in what the value represents
+- Mark only truly mandatory fields as required
+
+Example:
+- interest (string):
+  “Set to true if the user clearly shows intent to buy or wants follow-up. Otherwise false.”
+
+![Parameter Example](/images/tool%20params.png)
+
+<br/>
+<div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
+
+## Attaching Tools to Workflow Nodes
+
+- You can attach **multiple tools to a single node**
+- All the tools that you have created will be available for selection in the node
+- Tools are only callable when attached to that node
+- The LLM will choose which one to call
+
+Inside the node, guide the LLM using **simple English instructions**.
+
+Example:
+
+“If the user shows interest in speaking to sales or wants a callback, immediately call the capture_lead_interest tool and set interest to true.”
+This instruction is often the deciding factor for correct tool usage.
+
+This instruction is often the **deciding factor** for correct tool usage.
+
+![Parameter Example](/images/tool%20attachment.png)
+<br/>
+<div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
+
+## Tool Invocation Logic (How the LLM Thinks)
+
+The LLM considers:
+- User's spoken intent
+- Node prompt instructions
+- Tool name and description
+- Parameter descriptions
+
+If these align clearly, the tool is called automatically.
+
+Poor naming or vague descriptions lead to:
+- Missed tool calls
+- Wrong parameters
+- Hallucinated values
+
+<br/>
+<div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
+## View Code (Advanced)
+
+While building a tool, use the **“View Code”** button at the top.
+This shows the **JavaScript code** used to make the API call, useful for:
+
+- Debugging
+- Verifying headers/auth
+- Reusing logic elsewhere
+
+## Key Best Practices
+- Name tools clearly
+- Write detailed, action-based descriptions
+- Keep parameters simple at first
+- Always include http/https in URLs
+- Use plain English in node instructions
+- Attach only relevant tools to each node
+
+**Well-defined tools + clear prompts = reliable, production-grade voice agents.**

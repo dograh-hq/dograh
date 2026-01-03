@@ -42,6 +42,7 @@
               "voice-agent/introduction",
               "voice-agent/editing-a-workflow",
               "voice-agent/template-variables",
+              "voice-agent/tools",
               {
                 "group": "Nodes",
                 "pages": [
@@ -50,8 +51,7 @@
                   "voice-agent/agent",
                   "voice-agent/global",
                   "voice-agent/api-trigger",
-                  "voice-agent/webhook",
-                  "voice-agent/tools"
+                  "voice-agent/webhook"
                 ]
               }
             ]
@@ -113,7 +113,7 @@
     }
   },
   "search": {
-    "prompt": "Search for Webhook, Deployment, etc..."
+    "prompt": "Search for Tools, Webhook, Deployment, etc..."
   },
   "customCSS": "/custom.css",
   "contextual": {

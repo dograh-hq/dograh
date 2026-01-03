@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.9.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.8.0...dograh-v1.9.0) (2026-01-03)
+
+
+### Features
+
+* add cloudonix outbound telephony ([#101](https://github.com/dograh-hq/dograh/issues/101)) ([90b690e](https://github.com/dograh-hq/dograh/commit/90b690efff0931f73ca588aa70dad7bb2f9ff797))
+* add keyboard shortcut for save ([fec8da9](https://github.com/dograh-hq/dograh/commit/fec8da9d20bbce0c73d6296c7c2e74468a215bd1))
+* add trace URL in workflow runs ([cdf6853](https://github.com/dograh-hq/dograh/commit/cdf68533add17d251273bd5f8d8ba1cb82d144fc))
+* add voice selectors in elevenlabs ([#88](https://github.com/dograh-hq/dograh/issues/88)) ([45c5b7c](https://github.com/dograh-hq/dograh/commit/45c5b7c304f6c0e5c4d6846c3591051588f73a32))
+* user defined custom tools as part of workflow execution ([#94](https://github.com/dograh-hq/dograh/issues/94)) ([3e55af9](https://github.com/dograh-hq/dograh/commit/3e55af9256ecbde4b92a547fc9bca8a8c5e57f15))
+
+
+### Bug Fixes
+
+* change type definition from enum to str for consistency ([e83f3a3](https://github.com/dograh-hq/dograh/commit/e83f3a36d2b422171113ecdf6432d8aaf9c63789))
+* fix configuration option ([74b0693](https://github.com/dograh-hq/dograh/commit/74b069354b721e310a7d5b9cd93a4666ec197e5c))
+* fix db filters ([de09f1c](https://github.com/dograh-hq/dograh/commit/de09f1c5016bf4b4cb44b58a6526f6b51e3389c1))
+* fix links ([480e8a5](https://github.com/dograh-hq/dograh/commit/480e8a5f602583c000c1ecc0e1643024fe1a4757))
+* fix migration version ([9adc766](https://github.com/dograh-hq/dograh/commit/9adc766f3c593354aac10129fabcd27856c90b88))
+* llm generation in case of user idle ([04576ac](https://github.com/dograh-hq/dograh/commit/04576ac3570beffb92d0c980448b8fa67b051eb5))
+
+
+### Documentation
+
+* add page for Workflow editing basics ([#93](https://github.com/dograh-hq/dograh/issues/93)) ([3afae6c](https://github.com/dograh-hq/dograh/commit/3afae6cf099555734a96f681e98999719626b61e))
+* add webhook tutorial in mintilify docs ([#92](https://github.com/dograh-hq/dograh/issues/92)) ([0b07319](https://github.com/dograh-hq/dograh/commit/0b073195f1c650a71fea7a7d2810f038cd5393b7))
+* modify tools section ([#103](https://github.com/dograh-hq/dograh/issues/103)) ([a33fa6c](https://github.com/dograh-hq/dograh/commit/a33fa6cffe8178666cd49c7df3bb47a39a952604))
+* tools in workflow node ([#102](https://github.com/dograh-hq/dograh/issues/102)) ([db89aed](https://github.com/dograh-hq/dograh/commit/db89aed377878031b06eb182af548ca0e19ef422))
+
 ## [1.8.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.7.1...dograh-v1.8.0) (2025-12-22)
 
 

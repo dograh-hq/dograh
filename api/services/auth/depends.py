@@ -15,7 +15,14 @@ from api.services.configuration.registry import ServiceProviders
 
 async def get_user(
     authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> UserModel:
+    # ------------------------------------------------------------------
+    # Check if API key is provided (takes precedence)
+    # ------------------------------------------------------------------
+    if x_api_key:
+        return await _handle_api_key_auth(x_api_key)
+
     # ------------------------------------------------------------------
     # Check if we're in OSS deployment mode
     # ------------------------------------------------------------------
@@ -101,13 +108,14 @@ async def get_user(
 
 async def get_user_optional(
     authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> UserModel | None:
     """
     Same as get_user but returns None instead of raising 401 if unauthorized.
     Useful for endpoints that need to work both with and without auth.
     """
     try:
-        return await get_user(authorization)
+        return await get_user(authorization, x_api_key)
     except HTTPException as e:
         if e.status_code == 401:
             return None
@@ -176,6 +184,37 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
         raise HTTPException(
             status_code=500, detail=f"Error while handling OSS authentication: {e}"
         )
+
+
+async def _handle_api_key_auth(api_key: str) -> UserModel:
+    """
+    Handle authentication via X-API-Key header.
+    Returns the user who created the API key with the correct organization context.
+    """
+    # Validate the API key
+    api_key_model = await db_client.validate_api_key(api_key)
+
+    if not api_key_model:
+        raise HTTPException(status_code=401, detail="Invalid or expired API key")
+
+    # API key must have a created_by user
+    if not api_key_model.created_by:
+        raise HTTPException(status_code=401, detail="API key has no associated user")
+
+    # Get the user who created this API key
+    user = await db_client.get_user_by_id(api_key_model.created_by)
+    if not user:
+        raise HTTPException(status_code=401, detail="API key owner not found")
+
+    # Set the organization context to the API key's organization
+    user.selected_organization_id = api_key_model.organization_id
+
+    logger.debug(
+        f"Authenticated via API key: {api_key_model.key_prefix}... "
+        f"(user_id={user.id}, org_id={api_key_model.organization_id})"
+    )
+
+    return user
 
 
 async def create_user_configuration_with_mps_key(
@@ -262,12 +301,13 @@ async def create_user_configuration_with_mps_key(
 
 async def get_superuser(
     authorization: Annotated[str | None, Header()] = None,
+    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
 ) -> UserModel:
     """
     Dependency to check if the authenticated user is a superuser.
     Raises HTTPException if user is not authenticated or not a superuser.
     """
-    user = await get_user(authorization)
+    user = await get_user(authorization, x_api_key)
 
     if not user.is_superuser:
         raise HTTPException(
@@ -280,20 +320,24 @@ async def get_superuser(
 async def get_user_ws(
     websocket: WebSocket,
     token: str = Query(None),
+    api_key: str = Query(None, alias="api_key"),
 ) -> UserModel:
     """
     WebSocket authentication dependency.
-    Uses token from query parameters for authentication.
+    Uses token or api_key from query parameters for authentication.
     """
-    if not token:
+    if not token and not api_key:
         await websocket.close(code=1008, reason="Missing authentication token")
         raise HTTPException(status_code=401, detail="Missing authentication token")
 
-    # Use the same logic as get_user but with token from query
-    authorization = f"Bearer {token}"
-
     try:
-        user = await get_user(authorization)
+        # API key takes precedence
+        if api_key:
+            user = await get_user(None, api_key)
+        else:
+            # Use the same logic as get_user but with token from query
+            authorization = f"Bearer {token}"
+            user = await get_user(authorization, None)
         return user
     except HTTPException as e:
         await websocket.close(code=1008, reason=e.detail)

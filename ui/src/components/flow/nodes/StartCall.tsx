@@ -1,11 +1,11 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { Edit, Play, Wrench } from "lucide-react";
+import { Edit, Play, PlusIcon, Trash2Icon, Wrench } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { ToolBadges } from "@/components/flow/ToolBadges";
 import { ToolSelector } from "@/components/flow/ToolSelector";
-import { FlowNodeData } from "@/components/flow/types";
+import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +33,12 @@ interface StartCallEditFormProps {
     setDelayedStart: (value: boolean) => void;
     delayedStartDuration: number;
     setDelayedStartDuration: (value: number) => void;
+    extractionEnabled: boolean;
+    setExtractionEnabled: (value: boolean) => void;
+    extractionPrompt: string;
+    setExtractionPrompt: (value: string) => void;
+    variables: ExtractionVariable[];
+    setVariables: (vars: ExtractionVariable[]) => void;
     toolUuids: string[];
     setToolUuids: (value: string[]) => void;
 }
@@ -56,6 +62,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const [detectVoicemail, setDetectVoicemail] = useState(data.detect_voicemail ?? false);
     const [delayedStart, setDelayedStart] = useState(data.delayed_start ?? false);
     const [delayedStartDuration, setDelayedStartDuration] = useState(data.delayed_start_duration ?? 2);
+    const [extractionEnabled, setExtractionEnabled] = useState(data.extraction_enabled ?? false);
+    const [extractionPrompt, setExtractionPrompt] = useState(data.extraction_prompt ?? "");
+    const [variables, setVariables] = useState<ExtractionVariable[]>(data.extraction_variables ?? []);
     const [toolUuids, setToolUuids] = useState<string[]>(data.tool_uuids ?? []);
 
     // Compute if form has unsaved changes (only check prompt, name)
@@ -76,6 +85,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             detect_voicemail: detectVoicemail,
             delayed_start: delayedStart,
             delayed_start_duration: delayedStart ? delayedStartDuration : undefined,
+            extraction_enabled: extractionEnabled,
+            extraction_prompt: extractionPrompt,
+            extraction_variables: variables,
             tool_uuids: toolUuids.length > 0 ? toolUuids : undefined,
         });
         setOpen(false);
@@ -95,6 +107,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
+            setExtractionEnabled(data.extraction_enabled ?? false);
+            setExtractionPrompt(data.extraction_prompt ?? "");
+            setVariables(data.extraction_variables ?? []);
             setToolUuids(data.tool_uuids ?? []);
         }
         setOpen(newOpen);
@@ -110,6 +125,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
+            setExtractionEnabled(data.extraction_enabled ?? false);
+            setExtractionPrompt(data.extraction_prompt ?? "");
+            setVariables(data.extraction_variables ?? []);
             setToolUuids(data.tool_uuids ?? []);
         }
     }, [data, open]);
@@ -173,6 +191,12 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                         setDelayedStart={setDelayedStart}
                         delayedStartDuration={delayedStartDuration}
                         setDelayedStartDuration={setDelayedStartDuration}
+                        extractionEnabled={extractionEnabled}
+                        setExtractionEnabled={setExtractionEnabled}
+                        extractionPrompt={extractionPrompt}
+                        setExtractionPrompt={setExtractionPrompt}
+                        variables={variables}
+                        setVariables={setVariables}
                         toolUuids={toolUuids}
                         setToolUuids={setToolUuids}
                     />
@@ -197,9 +221,42 @@ const StartCallEditForm = ({
     setDelayedStart,
     delayedStartDuration,
     setDelayedStartDuration,
+    extractionEnabled,
+    setExtractionEnabled,
+    extractionPrompt,
+    setExtractionPrompt,
+    variables,
+    setVariables,
     toolUuids,
     setToolUuids,
 }: StartCallEditFormProps) => {
+    const handleVariableNameChange = (idx: number, value: string) => {
+        const newVars = [...variables];
+        newVars[idx] = { ...newVars[idx], name: value };
+        setVariables(newVars);
+    };
+
+    const handleVariableTypeChange = (idx: number, value: 'string' | 'number' | 'boolean') => {
+        const newVars = [...variables];
+        newVars[idx] = { ...newVars[idx], type: value };
+        setVariables(newVars);
+    };
+
+    const handleVariablePromptChange = (idx: number, value: string) => {
+        const newVars = [...variables];
+        newVars[idx] = { ...newVars[idx], prompt: value };
+        setVariables(newVars);
+    };
+
+    const handleRemoveVariable = (idx: number) => {
+        const newVars = variables.filter((_, i) => i !== idx);
+        setVariables(newVars);
+    };
+
+    const handleAddVariable = () => {
+        setVariables([...variables, { name: '', type: 'string', prompt: '' }]);
+    };
+
     return (
         <div className="grid gap-2">
             <Label>Name</Label>
@@ -288,6 +345,69 @@ const StartCallEditForm = ({
                     </div>
                 )}
             </div>
+
+            {/* Variable Extraction Section */}
+            <div className="flex items-center space-x-2 pt-2">
+                <Switch id="enable-extraction" checked={extractionEnabled} onCheckedChange={setExtractionEnabled} />
+                <Label htmlFor="enable-extraction">Enable Variable Extraction</Label>
+                <Label className="text-xs text-muted-foreground ml-2">
+                    Are there any variables you would like to extract from the conversation?
+                </Label>
+            </div>
+
+            {extractionEnabled && (
+                <div className="border rounded-md p-3 mt-2 space-y-2 bg-muted/20">
+                    <Label>Extraction Prompt</Label>
+                    <Label className="text-xs text-muted-foreground">
+                        Provide an overall extraction prompt that guides how variables should be extracted from the conversation.
+                    </Label>
+                    <Textarea
+                        value={extractionPrompt}
+                        onChange={(e) => setExtractionPrompt(e.target.value)}
+                        className="min-h-[80px] max-h-[200px] resize-none"
+                        style={{ overflowY: 'auto' }}
+                    />
+
+                    <Label>Variables</Label>
+                    <Label className="text-xs text-muted-foreground">
+                        Define each variable you want to extract along with its data type.
+                    </Label>
+
+                    {variables.map((v, idx) => (
+                        <div key={idx} className="space-y-2 border rounded-md p-2 bg-background">
+                            <div className="flex items-center gap-2">
+                                <Input
+                                    placeholder="Variable name"
+                                    value={v.name}
+                                    onChange={(e) => handleVariableNameChange(idx, e.target.value)}
+                                />
+                                <select
+                                    className="border rounded-md p-2 text-sm bg-background"
+                                    value={v.type}
+                                    onChange={(e) => handleVariableTypeChange(idx, e.target.value as 'string' | 'number' | 'boolean')}
+                                >
+                                    <option value="string">String</option>
+                                    <option value="number">Number</option>
+                                    <option value="boolean">Boolean</option>
+                                </select>
+                                <Button variant="outline" size="icon" onClick={() => handleRemoveVariable(idx)}>
+                                    <Trash2Icon className="w-4 h-4" />
+                                </Button>
+                            </div>
+                            <Textarea
+                                placeholder="Extraction prompt for this variable"
+                                value={v.prompt ?? ''}
+                                onChange={(e) => handleVariablePromptChange(idx, e.target.value)}
+                                className="min-h-[60px] resize-none"
+                            />
+                        </div>
+                    ))}
+
+                    <Button variant="outline" size="sm" className="w-fit" onClick={handleAddVariable}>
+                        <PlusIcon className="w-4 h-4 mr-1" /> Add Variable
+                    </Button>
+                </div>
+            )}
 
             {/* Tools Section */}
             <div className="pt-4 border-t mt-4">

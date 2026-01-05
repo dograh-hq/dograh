@@ -87,6 +87,7 @@
               "integrations/telephony/overview",
               "integrations/telephony/twilio",
               "integrations/telephony/vonage",
+              "integrations/telephony/cloudonix",
               "integrations/telephony/webhooks",
               "integrations/telephony/custom"
             ]

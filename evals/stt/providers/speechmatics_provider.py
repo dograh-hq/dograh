@@ -1,38 +1,41 @@
-"""Speechmatics STT provider."""
+"""Speechmatics STT provider with WebSocket streaming."""
 
+import asyncio
+import json
 import os
 from pathlib import Path
 from typing import Any
 
-import httpx
+from loguru import logger
 
+from ..audio_streamer import AudioConfig, AudioStreamer
 from .base import STTProvider, TranscriptionResult, Word
+
+try:
+    from websockets.asyncio.client import connect as websocket_connect
+except ImportError:
+    raise ImportError("websockets required: pip install websockets")
 
 
 class SpeechmaticsProvider(STTProvider):
-    """Speechmatics Speech-to-Text provider.
+    """Speechmatics Speech-to-Text provider with WebSocket streaming.
 
     API Docs: https://docs.speechmatics.com/
 
     Supports:
     - Speaker diarization via `diarization: "speaker"` config
     - Speaker sensitivity tuning
+    - Real-time streaming via WebSocket
     """
 
-    # EU and US endpoints available
-    API_URL = "https://asr.api.speechmatics.com/v2/jobs"
-
-    def __init__(self, api_key: str | None = None, region: str = "eu1"):
+    def __init__(self, api_key: str | None = None, region: str = "eu2"):
         self.api_key = api_key or os.getenv("SPEECHMATICS_API_KEY")
         if not self.api_key:
             raise ValueError(
                 "Speechmatics API key required. Set SPEECHMATICS_API_KEY env var or pass api_key."
             )
         # Set region-specific endpoint
-        if region == "eu1":
-            self.api_url = "https://eu1.asr.api.speechmatics.com/v2/jobs"
-        else:
-            self.api_url = "https://asr.api.speechmatics.com/v2/jobs"
+        self.ws_url = f"wss://{region}.rt.speechmatics.com/v2"
 
     @property
     def name(self) -> str:
@@ -45,27 +48,32 @@ class SpeechmaticsProvider(STTProvider):
         keyterms: list[str] | None = None,
         language: str = "en",
         operating_point: str = "enhanced",
+        sample_rate: int = 8000,
         speaker_sensitivity: float | None = None,
+        max_speakers: int | None = None,
         **kwargs: Any,
     ) -> TranscriptionResult:
-        """Transcribe audio using Speechmatics API.
+        """Transcribe audio using Speechmatics WebSocket streaming.
 
         Args:
             audio_path: Path to audio file
             diarize: Enable speaker diarization
-            keyterms: Not directly supported by Speechmatics (ignored)
+            keyterms: Additional vocabulary (limited support)
             language: Language code
             operating_point: "standard" or "enhanced"
+            sample_rate: Audio sample rate for streaming
             speaker_sensitivity: 0.0-1.0, higher = more speakers detected
+            max_speakers: Maximum number of speakers to detect
             **kwargs: Additional config parameters
 
         Returns:
             TranscriptionResult with transcript and speaker info
         """
-        # Build transcription config
+        # Build transcription config for StartRecognition message
         transcription_config: dict[str, Any] = {
             "language": language,
             "operating_point": operating_point,
+            "enable_partials": False,
         }
 
         if diarize:
@@ -74,13 +82,20 @@ class SpeechmaticsProvider(STTProvider):
                 transcription_config["speaker_diarization_config"] = {
                     "speaker_sensitivity": speaker_sensitivity
                 }
+            if max_speakers is not None:
+                if "speaker_diarization_config" not in transcription_config:
+                    transcription_config["speaker_diarization_config"] = {}
+                transcription_config["speaker_diarization_config"]["max_speakers"] = max_speakers
 
-        # Add any extra config
-        transcription_config.update(kwargs)
+        # Add additional vocabulary if provided
+        if keyterms:
+            transcription_config["additional_vocab"] = [{"content": term} for term in keyterms]
 
-        config = {
-            "type": "transcription",
-            "transcription_config": transcription_config,
+        # Audio format config
+        audio_format = {
+            "type": "raw",
+            "encoding": "pcm_s16le",
+            "sample_rate": sample_rate,
         }
 
         # Store params for result
@@ -88,79 +103,104 @@ class SpeechmaticsProvider(STTProvider):
             "diarize": diarize,
             "language": language,
             "operating_point": operating_point,
+            "sample_rate": sample_rate,
             "speaker_sensitivity": speaker_sensitivity,
+            "max_speakers": max_speakers,
         }
 
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-        }
+        # Setup audio streamer
+        audio_config = AudioConfig(sample_rate=sample_rate)
+        streamer = AudioStreamer(audio_config)
 
-        # Create job with multipart form
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            # Submit job
-            with open(audio_path, "rb") as f:
-                files = {
-                    "data_file": (audio_path.name, f, "audio/mpeg"),
-                    "config": (None, str(config).replace("'", '"'), "application/json"),
-                }
-                response = await client.post(
-                    self.api_url,
-                    headers=headers,
-                    files=files,
-                )
-                response.raise_for_status()
-                job_data = response.json()
+        # Collect results
+        all_results: list[dict[str, Any]] = []
+        recognition_started = asyncio.Event()
+        transcription_complete = asyncio.Event()
 
-            job_id = job_data.get("id")
-            if not job_id:
-                raise ValueError(f"No job ID in response: {job_data}")
+        async with websocket_connect(
+            self.ws_url,
+            additional_headers={"Authorization": f"Bearer {self.api_key}"},
+        ) as ws:
+            # Send StartRecognition message
+            start_msg = {
+                "message": "StartRecognition",
+                "transcription_config": transcription_config,
+                "audio_format": audio_format,
+            }
+            await ws.send(json.dumps(start_msg))
 
-            # Poll for completion
-            result_data = await self._wait_for_job(client, job_id, headers)
+            async def send_audio():
+                """Send audio chunks after recognition starts."""
+                await recognition_started.wait()
 
-        return self._parse_response(result_data, params)
+                chunk_no = 0
+                async for chunk in streamer.stream_file(audio_path):
+                    logger.debug(f"[speechmatics] Sent audio chunk {chunk_no}")
+                    await ws.send(chunk)
+                    chunk_no += 1
 
-    async def _wait_for_job(
-        self, client: httpx.AsyncClient, job_id: str, headers: dict[str, str]
-    ) -> dict[str, Any]:
-        """Poll job status until complete."""
-        import asyncio
+                # Signal end of audio with last sequence number
+                logger.debug(f"[speechmatics] Sending EndOfStream after {chunk_no} chunks")
+                await ws.send(json.dumps({"message": "EndOfStream", "last_seq_no": chunk_no}))
 
-        job_url = f"{self.api_url}/{job_id}"
-        transcript_url = f"{job_url}/transcript?format=json-v2"
+            async def receive_messages():
+                """Receive and process messages."""
+                nonlocal all_results
 
-        max_attempts = 120  # 10 minutes with 5s intervals
-        for _ in range(max_attempts):
-            # Check job status
-            status_response = await client.get(job_url, headers=headers)
-            status_response.raise_for_status()
-            status_data = status_response.json()
+                async for message in ws:
+                    if isinstance(message, str):
+                        data = json.loads(message)
+                        msg_type = data.get("message")
+                        logger.debug(f"[speechmatics] Received {msg_type}: {data}")
 
-            job_status = status_data.get("job", {}).get("status")
+                        if msg_type == "RecognitionStarted":
+                            logger.info("[speechmatics] Connected")
+                            recognition_started.set()
 
-            if job_status == "done":
-                # Get transcript
-                transcript_response = await client.get(transcript_url, headers=headers)
-                transcript_response.raise_for_status()
-                return transcript_response.json()
-            elif job_status == "rejected":
-                raise ValueError(f"Job rejected: {status_data}")
-            elif job_status == "deleted":
-                raise ValueError(f"Job deleted: {status_data}")
+                        elif msg_type == "AddTranscript":
+                            # Final transcript segment
+                            results = data.get("results", [])
+                            all_results.extend(results)
 
-            await asyncio.sleep(5)
+                        elif msg_type == "EndOfTranscript":
+                            transcription_complete.set()
+                            return
 
-        raise TimeoutError(f"Job {job_id} did not complete in time")
+                        elif msg_type == "Error":
+                            raise Exception(f"Speechmatics error: {data}")
 
-    def _parse_response(
-        self, data: dict[str, Any], params: dict[str, Any]
+                        elif msg_type == "Warning":
+                            logger.warning(f"[speechmatics] Warning: {data.get('reason')}")
+
+            # Run send and receive concurrently
+            send_task = asyncio.create_task(send_audio())
+            receive_task = asyncio.create_task(receive_messages())
+
+            # Wait for completion
+            await send_task
+            try:
+                await asyncio.wait_for(transcription_complete.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                pass
+
+            receive_task.cancel()
+            try:
+                await receive_task
+            except asyncio.CancelledError:
+                pass
+
+        return self._parse_results(all_results, params)
+
+    def _parse_results(
+        self,
+        results: list[dict[str, Any]],
+        params: dict[str, Any],
     ) -> TranscriptionResult:
-        """Parse Speechmatics API response."""
-        results = data.get("results", [])
-
+        """Parse Speechmatics results."""
         words = []
         speakers_set: set[str] = set()
         transcript_parts = []
+        duration = 0.0
 
         for item in results:
             item_type = item.get("type")
@@ -176,26 +216,24 @@ class SpeechmaticsProvider(STTProvider):
             if speaker:
                 speakers_set.add(speaker)
 
+            end_time = item.get("end_time", 0.0)
+            duration = max(duration, end_time)
+
             if item_type == "word":
                 words.append(
                     Word(
                         word=content,
                         start=item.get("start_time", 0.0),
-                        end=item.get("end_time", 0.0),
+                        end=end_time,
                         confidence=alt.get("confidence", 0.0),
                         speaker=speaker,
-                        speaker_confidence=None,  # Not provided by Speechmatics
+                        speaker_confidence=None,
                     )
                 )
                 transcript_parts.append(content)
             elif item_type == "punctuation":
-                # Append punctuation to last word in transcript
                 if transcript_parts:
                     transcript_parts[-1] += content
-
-        # Get metadata
-        metadata = data.get("metadata", {})
-        duration = metadata.get("duration", 0.0)
 
         transcript = " ".join(transcript_parts)
 
@@ -205,6 +243,6 @@ class SpeechmaticsProvider(STTProvider):
             words=words,
             speakers=sorted(speakers_set),
             duration=duration,
-            raw_response=data,
+            raw_response={"results": results},
             params=params,
         )

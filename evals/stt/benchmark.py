@@ -20,14 +20,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from evals.stt.providers import DeepgramProvider, SpeechmaticsProvider, STTProvider, TranscriptionResult
+from evals.stt.providers import (
+    DeepgramProvider,
+    DeepgramFluxProvider,
+    SpeechmaticsProvider,
+    LocalSmartTurnProvider,
+    STTProvider,
+    TranscriptionResult,
+)
 
 
 def get_provider(name: str) -> STTProvider:
     """Get provider instance by name."""
     providers = {
         "deepgram": DeepgramProvider,
+        "deepgram-flux": DeepgramFluxProvider,
         "speechmatics": SpeechmaticsProvider,
+        "local-smart-turn": LocalSmartTurnProvider,
     }
     if name not in providers:
         raise ValueError(f"Unknown provider: {name}. Available: {list(providers.keys())}")
@@ -145,7 +154,7 @@ Examples:
         "--providers",
         nargs="+",
         default=["deepgram", "speechmatics"],
-        choices=["deepgram", "speechmatics"],
+        choices=["deepgram", "deepgram-flux", "speechmatics", "local-smart-turn"],
         help="Providers to test (default: all)",
     )
     parser.add_argument(
@@ -162,6 +171,12 @@ Examples:
         "--language",
         default="en",
         help="Language code (default: en)",
+    )
+    parser.add_argument(
+        "--sample-rate",
+        type=int,
+        default=8000,
+        help="Audio sample rate for streaming (default: 8000)",
     )
     parser.add_argument(
         "--show-words",
@@ -195,6 +210,7 @@ Examples:
     print(f"Audio file: {audio_path}")
     print(f"Providers: {args.providers}")
     print(f"Diarization: {args.diarize}")
+    print(f"Sample rate: {args.sample_rate} Hz")
     if args.keyterms:
         print(f"Keyterms: {args.keyterms}")
 
@@ -209,6 +225,7 @@ Examples:
                 diarize=args.diarize,
                 keyterms=args.keyterms,
                 language=args.language,
+                sample_rate=args.sample_rate,
             )
             print_result(result, show_words=args.show_words)
             results.append(result)

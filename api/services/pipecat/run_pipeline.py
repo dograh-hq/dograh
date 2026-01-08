@@ -44,7 +44,10 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
-from pipecat.processors.aggregators.llm_response import LLMAssistantAggregatorParams
+from pipecat.processors.aggregators.llm_response import (
+    LLMAssistantAggregatorParams,
+    LLMUserAggregatorParams,
+)
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
@@ -471,9 +474,7 @@ async def _run_pipeline(
     )
 
     # Create pipeline components with audio configuration and engine
-    audio_buffer, audio_synchronizer, transcript, context = create_pipeline_components(
-        audio_config, engine
-    )
+    audio_buffer, transcript, context = create_pipeline_components(audio_config, engine)
 
     # Set the context and audio_buffer after creation
     engine.set_context(context)
@@ -487,8 +488,9 @@ async def _run_pipeline(
         expect_stripped_words=True,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
+    user_params = LLMUserAggregatorParams(enable_emulated_vad_interruptions=True)
     context_aggregator = LLMContextAggregatorPair(
-        context, assistant_params=assistant_params
+        context, assistant_params=assistant_params, user_params=user_params
     )
 
     # Create usage metrics aggregator with engine's callback
@@ -549,7 +551,6 @@ async def _run_pipeline(
         stt,
         transcript,
         audio_buffer,
-        audio_synchronizer,
         llm,
         tts,
         user_context_aggregator,
@@ -575,7 +576,6 @@ async def _run_pipeline(
             workflow_run_id,
             engine=engine,
             audio_buffer=audio_buffer,
-            audio_synchronizer=audio_synchronizer,
             audio_config=audio_config,
         )
     )
@@ -586,15 +586,12 @@ async def _run_pipeline(
         task,
         transport,
         audio_buffer,
-        audio_synchronizer,
         in_memory_audio_buffer,
         in_memory_transcript_buffer,
         pipeline_metrics_aggregator,
     )
 
-    register_audio_data_handler(
-        audio_synchronizer, workflow_run_id, in_memory_audio_buffer
-    )
+    register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
     register_transcript_handler(
         transcript, workflow_run_id, in_memory_transcript_buffer
     )

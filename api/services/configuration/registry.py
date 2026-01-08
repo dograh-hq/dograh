@@ -21,6 +21,7 @@ class ServiceProviders(str, Enum):
     AZURE = "azure"
     DOGRAH = "dograh"
     SARVAM = "sarvam"
+    SPEECHMATICS = "speechmatics"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -240,6 +241,7 @@ class DograhTTSService(BaseTTSConfiguration):
         default="default", json_schema_extra={"examples": DOGRAH_TTS_MODELS}
     )
     voice: str = "default"
+    speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice")
     api_key: str
 
 
@@ -375,11 +377,50 @@ SARVAM_STT_MODELS = ["saarika:v2.5", "saaras:v2"]
 #     api_key: str
 
 
+# Speechmatics STT Service
+SPEECHMATICS_STT_LANGUAGES = [
+    "en",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "pt",
+    "nl",
+    "ja",
+    "ko",
+    "zh",
+    "ru",
+    "ar",
+    "hi",
+    "pl",
+    "tr",
+    "vi",
+    "th",
+    "id",
+    "ms",
+    "sv",
+    "da",
+    "no",
+    "fi",
+]
+
+
+@register_stt
+class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS
+    model: str = Field(default="enhanced", description="Operating point: standard or enhanced")
+    language: str = Field(
+        default="en", json_schema_extra={"examples": SPEECHMATICS_STT_LANGUAGES}
+    )
+    api_key: str
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
         OpenAISTTConfiguration,
         DograhSTTService,
+        SpeechmaticsSTTConfiguration,
         # SarvamSTTConfiguration,
     ],
     Field(discriminator="provider"),

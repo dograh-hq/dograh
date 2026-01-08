@@ -1,3 +1,4 @@
+import os
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -20,6 +21,7 @@ from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
+from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -40,28 +42,20 @@ def create_stt_service(user_config):
         )
         logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
-            live_options=live_options,
-            api_key=user_config.stt.api_key,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
+            live_options=live_options, api_key=user_config.stt.api_key
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         return OpenAISTTService(
-            api_key=user_config.stt.api_key,
-            model=user_config.stt.model,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
+            api_key=user_config.stt.api_key, model=user_config.stt.model
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
-        return CartesiaSTTService(
-            api_key=user_config.stt.api_key,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
-        )
+        return CartesiaSTTService(api_key=user_config.stt.api_key)
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:
         base_url = MPS_API_URL.replace("http://", "ws://").replace("https://", "wss://")
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
             model=user_config.stt.model,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum
@@ -85,7 +79,23 @@ def create_stt_service(user_config):
             api_key=user_config.stt.api_key,
             model=user_config.stt.model,
             params=SarvamSTTService.InputParams(language=pipecat_language),
-            audio_passthrough=False,
+        )
+    elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
+        from pipecat.services.speechmatics.stt import OperatingPoint
+
+        language = getattr(user_config.stt, "language", None) or "en"
+        # Map model field to operating point (standard or enhanced)
+        operating_point = (
+            OperatingPoint.ENHANCED
+            if user_config.stt.model == "enhanced"
+            else OperatingPoint.STANDARD
+        )
+        return SpeechmaticsSTTService(
+            api_key=user_config.stt.api_key,
+            params=SpeechmaticsSTTService.InputParams(
+                language=language,
+                operating_point=operating_point,
+            ),
         )
     else:
         raise HTTPException(
@@ -138,6 +148,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             model=user_config.tts.model,
             voice=user_config.tts.voice,
+            params=DograhTTSService.InputParams(speed=user_config.tts.speed),
             text_filters=[xml_function_tag_filter],
         )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
@@ -222,3 +233,24 @@ def create_llm_service(user_config):
         )
     else:
         raise HTTPException(status_code=400, detail="Invalid LLM provider")
+
+
+def create_voicemail_classification_llm():
+    """Create a fast, lightweight LLM service for voicemail classification.
+
+    Uses gpt-4o-mini which is fast and cost-effective for simple classification tasks.
+    The model only needs to output "CONVERSATION" or "VOICEMAIL" based on transcriptions.
+
+    Returns:
+        OpenAILLMService instance, or None if OPENAI_API_KEY is not set.
+    """
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        logger.warning("OPENAI_API_KEY not set - voicemail detection will be disabled")
+        return None
+
+    return OpenAILLMService(
+        api_key=api_key,
+        model="gpt-4o-mini",
+        params=OpenAILLMService.InputParams(temperature=0.0),
+    )

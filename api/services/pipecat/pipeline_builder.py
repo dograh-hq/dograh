@@ -10,8 +10,7 @@ from api.services.pipecat.audio_config import AudioConfig
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.audio.audio_buffer_processor import AudioBuffer
-from pipecat.processors.audio.audio_synchronizer import AudioSynchronizer
+from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.processors.transcript_processor import TranscriptProcessor
 from pipecat.utils.context import turn_var
 
@@ -23,15 +22,8 @@ def create_pipeline_components(audio_config: AudioConfig, engine: "PipecatEngine
     """Create and return the main pipeline components with proper audio configuration"""
     logger.info(f"Creating pipeline components with audio config: {audio_config}")
 
-    # Use new split audio buffer for better performance
-    audio_buffer = AudioBuffer(
-        sample_rate=audio_config.pipeline_sample_rate,
-        buffer_size=audio_config.buffer_size_bytes,
-        max_recording_bytes=audio_config.max_recording_bytes,
-    )
-
-    # Create synchronizer for merged audio (outside pipeline)
-    audio_synchronizer = AudioSynchronizer(
+    # Use native AudioBufferProcessor for merged audio recording
+    audio_buffer = AudioBufferProcessor(
         sample_rate=audio_config.pipeline_sample_rate,
         buffer_size=audio_config.buffer_size_bytes,
     )
@@ -42,7 +34,7 @@ def create_pipeline_components(audio_config: AudioConfig, engine: "PipecatEngine
 
     context = LLMContext()
 
-    return audio_buffer, audio_synchronizer, transcript, context
+    return audio_buffer, transcript, context
 
 
 def build_pipeline(
@@ -50,7 +42,6 @@ def build_pipeline(
     stt,
     transcript,
     audio_buffer,
-    audio_synchronizer,
     llm,
     tts,
     user_context_aggregator,
@@ -59,30 +50,41 @@ def build_pipeline(
     stt_mute_filter,
     pipeline_metrics_aggregator,
     user_idle_disconnect,
+    voicemail_detector=None,
 ):
-    """Build the main pipeline with all components"""
-    # Register processors with synchronizer for merged audio
-    logger.info("Registering audio buffer processors with synchronizer")
-    audio_synchronizer.register_processors(audio_buffer.input(), audio_buffer.output())
+    """Build the main pipeline with all components.
 
-    # Build processors list with optional context controller
+    Args:
+        audio_buffer: AudioBufferProcessor that handles both input and output audio recording.
+        voicemail_detector: Optional native pipecat VoicemailDetector. When provided,
+            inserts voicemail detection after STT. Note: We don't use the TTS gate
+            to avoid blocking TTS frames during classification.
+    """
+    # Build processors list with optional voicemail detection
     processors = [
         transport.input(),  # Transport user input
-        audio_buffer.input(),  # Record input audio (only processes InputAudioRawFrame)
-        stt,  # STT can now have audio_passthrough=False
-        stt_mute_filter,  # STTMuteFilters don't let VAD related events pass through if muted
-        user_idle_disconnect,
-        transcript.user(),
+        stt,  # STT (audio_passthrough=True by default, passes InputAudioRawFrame)
     ]
 
+    # Insert voicemail detector after STT if enabled
+    # Note: We intentionally do NOT use voicemail_detector.gate() to allow TTS
+    # frames to continue flowing during classification (non-blocking detection)
+    if voicemail_detector:
+        logger.info("Adding native voicemail detector to pipeline")
+        processors.append(voicemail_detector.detector())
+
+    # Continue with the rest of the pipeline
     processors.extend(
         [
+            stt_mute_filter,  # STTMuteFilters don't let VAD related events pass through if muted
+            user_idle_disconnect,
+            transcript.user(),
             user_context_aggregator,
             llm,  # LLM
             pipeline_engine_callback_processor,
             tts,  # TTS
             transport.output(),  # Transport bot output
-            audio_buffer.output(),  # Record output audio (only processes OutputAudioRawFrame)
+            audio_buffer,  # AudioBufferProcessor - records both input and output audio
             transcript.assistant(),
             assistant_context_aggregator,  # Assistant spoken responses
             pipeline_metrics_aggregator,

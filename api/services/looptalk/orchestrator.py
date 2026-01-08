@@ -245,7 +245,6 @@ class LoopTalkTestOrchestrator:
         engine = pipeline_info["engine"]
         task = pipeline_info["task"]
         audio_buffer = pipeline_info["audio_buffer"]
-        audio_synchronizer = pipeline_info["audio_synchronizer"]
         transcript = pipeline_info["transcript"]
         assistant_context_aggregator = pipeline_info["assistant_context_aggregator"]
 
@@ -255,7 +254,6 @@ class LoopTalkTestOrchestrator:
             logger.debug(f"LoopTalk {role} client connected - initializing workflow")
             # Start audio recording
             await audio_buffer.start_recording()
-            await audio_synchronizer.start_recording()
             await engine.initialize()
 
         @transport.event_handler("on_client_disconnected")
@@ -263,7 +261,6 @@ class LoopTalkTestOrchestrator:
             logger.debug(f"LoopTalk {role} client disconnected")
             # Stop audio recording
             await audio_buffer.stop_recording()
-            await audio_synchronizer.stop_recording()
 
             # Handle disconnect propagation - stop the other agent too
             await self.session_manager.handle_agent_disconnect(
@@ -274,11 +271,11 @@ class LoopTalkTestOrchestrator:
 
         # Register custom audio and transcript handlers for LoopTalk
         await self._register_looptalk_handlers(
-            audio_synchronizer, transcript, test_session_id, role
+            audio_buffer, transcript, test_session_id, role
         )
 
     async def _register_looptalk_handlers(
-        self, audio_synchronizer, transcript, test_session_id: int, role: str
+        self, audio_buffer, transcript, test_session_id: int, role: str
     ):
         """Register LoopTalk-specific handlers for audio and transcript recording"""
 
@@ -288,9 +285,9 @@ class LoopTalkTestOrchestrator:
         audio_metadata = {"sample_rate": None, "num_channels": None}
 
         # Audio handler - writes directly to PCM file
-        @audio_synchronizer.event_handler("on_merged_audio")
-        async def on_merged_audio(_, pcm, sample_rate, num_channels):
-            if not pcm:
+        @audio_buffer.event_handler("on_audio_data")
+        async def on_audio_data(buffer, audio, sample_rate, num_channels):
+            if not audio:
                 return
 
             # Store metadata on first write
@@ -301,7 +298,7 @@ class LoopTalkTestOrchestrator:
             # Append PCM data to temporary file
             try:
                 with open(paths["temp_audio"], "ab") as f:
-                    f.write(pcm)
+                    f.write(audio)
             except Exception as e:
                 logger.error(
                     f"Failed to write audio for {role} in session {test_session_id}: {e}"

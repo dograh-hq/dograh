@@ -39,6 +39,7 @@ class UserConfigurationValidator:
             ServiceProviders.CARTESIA.value: self._check_cartesia_api_key,
             ServiceProviders.DOGRAH.value: self._check_dograh_api_key,
             ServiceProviders.SARVAM.value: self._check_sarvam_api_key,
+            ServiceProviders.SPEECHMATICS.value: self._check_speechmatics_api_key,
         }
 
     async def validate(self, configuration: UserConfiguration) -> APIKeyStatusResponse:
@@ -136,4 +137,7 @@ class UserConfigurationValidator:
         return True
 
     def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
+        return True
+    
+    def _check_speechmatics_api_key(self, model: str, api_key: str) -> bool:
         return True

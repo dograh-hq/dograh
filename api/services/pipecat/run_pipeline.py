@@ -41,18 +41,28 @@ from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response import LLMAssistantAggregatorParams
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
-)
-from pipecat.processors.filters.stt_mute_filter import (
-    STTMuteConfig,
-    STTMuteFilter,
-    STTMuteStrategy,
+    LLMUserAggregatorParams,
 )
 from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.turns.mute.mute_until_first_bot_complete_user_mute_strategy import (
+    MuteUntilFirstBotCompleteUserMuteStrategy,
+)
+from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+    TranscriptionUserTurnStartStrategy,
+)
+from pipecat.turns.user_start.vad_user_turn_start_strategy import (
+    VADUserTurnStartStrategy,
+)
+from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
+    TurnAnalyzerUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.context import set_current_run_id
 from pipecat.utils.tracing.context_registry import ContextProviderRegistry
 
@@ -484,8 +494,20 @@ async def _run_pipeline(
         expect_stripped_words=True,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
+    user_params = LLMUserAggregatorParams(
+        user_turn_strategies=UserTurnStrategies(
+            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
+            stop=[
+                TurnAnalyzerUserTurnStopStrategy(
+                    turn_analyzer=LocalSmartTurnAnalyzerV3()
+                )
+            ],
+        ),
+        user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
+    )
+
     context_aggregator = LLMContextAggregatorPair(
-        context, assistant_params=assistant_params
+        context, assistant_params=assistant_params, user_params=user_params
     )
 
     # Create usage metrics aggregator with engine's callback
@@ -497,18 +519,6 @@ async def _run_pipeline(
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
-
-    # Create STT mute filter using the selected strategies and the engine's callback
-    stt_mute_filter = STTMuteFilter(
-        config=STTMuteConfig(
-            strategies={
-                STTMuteStrategy.MUTE_UNTIL_FIRST_BOT_COMPLETE,
-                STTMuteStrategy.CUSTOM,
-            },
-            should_mute_callback=engine.create_should_mute_callback(),
-        )
-    )
-
     # Use engine's user idle callback with configured timeout
     user_idle_disconnect = UserIdleProcessor(
         callback=engine.create_user_idle_callback(), timeout=max_user_idle_timeout
@@ -529,7 +539,6 @@ async def _run_pipeline(
         user_context_aggregator,
         assistant_context_aggregator,
         pipeline_engine_callback_processor,
-        stt_mute_filter,
         pipeline_metrics_aggregator,
         user_idle_disconnect,
     )

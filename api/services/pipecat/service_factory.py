@@ -41,27 +41,23 @@ def create_stt_service(user_config):
         logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
             live_options=live_options,
-            api_key=user_config.stt.api_key,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
+            api_key=user_config.stt.api_key
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         return OpenAISTTService(
             api_key=user_config.stt.api_key,
-            model=user_config.stt.model,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
+            model=user_config.stt.model
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
         return CartesiaSTTService(
-            api_key=user_config.stt.api_key,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
+            api_key=user_config.stt.api_key
         )
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:
         base_url = MPS_API_URL.replace("http://", "ws://").replace("https://", "wss://")
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
-            model=user_config.stt.model,
-            audio_passthrough=False,  # Disable passthrough since audio is buffered separately
+            model=user_config.stt.model
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum
@@ -84,8 +80,7 @@ def create_stt_service(user_config):
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             model=user_config.stt.model,
-            params=SarvamSTTService.InputParams(language=pipecat_language),
-            audio_passthrough=False,
+            params=SarvamSTTService.InputParams(language=pipecat_language)
         )
     else:
         raise HTTPException(

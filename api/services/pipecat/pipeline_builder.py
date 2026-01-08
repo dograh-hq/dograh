@@ -56,7 +56,6 @@ def build_pipeline(
     user_context_aggregator,
     assistant_context_aggregator,
     pipeline_engine_callback_processor,
-    stt_mute_filter,
     pipeline_metrics_aggregator,
     user_idle_disconnect,
 ):
@@ -70,24 +69,18 @@ def build_pipeline(
         transport.input(),  # Transport user input
         audio_buffer.input(),  # Record input audio (only processes InputAudioRawFrame)
         stt,  # STT can now have audio_passthrough=False
-        stt_mute_filter,  # STTMuteFilters don't let VAD related events pass through if muted
         user_idle_disconnect,
         transcript.user(),
+        user_context_aggregator,
+        llm,  # LLM
+        pipeline_engine_callback_processor,
+        tts,  # TTS
+        transport.output(),  # Transport bot output
+        audio_buffer.output(),  # Record output audio (only processes OutputAudioRawFrame)
+        transcript.assistant(),
+        assistant_context_aggregator,  # Assistant spoken responses
+        pipeline_metrics_aggregator,
     ]
-
-    processors.extend(
-        [
-            user_context_aggregator,
-            llm,  # LLM
-            pipeline_engine_callback_processor,
-            tts,  # TTS
-            transport.output(),  # Transport bot output
-            audio_buffer.output(),  # Record output audio (only processes OutputAudioRawFrame)
-            transcript.assistant(),
-            assistant_context_aggregator,  # Assistant spoken responses
-            pipeline_metrics_aggregator,
-        ]
-    )
 
     return Pipeline(processors)
 
@@ -96,7 +89,6 @@ def create_pipeline_task(pipeline, workflow_run_id, audio_config: AudioConfig = 
     """Create a pipeline task with appropriate parameters"""
     # Set up pipeline params with audio configuration if provided
     pipeline_params = PipelineParams(
-        allow_interruptions=True,
         enable_metrics=True,
         enable_usage_metrics=True,
         send_initial_empty_metrics=False,

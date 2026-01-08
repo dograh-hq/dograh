@@ -2,7 +2,7 @@ import os
 
 from fastapi import WebSocket
 
-from api.constants import APP_ROOT_DIR, ENABLE_RNNOISE, ENABLE_SMART_TURN
+from api.constants import APP_ROOT_DIR, ENABLE_SMART_TURN
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey
 from api.services.looptalk.internal_transport import InternalTransport
@@ -13,7 +13,6 @@ from api.services.telephony.stasis_rtp_transport import (
     StasisRTPTransport,
     StasisRTPTransportParams,
 )
-from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
@@ -119,11 +118,7 @@ async def create_twilio_transport(
                 if ambient_noise_config and ambient_noise_config.get("enabled", False)
                 else SilenceAudioMixer()
             ),
-            turn_analyzer=turn_analyzer,
             serializer=serializer,
-            audio_in_filter=RNNoiseFilter(library_path=librnnoise_path)
-            if ENABLE_RNNOISE
-            else None,
         ),
     )
 
@@ -157,8 +152,6 @@ async def create_cloudonix_transport(
             f"Incomplete Cloudonix configuration for organization {organization_id}. "
             f"Required: bearer_token, domain_id"
         )
-
-    turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
     from pipecat.serializers.cloudonix import CloudonixFrameSerializer
 
@@ -202,11 +195,7 @@ async def create_cloudonix_transport(
                 if ambient_noise_config and ambient_noise_config.get("enabled", False)
                 else SilenceAudioMixer()
             ),
-            turn_analyzer=turn_analyzer,
             serializer=serializer,
-            audio_in_filter=RNNoiseFilter(library_path=librnnoise_path)
-            if ENABLE_RNNOISE
-            else None,
         ),
     )
 
@@ -237,8 +226,6 @@ async def create_vonage_transport(
         raise ValueError(
             f"Incomplete Vonage configuration for organization {organization_id}"
         )
-
-    turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
     serializer = VonageFrameSerializer(
         call_uuid=call_uuid,
@@ -283,11 +270,7 @@ async def create_vonage_transport(
                 if ambient_noise_config and ambient_noise_config.get("enabled", False)
                 else SilenceAudioMixer()
             ),
-            turn_analyzer=turn_analyzer,
             serializer=serializer,
-            audio_in_filter=RNNoiseFilter(library_path=librnnoise_path)
-            if ENABLE_RNNOISE
-            else None,
         ),
     )
 
@@ -336,8 +319,6 @@ async def create_vobiz_transport(
         f"[run {workflow_run_id}] Vobiz config loaded - auth_id={auth_id}, "
         f"from_numbers={len(config.get('from_numbers', []))} numbers"
     )
-
-    turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
     # Use VobizFrameSerializer for Vobiz WebSocket protocol
     serializer = VobizFrameSerializer(
@@ -389,11 +370,7 @@ async def create_vobiz_transport(
                 if ambient_noise_config and ambient_noise_config.get("enabled", False)
                 else SilenceAudioMixer()
             ),
-            turn_analyzer=turn_analyzer,
             serializer=serializer,
-            audio_in_filter=RNNoiseFilter(library_path=librnnoise_path)
-            if ENABLE_RNNOISE
-            else None,
         ),
     )
 
@@ -411,7 +388,6 @@ def create_webrtc_transport(
     ambient_noise_config: dict | None = None,
 ):
     """Create a transport for WebRTC connections"""
-    turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
     return SmallWebRTCTransport(
         webrtc_connection=webrtc_connection,
@@ -445,10 +421,6 @@ def create_webrtc_transport(
                 if ambient_noise_config and ambient_noise_config.get("enabled", False)
                 else SilenceAudioMixer()
             ),
-            turn_analyzer=turn_analyzer,
-            audio_in_filter=RNNoiseFilter(library_path=librnnoise_path)
-            if ENABLE_RNNOISE
-            else None,
         ),
     )
 
@@ -461,7 +433,6 @@ def create_stasis_transport(
     ambient_noise_config: dict | None = None,
 ):
     """Create a transport for ARI connections"""
-    turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
     serializer = StasisRTPFrameSerializer(
         StasisRTPFrameSerializer.InputParams(
@@ -502,11 +473,7 @@ def create_stasis_transport(
                 if ambient_noise_config and ambient_noise_config.get("enabled", False)
                 else SilenceAudioMixer()
             ),
-            turn_analyzer=turn_analyzer,
             serializer=serializer,
-            audio_in_filter=RNNoiseFilter(library_path=librnnoise_path)
-            if ENABLE_RNNOISE
-            else None,
         ),
     )
 
@@ -528,8 +495,6 @@ def create_internal_transport(
     Returns:
         InternalTransport instance configured with turn analyzer
     """
-    turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
-
     # Create and return the internal transport with latency
     return InternalTransport(
         params=TransportParams(
@@ -564,10 +529,6 @@ def create_internal_transport(
                 if ambient_noise_config and ambient_noise_config.get("enabled", False)
                 else SilenceAudioMixer()
             ),
-            turn_analyzer=turn_analyzer,
-            audio_in_filter=RNNoiseFilter(library_path=librnnoise_path)
-            if ENABLE_RNNOISE
-            else None,
         ),
         latency_seconds=latency_seconds,
     )

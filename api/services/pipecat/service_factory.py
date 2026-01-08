@@ -21,6 +21,7 @@ from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
+from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -79,6 +80,23 @@ def create_stt_service(user_config):
             model=user_config.stt.model,
             params=SarvamSTTService.InputParams(language=pipecat_language),
         )
+    elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
+        from pipecat.services.speechmatics.stt import OperatingPoint
+
+        language = getattr(user_config.stt, "language", None) or "en"
+        # Map model field to operating point (standard or enhanced)
+        operating_point = (
+            OperatingPoint.ENHANCED
+            if user_config.stt.model == "enhanced"
+            else OperatingPoint.STANDARD
+        )
+        return SpeechmaticsSTTService(
+            api_key=user_config.stt.api_key,
+            params=SpeechmaticsSTTService.InputParams(
+                language=language,
+                operating_point=operating_point,
+            ),
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid STT provider {user_config.stt.provider}"
@@ -130,6 +148,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             model=user_config.tts.model,
             voice=user_config.tts.voice,
+            params=DograhTTSService.InputParams(speed=user_config.tts.speed),
             text_filters=[xml_function_tag_filter],
         )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:

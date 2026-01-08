@@ -27,6 +27,7 @@ from api.services.pipecat.service_factory import (
     create_llm_service,
     create_stt_service,
     create_tts_service,
+    create_voicemail_classification_llm,
 )
 from api.services.pipecat.tracing_config import setup_pipeline_tracing
 from api.services.pipecat.transport_setup import (
@@ -41,6 +42,7 @@ from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
+from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response import LLMAssistantAggregatorParams
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -54,6 +56,7 @@ from pipecat.processors.filters.stt_mute_filter import (
 from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.context import set_current_run_id
+from pipecat.utils.enums import EndTaskReason
 from pipecat.utils.tracing.context_registry import ContextProviderRegistry
 
 # Setup tracing if enabled
@@ -517,6 +520,29 @@ async def _run_pipeline(
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
 
+    # Create voicemail detector if enabled in the workflow's start node
+    voicemail_detector = None
+    start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
+    if start_node and start_node.detect_voicemail:
+        classification_llm = create_voicemail_classification_llm()
+        if classification_llm:
+            logger.info(
+                f"Voicemail detection enabled for workflow run {workflow_run_id}"
+            )
+            voicemail_detector = VoicemailDetector(
+                llm=classification_llm,
+                voicemail_response_delay=2.0,
+            )
+
+            # Register event handler to end task when voicemail is detected
+            @voicemail_detector.event_handler("on_voicemail_detected")
+            async def _on_voicemail_detected(_processor):
+                logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
+                await engine.send_end_task_frame(
+                    reason=EndTaskReason.VOICEMAIL_DETECTED.value,
+                    abort_immediately=True,
+                )
+
     # Build the pipeline with the STT mute filter and context controller
     pipeline = build_pipeline(
         transport,
@@ -532,6 +558,7 @@ async def _run_pipeline(
         stt_mute_filter,
         pipeline_metrics_aggregator,
         user_idle_disconnect,
+        voicemail_detector=voicemail_detector,
     )
 
     # Create pipeline task with audio configuration

@@ -1,19 +1,14 @@
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Union
 
-from api.constants import DEPLOYMENT_MODE, ENABLE_TRACING, VOICEMAIL_RECORDING_DURATION
 from api.services.workflow.disposition_mapper import (
     apply_disposition_mapping,
     get_organization_id_from_workflow_run,
-)
-from api.services.workflow.pipecat_engine_voicemail_detector import (
-    VoicemailDetector,
 )
 from api.services.workflow.workflow import Node, WorkflowGraph
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
-    LLMContextFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.task import PipelineTask
@@ -93,11 +88,6 @@ class PipecatEngine:
         # access to _context
         self._variable_extraction_manager = None
 
-        # Voicemail detection state
-        self._detect_voicemail = False
-        self._voicemail_detector = None
-        self._voicemail_detection_task: Optional[asyncio.Task] = None
-
         # Lazy loaded built-in function schemas
         self._builtin_function_schemas: Optional[list[dict]] = None
 
@@ -172,8 +162,6 @@ class PipecatEngine:
 
             await self.set_node(self.workflow.start_node_id)
 
-            # Trigger initial LLM generation
-            await self.task.queue_frame(LLMContextFrame(self.context))
             logger.debug(f"{self.__class__.__name__} initialized")
         except Exception as e:
             logger.error(f"Error initializing {self.__class__.__name__}: {e}")
@@ -388,43 +376,6 @@ class PipecatEngine:
 
     async def _handle_start_node(self, node: Node) -> None:
         """Handle start node execution."""
-        # Handle voicemail detection setup (before any returns)
-        # Lets check ENABLE_TRACING to make sure we have prompt access from
-        # langfuse
-        if node.detect_voicemail and DEPLOYMENT_MODE == "saas" and ENABLE_TRACING:
-            if not self._audio_buffer:
-                logger.warning(
-                    "Voicemail detection enabled but no audio buffer available - skipping detection"
-                )
-            else:
-                logger.debug(
-                    "Start node has detect_voicemail enabled - setting up audio-based detector"
-                )
-                self._detect_voicemail = True
-
-                self._voicemail_detector = VoicemailDetector(
-                    detection_duration=VOICEMAIL_RECORDING_DURATION,
-                    workflow_run_id=self._workflow_run_id,
-                )
-
-                # Register audio handler on the audio buffer input processor
-                audio_input = self._audio_buffer.input()
-
-                @audio_input.event_handler("on_input_audio_data")
-                async def handle_voicemail_audio(
-                    processor, pcm, sample_rate, num_channels
-                ):
-                    if (
-                        self._voicemail_detector
-                        and self._voicemail_detector.is_detecting
-                    ):
-                        await self._voicemail_detector.handle_audio_data(
-                            processor, pcm, sample_rate, num_channels
-                        )
-
-                # Start detection
-                await self._voicemail_detector.start_detection(self)
-
         # Check if delayed start is enabled
         if node.delayed_start:
             # Use configured duration or default to 3 seconds
@@ -745,8 +696,4 @@ class PipecatEngine:
         ):
             self._user_response_timeout_task.cancel()
 
-        # Stop voicemail detection if active
-        if self._voicemail_detector and hasattr(
-            self._voicemail_detector, "stop_detection"
-        ):
-            await self._voicemail_detector.stop_detection()
+        # Note: Native VoicemailDetector cleanup is handled by the pipeline

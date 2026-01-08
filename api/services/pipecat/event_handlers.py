@@ -16,7 +16,7 @@ from api.services.workflow.disposition_mapper import (
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
-from pipecat.frames.frames import Frame
+from pipecat.frames.frames import Frame, LLMContextFrame
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBuffer
 from pipecat.processors.audio.audio_synchronizer import AudioSynchronizer
@@ -90,6 +90,14 @@ def register_task_event_handler(
     in_memory_transcript_buffer: InMemoryTranscriptBuffer,
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
 ):
+    @task.event_handler("on_pipeline_started")
+    async def on_pipeline_started(task: PipelineTask, frame: Frame):
+        logger.debug(
+            "In on_pipeline_started callback handler - triggering initial LLM generation"
+        )
+        # Trigger initial LLM generation after pipeline has started
+        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(
         task: PipelineTask,

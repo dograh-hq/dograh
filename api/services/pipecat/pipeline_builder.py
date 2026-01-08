@@ -59,24 +59,39 @@ def build_pipeline(
     stt_mute_filter,
     pipeline_metrics_aggregator,
     user_idle_disconnect,
+    voicemail_detector=None,
 ):
-    """Build the main pipeline with all components"""
+    """Build the main pipeline with all components.
+
+    Args:
+        voicemail_detector: Optional native pipecat VoicemailDetector. When provided,
+            inserts voicemail detection after STT. Note: We don't use the TTS gate
+            to avoid blocking TTS frames during classification.
+    """
     # Register processors with synchronizer for merged audio
     logger.info("Registering audio buffer processors with synchronizer")
     audio_synchronizer.register_processors(audio_buffer.input(), audio_buffer.output())
 
-    # Build processors list with optional context controller
+    # Build processors list with optional voicemail detection
     processors = [
         transport.input(),  # Transport user input
         audio_buffer.input(),  # Record input audio (only processes InputAudioRawFrame)
         stt,  # STT can now have audio_passthrough=False
-        stt_mute_filter,  # STTMuteFilters don't let VAD related events pass through if muted
-        user_idle_disconnect,
-        transcript.user(),
     ]
 
+    # Insert voicemail detector after STT if enabled
+    # Note: We intentionally do NOT use voicemail_detector.gate() to allow TTS
+    # frames to continue flowing during classification (non-blocking detection)
+    if voicemail_detector:
+        logger.info("Adding native voicemail detector to pipeline")
+        processors.append(voicemail_detector.detector())
+
+    # Continue with the rest of the pipeline
     processors.extend(
         [
+            stt_mute_filter,  # STTMuteFilters don't let VAD related events pass through if muted
+            user_idle_disconnect,
+            transcript.user(),
             user_context_aggregator,
             llm,  # LLM
             pipeline_engine_callback_processor,

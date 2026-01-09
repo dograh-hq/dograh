@@ -41,6 +41,8 @@ export type AuthUserResponse = {
     is_superuser: boolean;
 };
 
+export type CallType = 'inbound' | 'outbound';
+
 export type CampaignProgressResponse = {
     campaign_id: number;
     state: string;
@@ -210,7 +212,7 @@ export type CreateWorkflowRunResponse = {
 };
 
 export type CreateWorkflowTemplateRequest = {
-    call_type: 'INBOUND' | 'OUTBOUND';
+    call_type: 'inbound' | 'outbound';
     use_case: string;
     activity_description: string;
 };
@@ -933,6 +935,7 @@ export type WorkflowRunResponseSchema = {
     gathered_context?: {
         [key: string]: unknown;
     } | null;
+    call_type: CallType;
 };
 
 export type WorkflowRunUsageResponse = {
@@ -986,6 +989,7 @@ export type InitiateCallApiV1TelephonyInitiateCallPostData = {
     body: InitiateCallRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1075,6 +1079,10 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostRespons
 
 export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRunIdPostData = {
     body?: never;
+    headers?: {
+        'x-vobiz-signature'?: string | null;
+        'x-vobiz-timestamp'?: string | null;
+    };
     path: {
         workflow_run_id: number;
     };
@@ -1104,6 +1112,10 @@ export type HandleVobizHangupCallbackApiV1TelephonyVobizHangupCallbackWorkflowRu
 
 export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdPostData = {
     body?: never;
+    headers?: {
+        'x-vobiz-signature'?: string | null;
+        'x-vobiz-timestamp'?: string | null;
+    };
     path: {
         workflow_run_id: number;
     };
@@ -1160,10 +1172,99 @@ export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWo
     200: unknown;
 };
 
+export type HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostData = {
+    body?: never;
+    headers?: {
+        'x-vobiz-signature'?: string | null;
+        'x-vobiz-timestamp'?: string | null;
+    };
+    path: {
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}';
+};
+
+export type HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostError = HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostErrors[keyof HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostErrors];
+
+export type HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
+    body?: never;
+    headers?: {
+        'x-twilio-signature'?: string | null;
+        'x-vobiz-signature'?: string | null;
+        'x-vobiz-timestamp'?: string | null;
+    };
+    path: {
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/inbound/{workflow_id}';
+};
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostError = HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors[keyof HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors];
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/inbound/fallback';
+};
+
+export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type OfferApiV1PipecatRtcOfferPostData = {
     body: RtcOfferRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1194,6 +1295,7 @@ export type ImpersonateApiV1SuperuserImpersonatePostData = {
     body: ImpersonateRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1226,6 +1328,7 @@ export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -1271,6 +1374,7 @@ export type SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostData = {
     body: AdminCommentRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         run_id: number;
@@ -1305,6 +1409,7 @@ export type ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1339,6 +1444,7 @@ export type CreateWorkflowApiV1WorkflowCreateDefinitionPostData = {
     body: CreateWorkflowRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1371,6 +1477,7 @@ export type CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostData = {
     body: CreateWorkflowTemplateRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1403,6 +1510,7 @@ export type GetWorkflowsApiV1WorkflowFetchGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -1440,6 +1548,7 @@ export type GetWorkflowApiV1WorkflowFetchWorkflowIdGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1474,6 +1583,7 @@ export type GetWorkflowsSummaryApiV1WorkflowSummaryGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1506,6 +1616,7 @@ export type UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutData = {
     body: UpdateWorkflowStatusRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1540,6 +1651,7 @@ export type UpdateWorkflowApiV1WorkflowWorkflowIdPutData = {
     body: UpdateWorkflowRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1574,6 +1686,7 @@ export type GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1615,6 +1728,7 @@ export type CreateWorkflowRunApiV1WorkflowWorkflowIdRunsPostData = {
     body: CreateWorkflowRunRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1649,6 +1763,7 @@ export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1707,6 +1822,7 @@ export type DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostData = {
     body: DuplicateTemplateRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1762,6 +1878,7 @@ export type GetAuthUserApiV1UserAuthUserGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1794,6 +1911,7 @@ export type GetUserConfigurationsApiV1UserConfigurationsUserGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1826,6 +1944,7 @@ export type UpdateUserConfigurationsApiV1UserConfigurationsUserPutData = {
     body: UserConfigurationRequestResponseSchema;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1858,6 +1977,7 @@ export type ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetData
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -1892,6 +2012,7 @@ export type GetApiKeysApiV1UserApiKeysGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -1926,6 +2047,7 @@ export type CreateApiKeyApiV1UserApiKeysPostData = {
     body: CreateApiKeyRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -1958,6 +2080,7 @@ export type ArchiveApiKeyApiV1UserApiKeysApiKeyIdDeleteData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         api_key_id: number;
@@ -1994,6 +2117,7 @@ export type ReactivateApiKeyApiV1UserApiKeysApiKeyIdReactivatePutData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         api_key_id: number;
@@ -2030,6 +2154,7 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         provider: 'elevenlabs' | 'deepgram' | 'sarvam' | 'cartesia' | 'dograh';
@@ -2064,6 +2189,7 @@ export type CreateCampaignApiV1CampaignCreatePostData = {
     body: CreateCampaignRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2096,6 +2222,7 @@ export type GetCampaignsApiV1CampaignGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2128,6 +2255,7 @@ export type GetCampaignApiV1CampaignCampaignIdGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         campaign_id: number;
@@ -2162,6 +2290,7 @@ export type StartCampaignApiV1CampaignCampaignIdStartPostData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         campaign_id: number;
@@ -2196,6 +2325,7 @@ export type PauseCampaignApiV1CampaignCampaignIdPausePostData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         campaign_id: number;
@@ -2230,6 +2360,7 @@ export type GetCampaignRunsApiV1CampaignCampaignIdRunsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         campaign_id: number;
@@ -2264,6 +2395,7 @@ export type ResumeCampaignApiV1CampaignCampaignIdResumePostData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         campaign_id: number;
@@ -2298,6 +2430,7 @@ export type GetCampaignProgressApiV1CampaignCampaignIdProgressGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         campaign_id: number;
@@ -2332,6 +2465,7 @@ export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrl
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         campaign_id: number;
@@ -2366,6 +2500,7 @@ export type ListCredentialsApiV1CredentialsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2398,6 +2533,7 @@ export type CreateCredentialApiV1CredentialsPostData = {
     body: CreateCredentialRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2430,6 +2566,7 @@ export type DeleteCredentialApiV1CredentialsCredentialUuidDeleteData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         credential_uuid: string;
@@ -2466,6 +2603,7 @@ export type GetCredentialApiV1CredentialsCredentialUuidGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         credential_uuid: string;
@@ -2500,6 +2638,7 @@ export type UpdateCredentialApiV1CredentialsCredentialUuidPutData = {
     body: UpdateCredentialRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         credential_uuid: string;
@@ -2534,6 +2673,7 @@ export type ListToolsApiV1ToolsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -2569,6 +2709,7 @@ export type CreateToolApiV1ToolsPostData = {
     body: CreateToolRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2601,6 +2742,7 @@ export type DeleteToolApiV1ToolsToolUuidDeleteData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         tool_uuid: string;
@@ -2637,6 +2779,7 @@ export type GetToolApiV1ToolsToolUuidGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         tool_uuid: string;
@@ -2671,6 +2814,7 @@ export type UpdateToolApiV1ToolsToolUuidPutData = {
     body: UpdateToolRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         tool_uuid: string;
@@ -2705,6 +2849,7 @@ export type GetIntegrationsApiV1IntegrationGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2737,6 +2882,7 @@ export type CreateSessionApiV1IntegrationSessionPostData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2769,6 +2915,7 @@ export type UpdateIntegrationApiV1IntegrationIntegrationIdPutData = {
     body: UpdateIntegrationRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         integration_id: number;
@@ -2803,6 +2950,7 @@ export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGet
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         integration_id: number;
@@ -2837,6 +2985,7 @@ export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetData = 
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2869,6 +3018,7 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData 
     body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -2899,6 +3049,7 @@ export type GetSignedUrlApiV1S3SignedUrlGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query: {
@@ -2938,6 +3089,7 @@ export type GetFileMetadataApiV1S3FileMetadataGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query: {
@@ -2975,6 +3127,7 @@ export type GetPresignedUploadUrlApiV1S3PresignedUploadUrlPostData = {
     body: PresignedUploadUrlRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -3007,6 +3160,7 @@ export type GetServiceKeysApiV1UserServiceKeysGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -3041,6 +3195,7 @@ export type CreateServiceKeyApiV1UserServiceKeysPostData = {
     body: CreateServiceKeyRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -3073,6 +3228,7 @@ export type ArchiveServiceKeyApiV1UserServiceKeysServiceKeyIdDeleteData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         service_key_id: string;
@@ -3105,6 +3261,7 @@ export type ReactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePutDat
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         service_key_id: string;
@@ -3137,6 +3294,7 @@ export type ListTestSessionsApiV1LooptalkTestSessionsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -3174,6 +3332,7 @@ export type CreateTestSessionApiV1LooptalkTestSessionsPostData = {
     body: CreateTestSessionRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -3206,6 +3365,7 @@ export type GetTestSessionApiV1LooptalkTestSessionsTestSessionIdGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         test_session_id: number;
@@ -3240,6 +3400,7 @@ export type StartTestSessionApiV1LooptalkTestSessionsTestSessionIdStartPostData 
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         test_session_id: number;
@@ -3272,6 +3433,7 @@ export type StopTestSessionApiV1LooptalkTestSessionsTestSessionIdStopPostData = 
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         test_session_id: number;
@@ -3304,6 +3466,7 @@ export type GetTestSessionConversationApiV1LooptalkTestSessionsTestSessionIdConv
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         test_session_id: number;
@@ -3336,6 +3499,7 @@ export type CreateLoadTestApiV1LooptalkLoadTestsPostData = {
     body: CreateLoadTestRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -3370,6 +3534,7 @@ export type GetLoadTestStatsApiV1LooptalkLoadTestsLoadTestGroupIdStatsGetData = 
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         load_test_group_id: string;
@@ -3404,6 +3569,7 @@ export type GetActiveTestsApiV1LooptalkActiveTestsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -3434,6 +3600,7 @@ export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -3466,6 +3633,7 @@ export type GetUsageHistoryApiV1OrganizationsUsageRunsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -3513,6 +3681,7 @@ export type GetDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGetData =
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: {
@@ -3550,6 +3719,7 @@ export type GetDailyReportApiV1OrganizationsReportsDailyGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query: {
@@ -3595,6 +3765,7 @@ export type GetWorkflowOptionsApiV1OrganizationsReportsWorkflowsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query?: never;
@@ -3627,6 +3798,7 @@ export type GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path?: never;
     query: {
@@ -3816,6 +3988,7 @@ export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -3852,6 +4025,7 @@ export type GetEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -3886,6 +4060,7 @@ export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostData = 
     body: EmbedTokenRequest;
     headers?: {
         authorization?: string | null;
+        'X-API-Key'?: string | null;
     };
     path: {
         workflow_id: number;

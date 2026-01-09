@@ -10,7 +10,11 @@ import aiohttp
 from loguru import logger
 
 from api.enums import WorkflowRunMode
-from api.services.telephony.base import CallInitiationResult, TelephonyProvider
+from api.services.telephony.base import (
+    CallInitiationResult,
+    NormalizedInboundData,
+    TelephonyProvider,
+)
 from api.utils.tunnel import TunnelURLProvider
 
 if TYPE_CHECKING:
@@ -179,20 +183,65 @@ class VobizProvider(TelephonyProvider):
         return bool(self.auth_id and self.auth_token and self.from_numbers)
 
     async def verify_webhook_signature(
-        self, url: str, params: Dict[str, Any], signature: str
+        self,
+        url: str,
+        params: Dict[str, Any],
+        signature: str,
+        timestamp: str = None,
+        body: str = "",
     ) -> bool:
         """
         Verify Vobiz webhook signature for security.
 
-        Vobiz uses Plivo-compatible signature verification (HMAC-SHA256).
-        For now, returning True to allow testing.
-        TODO: Implement proper signature verification based on Vobiz docs.
+        Vobiz uses HMAC-SHA256 signature verification with timestamp validation:
+        - Header: x-vobiz-signature (HMAC-SHA256 hash)
+        - Header: x-vobiz-timestamp (timestamp for replay protection)
+        - Signature = HMAC-SHA256(auth_token, timestamp + '.' + body)
         """
-        # Plivo/Vobiz signature verification would go here
-        # For development, we can skip signature verification
-        # In production, implement HMAC-SHA256 verification
-        logger.warning("Vobiz webhook signature verification not yet implemented")
-        return True
+        import hashlib
+        import hmac
+        from datetime import datetime, timezone
+
+        if not signature or not timestamp:
+            logger.warning("Missing signature or timestamp headers for Vobiz webhook")
+            return False
+
+        if not self.auth_token:
+            logger.error(
+                "No auth_token available for Vobiz webhook signature verification"
+            )
+            return False
+
+        try:
+            # 1. Timestamp validation (within 5 minutes)
+            webhook_timestamp = int(timestamp)
+            current_timestamp = int(datetime.now(timezone.utc).timestamp())
+            time_diff = abs(current_timestamp - webhook_timestamp)
+
+            if time_diff > 300:  # 5 minutes = 300 seconds
+                logger.warning(f"Vobiz webhook timestamp too old: {time_diff}s > 300s")
+                return False
+
+            # 2. Signature verification
+            # Create expected signature: HMAC-SHA256(auth_token, timestamp + '.' + body)
+            payload = f"{timestamp}.{body}"
+            expected_signature = hmac.new(
+                self.auth_token.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+            ).hexdigest()
+
+            # 3. Compare signatures (timing-safe comparison)
+            is_valid = hmac.compare_digest(expected_signature, signature)
+
+            if not is_valid:
+                logger.warning(
+                    f"Vobiz webhook signature mismatch. Expected: {expected_signature[:8]}..., Got: {signature[:8]}..."
+                )
+
+            return is_valid
+
+        except Exception as e:
+            logger.error(f"Error verifying Vobiz webhook signature: {e}")
+            return False
 
     async def get_webhook_response(
         self, workflow_id: int, user_id: int, workflow_run_id: int
@@ -339,3 +388,140 @@ class VobizProvider(TelephonyProvider):
                 f"[run {workflow_run_id}] Error in Vobiz WebSocket handler: {e}"
             )
             raise
+
+    # ======== INBOUND CALL METHODS ========
+
+    @classmethod
+    def can_handle_webhook(
+        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+    ) -> bool:
+        """
+        Determine if this provider can handle the incoming webhook.
+        Vobiz webhooks contain CallUUID field.
+        """
+        return "CallUUID" in webhook_data
+
+    @staticmethod
+    def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+        """
+        Parse Vobiz-specific inbound webhook data into normalized format.
+        """
+        return NormalizedInboundData(
+            provider=VobizProvider.PROVIDER_NAME,
+            call_id=webhook_data.get("CallUUID", ""),
+            from_number=VobizProvider.normalize_phone_number(
+                webhook_data.get("From", "")
+            ),
+            to_number=VobizProvider.normalize_phone_number(webhook_data.get("To", "")),
+            direction=webhook_data.get("Direction", ""),
+            call_status=webhook_data.get("CallStatus", ""),
+            account_id=webhook_data.get("ParentAuthID"),
+            from_country=None,  # Vobiz doesn't provide country information
+            to_country=None,  # Vobiz doesn't provide country information
+            raw_data=webhook_data,
+        )
+
+    @staticmethod
+    def normalize_phone_number(phone_number: str) -> str:
+        """
+        Normalize a phone number to E.164 format for Vobiz.
+        Vobiz sends numbers in various formats - normalize to E.164 with +.
+        """
+        if not phone_number:
+            return ""
+
+        # Remove any existing + prefix
+        clean_number = phone_number.lstrip("+")
+
+        # If it starts with 1 and has 11 digits, it's a US number
+        if clean_number.startswith("1") and len(clean_number) == 11:
+            return f"+{clean_number}"
+        elif len(clean_number) == 10:
+            # Assume US number if 10 digits
+            return f"+1{clean_number}"
+        elif len(clean_number) > 10:
+            # International number without country code detection
+            return f"+{clean_number}"
+
+        return phone_number
+
+    @staticmethod
+    def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
+        """Validate Vobiz auth_id from webhook matches configuration"""
+        if not webhook_account_id:
+            return False
+
+        stored_auth_id = config_data.get("auth_id")
+        return stored_auth_id == webhook_account_id
+
+    async def verify_inbound_signature(
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        signature: str,
+        timestamp: str = None,
+        body: str = "",
+    ) -> bool:
+        """
+        Verify the signature of an inbound Vobiz webhook for security.
+        Uses the same HMAC-SHA256 verification as other Vobiz webhooks.
+        """
+        return await self.verify_webhook_signature(
+            url, webhook_data, signature, timestamp, body
+        )
+
+    @staticmethod
+    async def generate_inbound_response(
+        websocket_url: str, workflow_run_id: int = None
+    ) -> tuple:
+        """
+        Generate Vobiz XML response for an inbound webhook.
+
+        Note: For hangup callbacks, configure the hangup_url manually in Vobiz dashboard
+        to point to: /api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}
+        """
+        from fastapi import Response
+
+        vobiz_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{websocket_url}</Stream>
+</Response>"""
+
+        return Response(content=vobiz_xml, media_type="application/xml")
+
+    @staticmethod
+    def generate_error_response(error_type: str, message: str) -> tuple:
+        """
+        Generate a Vobiz-specific error response.
+        """
+        from fastapi import Response
+
+        # Vobiz error responses should be valid XML like Plivo
+        vobiz_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Speak voice="WOMAN">Sorry, there was an error processing your call. {message}</Speak>
+    <Hangup/>
+</Response>"""
+
+        return Response(content=vobiz_xml, media_type="application/xml")
+
+    @staticmethod
+    def generate_validation_error_response(error_type) -> tuple:
+        """
+        Generate Vobiz-specific error response for validation failures with organizational debugging info.
+        """
+        from fastapi import Response
+
+        from api.errors.telephony_errors import TELEPHONY_ERROR_MESSAGES, TelephonyError
+
+        message = TELEPHONY_ERROR_MESSAGES.get(
+            error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED]
+        )
+
+        vobiz_xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Speak voice="WOMAN">{message}</Speak>
+    <Hangup/>
+</Response>"""
+
+        return Response(content=vobiz_xml_content, media_type="application/xml")

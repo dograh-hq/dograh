@@ -51,3 +51,28 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "false").lower() == "true"
+
+# Country code mapping: ISO country code -> international dialing prefix
+COUNTRY_CODES = {
+    "US": "1",  # United States
+    "CA": "1",  # Canada
+    "GB": "44",  # United Kingdom
+    "IN": "91",  # India
+    "AU": "61",  # Australia
+    "DE": "49",  # Germany
+    "FR": "33",  # France
+    "BR": "55",  # Brazil
+    "MX": "52",  # Mexico
+    "IT": "39",  # Italy
+    "ES": "34",  # Spain
+    "NL": "31",  # Netherlands
+    "SE": "46",  # Sweden
+    "NO": "47",  # Norway
+    "DK": "45",  # Denmark
+    "FI": "358",  # Finland
+    "CH": "41",  # Switzerland
+    "AT": "43",  # Austria
+    "BE": "32",  # Belgium
+    "LU": "352",  # Luxembourg
+    "IE": "353",  # Ireland
+}

@@ -12,6 +12,11 @@ class Environment(Enum):
     TEST = "test"
 
 
+class CallType(Enum):
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
+
+
 class WorkflowRunMode(Enum):
     TWILIO = "twilio"
     VONAGE = "vonage"

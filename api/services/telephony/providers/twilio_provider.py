@@ -11,7 +11,11 @@ from loguru import logger
 from twilio.request_validator import RequestValidator
 
 from api.enums import WorkflowRunMode
-from api.services.telephony.base import CallInitiationResult, TelephonyProvider, NormalizedInboundData
+from api.services.telephony.base import (
+    CallInitiationResult,
+    NormalizedInboundData,
+    TelephonyProvider,
+)
 from api.utils.tunnel import TunnelURLProvider
 
 if TYPE_CHECKING:
@@ -288,7 +292,9 @@ class TwilioProvider(TelephonyProvider):
     # ======== INBOUND CALL METHODS ========
 
     @classmethod
-    def can_handle_webhook(cls, webhook_data: Dict[str, Any], headers: Dict[str, str]) -> bool:
+    def can_handle_webhook(
+        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+    ) -> bool:
         """
         Determine if this provider can handle the incoming webhook.
         Twilio webhooks contain CallSid field.
@@ -303,12 +309,14 @@ class TwilioProvider(TelephonyProvider):
         return NormalizedInboundData(
             provider=TwilioProvider.PROVIDER_NAME,
             call_id=webhook_data.get("CallSid", ""),
-            from_number=TwilioProvider.normalize_phone_number(webhook_data.get("From", "")),
+            from_number=TwilioProvider.normalize_phone_number(
+                webhook_data.get("From", "")
+            ),
             to_number=TwilioProvider.normalize_phone_number(webhook_data.get("To", "")),
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
             account_id=webhook_data.get("AccountSid"),
-            raw_data=webhook_data
+            raw_data=webhook_data,
         )
 
     @staticmethod
@@ -319,17 +327,17 @@ class TwilioProvider(TelephonyProvider):
         """
         if not phone_number:
             return ""
-        
+
         # Twilio numbers are already in E.164 format (+1234567890)
         if phone_number.startswith("+"):
             return phone_number
-        
+
         # If for some reason it doesn't have +, assume US and add +1
         if phone_number.startswith("1") and len(phone_number) == 11:
             return f"+{phone_number}"
         elif len(phone_number) == 10:
             return f"+1{phone_number}"
-        
+
         return phone_number
 
     @staticmethod
@@ -337,7 +345,7 @@ class TwilioProvider(TelephonyProvider):
         """Validate Twilio account_sid from webhook matches configuration"""
         if not webhook_account_id:
             return False
-        
+
         stored_account_sid = config_data.get("account_sid")
         return stored_account_sid == webhook_account_id
 
@@ -350,21 +358,23 @@ class TwilioProvider(TelephonyProvider):
         return await self.verify_webhook_signature(url, webhook_data, signature)
 
     @staticmethod
-    async def generate_inbound_response(websocket_url: str, workflow_run_id: int = None) -> tuple:
+    async def generate_inbound_response(
+        websocket_url: str, workflow_run_id: int = None
+    ) -> tuple:
         """
         Generate TwiML response for an inbound Twilio webhook.
-        
+
         Uses the same StatusCallback URL pattern as outbound calls for consistency.
         """
         from fastapi import Response
-        
+
         # Generate StatusCallback URL using same pattern as outbound calls
         status_callback_attr = ""
         if workflow_run_id:
             backend_endpoint = await TunnelURLProvider.get_tunnel_url()
             status_callback_url = f"https://{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
             status_callback_attr = f' statusCallback="{status_callback_url}"'
-        
+
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
@@ -372,7 +382,7 @@ class TwilioProvider(TelephonyProvider):
     </Connect>
     <Pause length="40"/>
 </Response>"""
-        
+
         return Response(content=twiml_content, media_type="application/xml")
 
     @staticmethod
@@ -381,13 +391,13 @@ class TwilioProvider(TelephonyProvider):
         Generate a Twilio-specific error response.
         """
         from fastapi import Response
-        
+
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say voice="alice">Sorry, there was an error processing your call. {message}</Say>
     <Hangup/>
 </Response>"""
-        
+
         return Response(content=twiml_content, media_type="application/xml")
 
     @staticmethod
@@ -396,14 +406,17 @@ class TwilioProvider(TelephonyProvider):
         Generate Twilio-specific error response for validation failures with organizational debugging info.
         """
         from fastapi import Response
-        from api.errors.telephony_errors import TelephonyError, TELEPHONY_ERROR_MESSAGES
-        
-        message = TELEPHONY_ERROR_MESSAGES.get(error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED])
-        
+
+        from api.errors.telephony_errors import TELEPHONY_ERROR_MESSAGES, TelephonyError
+
+        message = TELEPHONY_ERROR_MESSAGES.get(
+            error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED]
+        )
+
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Say voice="alice">{message}</Say>
     <Hangup/>
 </Response>"""
-        
+
         return Response(content=twiml_content, media_type="application/xml")

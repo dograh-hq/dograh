@@ -37,9 +37,7 @@ class NormalizedInboundData:
     direction: str  # Call direction (should be "inbound")
     call_status: str  # Call status (ringing, answered, etc.)
     account_id: Optional[str] = None  # Provider account ID
-    raw_data: Dict[str, Any] = field(
-        default_factory=dict
-    )  # Original webhook data
+    raw_data: Dict[str, Any] = field(default_factory=dict)  # Original webhook data
 
 
 class TelephonyProvider(ABC):
@@ -202,7 +200,9 @@ class TelephonyProvider(ABC):
 
     @classmethod
     @abstractmethod
-    def can_handle_webhook(cls, webhook_data: Dict[str, Any], headers: Dict[str, str]) -> bool:
+    def can_handle_webhook(
+        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+    ) -> bool:
         """
         Determine if this provider can handle the incoming webhook.
 
@@ -234,11 +234,11 @@ class TelephonyProvider(ABC):
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
         """
         Validate that the account_id from webhook matches the provider configuration.
-        
+
         Args:
             config_data: Provider configuration data from organization
             webhook_account_id: Account ID from the webhook
-            
+
         Returns:
             True if account_id matches, False otherwise
         """

@@ -121,7 +121,7 @@ async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
 async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:
     """
     Get all available telephony provider classes for webhook detection.
-    
+
     Returns:
         List of provider classes that can be used for webhook detection
     """

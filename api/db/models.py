@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship
 
 from ..enums import (
+    CallType,
     IntegrationAction,
     ToolCategory,
     ToolStatus,
@@ -29,7 +30,6 @@ from ..enums import (
     WorkflowRunMode,
     WorkflowRunState,
     WorkflowStatus,
-    CallType,
 )
 
 Base = declarative_base()

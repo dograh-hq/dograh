@@ -13,7 +13,11 @@ from fastapi import Response
 from loguru import logger
 
 from api.enums import WorkflowRunMode
-from api.services.telephony.base import CallInitiationResult, TelephonyProvider, NormalizedInboundData
+from api.services.telephony.base import (
+    CallInitiationResult,
+    NormalizedInboundData,
+    TelephonyProvider,
+)
 from api.utils.tunnel import TunnelURLProvider
 
 if TYPE_CHECKING:
@@ -383,7 +387,9 @@ class VonageProvider(TelephonyProvider):
     # ======== INBOUND CALL METHODS ========
 
     @classmethod
-    def can_handle_webhook(cls, webhook_data: Dict[str, Any], headers: Dict[str, str]) -> bool:
+    def can_handle_webhook(
+        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+    ) -> bool:
         """
         Determine if this provider can handle the incoming webhook.
         """
@@ -402,7 +408,7 @@ class VonageProvider(TelephonyProvider):
             direction=webhook_data.get("direction", ""),
             call_status=webhook_data.get("status", ""),
             account_id=webhook_data.get("account_id"),
-            raw_data=webhook_data
+            raw_data=webhook_data,
         )
 
     @staticmethod
@@ -412,10 +418,10 @@ class VonageProvider(TelephonyProvider):
         """
         if not phone_number:
             return ""
-        
+
         if phone_number.startswith("+"):
             return phone_number
-        
+
         return f"+{phone_number}"
 
     @staticmethod
@@ -423,7 +429,7 @@ class VonageProvider(TelephonyProvider):
         """Validate Vonage account_id from webhook matches configuration"""
         if not webhook_account_id:
             return False
-        
+
         stored_api_key = config_data.get("api_key")
         return stored_api_key == webhook_account_id
 
@@ -436,7 +442,9 @@ class VonageProvider(TelephonyProvider):
         return True
 
     @staticmethod
-    async def generate_inbound_response(websocket_url: str, workflow_run_id: int = None) -> tuple:
+    async def generate_inbound_response(
+        websocket_url: str, workflow_run_id: int = None
+    ) -> tuple:
         """
         Generate NCCO response for inbound Vonage webhook.
         """
@@ -444,14 +452,14 @@ class VonageProvider(TelephonyProvider):
         ncco_response = [
             {
                 "action": "talk",
-                "text": "Vonage inbound calls are not currently supported."
+                "text": "Vonage inbound calls are not currently supported.",
             },
-            {
-                "action": "hangup"
-            }
+            {"action": "hangup"},
         ]
-        
-        return Response(content=json.dumps(ncco_response), media_type="application/json")
+
+        return Response(
+            content=json.dumps(ncco_response), media_type="application/json"
+        )
 
     @staticmethod
     def generate_error_response(error_type: str, message: str) -> tuple:
@@ -459,15 +467,13 @@ class VonageProvider(TelephonyProvider):
         Generate a Vonage-specific error response.
         """
         from fastapi import Response
-        
+
         error_ncco = [
             {
                 "action": "talk",
-                "text": f"Sorry, there was an error processing your call. {message}"
+                "text": f"Sorry, there was an error processing your call. {message}",
             },
-            {
-                "action": "hangup"
-            }
+            {"action": "hangup"},
         ]
-        
+
         return Response(content=json.dumps(error_ncco), media_type="application/json")

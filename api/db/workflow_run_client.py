@@ -14,7 +14,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import StorageBackend, CallType
+from api.enums import CallType, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
 
 

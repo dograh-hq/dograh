@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "fix-lint": "npx eslint --fix . --ignore-pattern '.next/*' --ignore-pattern 'node_modules/*'",
+    "fix-lint": "npx eslint --fix . --ignore-pattern '.next/*' --ignore-pattern 'node_modules/*' --ignore-pattern 'next-env.d.ts'",
     "generate-client": "openapi-ts"
   },
   "dependencies": {

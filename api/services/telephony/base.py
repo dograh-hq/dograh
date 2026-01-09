@@ -37,6 +37,8 @@ class NormalizedInboundData:
     direction: str  # Call direction (should be "inbound")
     call_status: str  # Call status (ringing, answered, etc.)
     account_id: Optional[str] = None  # Provider account ID
+    from_country: Optional[str] = None  # Country code of caller
+    to_country: Optional[str] = None  # Country code of called number
     raw_data: Dict[str, Any] = field(default_factory=dict)  # Original webhook data
 
 

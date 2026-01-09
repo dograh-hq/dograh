@@ -316,6 +316,10 @@ class TwilioProvider(TelephonyProvider):
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
             account_id=webhook_data.get("AccountSid"),
+            from_country=webhook_data.get("FromCountry")
+            or webhook_data.get("CallerCountry"),
+            to_country=webhook_data.get("ToCountry")
+            or webhook_data.get("CalledCountry"),
             raw_data=webhook_data,
         )
 

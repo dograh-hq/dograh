@@ -193,7 +193,10 @@ async def initiate_call(
 
 
 async def _verify_organization_phone_number(
-    phone_number: str, organization_id: int
+    phone_number: str,
+    organization_id: int,
+    to_country: str = None,
+    from_country: str = None,
 ) -> bool:
     """
     Verify that a phone number belongs to the specified organization.
@@ -201,6 +204,8 @@ async def _verify_organization_phone_number(
     Args:
         phone_number: The phone number to verify
         organization_id: The organization ID to check against
+        to_country: ISO country code for the called number (e.g., "US", "IN")
+        from_country: ISO country code for the caller (e.g., "IN", "GB")
 
     Returns:
         True if the phone number belongs to the organization, False otherwise
@@ -228,16 +233,19 @@ async def _verify_organization_phone_number(
                 f"Organization {organization_id} has from_numbers: {from_numbers}"
             )
 
-            # Use the same smart matching logic
             for configured_number in from_numbers:
-                if numbers_match(phone_number, configured_number):
+                if numbers_match(
+                    phone_number, configured_number, to_country, from_country
+                ):
                     logger.info(
-                        f"Phone number {phone_number} verified for organization {organization_id} (matches {configured_number})"
+                        f"Phone number {phone_number} verified for organization {organization_id} "
+                        f"(matches {configured_number}, to_country={to_country}, from_country={from_country})"
                     )
                     return True
 
             logger.warning(
-                f"Phone number {phone_number} not found in organization {organization_id} from_numbers: {from_numbers}"
+                f"Phone number {phone_number} not found in organization {organization_id} from_numbers: {from_numbers} "
+                f"(to_country={to_country}, from_country={from_country})"
             )
             return False
 
@@ -292,7 +300,10 @@ async def _validate_inbound_request(
 
     # Verify phone number belongs to organization
     is_valid = await _verify_organization_phone_number(
-        normalized_data.to_number, organization_id
+        normalized_data.to_number,
+        organization_id,
+        normalized_data.to_country,
+        normalized_data.from_country,
     )
     if not is_valid:
         return False, TelephonyError.PHONE_NUMBER_NOT_CONFIGURED, {}, None
@@ -374,6 +385,8 @@ async def _create_inbound_workflow_run(
             "account_id": normalized_data.account_id,
             "provider": provider,
             "data_source": data_source,
+            "from_country": normalized_data.from_country,
+            "to_country": normalized_data.to_country,
             "raw_webhook_data": normalized_data.raw_data,
         },
     )

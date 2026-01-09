@@ -408,6 +408,8 @@ class VonageProvider(TelephonyProvider):
             direction=webhook_data.get("direction", ""),
             call_status=webhook_data.get("status", ""),
             account_id=webhook_data.get("account_id"),
+            from_country=None,
+            to_country=None,
             raw_data=webhook_data,
         )
 

@@ -416,6 +416,8 @@ class VobizProvider(TelephonyProvider):
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
             account_id=webhook_data.get("ParentAuthID"),
+            from_country=None,  # Vobiz doesn't provide country information
+            to_country=None,  # Vobiz doesn't provide country information
             raw_data=webhook_data,
         )
 

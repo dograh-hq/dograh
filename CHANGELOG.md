@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.10.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.9.0...dograh-v1.10.0) (2026-01-11)
+
+
+### Features
+
+* enable api key access to routes ([05ead4d](https://github.com/dograh-hq/dograh/commit/05ead4dc867062e61702fbf7ec82cce4bb08c9e5))
+
+
+### Bug Fixes
+
+* initialize engine earlier than event handler ([b79bc42](https://github.com/dograh-hq/dograh/commit/b79bc4221db02a23eafd586feb75a271df065d13))
+* migrate from custom audio recorder to native AudioBuffer ([#115](https://github.com/dograh-hq/dograh/issues/115)) ([edf0fa4](https://github.com/dograh-hq/dograh/commit/edf0fa4fbc98f246174b672df928c51baa9b1cab))
+
+
+### Documentation
+
+* fix broker internal link ([#114](https://github.com/dograh-hq/dograh/issues/114)) ([3152100](https://github.com/dograh-hq/dograh/commit/31521008cfacafe4ac3f55d3032608b3873a2d2c))
+* tracing with langfuse ([#112](https://github.com/dograh-hq/dograh/issues/112)) ([d41f696](https://github.com/dograh-hq/dograh/commit/d41f696f3f373a72b107fab8c4d8183f23cebf2e))
+
 ## [1.9.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.8.0...dograh-v1.9.0) (2026-01-03)
 
 

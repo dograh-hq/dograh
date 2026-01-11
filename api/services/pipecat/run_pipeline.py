@@ -567,6 +567,9 @@ async def _run_pipeline(
 
     # Now set the task on the engine
     engine.set_task(task)
+    
+    # Initialize the engine to set the initial context
+    await engine.initialize()
 
     # Register event handlers
     in_memory_audio_buffer, in_memory_transcript_buffer = (

@@ -51,7 +51,6 @@ def register_transport_event_handlers(
     async def on_client_connected(transport, participant):
         logger.debug("In on_client_connected callback handler - initializing workflow")
         await audio_buffer.start_recording()
-        await engine.initialize()
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, participant):

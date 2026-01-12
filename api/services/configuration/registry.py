@@ -263,13 +263,13 @@ SARVAM_LANGUAGES = [
 ]
 
 
-# @register_tts
-# class SarvamTTSConfiguration(BaseTTSConfiguration):
-#     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
-#     model: str = Field(default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS})
-#     voice: str = Field(default="anushka", json_schema_extra={"examples": SARVAM_VOICES})
-#     language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
-#     api_key: str
+@register_tts
+class SarvamTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+    model: str = Field(default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS})
+    voice: str = Field(default="anushka", json_schema_extra={"examples": SARVAM_VOICES})
+    language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
+    api_key: str
 
 
 TTSConfig = Annotated[
@@ -278,7 +278,7 @@ TTSConfig = Annotated[
         OpenAITTSService,
         ElevenlabsTTSConfiguration,
         DograhTTSService,
-        # SarvamTTSConfiguration,
+        SarvamTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -369,12 +369,12 @@ class DograhSTTService(BaseSTTConfiguration):
 SARVAM_STT_MODELS = ["saarika:v2.5", "saaras:v2"]
 
 
-# @register_stt
-# class SarvamSTTConfiguration(BaseSTTConfiguration):
-#     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
-#     model: str = Field(default="saarika:v2.5", json_schema_extra={"examples": SARVAM_STT_MODELS})
-#     language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
-#     api_key: str
+@register_stt
+class SarvamSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+    model: str = Field(default="saarika:v2.5", json_schema_extra={"examples": SARVAM_STT_MODELS})
+    language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
+    api_key: str
 
 
 # Speechmatics STT Service
@@ -423,7 +423,7 @@ STTConfig = Annotated[
         OpenAISTTConfiguration,
         DograhSTTService,
         SpeechmaticsSTTConfiguration,
-        # SarvamSTTConfiguration,
+        SarvamSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

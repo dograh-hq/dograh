@@ -166,7 +166,7 @@ async def initiate_call(
             workflow_run_id=workflow_run.id,
         )
     except Exception as e:
-        logger.error(
+        logger.warning(
             f"Failed to initiate call for workflow run {workflow_run.id}: {e}"
         )
         raise HTTPException(

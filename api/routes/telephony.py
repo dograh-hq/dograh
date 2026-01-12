@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.future import select
 from starlette.responses import HTMLResponse
+from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
 from api.db.models import OrganizationConfigurationModel, UserModel
@@ -563,9 +564,15 @@ async def websocket_endpoint(
             websocket, workflow_id, user_id, workflow_run_id
         )
 
+    except WebSocketDisconnect as e:
+        logger.info(f"WebSocket disconnected: code={e.code}, reason={e.reason}")
     except Exception as e:
         logger.error(f"Error in WebSocket connection: {e}")
-        await websocket.close(1011, "Internal server error")
+        try:
+            await websocket.close(1011, "Internal server error")
+        except RuntimeError:
+            # WebSocket already closed, ignore
+            pass
 
 
 @router.post("/twilio/status-callback/{workflow_run_id}")

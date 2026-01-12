@@ -159,11 +159,20 @@ async def initiate_call(
     )
 
     # 10. Initiate call via telephony provider
-    await provider.initiate_call(
-        to_number=request.phone_number,
-        webhook_url=webhook_url,
-        workflow_run_id=workflow_run.id,
-    )
+    try:
+        await provider.initiate_call(
+            to_number=request.phone_number,
+            webhook_url=webhook_url,
+            workflow_run_id=workflow_run.id,
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to initiate call for workflow run {workflow_run.id}: {e}"
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to initiate call: {e}",
+        )
 
     logger.info(
         f"Call initiated successfully for workflow run {workflow_run.id} "

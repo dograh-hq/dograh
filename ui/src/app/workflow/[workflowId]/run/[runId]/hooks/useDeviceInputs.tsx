@@ -15,7 +15,7 @@ export const useDeviceInputs = () => {
             if (defaultAudioInput) {
                 setSelectedAudioInput(defaultAudioInput.deviceId);
             }
-        } catch (error) {
+        } catch {
             setPermissionError('Could not enumerate devices');
         }
     }, []);

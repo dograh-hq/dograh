@@ -133,6 +133,7 @@ async def initiate_call(
         workflow_id=trigger.workflow_id,
         mode=workflow_run_mode,
         initial_context={
+            "provider": provider.PROVIDER_NAME,
             "phone_number": request.phone_number,
             "agent_uuid": uuid,
             **(request.initial_context or {}),
@@ -158,21 +159,10 @@ async def initiate_call(
     )
 
     # 10. Initiate call via telephony provider
-    result = await provider.initiate_call(
+    await provider.initiate_call(
         to_number=request.phone_number,
         webhook_url=webhook_url,
         workflow_run_id=workflow_run.id,
-    )
-
-    # 11. Store provider metadata in workflow run context
-    gathered_context = {
-        "provider": provider.PROVIDER_NAME,
-        "triggered_by": "api",
-        "trigger_uuid": uuid,
-        **(result.provider_metadata or {}),
-    }
-    await db_client.update_workflow_run(
-        run_id=workflow_run.id, gathered_context=gathered_context
     )
 
     logger.info(

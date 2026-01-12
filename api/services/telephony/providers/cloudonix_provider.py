@@ -10,7 +10,11 @@ import aiohttp
 from loguru import logger
 
 from api.enums import WorkflowRunMode
-from api.services.telephony.base import CallInitiationResult, TelephonyProvider
+from api.services.telephony.base import (
+    CallInitiationResult,
+    NormalizedInboundData,
+    TelephonyProvider,
+)
 from api.utils.tunnel import TunnelURLProvider
 
 if TYPE_CHECKING:
@@ -416,3 +420,170 @@ class CloudonixProvider(TelephonyProvider):
         except Exception as e:
             logger.error(f"Error in Cloudonix WebSocket handler: {e}")
             raise
+
+    # ======== INBOUND CALL METHODS ========
+
+    @classmethod
+    def can_handle_webhook(
+        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+    ) -> bool:
+        """
+        Determine if this provider can handle the incoming webhook.
+
+        Cloudonix uses TwiML-compatible format, so look for Twilio-like identifiers
+        but also check for Cloudonix-specific headers or fields if they exist.
+        """
+        # Check for Cloudonix-specific headers
+        if headers.get("User-Agent", "").lower().startswith("cloudonix"):
+            return True
+
+        # Check for session token (Cloudonix equivalent of CallSid)
+        if "token" in webhook_data or "session_token" in webhook_data:
+            return True
+
+        # If it looks like TwiML format but no other providers claimed it,
+        # it could be Cloudonix (TwiML-compatible)
+        if "CallSid" in webhook_data and "AccountSid" in webhook_data:
+            # Let Twilio provider handle this first, only handle if unclaimed
+            return False
+
+        return False
+
+    @staticmethod
+    def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+        """
+        Parse Cloudonix-specific inbound webhook data into normalized format.
+
+        Cloudonix is TwiML-compatible so the webhook format should be similar to Twilio.
+        """
+        return NormalizedInboundData(
+            provider=CloudonixProvider.PROVIDER_NAME,
+            call_id=webhook_data.get("token") or webhook_data.get("CallSid", ""),
+            from_number=webhook_data.get("From", ""),
+            to_number=webhook_data.get("To", ""),
+            direction="inbound",  # This is an inbound webhook
+            call_status=webhook_data.get("CallStatus", "ringing"),
+            account_id=webhook_data.get("AccountSid") or webhook_data.get("domain_id"),
+            from_country=webhook_data.get("FromCountry"),
+            to_country=webhook_data.get("ToCountry"),
+            raw_data=webhook_data,
+        )
+
+    @staticmethod
+    def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
+        """
+        Validate that the account_id from webhook matches the Cloudonix configuration.
+        """
+        if not webhook_account_id:
+            return False
+
+        # Cloudonix uses domain_id as the account identifier
+        stored_domain_id = config_data.get("domain_id")
+        if not stored_domain_id:
+            return False
+
+        return webhook_account_id == stored_domain_id
+
+    def normalize_phone_number(self, phone_number: str) -> str:
+        """
+        Normalize a phone number to E.164 format for Cloudonix.
+
+        Cloudonix typically provides numbers in E.164 format already,
+        but we'll ensure proper formatting.
+        """
+        if not phone_number:
+            return ""
+
+        # Remove any spaces or formatting
+        clean_number = (
+            phone_number.replace(" ", "")
+            .replace("-", "")
+            .replace("(", "")
+            .replace(")", "")
+        )
+
+        # If already in E.164 format (+...), return as-is
+        if clean_number.startswith("+"):
+            return clean_number
+
+        # If starts with country code but no +, add it
+        if len(clean_number) >= 10:
+            return f"+{clean_number}"
+
+        return clean_number
+
+    async def verify_inbound_signature(
+        self, url: str, webhook_data: Dict[str, Any], signature: str
+    ) -> bool:
+        """
+        Verify the signature of an inbound Cloudonix webhook for security.
+
+        Note: Cloudonix signature verification details need to be implemented
+        based on their specific authentication method. For now, we'll log
+        and return True (similar to current webhook verification).
+        """
+        logger.info(
+            f"Cloudonix inbound signature verification not fully implemented. "
+            f"Webhook URL: {url}, Signature present: {bool(signature)}"
+        )
+
+        # TODO: Implement actual Cloudonix signature verification
+        # This would depend on Cloudonix's specific signing method
+        return True
+
+    def generate_inbound_response(self, websocket_url: str) -> tuple:
+        """
+        Generate the appropriate TwiML response for an inbound Cloudonix webhook.
+
+        Since Cloudonix is TwiML-compatible, we generate TwiML response.
+        """
+        from fastapi import Response
+
+        # Generate TwiML response to connect to WebSocket
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="{websocket_url}"></Stream>
+    </Connect>
+    <Pause length="40"/>
+</Response>"""
+
+        return Response(content=twiml, media_type="application/xml"), "application/xml"
+
+    @staticmethod
+    def generate_error_response(error_type: str, message: str) -> tuple:
+        """
+        Generate a Cloudonix-specific error response.
+
+        Since Cloudonix is TwiML-compatible, we use TwiML format.
+        """
+        from fastapi import Response
+
+        # Map error types to appropriate TwiML responses
+        if error_type == "auth_failed":
+            twiml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Authentication failed. This call cannot be processed.</Say>
+    <Hangup/>
+</Response>"""
+        elif error_type == "not_configured":
+            twiml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Service not configured. Please contact support.</Say>
+    <Hangup/>
+</Response>"""
+        elif error_type == "invalid_number":
+            twiml = """<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Invalid phone number. This call cannot be processed.</Say>
+    <Hangup/>
+</Response>"""
+        else:
+            # Generic error
+            twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>An error occurred: {message}</Say>
+    <Hangup/>
+</Response>"""
+
+        return Response(content=twiml, media_type="application/xml"), "application/xml"

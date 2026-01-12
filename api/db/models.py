@@ -21,6 +21,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship
 
 from ..enums import (
+    CallType,
     IntegrationAction,
     ToolCategory,
     ToolStatus,
@@ -323,6 +324,12 @@ class WorkflowRunModel(Base):
     mode = Column(
         Enum(*[mode.value for mode in WorkflowRunMode], name="workflow_run_mode"),
         nullable=False,
+    )
+    call_type = Column(
+        Enum(*[call_type.value for call_type in CallType], name="workflow_call_type"),
+        nullable=False,
+        default=CallType.OUTBOUND.value,
+        server_default=text("'outbound'::workflow_call_type"),
     )
     state = Column(
         Enum(*[state.value for state in WorkflowRunState], name="workflow_run_state"),

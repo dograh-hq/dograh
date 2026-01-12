@@ -10,7 +10,6 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket
 from loguru import logger
-from pipecat.utils.context import set_current_run_id
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.future import select
@@ -37,6 +36,7 @@ from api.utils.telephony_helper import (
     parse_webhook_request,
 )
 from api.utils.tunnel import TunnelURLProvider
+from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/telephony")
 

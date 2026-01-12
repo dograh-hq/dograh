@@ -3,10 +3,11 @@ Telephony helper utilities.
 Common functions used across telephony operations.
 """
 
-from dograh.api.constants import COUNTRY_CODES
 from fastapi import Request
 from loguru import logger
 from starlette.responses import HTMLResponse
+
+from api.constants import COUNTRY_CODES
 
 
 def numbers_match(

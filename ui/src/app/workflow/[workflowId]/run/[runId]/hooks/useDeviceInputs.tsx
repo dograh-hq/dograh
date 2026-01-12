@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 
-import logger from '@/lib/logger';
-
 export const useDeviceInputs = () => {
     const [audioInputs, setAudioInputs] = useState<MediaDeviceInfo[]>([]);
     const [selectedAudioInput, setSelectedAudioInput] = useState('');
@@ -19,7 +17,6 @@ export const useDeviceInputs = () => {
             }
         } catch (error) {
             setPermissionError('Could not enumerate devices');
-            logger.error(`Error enumerating devices: ${error}`);
         }
     }, []);
 

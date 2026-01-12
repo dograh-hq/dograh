@@ -408,7 +408,9 @@ SPEECHMATICS_STT_LANGUAGES = [
 @register_stt
 class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS
-    model: str = Field(default="enhanced", description="Operating point: standard or enhanced")
+    model: str = Field(
+        default="enhanced", description="Operating point: standard or enhanced"
+    )
     language: str = Field(
         default="en", json_schema_extra={"examples": SPEECHMATICS_STT_LANGUAGES}
     )

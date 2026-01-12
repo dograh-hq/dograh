@@ -138,6 +138,6 @@ class UserConfigurationValidator:
 
     def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
         return True
-    
+
     def _check_speechmatics_api_key(self, model: str, api_key: str) -> bool:
         return True

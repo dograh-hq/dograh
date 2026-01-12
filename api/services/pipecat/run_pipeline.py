@@ -567,7 +567,7 @@ async def _run_pipeline(
 
     # Now set the task on the engine
     engine.set_task(task)
-    
+
     # Initialize the engine to set the initial context
     await engine.initialize()
 

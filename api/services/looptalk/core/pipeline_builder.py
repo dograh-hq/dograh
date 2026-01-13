@@ -91,7 +91,6 @@ class LoopTalkPipelineBuilder:
         # Create engine first (needed for create_pipeline_components)
         engine = PipecatEngine(
             llm=llm,
-            tts=tts,
             workflow=workflow_graph,
             call_context_vars={},
             workflow_run_id=None,  # LoopTalk doesn't have workflow runs

@@ -467,7 +467,6 @@ async def _run_pipeline(
 
     engine = PipecatEngine(
         llm=llm,
-        tts=tts,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,

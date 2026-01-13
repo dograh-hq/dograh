@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Optional, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
 
 from api.services.workflow.disposition_mapper import (
     apply_disposition_mapping,
@@ -57,7 +57,6 @@ class PipecatEngine:
         task: Optional[PipelineTask] = None,
         llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
-        tts: Optional[Any] = None,
         transport: Optional[BaseTransport] = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
@@ -67,7 +66,6 @@ class PipecatEngine:
         self.task = task
         self.llm = llm
         self.context = context
-        self.tts = tts
         self.transport = transport
         self.workflow = workflow
         self._call_context_vars = call_context_vars

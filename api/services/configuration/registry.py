@@ -122,7 +122,7 @@ GROQ_MODELS = [
     "openai/gpt-oss-120b",
 ]
 AZURE_MODELS = ["gpt-4.1-mini"]
-DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen", "zen_lite"]
+DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen"]
 
 
 @register_llm
@@ -266,9 +266,13 @@ SARVAM_LANGUAGES = [
 @register_tts
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
-    model: str = Field(default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS})
+    model: str = Field(
+        default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS}
+    )
     voice: str = Field(default="anushka", json_schema_extra={"examples": SARVAM_VOICES})
-    language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
+    language: str = Field(
+        default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
+    )
     api_key: str
 
 
@@ -372,8 +376,12 @@ SARVAM_STT_MODELS = ["saarika:v2.5", "saaras:v2"]
 @register_stt
 class SarvamSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
-    model: str = Field(default="saarika:v2.5", json_schema_extra={"examples": SARVAM_STT_MODELS})
-    language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
+    model: str = Field(
+        default="saarika:v2.5", json_schema_extra={"examples": SARVAM_STT_MODELS}
+    )
+    language: str = Field(
+        default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
+    )
     api_key: str
 
 

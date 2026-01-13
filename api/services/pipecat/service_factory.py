@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 def create_stt_service(user_config):
     """Create and return appropriate STT service based on user configuration"""
+    logger.info(
+        f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
+    )
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
@@ -110,6 +113,9 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         user_config: User configuration containing TTS settings
         transport_type: Type of transport (e.g., 'stasis', 'twilio', 'webrtc')
     """
+    logger.info(
+        f"Creating TTS service: provider={user_config.tts.provider}, model={user_config.tts.model}"
+    )
     # Create function call filter to prevent TTS from speaking function call tags
     xml_function_tag_filter = XMLFunctionTagFilter()
     if user_config.tts.provider == ServiceProviders.DEEPGRAM.value:
@@ -186,6 +192,9 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
 def create_llm_service(user_config):
     """Create and return appropriate LLM service based on user configuration"""
     model = user_config.llm.model
+    logger.info(
+        f"Creating LLM service: provider={user_config.llm.provider}, model={model}"
+    )
     if user_config.llm.provider == ServiceProviders.OPENAI.value:
         if "gpt-5" in model:
             return OpenAILLMService(
@@ -251,6 +260,6 @@ def create_voicemail_classification_llm():
 
     return OpenAILLMService(
         api_key=api_key,
-        model="gpt-4o-mini",
+        model="gpt-4o",
         params=OpenAILLMService.InputParams(temperature=0.0),
     )

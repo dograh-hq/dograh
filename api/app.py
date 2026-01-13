@@ -20,7 +20,6 @@ if SENTRY_DSN and (
     print(f"Sentry initialized in environment: {ENVIRONMENT}")
 
 
-import asyncio
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -30,7 +29,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from api.routes.main import router as main_router
-from api.routes.rtc_offer import pcs_map
 from api.services.telephony.worker_event_subscriber import (
     WorkerEventSubscriber,
     setup_worker_subscriber,
@@ -76,11 +74,6 @@ async def lifespan(app: FastAPI):
             logger.error(f"Error during graceful shutdown: {e}")
             # Fall back to immediate stop
             await worker_subscriber.stop()
-
-    # close all dangling pipecat connections
-    coros = [pc.close() for pc in pcs_map.values()]
-    await asyncio.gather(*coros)
-    pcs_map.clear()
 
     await redis.aclose()
 

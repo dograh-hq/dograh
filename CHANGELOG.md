@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.10.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.9.0...dograh-v1.10.0) (2026-01-13)
+
+
+### Features
+
+* enable api key access to routes ([05ead4d](https://github.com/dograh-hq/dograh/commit/05ead4dc867062e61702fbf7ec82cce4bb08c9e5))
+* enable Sarvam Models ([514d9c5](https://github.com/dograh-hq/dograh/commit/514d9c5238029bab4dfcca19cd7564b34d54f51c))
+
+
+### Bug Fixes
+
+* API calling endpoint ([df2bfd7](https://github.com/dograh-hq/dograh/commit/df2bfd74299839f7c851a67db5f45d93b3e8f9e6))
+* catch initiate call exception in public agent ([92bdfd6](https://github.com/dograh-hq/dograh/commit/92bdfd6caccfab92397045e19800842257ed0600))
+* formatting fix and fix [#79](https://github.com/dograh-hq/dograh/issues/79) ([11e033c](https://github.com/dograh-hq/dograh/commit/11e033c72d01d71b209fe0a47620fd7441fdadb4))
+* initialize engine earlier than event handler ([b79bc42](https://github.com/dograh-hq/dograh/commit/b79bc4221db02a23eafd586feb75a271df065d13))
+* migrate from custom audio recorder to native AudioBuffer ([#115](https://github.com/dograh-hq/dograh/issues/115)) ([edf0fa4](https://github.com/dograh-hq/dograh/commit/edf0fa4fbc98f246174b672df928c51baa9b1cab))
+
+
+### Documentation
+
+* fix broker internal link ([#114](https://github.com/dograh-hq/dograh/issues/114)) ([3152100](https://github.com/dograh-hq/dograh/commit/31521008cfacafe4ac3f55d3032608b3873a2d2c))
+* tracing with langfuse ([#112](https://github.com/dograh-hq/dograh/issues/112)) ([d41f696](https://github.com/dograh-hq/dograh/commit/d41f696f3f373a72b107fab8c4d8183f23cebf2e))
+
 ## [1.9.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.8.0...dograh-v1.9.0) (2026-01-03)
 
 

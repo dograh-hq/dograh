@@ -483,18 +483,6 @@ export type PresignedUploadUrlResponse = {
     expires_in: number;
 };
 
-export type RtcOfferRequest = {
-    pc_id: string | null;
-    sdp: string;
-    type: string;
-    workflow_id: number;
-    workflow_run_id: number;
-    restart_pc?: boolean;
-    call_context_vars?: {
-        [key: string]: unknown;
-    } | null;
-};
-
 export type S3SignedUrlResponse = {
     url: string;
     expires_in: number;
@@ -1254,37 +1242,6 @@ export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostErrors = {
 };
 
 export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type OfferApiV1PipecatRtcOfferPostData = {
-    body: RtcOfferRequest;
-    headers?: {
-        authorization?: string | null;
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/v1/pipecat/rtc-offer';
-};
-
-export type OfferApiV1PipecatRtcOfferPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type OfferApiV1PipecatRtcOfferPostError = OfferApiV1PipecatRtcOfferPostErrors[keyof OfferApiV1PipecatRtcOfferPostErrors];
-
-export type OfferApiV1PipecatRtcOfferPostResponses = {
     /**
      * Successful Response
      */

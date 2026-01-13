@@ -10,7 +10,6 @@ from api.routes.organization_usage import router as organization_usage_router
 from api.routes.public_agent import router as public_agent_router
 from api.routes.public_embed import router as public_embed_router
 from api.routes.reports import router as reports_router
-from api.routes.rtc_offer import router as rtc_offer_router
 from api.routes.s3_signed_url import router as s3_router
 from api.routes.service_keys import router as service_keys_router
 from api.routes.superuser import router as superuser_router
@@ -27,7 +26,6 @@ router = APIRouter(
 )
 
 router.include_router(telephony_router)
-router.include_router(rtc_offer_router)
 router.include_router(superuser_router)
 router.include_router(workflow_router)
 router.include_router(user_router)

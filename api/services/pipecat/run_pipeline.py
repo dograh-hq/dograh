@@ -23,6 +23,7 @@ from api.services.pipecat.pipeline_engine_callbacks_processor import (
     PipelineEngineCallbacksProcessor,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
+from api.services.pipecat.realtime_feedback_observer import RealtimeFeedbackObserver
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_stt_service,
@@ -38,6 +39,7 @@ from api.services.pipecat.transport_setup import (
     create_vonage_transport,
     create_webrtc_transport,
 )
+from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -563,6 +565,12 @@ async def _run_pipeline(
 
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+
+    # Add real-time feedback observer if WebSocket sender is available
+    ws_sender = get_ws_sender(workflow_run_id)
+    if ws_sender:
+        feedback_observer = RealtimeFeedbackObserver(ws_sender=ws_sender)
+        task.add_observer(feedback_observer)
 
     # Now set the task on the engine
     engine.set_task(task)

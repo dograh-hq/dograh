@@ -9,6 +9,7 @@ import {
     ApiKeyErrorDialog,
     AudioControls,
     ConnectionStatus,
+    RealtimeFeedbackPanel,
     WorkflowConfigErrorDialog
 } from "./components";
 import { useWebSocketRTC } from "./hooks";
@@ -40,7 +41,8 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
         start,
         stop,
         isStarting,
-        getAudioInputDevices
+        getAudioInputDevices,
+        feedbackMessages,
     } = useWebSocketRTC({ workflowId, workflowRunId, accessToken, initialContextVariables });
 
     // Poll for recording availability after call ends
@@ -93,44 +95,61 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
 
     return (
         <>
-            <Card className="w-full max-w-4xl mx-auto">
-                <CardHeader>
-                    <CardTitle>Call Voice Agent</CardTitle>
-                </CardHeader>
+            <div className="flex h-full w-full">
+                {/* Main content - 2/3 width when panel visible, full width otherwise */}
+                <div className="w-2/3 h-full">
+                    <div className="flex justify-center items-center h-full px-8">
+                        <Card className="w-full max-w-xl">
+                            <CardHeader>
+                                <CardTitle>Call Voice Agent</CardTitle>
+                            </CardHeader>
 
-                <CardContent>
-                    {isCompleted && checkingForRecording ? (
-                        <div className="flex flex-col items-center justify-center space-y-4 p-8">
-                            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                            <div className="text-center space-y-2">
-                                <p className="text-foreground font-medium">Processing your call</p>
-                                <p className="text-sm text-muted-foreground">Fetching transcript and recording...</p>
-                            </div>
-                        </div>
-                    ) : (
-                        <>
-                            <AudioControls
-                                audioInputs={audioInputs}
-                                selectedAudioInput={selectedAudioInput}
-                                setSelectedAudioInput={setSelectedAudioInput}
-                                isCompleted={isCompleted}
-                                connectionActive={connectionActive}
-                                permissionError={permissionError}
-                                start={start}
-                                stop={stop}
-                                isStarting={isStarting}
-                                getAudioInputDevices={getAudioInputDevices}
-                            />
+                            <CardContent>
+                                {isCompleted && checkingForRecording ? (
+                                    <div className="flex flex-col items-center justify-center space-y-4 p-8">
+                                        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                                        <div className="text-center space-y-2">
+                                            <p className="text-foreground font-medium">Processing your call</p>
+                                            <p className="text-sm text-muted-foreground">Fetching transcript and recording...</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <AudioControls
+                                            audioInputs={audioInputs}
+                                            selectedAudioInput={selectedAudioInput}
+                                            setSelectedAudioInput={setSelectedAudioInput}
+                                            isCompleted={isCompleted}
+                                            connectionActive={connectionActive}
+                                            permissionError={permissionError}
+                                            start={start}
+                                            stop={stop}
+                                            isStarting={isStarting}
+                                            getAudioInputDevices={getAudioInputDevices}
+                                        />
 
-                            <ConnectionStatus
-                                connectionStatus={connectionStatus}
-                            />
-                        </>
-                    )}
-                </CardContent>
+                                        <ConnectionStatus
+                                            connectionStatus={connectionStatus}
+                                        />
+                                    </>
+                                )}
+                            </CardContent>
 
-                <audio ref={audioRef} autoPlay playsInline className="hidden" />
-            </Card>
+                            <audio ref={audioRef} autoPlay playsInline className="hidden" />
+                        </Card>
+                    </div>
+                </div>
+
+                {/* Show transcript panel */}
+                <div className="w-1/3 h-full shrink-0">
+                    <RealtimeFeedbackPanel
+                        messages={feedbackMessages}
+                        isVisible={true}
+                        isCallActive={connectionActive}
+                        isCallCompleted={isCompleted}
+                    />
+                </div>
+            </div>
 
             <ApiKeyErrorDialog
                 open={apiKeyModalOpen}

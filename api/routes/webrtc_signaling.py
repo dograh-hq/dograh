@@ -18,11 +18,16 @@ from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from loguru import logger
+from starlette.websockets import WebSocketState
 
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user_ws
 from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
+from api.services.pipecat.ws_sender_registry import (
+    register_ws_sender,
+    unregister_ws_sender,
+)
 from api.services.quota_service import check_dograh_quota
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.context import set_current_run_id
@@ -91,6 +96,9 @@ class SignalingManager:
         finally:
             # Cleanup
             self._connections.pop(connection_id, None)
+
+            # Unregister WebSocket sender for real-time feedback
+            unregister_ws_sender(workflow_run_id)
 
             # Clean up all peer connections for this workflow run
             # Note: In a WebSocket-based signaling approach (vs HTTP PATCH),
@@ -181,6 +189,13 @@ class SignalingManager:
 
             # Store peer connection using client's pc_id
             self._peer_connections[pc_id] = pc
+
+            # Register WebSocket sender for real-time feedback
+            async def ws_sender(message: dict):
+                if ws.application_state == WebSocketState.CONNECTED:
+                    await ws.send_json(message)
+
+            register_ws_sender(workflow_run_id, ws_sender)
 
             # Setup closed handler
             @pc.event_handler("closed")

@@ -566,12 +566,6 @@ async def _run_pipeline(
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
 
-    # Add real-time feedback observer if WebSocket sender is available
-    ws_sender = get_ws_sender(workflow_run_id)
-    if ws_sender:
-        feedback_observer = RealtimeFeedbackObserver(ws_sender=ws_sender)
-        task.add_observer(feedback_observer)
-
     # Now set the task on the engine
     engine.set_task(task)
 
@@ -579,7 +573,7 @@ async def _run_pipeline(
     await engine.initialize()
 
     # Register event handlers
-    in_memory_audio_buffer, in_memory_transcript_buffer = (
+    in_memory_audio_buffer, in_memory_transcript_buffer, in_memory_logs_buffer = (
         register_transport_event_handlers(
             task,
             transport,
@@ -590,6 +584,14 @@ async def _run_pipeline(
         )
     )
 
+    # Add real-time feedback observer if WebSocket sender is available
+    ws_sender = get_ws_sender(workflow_run_id)
+    if ws_sender:
+        feedback_observer = RealtimeFeedbackObserver(
+            ws_sender=ws_sender, logs_buffer=in_memory_logs_buffer
+        )
+        task.add_observer(feedback_observer)
+
     register_task_event_handler(
         workflow_run_id,
         engine,
@@ -598,6 +600,7 @@ async def _run_pipeline(
         audio_buffer,
         in_memory_audio_buffer,
         in_memory_transcript_buffer,
+        in_memory_logs_buffer,
         pipeline_metrics_aggregator,
     )
 

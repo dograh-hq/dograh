@@ -20,3 +20,4 @@ class WorkflowRunResponseSchema(BaseModel):
     initial_context: dict | None = None
     gathered_context: dict | None = None
     call_type: CallType
+    logs: Dict[str, Any] | None = None

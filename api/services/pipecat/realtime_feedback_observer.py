@@ -10,9 +10,12 @@ how base_output.py handles timed frames.
 
 import asyncio
 import time
-from typing import Awaitable, Callable, Optional, Set
+from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 
 from pipecat.frames.frames import (
     CancelFrame,
@@ -40,14 +43,17 @@ class RealtimeFeedbackObserver(BaseObserver):
     def __init__(
         self,
         ws_sender: Callable[[dict], Awaitable[None]],
+        logs_buffer: Optional["InMemoryLogsBuffer"] = None,
     ):
         """
         Args:
             ws_sender: Async function to send messages over WebSocket.
                        Expected signature: async def send(message: dict) -> None
+            logs_buffer: Optional InMemoryLogsBuffer to persist events for post-call analysis.
         """
         super().__init__()
         self._ws_sender = ws_sender
+        self._logs_buffer = logs_buffer
         self._frames_seen: Set[str] = set()
 
         # Clock/timing for pts-based frames (similar to base_output.py)
@@ -167,6 +173,9 @@ class RealtimeFeedbackObserver(BaseObserver):
                     },
                 }
             )
+            # Increment turn counter on final user transcription
+            if self._logs_buffer:
+                self._logs_buffer.increment_turn()
         # Handle bot TTS text - respect pts timing
         elif isinstance(frame, TTSTextFrame):
             message = {
@@ -219,9 +228,17 @@ class RealtimeFeedbackObserver(BaseObserver):
             )
 
     async def _send_message(self, message: dict):
-        """Send message via WebSocket, handling errors gracefully."""
+        """Send message via WebSocket AND append to logs buffer, handling errors gracefully."""
+        # Send via WebSocket
         try:
             await self._ws_sender(message)
         except Exception as e:
             # Log but don't fail - feedback is non-critical
             logger.debug(f"Failed to send real-time feedback message: {e}")
+
+        # Also append to logs buffer
+        if self._logs_buffer:
+            try:
+                await self._logs_buffer.append(message)
+            except Exception as e:
+                logger.error(f"Failed to append to logs buffer: {e}")

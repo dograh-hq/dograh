@@ -964,6 +964,9 @@ export type WorkflowRunResponseSchema = {
         [key: string]: unknown;
     } | null;
     call_type: CallType;
+    logs?: {
+        [key: string]: unknown;
+    } | null;
 };
 
 export type WorkflowRunUsageResponse = {

@@ -611,6 +611,7 @@ async def get_workflow_run(
         "initial_context": run.initial_context,
         "gathered_context": run.gathered_context,
         "call_type": run.call_type,
+        "logs": run.logs,
     }
 
 

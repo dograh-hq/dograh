@@ -154,8 +154,6 @@ class CustomToolManager:
         Returns:
             Async handler function for the HTTP API tool
         """
-        # Run LLM after tool execution to continue conversation
-        properties = FunctionCallResultProperties(run_llm=True)
 
         async def http_tool_handler(
             function_call_params: FunctionCallParams,
@@ -171,15 +169,12 @@ class CustomToolManager:
                     organization_id=self._organization_id,
                 )
 
-                await function_call_params.result_callback(
-                    result, properties=properties
-                )
+                await function_call_params.result_callback(result)
 
             except Exception as e:
                 logger.error(f"HTTP tool '{function_name}' execution failed: {e}")
                 await function_call_params.result_callback(
-                    {"status": "error", "error": str(e)},
-                    properties=properties,
+                    {"status": "error", "error": str(e)}
                 )
 
         return http_tool_handler

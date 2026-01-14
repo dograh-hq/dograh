@@ -889,5 +889,4 @@ class ToolModel(Base):
         Index("ix_tools_uuid", "tool_uuid"),
         Index("ix_tools_status", "status"),
         Index("ix_tools_category", "category"),
-        UniqueConstraint("organization_id", "name", name="unique_org_tool_name"),
     )

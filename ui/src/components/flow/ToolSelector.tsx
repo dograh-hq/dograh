@@ -1,9 +1,10 @@
 "use client";
 
-import { ExternalLink, Globe, Loader2 } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
+import { renderToolIcon } from "@/app/tools/config";
 import { listToolsApiV1ToolsGet } from "@/client/sdk.gen";
 import type { ToolResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
@@ -123,7 +124,7 @@ export function ToolSelector({
                                         backgroundColor: tool.icon_color || "#3B82F6",
                                     }}
                                 >
-                                    <Globe className="h-3 w-3 text-white" />
+                                    {renderToolIcon(tool.category, "h-3 w-3 text-white")}
                                 </div>
                                 <div className="flex flex-col min-w-0 flex-1">
                                     <span className="text-sm font-medium truncate">

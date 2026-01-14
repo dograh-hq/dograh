@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Code, Globe, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Code, Loader2, Save } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -9,6 +9,27 @@ import {
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
 import type { ToolResponse } from "@/client/types.gen";
+import { type HttpMethod, type KeyValueItem, type ToolParameter, validateUrl } from "@/components/http";
+import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/lib/auth";
+
+import {
+    type EndCallConfig,
+    type EndCallMessageType,
+    getCategoryConfig,
+    getToolTypeLabel,
+    renderToolIcon,
+    type ToolCategory,
+} from "../config";
+import { EndCallToolConfig, HttpApiToolConfig } from "./components";
 
 // Extended HttpApiConfig with parameters (until client types are regenerated)
 interface HttpApiConfigWithParams {
@@ -19,38 +40,6 @@ interface HttpApiConfigWithParams {
     parameters?: ToolParameter[];
     timeout_ms?: number;
 }
-import {
-    CredentialSelector,
-    type HttpMethod,
-    HttpMethodSelector,
-    KeyValueEditor,
-    type KeyValueItem,
-    ParameterEditor,
-    type ToolParameter,
-    UrlInput,
-    validateUrl,
-} from "@/components/http";
-import { Button } from "@/components/ui/button";
-import {
-    Card,
-    CardContent,
-    CardDescription,
-    CardHeader,
-    CardTitle,
-} from "@/components/ui/card";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
-import { useAuth } from "@/lib/auth";
 
 export default function ToolDetailPage() {
     const { toolUuid } = useParams<{ toolUuid: string }>();
@@ -64,15 +53,21 @@ export default function ToolDetailPage() {
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [showCodeDialog, setShowCodeDialog] = useState(false);
 
-    // Form state
+    // Common form state
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
+
+    // HTTP API form state
     const [httpMethod, setHttpMethod] = useState<HttpMethod>("POST");
     const [url, setUrl] = useState("");
     const [credentialUuid, setCredentialUuid] = useState("");
     const [headers, setHeaders] = useState<KeyValueItem[]>([]);
     const [parameters, setParameters] = useState<ToolParameter[]>([]);
     const [timeoutMs, setTimeoutMs] = useState(5000);
+
+    // End Call form state
+    const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
+    const [endCallCustomMessage, setEndCallCustomMessage] = useState("");
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -112,37 +107,50 @@ export default function ToolDetailPage() {
         setName(tool.name);
         setDescription(tool.description || "");
 
-        const config = tool.definition?.config as HttpApiConfigWithParams | undefined;
-        if (config) {
-            setHttpMethod((config.method as HttpMethod) || "POST");
-            setUrl(config.url || "");
-            setCredentialUuid(config.credential_uuid || "");
-            setTimeoutMs(config.timeout_ms || 5000);
-
-            // Convert headers object to array
-            if (config.headers) {
-                setHeaders(
-                    Object.entries(config.headers).map(([key, value]) => ({
-                        key,
-                        value: value as string,
-                    }))
-                );
+        if (tool.category === "end_call") {
+            // Populate end call specific fields
+            const config = tool.definition?.config as EndCallConfig | undefined;
+            if (config) {
+                setEndCallMessageType(config.messageType || "none");
+                setEndCallCustomMessage(config.customMessage || "");
             } else {
-                setHeaders([]);
+                setEndCallMessageType("none");
+                setEndCallCustomMessage("");
             }
+        } else {
+            // Populate HTTP API specific fields
+            const config = tool.definition?.config as HttpApiConfigWithParams | undefined;
+            if (config) {
+                setHttpMethod((config.method as HttpMethod) || "POST");
+                setUrl(config.url || "");
+                setCredentialUuid(config.credential_uuid || "");
+                setTimeoutMs(config.timeout_ms || 5000);
 
-            // Load parameters
-            if (config.parameters && Array.isArray(config.parameters)) {
-                setParameters(
-                    config.parameters.map((p: ToolParameter) => ({
-                        name: p.name || "",
-                        type: p.type || "string",
-                        description: p.description || "",
-                        required: p.required ?? true,
-                    }))
-                );
-            } else {
-                setParameters([]);
+                // Convert headers object to array
+                if (config.headers) {
+                    setHeaders(
+                        Object.entries(config.headers).map(([key, value]) => ({
+                            key,
+                            value: value as string,
+                        }))
+                    );
+                } else {
+                    setHeaders([]);
+                }
+
+                // Load parameters
+                if (config.parameters && Array.isArray(config.parameters)) {
+                    setParameters(
+                        config.parameters.map((p: ToolParameter) => ({
+                            name: p.name || "",
+                            type: p.type || "string",
+                            description: p.description || "",
+                            required: p.required ?? true,
+                        }))
+                    );
+                } else {
+                    setParameters([]);
+                }
             }
         }
     };
@@ -152,18 +160,23 @@ export default function ToolDetailPage() {
     }, [fetchTool]);
 
     const handleSave = async () => {
-        // Validate URL
-        const urlValidation = validateUrl(url);
-        if (!urlValidation.valid) {
-            setError(urlValidation.error || "Invalid URL");
-            return;
-        }
+        if (!tool) return;
 
-        // Validate parameters have names
-        const invalidParams = parameters.filter((p) => !p.name.trim());
-        if (invalidParams.length > 0) {
-            setError("All parameters must have a name");
-            return;
+        // Validation based on tool type
+        if (tool.category !== "end_call") {
+            // Validate URL for HTTP API tools
+            const urlValidation = validateUrl(url);
+            if (!urlValidation.valid) {
+                setError(urlValidation.error || "Invalid URL");
+                return;
+            }
+
+            // Validate parameters have names
+            const invalidParams = parameters.filter((p) => !p.name.trim());
+            if (invalidParams.length > 0) {
+                setError("All parameters must have a name");
+                return;
+            }
         }
 
         try {
@@ -172,36 +185,52 @@ export default function ToolDetailPage() {
             setSaveSuccess(false);
             const accessToken = await getAccessToken();
 
-            // Convert headers array to object
-            const headersObject: Record<string, string> = {};
-            headers.filter((h) => h.key && h.value).forEach((h) => {
-                headersObject[h.key] = h.value;
-            });
+            let requestBody;
 
-            // Filter out empty parameters
-            const validParameters = parameters.filter((p) => p.name.trim());
-
-            // Build the request body (cast needed until client types are regenerated)
-            const requestBody = {
-                name,
-                description: description || undefined,
-                definition: {
-                    schema_version: 1,
-                    type: "http_api",
-                    config: {
-                        method: httpMethod,
-                        url,
-                        credential_uuid: credentialUuid || undefined,
-                        headers:
-                            Object.keys(headersObject).length > 0
-                                ? headersObject
-                                : undefined,
-                        parameters:
-                            validParameters.length > 0 ? validParameters : undefined,
-                        timeout_ms: timeoutMs,
+            if (tool.category === "end_call") {
+                // Build end call request body
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        schema_version: 1,
+                        type: "end_call",
+                        config: {
+                            messageType: endCallMessageType,
+                            customMessage: endCallMessageType === "custom" ? endCallCustomMessage : undefined,
+                        },
                     },
-                },
-            };
+                };
+            } else {
+                // Build HTTP API request body
+                const headersObject: Record<string, string> = {};
+                headers.filter((h) => h.key && h.value).forEach((h) => {
+                    headersObject[h.key] = h.value;
+                });
+
+                const validParameters = parameters.filter((p) => p.name.trim());
+
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        schema_version: 1,
+                        type: "http_api",
+                        config: {
+                            method: httpMethod,
+                            url,
+                            credential_uuid: credentialUuid || undefined,
+                            headers:
+                                Object.keys(headersObject).length > 0
+                                    ? headersObject
+                                    : undefined,
+                            parameters:
+                                validParameters.length > 0 ? validParameters : undefined,
+                            timeout_ms: timeoutMs,
+                        },
+                    },
+                };
+            }
 
             const response = await updateToolApiV1ToolsToolUuidPut({
                 path: { tool_uuid: toolUuid },
@@ -301,6 +330,9 @@ const data = await response.json();`;
         );
     }
 
+    const isEndCallTool = tool.category === "end_call";
+    const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
+
     return (
         <div className="min-h-screen bg-background">
             <div className="container mx-auto px-4 py-8">
@@ -320,27 +352,29 @@ const data = await response.json();`;
                                 <div
                                     className="w-10 h-10 rounded-lg flex items-center justify-center"
                                     style={{
-                                        backgroundColor: tool.icon_color || "#3B82F6",
+                                        backgroundColor: tool.icon_color || categoryConfig?.iconColor || "#3B82F6",
                                     }}
                                 >
-                                    <Globe className="w-5 h-5 text-white" />
+                                    {renderToolIcon(tool.category)}
                                 </div>
                                 <div>
                                     <h1 className="text-xl font-bold">{name}</h1>
                                     <p className="text-sm text-muted-foreground">
-                                        HTTP API Tool
+                                        {getToolTypeLabel(tool.category)}
                                     </p>
                                 </div>
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Button
-                                variant="outline"
-                                onClick={() => setShowCodeDialog(true)}
-                            >
-                                <Code className="w-4 h-4 mr-2" />
-                                View Code
-                            </Button>
+                            {!isEndCallTool && (
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setShowCodeDialog(true)}
+                                >
+                                    <Code className="w-4 h-4 mr-2" />
+                                    View Code
+                                </Button>
+                            )}
                             <Button onClick={handleSave} disabled={isSaving}>
                                 {isSaving ? (
                                     <>
@@ -369,121 +403,41 @@ const data = await response.json();`;
                         </div>
                     )}
 
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Tool Configuration</CardTitle>
-                            <CardDescription>
-                                Configure the HTTP API endpoint and request settings
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <Tabs defaultValue="settings" className="w-full">
-                                <TabsList className="grid w-full grid-cols-3">
-                                    <TabsTrigger value="settings">Settings</TabsTrigger>
-                                    <TabsTrigger value="auth">Authentication</TabsTrigger>
-                                    <TabsTrigger value="parameters">Parameters</TabsTrigger>
-                                </TabsList>
-
-                                <TabsContent value="settings" className="space-y-4 mt-4">
-                                    <div className="grid gap-2">
-                                        <Label>Tool Name</Label>
-                                        <Label className="text-xs text-muted-foreground">
-                                            Use a descriptive name, like &quot;Get Weather using API&quot; for a tool that fetches weather
-                                        </Label>
-                                        <Input
-                                            value={name}
-                                            onChange={(e) => setName(e.target.value)}
-                                            placeholder="e.g., Book Appointment"
-                                        />
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label>Description</Label>
-                                        <Label className="text-xs text-muted-foreground">
-                                            Provide a description which makes it easy for LLM to understand what this tool does
-                                        </Label>
-                                        <Textarea
-                                            value={description}
-                                            onChange={(e) => setDescription(e.target.value)}
-                                            placeholder="What does this tool do?"
-                                            rows={3}
-                                        />
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="grid gap-2">
-                                            <Label>HTTP Method</Label>
-                                            <HttpMethodSelector
-                                                value={httpMethod}
-                                                onChange={setHttpMethod}
-                                            />
-                                        </div>
-                                        <div className="grid gap-2">
-                                            <Label>Timeout (ms)</Label>
-                                            <Input
-                                                type="number"
-                                                value={timeoutMs}
-                                                onChange={(e) =>
-                                                    setTimeoutMs(parseInt(e.target.value) || 5000)
-                                                }
-                                                min={1000}
-                                                max={30000}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid gap-2">
-                                        <Label>Endpoint URL</Label>
-                                        <UrlInput
-                                            value={url}
-                                            onChange={setUrl}
-                                            placeholder="https://api.example.com/appointments"
-                                            showValidation
-                                        />
-                                    </div>
-                                </TabsContent>
-
-                                <TabsContent value="auth" className="space-y-4 mt-4">
-                                    <CredentialSelector
-                                        value={credentialUuid}
-                                        onChange={setCredentialUuid}
-                                    />
-                                </TabsContent>
-
-                                <TabsContent value="parameters" className="space-y-4 mt-4">
-                                    <div className="grid gap-2">
-                                        <Label>Tool Parameters</Label>
-                                        <Label className="text-xs text-muted-foreground">
-                                            Define the parameters that the LLM will provide when calling this tool.
-                                            These will be sent as JSON body for POST/PUT/PATCH or as URL query params for GET/DELETE.
-                                        </Label>
-                                        <ParameterEditor
-                                            parameters={parameters}
-                                            onChange={setParameters}
-                                        />
-                                    </div>
-
-                                    <div className="grid gap-2 pt-4 border-t">
-                                        <Label>Custom Headers</Label>
-                                        <Label className="text-xs text-muted-foreground">
-                                            Add custom headers to include in the request (optional)
-                                        </Label>
-                                        <KeyValueEditor
-                                            items={headers}
-                                            onChange={setHeaders}
-                                            keyPlaceholder="Header name"
-                                            valuePlaceholder="Header value"
-                                            addButtonText="Add Header"
-                                        />
-                                    </div>
-                                </TabsContent>
-                            </Tabs>
-                        </CardContent>
-                    </Card>
+                    {isEndCallTool ? (
+                        <EndCallToolConfig
+                            name={name}
+                            onNameChange={setName}
+                            description={description}
+                            onDescriptionChange={setDescription}
+                            messageType={endCallMessageType}
+                            onMessageTypeChange={setEndCallMessageType}
+                            customMessage={endCallCustomMessage}
+                            onCustomMessageChange={setEndCallCustomMessage}
+                        />
+                    ) : (
+                        <HttpApiToolConfig
+                            name={name}
+                            onNameChange={setName}
+                            description={description}
+                            onDescriptionChange={setDescription}
+                            httpMethod={httpMethod}
+                            onHttpMethodChange={setHttpMethod}
+                            url={url}
+                            onUrlChange={setUrl}
+                            credentialUuid={credentialUuid}
+                            onCredentialUuidChange={setCredentialUuid}
+                            headers={headers}
+                            onHeadersChange={setHeaders}
+                            parameters={parameters}
+                            onParametersChange={setParameters}
+                            timeoutMs={timeoutMs}
+                            onTimeoutMsChange={setTimeoutMs}
+                        />
+                    )}
                 </div>
             </div>
 
-            {/* Code View Dialog */}
+            {/* Code View Dialog (only for HTTP API tools) */}
             <Dialog open={showCodeDialog} onOpenChange={setShowCodeDialog}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>

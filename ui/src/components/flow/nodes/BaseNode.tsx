@@ -19,8 +19,8 @@ export const BaseNode = forwardRef<
             // Border styling
             "border-border",
             className,
-            // Selected state
-            selected ? "border-muted-foreground shadow-lg" : "",
+            // Selected state - prominent halo effect
+            selected ? "border-primary ring-2 ring-primary/40 shadow-[0_0_20px_rgba(59,130,246,0.5)]" : "",
             // Invalid state
             invalid ? "border-destructive shadow-[0_0_10px_rgba(239,68,68,0.3)]" : "",
             // Hovered through edge takes precedence over selected through edge

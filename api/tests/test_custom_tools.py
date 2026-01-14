@@ -43,6 +43,7 @@ class MockToolModel:
     tool_uuid: str
     name: str
     description: str
+    category: str
     definition: Dict[str, Any]
 
 
@@ -55,6 +56,7 @@ class TestToolToFunctionSchema:
             tool_uuid="test-uuid-1",
             name="Get Weather",
             description="Get current weather for a location",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -97,6 +99,7 @@ class TestToolToFunctionSchema:
             tool_uuid="test-uuid-2",
             name="Book Appointment",
             description="Book an appointment with the service",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -145,6 +148,7 @@ class TestToolToFunctionSchema:
             tool_uuid="test-uuid-3",
             name="Get User's Account Info!!!",
             description="Get account information",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -167,6 +171,7 @@ class TestToolToFunctionSchema:
             tool_uuid="test-uuid-4",
             name="Ping Server",
             description="Check if server is alive",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -188,6 +193,7 @@ class TestToolToFunctionSchema:
             tool_uuid="test-uuid-5",
             name="My Tool",
             description=None,
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -213,6 +219,7 @@ class TestExecuteHttpTool:
             tool_uuid="test-uuid",
             name="Create User",
             description="Create a new user",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -257,6 +264,7 @@ class TestExecuteHttpTool:
             tool_uuid="test-uuid",
             name="Search Users",
             description="Search for users",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -297,6 +305,7 @@ class TestExecuteHttpTool:
             tool_uuid="test-uuid",
             name="Delete User",
             description="Delete a user",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -336,6 +345,7 @@ class TestExecuteHttpTool:
             tool_uuid="test-uuid",
             name="Slow API",
             description="A slow API call",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -368,6 +378,7 @@ class TestExecuteHttpTool:
             tool_uuid="test-uuid",
             name="API with Headers",
             description="API that requires headers",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -406,6 +417,7 @@ class TestExecuteHttpTool:
             tool_uuid="test-uuid",
             name="Authenticated API",
             description="API that requires authentication",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -457,6 +469,7 @@ class TestExecuteHttpTool:
             tool_uuid="test-uuid",
             name="API with Credential",
             description="API with credential configured",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -724,6 +737,7 @@ class TestCustomToolManagerUnit:
             tool_uuid="uuid-1",
             name="Test Tool",
             description="A test tool",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -791,6 +805,7 @@ class TestCustomToolManagerUnit:
             tool_uuid="uuid-1",
             name="API Call",
             description="Make an API call",
+            category="http_api",
             definition={
                 "schema_version": 1,
                 "type": "http_api",
@@ -845,53 +860,6 @@ class TestCustomToolManagerUnit:
 
             # Verify result was returned
             assert result_received["status"] == "success"
-
-    @pytest.mark.asyncio
-    async def test_tools_cache_prevents_duplicate_fetches(self):
-        """Test that tools are cached after first fetch."""
-        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
-
-        mock_engine = Mock()
-        mock_engine._workflow_run_id = 1
-        mock_engine._call_context_vars = {}
-        mock_engine.llm = Mock()
-        mock_engine.llm.register_function = Mock()
-
-        manager = CustomToolManager(mock_engine)
-
-        mock_tool = MockToolModel(
-            tool_uuid="uuid-1",
-            name="Cached Tool",
-            description="A tool that should be cached",
-            definition={
-                "schema_version": 1,
-                "type": "http_api",
-                "config": {"method": "GET", "url": "https://api.example.com"},
-            },
-        )
-
-        with patch(
-            "api.services.workflow.pipecat_engine_custom_tools.get_organization_id_from_workflow_run"
-        ) as mock_get_org:
-            mock_get_org.return_value = 1
-
-            with patch(
-                "api.services.workflow.pipecat_engine_custom_tools.db_client"
-            ) as mock_db:
-                mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
-
-                # First call should fetch from DB
-                await manager.get_tool_schemas(["uuid-1"])
-
-                # Verify tool is now in cache
-                cached = manager.get_cached_tool("cached_tool")
-                assert cached is not None
-                assert cached[0].tool_uuid == "uuid-1"
-
-                # Clear cache and verify it's empty
-                manager.clear_cache()
-                cached = manager.get_cached_tool("cached_tool")
-                assert cached is None
 
 
 class TestUpdateLLMContext:

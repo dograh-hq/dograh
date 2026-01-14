@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from loguru import logger
 
 from api.db import db_client
+from api.enums import ToolCategory
 from api.services.workflow.disposition_mapper import (
     get_organization_id_from_workflow_run,
 )
@@ -20,11 +21,15 @@ from api.services.workflow.tools.custom_tool import (
     tool_to_function_schema,
 )
 from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.frames.frames import FunctionCallResultProperties
+from pipecat.frames.frames import FunctionCallResultProperties, TTSSpeakFrame
 from pipecat.services.llm_service import FunctionCallParams
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
+
+
+# End task reason for end call tool
+END_CALL_TOOL_REASON = "end_call_tool"
 
 
 class CustomToolManager:
@@ -34,14 +39,12 @@ class CustomToolManager:
       1. Fetching tools from the database based on tool UUIDs
       2. Converting tools to LLM function schemas
       3. Registering tool execution handlers with the LLM
-      4. Executing HTTP API tools when invoked by the LLM
+      4. Executing tools when invoked by the LLM
     """
 
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
         self._organization_id: Optional[int] = None
-        # Cache: maps function_name -> (tool, schema)
-        self._tools_cache: dict[str, tuple[Any, dict]] = {}
 
     async def get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -72,9 +75,6 @@ class CustomToolManager:
             for tool in tools:
                 raw_schema = tool_to_function_schema(tool)
                 function_name = raw_schema["function"]["name"]
-
-                # Cache the tool for later execution
-                self._tools_cache[function_name] = (tool, raw_schema)
 
                 # Convert to FunctionSchema object for compatibility with update_llm_context
                 func_schema = get_function_schema(
@@ -117,9 +117,6 @@ class CustomToolManager:
                 schema = tool_to_function_schema(tool)
                 function_name = schema["function"]["name"]
 
-                # Cache the tool for potential later use
-                self._tools_cache[function_name] = (tool, schema)
-
                 # Create and register the handler
                 handler = self._create_handler(tool, function_name)
                 self._engine.llm.register_function(function_name, handler)
@@ -133,7 +130,7 @@ class CustomToolManager:
             logger.error(f"Failed to register custom tool handlers: {e}")
 
     def _create_handler(self, tool: Any, function_name: str):
-        """Create a handler function for a custom tool.
+        """Create a handler function for a tool based on its category.
 
         Args:
             tool: The ToolModel instance
@@ -142,17 +139,29 @@ class CustomToolManager:
         Returns:
             Async handler function for the tool
         """
-        # Run LLM after tool execution to continue conversation
-        properties = FunctionCallResultProperties(run_llm=True)
+        if tool.category == ToolCategory.END_CALL.value:
+            return self._create_end_call_handler(tool, function_name)
 
-        async def custom_tool_handler(
+        return self._create_http_tool_handler(tool, function_name)
+
+    def _create_http_tool_handler(self, tool: Any, function_name: str):
+        """Create a handler function for an HTTP API tool.
+
+        Args:
+            tool: The ToolModel instance
+            function_name: The function name used by the LLM
+
+        Returns:
+            Async handler function for the HTTP API tool
+        """
+
+        async def http_tool_handler(
             function_call_params: FunctionCallParams,
         ) -> None:
-            logger.info(f"LLM Function Call EXECUTED: {function_name}")
+            logger.info(f"HTTP Tool EXECUTED: {function_name}")
             logger.info(f"Arguments: {function_call_params.arguments}")
 
             try:
-                # Execute the HTTP API tool
                 result = await execute_http_tool(
                     tool=tool,
                     arguments=function_call_params.arguments,
@@ -160,30 +169,66 @@ class CustomToolManager:
                     organization_id=self._organization_id,
                 )
 
-                await function_call_params.result_callback(
-                    result, properties=properties
-                )
+                await function_call_params.result_callback(result)
 
             except Exception as e:
-                logger.error(f"Custom tool '{function_name}' execution failed: {e}")
+                logger.error(f"HTTP tool '{function_name}' execution failed: {e}")
                 await function_call_params.result_callback(
-                    {"status": "error", "error": str(e)},
-                    properties=properties,
+                    {"status": "error", "error": str(e)}
                 )
 
-        return custom_tool_handler
+        return http_tool_handler
 
-    def get_cached_tool(self, function_name: str) -> Optional[tuple[Any, dict]]:
-        """Get a cached tool by its function name.
+    def _create_end_call_handler(self, tool: Any, function_name: str):
+        """Create a handler function for an end call tool.
 
         Args:
+            tool: The ToolModel instance
             function_name: The function name used by the LLM
 
         Returns:
-            Tuple of (tool, schema) if found, None otherwise
+            Async handler function for the end call tool
         """
-        return self._tools_cache.get(function_name)
+        # Don't run LLM after end call - we're terminating
+        properties = FunctionCallResultProperties(run_llm=False)
 
-    def clear_cache(self) -> None:
-        """Clear the tools cache."""
-        self._tools_cache.clear()
+        async def end_call_handler(
+            function_call_params: FunctionCallParams,
+        ) -> None:
+            logger.info(f"End Call Tool EXECUTED: {function_name}")
+
+            try:
+                # Get the end call configuration
+                config = tool.definition.get("config", {})
+                message_type = config.get("messageType", "none")
+                custom_message = config.get("customMessage", "")
+
+                # Send result callback first
+                await function_call_params.result_callback(
+                    {"status": "success", "action": "ending_call"},
+                    properties=properties,
+                )
+
+                if message_type == "custom" and custom_message:
+                    # Queue the custom message to be spoken
+                    logger.info(f"Playing custom goodbye message: {custom_message}")
+                    await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
+                    # End the call after the message (not immediately)
+                    await self._engine.send_end_task_frame(
+                        END_CALL_TOOL_REASON, abort_immediately=False
+                    )
+                else:
+                    # No message - end call immediately
+                    logger.info("Ending call immediately (no goodbye message)")
+                    await self._engine.send_end_task_frame(
+                        END_CALL_TOOL_REASON, abort_immediately=True
+                    )
+
+            except Exception as e:
+                logger.error(f"End call tool '{function_name}' execution failed: {e}")
+                # Still try to end the call even if there's an error
+                await self._engine.send_end_task_frame(
+                    END_CALL_TOOL_REASON, abort_immediately=True
+                )
+
+        return end_call_handler

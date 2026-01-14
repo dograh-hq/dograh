@@ -250,9 +250,13 @@ export default function CustomEdge(props: CustomEdgeProps) {
                     {/* Show full EdgeLabel when selected or hovered, otherwise show simple label */}
                     {(selected || isHovered) ? (
                         <div className={cn(
-                            "flex flex-col gap-2 bg-card rounded-lg border shadow-xl min-w-[220px]",
+                            "flex flex-col gap-2 bg-card rounded-lg border min-w-[220px]",
                             "animate-in fade-in zoom-in duration-200",
-                            data?.invalid ? "border-destructive/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]" : "border-border"
+                            data?.invalid
+                                ? "border-destructive/50 shadow-[0_0_15px_rgba(239,68,68,0.3)]"
+                                : selected
+                                    ? "border-primary ring-2 ring-primary/40 shadow-[0_0_20px_rgba(59,130,246,0.5)]"
+                                    : "border-border shadow-xl"
                         )}>
                             {/* Header with label */}
                             <div className={cn(

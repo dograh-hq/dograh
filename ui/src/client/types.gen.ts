@@ -184,7 +184,11 @@ export type CreateToolRequest = {
     category?: string;
     icon?: string | null;
     icon_color?: string | null;
-    definition: ToolDefinition;
+    definition: ({
+        type?: 'http_api';
+    } & HttpApiToolDefinition) | ({
+        type?: 'end_call';
+    } & EndCallToolDefinition);
 };
 
 export type CreateWorkflowRequest = {
@@ -349,6 +353,38 @@ export type EmbedTokenResponse = {
     embed_script: string;
 };
 
+/**
+ * Configuration for End Call tools.
+ */
+export type EndCallConfig = {
+    /**
+     * Type of goodbye message
+     */
+    messageType?: 'none' | 'custom';
+    /**
+     * Custom message to play before ending the call
+     */
+    customMessage?: string | null;
+};
+
+/**
+ * Tool definition for End Call tools.
+ */
+export type EndCallToolDefinition = {
+    /**
+     * Schema version
+     */
+    schema_version?: number;
+    /**
+     * Tool type
+     */
+    type: 'end_call';
+    /**
+     * End Call configuration
+     */
+    config: EndCallConfig;
+};
+
 export type FileMetadataResponse = {
     key: string;
     metadata: {
@@ -390,6 +426,24 @@ export type HttpApiConfig = {
      * Request timeout in milliseconds
      */
     timeout_ms?: number | null;
+};
+
+/**
+ * Tool definition for HTTP API tools.
+ */
+export type HttpApiToolDefinition = {
+    /**
+     * Schema version
+     */
+    schema_version?: number;
+    /**
+     * Tool type
+     */
+    type: 'http_api';
+    /**
+     * HTTP API configuration
+     */
+    config: HttpApiConfig;
 };
 
 /**
@@ -573,24 +627,6 @@ export type TestSessionResponse = {
 };
 
 /**
- * Tool definition schema.
- */
-export type ToolDefinition = {
-    /**
-     * Schema version for compatibility
-     */
-    schema_version?: number;
-    /**
-     * Tool type (http_api)
-     */
-    type: string;
-    /**
-     * Tool configuration
-     */
-    config: HttpApiConfig;
-};
-
-/**
  * A parameter that the tool accepts.
  */
 export type ToolParameter = {
@@ -706,7 +742,11 @@ export type UpdateToolRequest = {
     description?: string | null;
     icon?: string | null;
     icon_color?: string | null;
-    definition?: ToolDefinition | null;
+    definition?: (({
+        type?: 'http_api';
+    } & HttpApiToolDefinition) | ({
+        type?: 'end_call';
+    } & EndCallToolDefinition)) | null;
     status?: string | null;
 };
 
@@ -2801,6 +2841,41 @@ export type UpdateToolApiV1ToolsToolUuidPutResponses = {
 };
 
 export type UpdateToolApiV1ToolsToolUuidPutResponse = UpdateToolApiV1ToolsToolUuidPutResponses[keyof UpdateToolApiV1ToolsToolUuidPutResponses];
+
+export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        tool_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{tool_uuid}/unarchive';
+};
+
+export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostError = UnarchiveToolApiV1ToolsToolUuidUnarchivePostErrors[keyof UnarchiveToolApiV1ToolsToolUuidUnarchivePostErrors];
+
+export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ToolResponse;
+};
+
+export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponse = UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses[keyof UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses];
 
 export type GetIntegrationsApiV1IntegrationGetData = {
     body?: never;

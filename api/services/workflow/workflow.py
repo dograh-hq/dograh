@@ -113,7 +113,6 @@ class WorkflowGraph:
         #     )
 
         errors.extend(self._assert_start_node())
-        errors.extend(self._assert_end_node())
         errors.extend(self._assert_connection_counts())
         errors.extend(self._assert_global_node())
         errors.extend(self._assert_node_configs())
@@ -174,30 +173,6 @@ class WorkflowGraph:
             )
         return errors
 
-    def _assert_end_node(self):
-        errors: list[WorkflowError] = []
-        end_node = [n for n in self.nodes.values() if n.data.is_end]
-        if not end_node:
-            errors.append(
-                WorkflowError(
-                    kind=ItemKind.workflow,
-                    id=None,
-                    field=None,
-                    message="Workflow must have exactly one end node",
-                )
-            )
-
-        elif len(end_node) > 1:
-            errors.append(
-                WorkflowError(
-                    kind=ItemKind.workflow,
-                    id=None,
-                    field=None,
-                    message="Workflow must have exactly one end node",
-                )
-            )
-        return errors
-
     def _assert_connection_counts(self):
         errors: list[WorkflowError] = []
 
@@ -235,13 +210,13 @@ class WorkflowGraph:
                             )
                         )
                 case NodeType.agentNode:
-                    if in_d < 1 or out_d < 1:
+                    if in_d < 1:
                         errors.append(
                             WorkflowError(
                                 kind=ItemKind.node,
                                 id=n.id,
                                 field=None,
-                                message=f"Worker must have at least 1 incoming and 1 outgoing edge",
+                                message=f"Worker must have at least 1 incoming edge",
                             )
                         )
 

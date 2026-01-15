@@ -6,7 +6,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
-import { RealtimeFeedbackLogs, WorkflowRunLogs } from '@/app/workflow/[workflowId]/run/[runId]/components/RealtimeFeedbackLogs';
+import { RealtimeFeedback, WorkflowRunLogs } from '@/app/workflow/[workflowId]/run/[runId]/components/RealtimeFeedback';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
 import { MediaPreviewButtons, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
@@ -255,7 +255,7 @@ export default function WorkflowRunPage() {
 
                 {/* Transcript panel - 1/3 width */}
                 <div className="w-1/3 h-full shrink-0">
-                    <RealtimeFeedbackLogs logs={workflowRun?.logs} />
+                    <RealtimeFeedback mode="historical" logs={workflowRun?.logs} />
                 </div>
             </div>
         );

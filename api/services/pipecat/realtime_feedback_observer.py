@@ -1,11 +1,16 @@
 """Real-time feedback observer for sending pipeline events to the frontend.
 
 This observer watches pipeline frames and sends relevant events (transcriptions,
-bot text) over WebSocket to provide real-time feedback in the UI.
+bot text, function calls, TTFB metrics) over WebSocket to provide real-time
+feedback in the UI.
 
 For frames with presentation timestamps (pts), like TTSTextFrame, we respect
 the timing by queuing them and sending at the appropriate time, similar to
 how base_output.py handles timed frames.
+
+Note: Node transition events are sent directly from PipecatEngine.set_node()
+rather than being observed here, to ensure precise timing at the moment of
+node changes.
 """
 
 import asyncio
@@ -24,20 +29,30 @@ from pipecat.frames.frames import (
     FunctionCallResultFrame,
     InterimTranscriptionFrame,
     InterruptionFrame,
+    MetricsFrame,
     StopFrame,
     TranscriptionFrame,
     TTSTextFrame,
 )
+from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.utils.time import nanoseconds_to_seconds
 
 
 class RealtimeFeedbackObserver(BaseObserver):
-    """Observer that sends real-time transcription and bot response events via WebSocket.
+    """Observer that sends real-time transcription, bot response, and metrics via WebSocket.
+
+    Observes pipeline frames and sends events for:
+    - User transcriptions (interim and final)
+    - Bot TTS text (with pts-based timing)
+    - Function calls (start/end)
+    - TTFB metrics (LLM generation time only - filters to processors containing "LLM")
 
     For frames with pts (presentation timestamp), we queue them and send at the
     appropriate time to sync with audio playback.
+
+    Note: Node transitions are handled by PipecatEngine.set_node() callback.
     """
 
     def __init__(
@@ -131,6 +146,8 @@ class RealtimeFeedbackObserver(BaseObserver):
         """Process frames and send relevant ones to the client."""
         frame = data.frame
         frame_direction = data.direction
+
+        logger.trace(f"{self} Received Frame: {frame} Direction: {frame_direction}")
 
         # Handle pipeline termination - stop clock task
         if isinstance(frame, (EndFrame, CancelFrame, StopFrame)):
@@ -226,6 +243,23 @@ class RealtimeFeedbackObserver(BaseObserver):
                     },
                 }
             )
+        # Handle TTFB metrics - capture LLM generation time only
+        elif isinstance(frame, MetricsFrame):
+            # Check if this MetricsFrame contains TTFB data from an LLM processor
+            for metric_data in frame.data:
+                if isinstance(metric_data, TTFBMetricsData):
+                    # Only send TTFB if it's from an LLM processor
+                    if metric_data.processor and "LLM" in metric_data.processor:
+                        await self._send_message(
+                            {
+                                "type": "rtf-ttfb-metric",
+                                "payload": {
+                                    "ttfb_seconds": metric_data.value,
+                                    "processor": metric_data.processor,
+                                    "model": metric_data.model,
+                                },
+                            }
+                        )
 
     async def _send_message(self, message: dict):
         """Send message via WebSocket AND append to logs buffer, handling errors gracefully."""

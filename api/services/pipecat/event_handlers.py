@@ -47,7 +47,6 @@ def register_transport_event_handlers(
         num_channels=num_channels,
     )
     in_memory_transcript_buffer = InMemoryTranscriptBuffer(workflow_run_id)
-    in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, participant):
@@ -71,7 +70,7 @@ def register_transport_event_handlers(
             await task.cancel()
 
     # Return the buffers so they can be passed to other handlers
-    return in_memory_audio_buffer, in_memory_transcript_buffer, in_memory_logs_buffer
+    return in_memory_audio_buffer, in_memory_transcript_buffer
 
 
 def register_task_event_handler(

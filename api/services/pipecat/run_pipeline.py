@@ -14,6 +14,7 @@ from api.services.pipecat.event_handlers import (
     register_transcript_handler,
     register_transport_event_handlers,
 )
+from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import (
     build_pipeline,
     create_pipeline_components,
@@ -467,11 +468,45 @@ async def _run_pipeline(
         ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
     )
 
+    # Create in-memory logs buffer early so it can be used by engine callbacks
+    in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
+
+    # Create node transition callback if WebSocket sender is available
+    node_transition_callback = None
+    ws_sender = get_ws_sender(workflow_run_id)
+    if ws_sender:
+
+        async def send_node_transition(
+            node_name: str, previous_node: Optional[str]
+        ) -> None:
+            """Send node transition event via WebSocket AND log to buffer."""
+            message = {
+                "type": "rtf-node-transition",
+                "payload": {
+                    "node_name": node_name,
+                    "previous_node": previous_node,
+                },
+            }
+            # Send via WebSocket
+            try:
+                await ws_sender(message)
+            except Exception as e:
+                logger.debug(f"Failed to send node transition via WebSocket: {e}")
+
+            # Log to in-memory buffer
+            try:
+                await in_memory_logs_buffer.append(message)
+            except Exception as e:
+                logger.error(f"Failed to append node transition to logs buffer: {e}")
+
+        node_transition_callback = send_node_transition
+
     engine = PipecatEngine(
         llm=llm,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,
+        node_transition_callback=node_transition_callback,
     )
 
     # Create pipeline components with audio configuration and engine
@@ -573,7 +608,7 @@ async def _run_pipeline(
     await engine.initialize()
 
     # Register event handlers
-    in_memory_audio_buffer, in_memory_transcript_buffer, in_memory_logs_buffer = (
+    in_memory_audio_buffer, in_memory_transcript_buffer = (
         register_transport_event_handlers(
             task,
             transport,
@@ -585,10 +620,11 @@ async def _run_pipeline(
     )
 
     # Add real-time feedback observer if WebSocket sender is available
-    ws_sender = get_ws_sender(workflow_run_id)
+    # Note: ws_sender was already fetched earlier for node_transition_callback
     if ws_sender:
         feedback_observer = RealtimeFeedbackObserver(
-            ws_sender=ws_sender, logs_buffer=in_memory_logs_buffer
+            ws_sender=ws_sender,
+            logs_buffer=in_memory_logs_buffer,
         )
         task.add_observer(feedback_observer)
 

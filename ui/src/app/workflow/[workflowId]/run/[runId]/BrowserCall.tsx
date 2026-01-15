@@ -9,7 +9,7 @@ import {
     ApiKeyErrorDialog,
     AudioControls,
     ConnectionStatus,
-    RealtimeFeedbackPanel,
+    RealtimeFeedback,
     WorkflowConfigErrorDialog
 } from "./components";
 import { useWebSocketRTC } from "./hooks";
@@ -142,9 +142,9 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
 
                 {/* Show transcript panel */}
                 <div className="w-1/3 h-full shrink-0">
-                    <RealtimeFeedbackPanel
+                    <RealtimeFeedback
+                        mode="live"
                         messages={feedbackMessages}
-                        isVisible={true}
                         isCallActive={connectionActive}
                         isCallCompleted={isCompleted}
                     />

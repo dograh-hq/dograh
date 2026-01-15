@@ -62,6 +62,9 @@ class PipecatEngine:
         call_context_vars: dict,
         audio_buffer: Optional["AudioBuffer"] = None,
         workflow_run_id: Optional[int] = None,
+        node_transition_callback: Optional[
+            Callable[[str, Optional[str]], Awaitable[None]]
+        ] = None,
     ):
         self.task = task
         self.llm = llm
@@ -71,6 +74,7 @@ class PipecatEngine:
         self._call_context_vars = call_context_vars
         self._audio_buffer = audio_buffer
         self._workflow_run_id = workflow_run_id
+        self._node_transition_callback = node_transition_callback
         self._initialized = False
         self._client_disconnected = False
         self._call_disposed = False
@@ -359,8 +363,19 @@ class PipecatEngine:
             f"Executing node: name: {node.name} is_static: {node.is_static} allow_interrupt: {node.allow_interrupt} is_end: {node.is_end}"
         )
 
+        # Track previous node for transition event
+        previous_node_name = self._current_node.name if self._current_node else None
+
         # Set current node for all nodes (including static ones) so STT mute filter works
         self._current_node = node
+
+        # Send node transition event if callback is provided
+        if self._node_transition_callback:
+            try:
+                await self._node_transition_callback(node.name, previous_node_name)
+            except Exception as e:
+                # Log but don't fail - feedback is non-critical
+                logger.debug(f"Failed to send node transition event: {e}")
 
         # Handle start nodes
         if node.is_start:
@@ -693,5 +708,3 @@ class PipecatEngine:
             and not self._user_response_timeout_task.done()
         ):
             self._user_response_timeout_task.cancel()
-
-        # Note: Native VoicemailDetector cleanup is handled by the pipeline

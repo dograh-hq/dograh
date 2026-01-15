@@ -17,12 +17,19 @@ interface UseWebSocketRTCProps {
 
 export interface FeedbackMessage {
     id: string;
-    type: 'user-transcription' | 'bot-text' | 'function-call';
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric';
     text: string;
     final?: boolean;
     timestamp: string;
     functionName?: string;
     status?: 'running' | 'completed';
+    // Node transition fields
+    nodeName?: string;
+    previousNode?: string;
+    // TTFB metric fields
+    ttfbSeconds?: number;
+    processor?: string;
+    model?: string;
 }
 
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables }: UseWebSocketRTCProps) => {
@@ -285,35 +292,26 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                         case 'rtf-user-transcription': {
                             const transcription = message.payload;
                             setFeedbackMessages(prev => {
-                                // Mark last bot message as final (user started speaking)
-                                const withBotFinalized = prev.map((m, i) =>
-                                    i === prev.length - 1 && m.type === 'bot-text' && !m.final
-                                        ? { ...m, final: true }
-                                        : m
+                                // Step 1: Finalize the last bot message (user started speaking)
+                                const messagesWithBotFinalized = prev.map((msg, idx) => {
+                                    const isLastMessage = idx === prev.length - 1;
+                                    const isUnfinalizedBotMessage = msg.type === 'bot-text' && !msg.final;
+                                    return isLastMessage && isUnfinalizedBotMessage
+                                        ? { ...msg, final: true }
+                                        : msg;
+                                });
+
+                                // Step 2: Remove any previous interim transcription
+                                const messagesWithoutInterim = messagesWithBotFinalized.filter(
+                                    msg => !(msg.type === 'user-transcription' && !msg.final)
                                 );
 
-                                // For interim transcriptions, replace the last interim
-                                if (!transcription.final) {
-                                    const withoutLastInterim = withBotFinalized.filter(
-                                        m => !(m.type === 'user-transcription' && !m.final)
-                                    );
-                                    return [...withoutLastInterim, {
-                                        id: `user-${Date.now()}`,
-                                        type: 'user-transcription',
-                                        text: transcription.text,
-                                        final: false,
-                                        timestamp: new Date().toISOString(),
-                                    }];
-                                }
-                                // For final transcriptions, replace interim with final
-                                const withoutInterim = withBotFinalized.filter(
-                                    m => !(m.type === 'user-transcription' && !m.final)
-                                );
-                                return [...withoutInterim, {
+                                // Step 3: Add new transcription (interim or final)
+                                return [...messagesWithoutInterim, {
                                     id: `user-${Date.now()}`,
                                     type: 'user-transcription',
                                     text: transcription.text,
-                                    final: true,
+                                    final: transcription.final,
                                     timestamp: new Date().toISOString(),
                                 }];
                             });
@@ -378,6 +376,33 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                                     ? { ...msg, status: 'completed' as const, text: result || msg.text }
                                     : msg
                             ));
+                            break;
+                        }
+
+                        case 'rtf-node-transition': {
+                            const { node_name, previous_node } = message.payload;
+                            setFeedbackMessages(prev => [...prev, {
+                                id: `node-${Date.now()}`,
+                                type: 'node-transition',
+                                text: node_name,
+                                nodeName: node_name,
+                                previousNode: previous_node,
+                                timestamp: new Date().toISOString(),
+                            }]);
+                            break;
+                        }
+
+                        case 'rtf-ttfb-metric': {
+                            const { ttfb_seconds, processor, model } = message.payload;
+                            setFeedbackMessages(prev => [...prev, {
+                                id: `ttfb-${Date.now()}`,
+                                type: 'ttfb-metric',
+                                text: `${(ttfb_seconds * 1000).toFixed(0)}ms`,
+                                ttfbSeconds: ttfb_seconds,
+                                processor,
+                                model,
+                                timestamp: new Date().toISOString(),
+                            }]);
                             break;
                         }
 

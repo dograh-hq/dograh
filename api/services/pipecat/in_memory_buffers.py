@@ -2,6 +2,7 @@ import asyncio
 import re
 import tempfile
 import wave
+from datetime import UTC, datetime
 from typing import List
 
 from loguru import logger
@@ -120,3 +121,41 @@ class InMemoryTranscriptBuffer:
             if self._USER_SPEECH_RE.match(line):
                 return True
         return False
+
+
+class InMemoryLogsBuffer:
+    """Buffer real-time feedback events in memory during a call, then save to workflow run logs."""
+
+    def __init__(self, workflow_run_id: int):
+        self._workflow_run_id = workflow_run_id
+        self._events: List[dict] = []
+        self._turn_counter = 0
+
+    async def append(self, event: dict):
+        """Append a feedback event to the buffer with timestamp."""
+        # Add timestamp and turn tracking
+        timestamped_event = {
+            **event,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "turn": self._turn_counter,
+        }
+        self._events.append(timestamped_event)
+        logger.trace(
+            f"Appended event {event.get('type')} to logs buffer for workflow {self._workflow_run_id}"
+        )
+
+    def increment_turn(self):
+        """Increment turn counter (called on user transcription completion)."""
+        self._turn_counter += 1
+        logger.trace(
+            f"Incremented turn counter to {self._turn_counter} for workflow {self._workflow_run_id}"
+        )
+
+    def get_events(self) -> List[dict]:
+        """Get all events for final storage."""
+        return self._events
+
+    @property
+    def is_empty(self) -> bool:
+        """Check if the buffer is empty."""
+        return len(self._events) == 0

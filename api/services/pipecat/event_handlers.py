@@ -4,8 +4,9 @@ from api.db import db_client
 from api.enums import WorkflowRunState
 from api.services.campaign.call_dispatcher import campaign_call_dispatcher
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.pipecat.audio_transcript_buffers import (
+from api.services.pipecat.in_memory_buffers import (
     InMemoryAudioBuffer,
+    InMemoryLogsBuffer,
     InMemoryTranscriptBuffer,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
@@ -80,6 +81,7 @@ def register_task_event_handler(
     audio_buffer: AudioBufferProcessor,
     in_memory_audio_buffer: InMemoryAudioBuffer,
     in_memory_transcript_buffer: InMemoryTranscriptBuffer,
+    in_memory_logs_buffer: InMemoryLogsBuffer,
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
 ):
     @task.event_handler("on_pipeline_started")
@@ -184,6 +186,22 @@ def register_task_event_handler(
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
         )
+
+        # Save real-time feedback logs to workflow run
+        if not in_memory_logs_buffer.is_empty:
+            try:
+                feedback_events = in_memory_logs_buffer.get_events()
+                await db_client.update_workflow_run(
+                    run_id=workflow_run_id,
+                    logs={"realtime_feedback_events": feedback_events},
+                )
+                logger.debug(
+                    f"Saved {len(feedback_events)} feedback events to workflow run logs"
+                )
+            except Exception as e:
+                logger.error(f"Error saving realtime feedback logs: {e}", exc_info=True)
+        else:
+            logger.debug("Logs buffer is empty, skipping save")
 
         # Release concurrent slot for campaign calls
         if workflow_run and workflow_run.campaign_id:

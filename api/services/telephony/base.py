@@ -276,16 +276,18 @@ class TelephonyProvider(ABC):
         """
         pass
 
+    @staticmethod
     @abstractmethod
-    def generate_inbound_response(self, websocket_url: str) -> tuple:
+    async def generate_inbound_response(websocket_url: str, workflow_run_id: int = None) -> tuple:
         """
         Generate the appropriate response for an inbound webhook.
 
         Args:
             websocket_url: WebSocket URL for audio streaming
+            workflow_run_id: Optional workflow run ID for tracking
 
         Returns:
-            Tuple of (Response, media_type) - Response object and content type
+            FastAPI Response object
         """
         pass
 

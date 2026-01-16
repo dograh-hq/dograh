@@ -1,8 +1,10 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { Edit, Headset, PlusIcon, Trash2Icon, Wrench } from "lucide-react";
+import { Edit, FileText, Headset, PlusIcon, Trash2Icon, Wrench } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import { DocumentBadges } from "@/components/flow/DocumentBadges";
+import { DocumentSelector } from "@/components/flow/DocumentSelector";
 import { ToolBadges } from "@/components/flow/ToolBadges";
 import { ToolSelector } from "@/components/flow/ToolSelector";
 import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
@@ -34,6 +36,8 @@ interface AgentNodeEditFormProps {
     setAddGlobalPrompt: (value: boolean) => void;
     toolUuids: string[];
     setToolUuids: (value: string[]) => void;
+    documentUuids: string[];
+    setDocumentUuids: (value: string[]) => void;
 }
 
 interface AgentNodeProps extends NodeProps {
@@ -55,6 +59,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
     const [variables, setVariables] = useState<ExtractionVariable[]>(data.extraction_variables ?? []);
     const [addGlobalPrompt, setAddGlobalPrompt] = useState(data.add_global_prompt ?? true);
     const [toolUuids, setToolUuids] = useState<string[]>(data.tool_uuids ?? []);
+    const [documentUuids, setDocumentUuids] = useState<string[]>(data.document_uuids ?? []);
 
     // Compute if form has unsaved changes (only check prompt, name)
     const isDirty = useMemo(() => {
@@ -75,6 +80,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             extraction_variables: variables,
             add_global_prompt: addGlobalPrompt,
             tool_uuids: toolUuids.length > 0 ? toolUuids : undefined,
+            document_uuids: documentUuids.length > 0 ? documentUuids : undefined,
         });
         setOpen(false);
         // Save the workflow after updating node data with a small delay to ensure state is updated
@@ -94,6 +100,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             setVariables(data.extraction_variables ?? []);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
             setToolUuids(data.tool_uuids ?? []);
+            setDocumentUuids(data.document_uuids ?? []);
         }
         setOpen(newOpen);
     };
@@ -109,6 +116,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
             setVariables(data.extraction_variables ?? []);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
             setToolUuids(data.tool_uuids ?? []);
+            setDocumentUuids(data.document_uuids ?? []);
         }
     }, [data, open]);
 
@@ -137,6 +145,15 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
                             <span>Tools:</span>
                         </div>
                         <ToolBadges toolUuids={data.tool_uuids} />
+                    </div>
+                )}
+                {data.document_uuids && data.document_uuids.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-border/50">
+                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-2">
+                            <FileText className="h-3 w-3" />
+                            <span>Documents:</span>
+                        </div>
+                        <DocumentBadges documentUuids={data.document_uuids} />
                     </div>
                 )}
             </NodeContent>
@@ -179,6 +196,8 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
                         setAddGlobalPrompt={setAddGlobalPrompt}
                         toolUuids={toolUuids}
                         setToolUuids={setToolUuids}
+                        documentUuids={documentUuids}
+                        setDocumentUuids={setDocumentUuids}
                     />
                 )}
             </NodeEditDialog>
@@ -203,6 +222,8 @@ const AgentNodeEditForm = ({
     setAddGlobalPrompt,
     toolUuids,
     setToolUuids,
+    documentUuids,
+    setDocumentUuids,
 }: AgentNodeEditFormProps) => {
     const handleVariableNameChange = (idx: number, value: string) => {
         const newVars = [...variables];
@@ -344,6 +365,15 @@ const AgentNodeEditForm = ({
                     value={toolUuids}
                     onChange={setToolUuids}
                     description="Select tools that the agent can invoke during this conversation step."
+                />
+            </div>
+
+            {/* Documents Section */}
+            <div className="pt-4 border-t mt-4">
+                <DocumentSelector
+                    value={documentUuids}
+                    onChange={setDocumentUuids}
+                    description="Select documents from the knowledge base that the agent can reference during this conversation step."
                 />
             </div>
         </div>

@@ -46,6 +46,7 @@ from api.tasks.campaign_tasks import (
     process_campaign_batch,
     sync_campaign_source,
 )
+from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
 from api.tasks.s3_upload import (
     upload_audio_to_s3,
@@ -64,6 +65,7 @@ class WorkerSettings:
         sync_campaign_source,
         process_campaign_batch,
         monitor_campaign_progress,
+        process_knowledge_base_document,
     ]
     cron_jobs = []
     redis_settings = REDIS_SETTINGS

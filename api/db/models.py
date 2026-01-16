@@ -14,10 +14,12 @@ from sqlalchemy import (
     Integer,
     String,
     Table,
+    Text,
     UniqueConstraint,
     and_,
     text,
 )
+from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import declarative_base, relationship
 
 from ..enums import (
@@ -889,4 +891,159 @@ class ToolModel(Base):
         Index("ix_tools_uuid", "tool_uuid"),
         Index("ix_tools_status", "status"),
         Index("ix_tools_category", "category"),
+    )
+
+
+class KnowledgeBaseDocumentModel(Base):
+    """Model for storing document-level metadata in the knowledge base.
+
+    Each document represents a source file (PDF, DOCX, etc.) that has been
+    processed and chunked for retrieval.
+    """
+
+    __tablename__ = "knowledge_base_documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Public identifier for API references
+    document_uuid = Column(
+        String(36),
+        unique=True,
+        nullable=False,
+        index=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    # Organization scoping
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Document metadata
+    filename = Column(String(500), nullable=False)
+    file_size_bytes = Column(Integer, nullable=True)
+    file_hash = Column(String(64), nullable=True)  # SHA-256 hash for deduplication
+    mime_type = Column(String(100), nullable=True)
+
+    # Processing metadata
+    source_url = Column(String, nullable=True)  # If document was fetched from URL
+    total_chunks = Column(Integer, nullable=False, default=0)
+    processing_status = Column(
+        Enum("pending", "processing", "completed", "failed", name="document_processing_status"),
+        nullable=False,
+        default="pending",
+        server_default=text("'pending'::document_processing_status"),
+    )
+    processing_error = Column(Text, nullable=True)
+
+    # Docling conversion metadata
+    docling_metadata = Column(JSON, nullable=False, default=dict)  # Store docling document metadata
+
+    # Custom metadata (user-defined tags, categories, etc.)
+    custom_metadata = Column(JSON, nullable=False, default=dict)
+
+    # Audit fields
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    # Soft delete
+    is_active = Column(Boolean, default=True, nullable=False)
+    archived_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    organization = relationship("OrganizationModel")
+    created_by_user = relationship("UserModel")
+    chunks = relationship(
+        "KnowledgeBaseChunkModel",
+        back_populates="document",
+        cascade="all, delete-orphan",
+    )
+
+    # Indexes and constraints
+    __table_args__ = (
+        Index("ix_kb_documents_organization_id", "organization_id"),
+        Index("ix_kb_documents_uuid", "document_uuid"),
+        Index("ix_kb_documents_status", "processing_status"),
+        Index("ix_kb_documents_created_at", "created_at"),
+    )
+
+
+class KnowledgeBaseChunkModel(Base):
+    """Model for storing document chunks with vector embeddings.
+
+    Each chunk represents a portion of a document that has been:
+    1. Extracted and chunked by docling's HybridChunker
+    2. Optionally contextualized with surrounding information
+    3. Embedded into a vector representation for semantic search
+    """
+
+    __tablename__ = "knowledge_base_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Link to parent document
+    document_id = Column(
+        Integer,
+        ForeignKey("knowledge_base_documents.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    # Organization scoping (denormalized for efficient querying)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Chunk content
+    chunk_text = Column(Text, nullable=False)  # The actual chunk text
+    contextualized_text = Column(Text, nullable=True)  # Enriched text from chunker.contextualize()
+
+    # Chunk positioning and metadata
+    chunk_index = Column(Integer, nullable=False)  # Position in document (0-based)
+
+    # Docling chunk metadata
+    chunk_metadata = Column(JSON, nullable=False, default=dict)  # Store chunk.meta if available
+
+    # Embedding configuration
+    embedding_model = Column(String(200), nullable=False)  # e.g., "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dimension = Column(Integer, nullable=False)  # e.g., 384 for all-MiniLM-L6-v2
+
+    # Vector embedding (pgvector column)
+    # The dimension should match the embedding_dimension field
+    embedding = Column(Vector(384), nullable=True)  # Default to 384 for all-MiniLM-L6-v2
+
+    # Token count (useful for chunking strategy analysis)
+    token_count = Column(Integer, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    # Relationships
+    document = relationship("KnowledgeBaseDocumentModel", back_populates="chunks")
+    organization = relationship("OrganizationModel")
+
+    # Indexes and constraints
+    __table_args__ = (
+        Index("ix_kb_chunks_document_id", "document_id"),
+        Index("ix_kb_chunks_organization_id", "organization_id"),
+        Index("ix_kb_chunks_chunk_index", "chunk_index"),
+        # Vector similarity search index (using IVFFlat or HNSW)
+        # IVFFlat is good for datasets with 10k-1M vectors
+        # HNSW is better for larger datasets but uses more memory
+        Index(
+            "ix_kb_chunks_embedding_ivfflat",
+            "embedding",
+            postgresql_using="ivfflat",
+            postgresql_with={"lists": 100},  # Adjust based on dataset size
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
     )

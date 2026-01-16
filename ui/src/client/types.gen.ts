@@ -84,6 +84,54 @@ export type CampaignsResponse = {
 };
 
 /**
+ * Response schema for a document chunk.
+ */
+export type ChunkResponseSchema = {
+    id: number;
+    document_id: number;
+    chunk_text: string;
+    contextualized_text: string | null;
+    chunk_index: number;
+    chunk_metadata: {
+        [key: string]: unknown;
+    };
+    filename: string;
+    document_uuid: string;
+    similarity: number;
+};
+
+/**
+ * Request schema for searching similar chunks.
+ */
+export type ChunkSearchRequestSchema = {
+    /**
+     * Search query text
+     */
+    query: string;
+    /**
+     * Maximum number of results
+     */
+    limit?: number;
+    /**
+     * Filter by specific document UUIDs
+     */
+    document_uuids?: Array<string> | null;
+    /**
+     * Minimum similarity threshold
+     */
+    min_similarity?: number | null;
+};
+
+/**
+ * Response schema for chunk search results.
+ */
+export type ChunkSearchResponseSchema = {
+    chunks: Array<ChunkResponseSchema>;
+    query: string;
+    total_results: number;
+};
+
+/**
  * Request schema for Cloudonix configuration.
  */
 export type CloudonixConfigurationRequest = {
@@ -306,6 +354,81 @@ export type DefaultConfigurationsResponse = {
     default_providers: {
         [key: string]: string;
     };
+};
+
+/**
+ * Response schema for list of documents.
+ */
+export type DocumentListResponseSchema = {
+    documents: Array<DocumentResponseSchema>;
+    total: number;
+    limit: number;
+    offset: number;
+};
+
+/**
+ * Response schema for document metadata.
+ */
+export type DocumentResponseSchema = {
+    id: number;
+    document_uuid: string;
+    filename: string;
+    file_size_bytes: number;
+    file_hash: string;
+    mime_type: string;
+    processing_status: string;
+    processing_error?: string | null;
+    total_chunks: number;
+    custom_metadata: {
+        [key: string]: unknown;
+    };
+    docling_metadata: {
+        [key: string]: unknown;
+    };
+    source_url?: string | null;
+    created_at: string;
+    updated_at: string;
+    organization_id: number;
+    created_by: number;
+    is_active: boolean;
+};
+
+/**
+ * Request schema for initiating document upload.
+ */
+export type DocumentUploadRequestSchema = {
+    /**
+     * Name of the file to upload
+     */
+    filename: string;
+    /**
+     * MIME type of the file
+     */
+    mime_type: string;
+    /**
+     * Optional custom metadata
+     */
+    custom_metadata?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * Response schema containing upload URL and document metadata.
+ */
+export type DocumentUploadResponseSchema = {
+    /**
+     * Signed URL for uploading the file
+     */
+    upload_url: string;
+    /**
+     * Unique identifier for the document
+     */
+    document_uuid: string;
+    /**
+     * S3 key where file should be uploaded
+     */
+    s3_key: string;
 };
 
 export type DuplicateTemplateRequest = {
@@ -535,6 +658,20 @@ export type PresignedUploadUrlResponse = {
     upload_url: string;
     file_key: string;
     expires_in: number;
+};
+
+/**
+ * Request schema for triggering document processing.
+ */
+export type ProcessDocumentRequestSchema = {
+    /**
+     * Document UUID to process
+     */
+    document_uuid: string;
+    /**
+     * S3 key of the uploaded file
+     */
+    s3_key: string;
 };
 
 export type S3SignedUrlResponse = {
@@ -4125,6 +4262,213 @@ export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostRespons
 };
 
 export type CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponse = CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponses[keyof CreateOrUpdateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenPostResponses];
+
+export type GetUploadUrlApiV1KnowledgeBaseUploadUrlPostData = {
+    body: DocumentUploadRequestSchema;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/knowledge-base/upload-url';
+};
+
+export type GetUploadUrlApiV1KnowledgeBaseUploadUrlPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetUploadUrlApiV1KnowledgeBaseUploadUrlPostError = GetUploadUrlApiV1KnowledgeBaseUploadUrlPostErrors[keyof GetUploadUrlApiV1KnowledgeBaseUploadUrlPostErrors];
+
+export type GetUploadUrlApiV1KnowledgeBaseUploadUrlPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentUploadResponseSchema;
+};
+
+export type GetUploadUrlApiV1KnowledgeBaseUploadUrlPostResponse = GetUploadUrlApiV1KnowledgeBaseUploadUrlPostResponses[keyof GetUploadUrlApiV1KnowledgeBaseUploadUrlPostResponses];
+
+export type ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostData = {
+    body: ProcessDocumentRequestSchema;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/knowledge-base/process-document';
+};
+
+export type ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostError = ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostErrors[keyof ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostErrors];
+
+export type ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentResponseSchema;
+};
+
+export type ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostResponse = ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostResponses[keyof ProcessDocumentApiV1KnowledgeBaseProcessDocumentPostResponses];
+
+export type ListDocumentsApiV1KnowledgeBaseDocumentsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Filter by processing status
+         */
+        status?: string | null;
+        limit?: number;
+        offset?: number;
+    };
+    url: '/api/v1/knowledge-base/documents';
+};
+
+export type ListDocumentsApiV1KnowledgeBaseDocumentsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListDocumentsApiV1KnowledgeBaseDocumentsGetError = ListDocumentsApiV1KnowledgeBaseDocumentsGetErrors[keyof ListDocumentsApiV1KnowledgeBaseDocumentsGetErrors];
+
+export type ListDocumentsApiV1KnowledgeBaseDocumentsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentListResponseSchema;
+};
+
+export type ListDocumentsApiV1KnowledgeBaseDocumentsGetResponse = ListDocumentsApiV1KnowledgeBaseDocumentsGetResponses[keyof ListDocumentsApiV1KnowledgeBaseDocumentsGetResponses];
+
+export type DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}';
+};
+
+export type DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteError = DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteErrors[keyof DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteErrors];
+
+export type DeleteDocumentApiV1KnowledgeBaseDocumentsDocumentUuidDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        document_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/knowledge-base/documents/{document_uuid}';
+};
+
+export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetError = GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetErrors[keyof GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetErrors];
+
+export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DocumentResponseSchema;
+};
+
+export type GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponse = GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses[keyof GetDocumentApiV1KnowledgeBaseDocumentsDocumentUuidGetResponses];
+
+export type SearchChunksApiV1KnowledgeBaseSearchPostData = {
+    body: ChunkSearchRequestSchema;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/knowledge-base/search';
+};
+
+export type SearchChunksApiV1KnowledgeBaseSearchPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SearchChunksApiV1KnowledgeBaseSearchPostError = SearchChunksApiV1KnowledgeBaseSearchPostErrors[keyof SearchChunksApiV1KnowledgeBaseSearchPostErrors];
+
+export type SearchChunksApiV1KnowledgeBaseSearchPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ChunkSearchResponseSchema;
+};
+
+export type SearchChunksApiV1KnowledgeBaseSearchPostResponse = SearchChunksApiV1KnowledgeBaseSearchPostResponses[keyof SearchChunksApiV1KnowledgeBaseSearchPostResponses];
 
 export type HealthApiV1HealthGetData = {
     body?: never;

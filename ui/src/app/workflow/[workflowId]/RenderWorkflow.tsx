@@ -7,8 +7,10 @@ import {
     ReactFlow,
 } from "@xyflow/react";
 import { BrushCleaning, Maximize2, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
+import { listDocumentsApiV1KnowledgeBaseDocumentsGet, listToolsApiV1ToolsGet } from '@/client';
+import type { DocumentResponseSchema, ToolResponse } from '@/client/types.gen';
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -63,6 +65,8 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     const [isConfigurationsDialogOpen, setIsConfigurationsDialogOpen] = useState(false);
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
+    const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
+    const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
 
     const {
         rfInstance,
@@ -95,6 +99,36 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         getAccessToken
     });
 
+    // Fetch documents and tools once for the entire workflow
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const accessToken = await getAccessToken();
+
+                // Fetch documents
+                const documentsResponse = await listDocumentsApiV1KnowledgeBaseDocumentsGet({
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                    query: { limit: 100 },
+                });
+                if (documentsResponse.data) {
+                    setDocuments(documentsResponse.data.documents);
+                }
+
+                // Fetch tools
+                const toolsResponse = await listToolsApiV1ToolsGet({
+                    headers: { Authorization: `Bearer ${accessToken}` },
+                });
+                if (toolsResponse.data) {
+                    setTools(toolsResponse.data);
+                }
+            } catch (error) {
+                console.error('Failed to fetch documents and tools:', error);
+            }
+        };
+
+        fetchData();
+    }, [getAccessToken]);
+
     // Memoize defaultEdgeOptions to prevent unnecessary re-renders
     const defaultEdgeOptions = useMemo(() => ({
         animated: true,
@@ -102,7 +136,11 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     }), []);
 
     // Memoize the context value to prevent unnecessary re-renders
-    const workflowContextValue = useMemo(() => ({ saveWorkflow }), [saveWorkflow]);
+    const workflowContextValue = useMemo(() => ({
+        saveWorkflow,
+        documents,
+        tools
+    }), [saveWorkflow, documents, tools]);
 
     return (
         <WorkflowProvider value={workflowContextValue}>

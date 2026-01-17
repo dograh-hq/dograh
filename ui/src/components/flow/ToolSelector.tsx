@@ -1,20 +1,18 @@
 "use client";
 
-import { ExternalLink, Loader2 } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
 
 import { renderToolIcon } from "@/app/tools/config";
-import { listToolsApiV1ToolsGet } from "@/client/sdk.gen";
 import type { ToolResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/lib/auth";
 
 interface ToolSelectorProps {
     value: string[];
     onChange: (uuids: string[]) => void;
+    tools: ToolResponse[];
     disabled?: boolean;
     label?: string;
     description?: string;
@@ -24,43 +22,14 @@ interface ToolSelectorProps {
 export function ToolSelector({
     value,
     onChange,
+    tools,
     disabled = false,
     label = "Tools",
     description = "Select tools that the agent can use during the conversation.",
     showLabel = true,
 }: ToolSelectorProps) {
-    const { getAccessToken } = useAuth();
-
-    const [tools, setTools] = useState<ToolResponse[]>([]);
-    const [loading, setLoading] = useState(false);
-
-    const fetchTools = useCallback(async () => {
-        setLoading(true);
-        try {
-            const accessToken = await getAccessToken();
-            const response = await listToolsApiV1ToolsGet({
-                headers: { Authorization: `Bearer ${accessToken}` },
-                query: { status: "active" },
-            });
-            if (response.error) {
-                console.error("Failed to fetch tools:", response.error);
-                setTools([]);
-                return;
-            }
-            if (response.data) {
-                setTools(response.data);
-            }
-        } catch (error) {
-            console.error("Failed to fetch tools:", error);
-            setTools([]);
-        } finally {
-            setLoading(false);
-        }
-    }, [getAccessToken]);
-
-    useEffect(() => {
-        fetchTools();
-    }, [fetchTools]);
+    // Filter to only show active tools
+    const activeTools = tools.filter((tool) => tool.status === "active");
 
     const handleToggle = (toolUuid: string, checked: boolean) => {
         if (checked) {
@@ -83,12 +52,7 @@ export function ToolSelector({
                 </>
             )}
 
-            {loading ? (
-                <div className="flex items-center gap-2 p-3 border rounded-md">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-sm text-muted-foreground">Loading tools...</span>
-                </div>
-            ) : tools.length === 0 ? (
+            {activeTools.length === 0 ? (
                 <div className="p-4 border rounded-md text-center">
                     <p className="text-sm text-muted-foreground mb-2">
                         No tools available.
@@ -102,7 +66,7 @@ export function ToolSelector({
                 </div>
             ) : (
                 <div className="border rounded-md divide-y">
-                    {tools.map((tool) => {
+                    {activeTools.map((tool) => {
                         const isSelected = value.includes(tool.tool_uuid);
                         return (
                             <label

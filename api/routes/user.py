@@ -32,6 +32,7 @@ class DefaultConfigurationsResponse(TypedDict):
     llm: dict[str, dict]
     tts: dict[str, dict]
     stt: dict[str, dict]
+    embeddings: dict[str, dict]
     default_providers: dict[str, str]
 
 
@@ -49,6 +50,10 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
         "stt": {
             provider: model_cls.model_json_schema()
             for provider, model_cls in REGISTRY[ServiceType.STT].items()
+        },
+        "embeddings": {
+            provider: model_cls.model_json_schema()
+            for provider, model_cls in REGISTRY[ServiceType.EMBEDDINGS].items()
         },
         "default_providers": DEFAULT_SERVICE_PROVIDERS,
     }
@@ -69,6 +74,7 @@ class UserConfigurationRequestResponseSchema(BaseModel):
     llm: dict[str, Union[str, float]] | None = None
     tts: dict[str, Union[str, float]] | None = None
     stt: dict[str, Union[str, float]] | None = None
+    embeddings: dict[str, Union[str, float]] | None = None
     test_phone_number: str | None = None
     timezone: str | None = None
     organization_pricing: dict[str, Union[float, str, bool]] | None = None

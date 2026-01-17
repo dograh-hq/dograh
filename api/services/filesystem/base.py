@@ -85,3 +85,16 @@ class BaseFileSystem(ABC):
             Optional[str]: Presigned PUT URL if successful, None otherwise
         """
         pass
+
+    @abstractmethod
+    async def adownload_file(self, source_path: str, local_path: str) -> bool:
+        """Download a file from storage to local path.
+
+        Args:
+            source_path: Path to the file in storage
+            local_path: Local path where file should be downloaded
+
+        Returns:
+            bool: True if file was downloaded successfully, False otherwise
+        """
+        pass

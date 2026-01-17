@@ -42,6 +42,8 @@ export type FlowNodeData = {
     };
     // Tools - array of tool UUIDs that can be invoked by this node
     tool_uuids?: string[];
+    // Documents - array of knowledge base document UUIDs that can be referenced by this node
+    document_uuids?: string[];
 }
 
 export type FlowNode = {

@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  Database,
   FileText,
   HelpCircle,
   Home,
@@ -113,6 +114,11 @@ export function AppSidebar() {
           title: "Tools",
           url: "/tools",
           icon: Wrench,
+        },
+        {
+          title: "Files",
+          url: "/files",
+          icon: Database,
         },
         // {
         //   title: "Integrations",

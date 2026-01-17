@@ -48,6 +48,12 @@ class UserConfigurationValidator:
         status_list.extend(self._validate_service(configuration.llm, "llm"))
         status_list.extend(self._validate_service(configuration.stt, "stt"))
         status_list.extend(self._validate_service(configuration.tts, "tts"))
+        # Embeddings is optional - only validate if configured
+        status_list.extend(
+            self._validate_service(
+                configuration.embeddings, "embeddings", required=False
+            )
+        )
 
         if status_list:
             raise ValueError(status_list)
@@ -55,11 +61,16 @@ class UserConfigurationValidator:
         return {"status": [{"model": "all", "message": "ok"}]}
 
     def _validate_service(
-        self, service_config: Optional[ServiceConfig], service_name: str
+        self,
+        service_config: Optional[ServiceConfig],
+        service_name: str,
+        required: bool = True,
     ) -> list[APIKeyStatus]:
         """Validate a service configuration and return any error statuses."""
         if not service_config:
-            return [{"model": service_name, "message": "API key is missing"}]
+            if required:
+                return [{"model": service_name, "message": "API key is missing"}]
+            return []  # Optional service not configured is OK
 
         provider = service_config.provider
         api_key = service_config.api_key

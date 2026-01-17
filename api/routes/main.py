@@ -4,6 +4,7 @@ from loguru import logger
 from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
 from api.routes.integration import router as integration_router
+from api.routes.knowledge_base import router as knowledge_base_router
 from api.routes.looptalk import router as looptalk_router
 from api.routes.organization import router as organization_router
 from api.routes.organization_usage import router as organization_usage_router
@@ -43,6 +44,7 @@ router.include_router(webrtc_signaling_router)
 router.include_router(public_embed_router)
 router.include_router(public_agent_router)
 router.include_router(workflow_embed_router)
+router.include_router(knowledge_base_router)
 
 
 @router.get("/health")

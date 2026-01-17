@@ -170,3 +170,15 @@ class MinioFileSystem(BaseFileSystem):
         except Exception as e:
             logger.error(f"Error generating MinIO upload URL: {e}")
             return None
+
+    async def adownload_file(self, source_path: str, local_path: str) -> bool:
+        """Download a file from MinIO to local path."""
+        try:
+
+            def _fget():
+                self.client.fget_object(self.bucket_name, source_path, local_path)
+
+            await asyncio.to_thread(_fget)
+            return True
+        except S3Error:
+            return False

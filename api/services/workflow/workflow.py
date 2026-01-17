@@ -48,6 +48,7 @@ class Node:
         self.delayed_start = data.delayed_start
         self.delayed_start_duration = data.delayed_start_duration
         self.tool_uuids = data.tool_uuids
+        self.document_uuids = data.document_uuids
 
         self.data = data
 
@@ -189,16 +190,6 @@ class WorkflowGraph:
             in_d, out_d = in_deg[n.id], out_deg[n.id]
 
             match n.node_type:
-                case NodeType.startNode:
-                    if in_d != 0 or out_d < 1:
-                        errors.append(
-                            WorkflowError(
-                                kind=ItemKind.node,
-                                id=n.id,
-                                field=None,
-                                message=f"StartNode must have at least 1 outgoing edge",
-                            )
-                        )
                 case NodeType.endNode:
                     if in_d < 1 or out_d != 0:
                         errors.append(

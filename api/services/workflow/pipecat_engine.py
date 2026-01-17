@@ -41,6 +41,10 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
+from api.services.workflow.tools.knowledge_base import (
+    get_knowledge_base_tool,
+    retrieve_from_knowledge_base,
+)
 from api.services.workflow.tools.timezone import (
     convert_time,
     get_current_time,
@@ -290,6 +294,48 @@ class PipecatEngine:
         self.llm.register_function("get_current_time", get_current_time_func)
         self.llm.register_function("convert_time", convert_time_func)
 
+    async def _register_knowledge_base_function(
+        self, document_uuids: list[str]
+    ) -> None:
+        """Register knowledge base retrieval function with the LLM.
+
+        Args:
+            document_uuids: List of document UUIDs to filter the search by
+        """
+        logger.debug(
+            f"Registering knowledge base retrieval function with {len(document_uuids)} document(s)"
+        )
+
+        async def retrieve_kb_func(function_call_params: FunctionCallParams) -> None:
+            logger.info("LLM Function Call EXECUTED: retrieve_from_knowledge_base")
+            logger.info(f"Arguments: {function_call_params.arguments}")
+            try:
+                query = function_call_params.arguments.get("query", "")
+                organization_id = await self._get_organization_id()
+
+                if not organization_id:
+                    raise ValueError(
+                        "Organization ID not available for knowledge base retrieval"
+                    )
+
+                result = await retrieve_from_knowledge_base(
+                    query=query,
+                    organization_id=organization_id,
+                    document_uuids=document_uuids,
+                    limit=3,  # Return top 3 most relevant chunks
+                )
+
+                await function_call_params.result_callback(result)
+
+            except Exception as e:
+                logger.error(f"Knowledge base retrieval failed: {e}")
+                await function_call_params.result_callback(
+                    {"error": str(e), "chunks": [], "query": query, "total_results": 0}
+                )
+
+        # Register the function with the LLM
+        self.llm.register_function("retrieve_from_knowledge_base", retrieve_kb_func)
+
     async def _perform_variable_extraction_if_needed(
         self, previous_node: Optional[Node]
     ) -> None:
@@ -345,6 +391,10 @@ class PipecatEngine:
         # Register custom tool handlers for this node
         if node.tool_uuids and self._custom_tool_manager:
             await self._custom_tool_manager.register_handlers(node.tool_uuids)
+
+        # Register knowledge base retrieval handler if node has documents
+        if node.document_uuids:
+            await self._register_knowledge_base_function(node.document_uuids)
 
         # Set up system message and functions
         (
@@ -574,6 +624,17 @@ class PipecatEngine:
 
         # Add built-in function schemas (calculator and timezone tools)
         functions.extend(self.builtin_function_schemas)
+
+        # Add knowledge base retrieval tool if node has documents
+        if node.document_uuids:
+            kb_tool_def = get_knowledge_base_tool(node.document_uuids)
+            kb_schema = get_function_schema(
+                kb_tool_def["function"]["name"],
+                kb_tool_def["function"]["description"],
+                properties=kb_tool_def["function"]["parameters"].get("properties", {}),
+                required=kb_tool_def["function"]["parameters"].get("required", []),
+            )
+            functions.append(kb_schema)
 
         # Add custom tools from node.tool_uuids
         if node.tool_uuids and self._custom_tool_manager:

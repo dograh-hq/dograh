@@ -58,6 +58,7 @@ class NodeDataDTO(BaseModel):
     delayed_start: bool = False
     delayed_start_duration: Optional[float] = None
     tool_uuids: Optional[List[str]] = None
+    document_uuids: Optional[List[str]] = None
     trigger_path: Optional[str] = None
     # Webhook node specific fields
     enabled: bool = True

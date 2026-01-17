@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from loguru import logger
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -19,7 +20,6 @@ from sqlalchemy import (
     and_,
     text,
 )
-from pgvector.sqlalchemy import Vector
 from sqlalchemy.orm import declarative_base, relationship
 
 from ..enums import (
@@ -929,7 +929,13 @@ class KnowledgeBaseDocumentModel(Base):
     source_url = Column(String, nullable=True)  # If document was fetched from URL
     total_chunks = Column(Integer, nullable=False, default=0)
     processing_status = Column(
-        Enum("pending", "processing", "completed", "failed", name="document_processing_status"),
+        Enum(
+            "pending",
+            "processing",
+            "completed",
+            "failed",
+            name="document_processing_status",
+        ),
         nullable=False,
         default="pending",
         server_default=text("'pending'::document_processing_status"),
@@ -937,7 +943,9 @@ class KnowledgeBaseDocumentModel(Base):
     processing_error = Column(Text, nullable=True)
 
     # Docling conversion metadata
-    docling_metadata = Column(JSON, nullable=False, default=dict)  # Store docling document metadata
+    docling_metadata = Column(
+        JSON, nullable=False, default=dict
+    )  # Store docling document metadata
 
     # Custom metadata (user-defined tags, categories, etc.)
     custom_metadata = Column(JSON, nullable=False, default=dict)
@@ -1000,21 +1008,31 @@ class KnowledgeBaseChunkModel(Base):
 
     # Chunk content
     chunk_text = Column(Text, nullable=False)  # The actual chunk text
-    contextualized_text = Column(Text, nullable=True)  # Enriched text from chunker.contextualize()
+    contextualized_text = Column(
+        Text, nullable=True
+    )  # Enriched text from chunker.contextualize()
 
     # Chunk positioning and metadata
     chunk_index = Column(Integer, nullable=False)  # Position in document (0-based)
 
     # Docling chunk metadata
-    chunk_metadata = Column(JSON, nullable=False, default=dict)  # Store chunk.meta if available
+    chunk_metadata = Column(
+        JSON, nullable=False, default=dict
+    )  # Store chunk.meta if available
 
     # Embedding configuration
-    embedding_model = Column(String(200), nullable=False)  # e.g., "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_dimension = Column(Integer, nullable=False)  # e.g., 384 for all-MiniLM-L6-v2
+    embedding_model = Column(
+        String(200), nullable=False
+    )  # e.g., "sentence-transformers/all-MiniLM-L6-v2"
+    embedding_dimension = Column(
+        Integer, nullable=False
+    )  # e.g., 384 for all-MiniLM-L6-v2
 
     # Vector embedding (pgvector column)
     # The dimension should match the embedding_dimension field
-    embedding = Column(Vector(384), nullable=True)  # Default to 384 for all-MiniLM-L6-v2
+    # Default: 1536 dimensions for OpenAI text-embedding-3-small
+    # SentenceTransformer (384-dim) also supported but stored as 384-dim vectors
+    embedding = Column(Vector(1536), nullable=True)
 
     # Token count (useful for chunking strategy analysis)
     token_count = Column(Integer, nullable=True)
@@ -1036,6 +1054,9 @@ class KnowledgeBaseChunkModel(Base):
         Index("ix_kb_chunks_document_id", "document_id"),
         Index("ix_kb_chunks_organization_id", "organization_id"),
         Index("ix_kb_chunks_chunk_index", "chunk_index"),
+        Index(
+            "ix_kb_chunks_embedding_model", "embedding_model"
+        ),  # For filtering by model
         # Vector similarity search index (using IVFFlat or HNSW)
         # IVFFlat is good for datasets with 10k-1M vectors
         # HNSW is better for larger datasets but uses more memory

@@ -351,6 +351,11 @@ export type DefaultConfigurationsResponse = {
             [key: string]: unknown;
         };
     };
+    embeddings: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
     default_providers: {
         [key: string]: string;
     };
@@ -672,6 +677,10 @@ export type ProcessDocumentRequestSchema = {
      * S3 key of the uploaded file
      */
     s3_key: string;
+    /**
+     * Embedding service to use for processing. Options: 'openai' (default, 1536-dim, requires API key) or 'sentence_transformer' (free, 384-dim)
+     */
+    embedding_service?: 'sentence_transformer' | 'openai';
 };
 
 export type S3SignedUrlResponse = {
@@ -922,6 +931,9 @@ export type UserConfigurationRequestResponseSchema = {
         [key: string]: string | number;
     } | null;
     stt?: {
+        [key: string]: string | number;
+    } | null;
+    embeddings?: {
         [key: string]: string | number;
     } | null;
     test_phone_number?: string | null;

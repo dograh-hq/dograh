@@ -64,6 +64,7 @@ def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
         "llm": _mask_service(config.llm),
         "tts": _mask_service(config.tts),
         "stt": _mask_service(config.stt),
+        "embeddings": _mask_service(config.embeddings),
         "test_phone_number": config.test_phone_number,
         "timezone": config.timezone,
     }

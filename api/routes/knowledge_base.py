@@ -103,6 +103,10 @@ async def process_document(
 
     The document status will be updated from 'pending' -> 'processing' -> 'completed' or 'failed'.
 
+    Embedding Services:
+    * openai (default): High-quality 1536-dimensional embeddings (requires OPENAI_API_KEY)
+    * sentence_transformer: Free, offline-capable, 384-dimensional embeddings
+
     Access Control:
     * Users can only process documents in their organization.
     """
@@ -129,11 +133,13 @@ async def process_document(
             document.id,
             request.s3_key,
             user.selected_organization_id,
+            128,  # max_tokens (default)
+            request.embedding_service,
         )
 
         logger.info(
-            f"Created document {request.document_uuid} (id={document.id}) and enqueued processing, "
-            f"org {user.selected_organization_id}"
+            f"Created document {request.document_uuid} (id={document.id}) and enqueued processing "
+            f"with {request.embedding_service} embeddings, org {user.selected_organization_id}"
         )
 
         return DocumentResponseSchema(
@@ -277,9 +283,7 @@ async def get_document(
         raise
     except Exception as exc:
         logger.error(f"Error getting document: {exc}")
-        raise HTTPException(
-            status_code=500, detail="Failed to get document"
-        ) from exc
+        raise HTTPException(status_code=500, detail="Failed to get document") from exc
 
 
 @router.delete(
@@ -342,15 +346,26 @@ async def search_chunks(
 
     try:
         # Import here to avoid circular dependency
-        from api.services.admin_utils.local_exec import DocumentProcessor
+        from api.services.gen_ai import OpenAIEmbeddingService
 
-        # Initialize processor (reuses cached models)
-        processor = DocumentProcessor(
+        # Try to get user's embeddings configuration
+        user_config = await db_client.get_user_configurations(user.id)
+        embeddings_api_key = None
+        embeddings_model = None
+
+        if user_config.embeddings:
+            embeddings_api_key = user_config.embeddings.api_key
+            embeddings_model = user_config.embeddings.model
+
+        # Initialize embedding service with user config or fallback to env
+        embedding_service = OpenAIEmbeddingService(
             db_client=db_client,
+            api_key=embeddings_api_key,
+            model_id=embeddings_model or "text-embedding-3-small",
         )
 
         # Perform search
-        results = await processor.search_similar_chunks(
+        results = await embedding_service.search_similar_chunks(
             query=request.query,
             organization_id=user.selected_organization_id,
             limit=request.limit,

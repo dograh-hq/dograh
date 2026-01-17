@@ -1,8 +1,9 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
 import { Edit, FileText, Play, PlusIcon, Trash2Icon, Wrench } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import type { DocumentResponseSchema, ToolResponse } from "@/client/types.gen";
 import { DocumentBadges } from "@/components/flow/DocumentBadges";
 import { DocumentSelector } from "@/components/flow/DocumentSelector";
 import { ToolBadges } from "@/components/flow/ToolBadges";
@@ -45,6 +46,8 @@ interface StartCallEditFormProps {
     setToolUuids: (value: string[]) => void;
     documentUuids: string[];
     setDocumentUuids: (value: string[]) => void;
+    tools: ToolResponse[];
+    documents: DocumentResponseSchema[];
 }
 
 interface StartCallNodeProps extends NodeProps {
@@ -56,7 +59,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
         id,
         additionalData: { is_start: true }
     });
-    const { saveWorkflow } = useWorkflow();
+    const { saveWorkflow, tools, documents } = useWorkflow();
 
     // Form state
     const [prompt, setPrompt] = useState(data.prompt ?? "");
@@ -140,6 +143,30 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
         }
     }, [data, open]);
 
+    // Handle cleanup of stale document UUIDs
+    const handleStaleDocuments = useCallback((staleUuids: string[]) => {
+        const cleanedUuids = (data.document_uuids ?? []).filter(uuid => !staleUuids.includes(uuid));
+        handleSaveNodeData({
+            ...data,
+            document_uuids: cleanedUuids.length > 0 ? cleanedUuids : undefined,
+        });
+        setTimeout(async () => {
+            await saveWorkflow();
+        }, 100);
+    }, [data, handleSaveNodeData, saveWorkflow]);
+
+    // Handle cleanup of stale tool UUIDs
+    const handleStaleTools = useCallback((staleUuids: string[]) => {
+        const cleanedUuids = (data.tool_uuids ?? []).filter(uuid => !staleUuids.includes(uuid));
+        handleSaveNodeData({
+            ...data,
+            tool_uuids: cleanedUuids.length > 0 ? cleanedUuids : undefined,
+        });
+        setTimeout(async () => {
+            await saveWorkflow();
+        }, 100);
+    }, [data, handleSaveNodeData, saveWorkflow]);
+
     return (
         <>
             <NodeContent
@@ -163,7 +190,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                             <Wrench className="h-3 w-3" />
                             <span>Tools:</span>
                         </div>
-                        <ToolBadges toolUuids={data.tool_uuids} />
+                        <ToolBadges toolUuids={data.tool_uuids} onStaleUuidsDetected={handleStaleTools} />
                     </div>
                 )}
                 {data.document_uuids && data.document_uuids.length > 0 && (
@@ -172,7 +199,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                             <FileText className="h-3 w-3" />
                             <span>Documents:</span>
                         </div>
-                        <DocumentBadges documentUuids={data.document_uuids} />
+                        <DocumentBadges documentUuids={data.document_uuids} onStaleUuidsDetected={handleStaleDocuments} />
                     </div>
                 )}
             </NodeContent>
@@ -218,6 +245,8 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                         setToolUuids={setToolUuids}
                         documentUuids={documentUuids}
                         setDocumentUuids={setDocumentUuids}
+                        tools={tools ?? []}
+                        documents={documents ?? []}
                     />
                 )}
             </NodeEditDialog>
@@ -250,6 +279,8 @@ const StartCallEditForm = ({
     setToolUuids,
     documentUuids,
     setDocumentUuids,
+    tools,
+    documents,
 }: StartCallEditFormProps) => {
     const handleVariableNameChange = (idx: number, value: string) => {
         const newVars = [...variables];
@@ -435,6 +466,7 @@ const StartCallEditForm = ({
                 <ToolSelector
                     value={toolUuids}
                     onChange={setToolUuids}
+                    tools={tools}
                     description="Select tools that the agent can invoke during this conversation step."
                 />
             </div>
@@ -444,6 +476,7 @@ const StartCallEditForm = ({
                 <DocumentSelector
                     value={documentUuids}
                     onChange={setDocumentUuids}
+                    documents={documents}
                     description="Select documents from the knowledge base that the agent can reference during this conversation step."
                 />
             </div>

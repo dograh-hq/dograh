@@ -1,57 +1,55 @@
 "use client";
 
-import { Badge } from "@/components/ui/badge";
-import { listDocumentsApiV1KnowledgeBaseDocumentsGet } from "@/client/sdk.gen";
-import { useAuth } from "@/lib/auth";
 import { useCallback, useEffect, useState } from "react";
+
+import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import type { DocumentResponseSchema } from "@/client/types.gen";
+import { Badge } from "@/components/ui/badge";
 
 interface DocumentBadgesProps {
     documentUuids: string[];
+    onStaleUuidsDetected?: (staleUuids: string[]) => void;
 }
 
-export const DocumentBadges = ({ documentUuids }: DocumentBadgesProps) => {
-    const { getAccessToken } = useAuth();
+export const DocumentBadges = ({ documentUuids, onStaleUuidsDetected }: DocumentBadgesProps) => {
+    const { documents } = useWorkflow();
     const [documentNames, setDocumentNames] = useState<Record<string, string>>({});
-    const [loading, setLoading] = useState(false);
 
-    const fetchDocuments = useCallback(async () => {
-        if (documentUuids.length === 0) return;
+    const processDocuments = useCallback((docs: DocumentResponseSchema[]) => {
+        const nameMap: Record<string, string> = {};
+        const validUuids = new Set<string>();
 
-        setLoading(true);
-        try {
-            const accessToken = await getAccessToken();
-            const response = await listDocumentsApiV1KnowledgeBaseDocumentsGet({
-                headers: { Authorization: `Bearer ${accessToken}` },
-                query: {
-                    limit: 100,
-                },
+        docs
+            .filter((doc) => documentUuids.includes(doc.document_uuid))
+            .forEach((doc) => {
+                nameMap[doc.document_uuid] = doc.filename;
+                validUuids.add(doc.document_uuid);
             });
+        setDocumentNames(nameMap);
 
-            if (response.data) {
-                const nameMap: Record<string, string> = {};
-                response.data.documents
-                    .filter((doc) => documentUuids.includes(doc.document_uuid))
-                    .forEach((doc) => {
-                        nameMap[doc.document_uuid] = doc.filename;
-                    });
-                setDocumentNames(nameMap);
+        // Detect stale UUIDs - this only runs when we have loaded data (not undefined)
+        if (onStaleUuidsDetected) {
+            const staleUuids = documentUuids.filter(uuid => !validUuids.has(uuid));
+            if (staleUuids.length > 0) {
+                onStaleUuidsDetected(staleUuids);
             }
-        } catch (error) {
-            console.error("Failed to fetch documents:", error);
-        } finally {
-            setLoading(false);
         }
-    }, [documentUuids, getAccessToken]);
+    }, [documentUuids, onStaleUuidsDetected]);
 
     useEffect(() => {
-        fetchDocuments();
-    }, [fetchDocuments]);
+        if (documentUuids.length > 0 && documents !== undefined) {
+            processDocuments(documents);
+        } else if (documentUuids.length === 0) {
+            setDocumentNames({});
+        }
+    }, [documentUuids, documents, processDocuments]);
 
     if (documentUuids.length === 0) {
         return <></>;
     }
 
-    if (loading) {
+    // Show loading while data hasn't loaded yet
+    if (documents === undefined) {
         return <Badge variant="outline">Loading...</Badge>;
     }
 

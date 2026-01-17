@@ -1,18 +1,18 @@
 "use client";
 
+import { FileText } from "lucide-react";
+import Link from "next/link";
+import { useMemo } from "react";
+
+import type { DocumentResponseSchema } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { listDocumentsApiV1KnowledgeBaseDocumentsGet } from "@/client/sdk.gen";
-import type { DocumentResponseSchema } from "@/client/types.gen";
-import { useAuth } from "@/lib/auth";
-import { FileText } from "lucide-react";
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
 
 interface DocumentSelectorProps {
     value: string[];
     onChange: (uuids: string[]) => void;
+    documents: DocumentResponseSchema[];
     disabled?: boolean;
     label?: string;
     description?: string;
@@ -22,43 +22,17 @@ interface DocumentSelectorProps {
 export const DocumentSelector = ({
     value,
     onChange,
+    documents,
     disabled = false,
     label = "Knowledge Base Documents",
     description = "Select documents that the agent can reference during conversations.",
     showLabel = true,
 }: DocumentSelectorProps) => {
-    const { getAccessToken } = useAuth();
-    const [documents, setDocuments] = useState<DocumentResponseSchema[]>([]);
-    const [loading, setLoading] = useState(false);
-
-    const fetchDocuments = useCallback(async () => {
-        setLoading(true);
-        try {
-            const accessToken = await getAccessToken();
-            const response = await listDocumentsApiV1KnowledgeBaseDocumentsGet({
-                headers: { Authorization: `Bearer ${accessToken}` },
-                query: {
-                    limit: 100,
-                },
-            });
-
-            if (response.data) {
-                // Only show completed documents
-                const completedDocs = response.data.documents.filter(
-                    (doc) => doc.processing_status === "completed"
-                );
-                setDocuments(completedDocs);
-            }
-        } catch (error) {
-            console.error("Failed to fetch documents:", error);
-        } finally {
-            setLoading(false);
-        }
-    }, [getAccessToken]);
-
-    useEffect(() => {
-        fetchDocuments();
-    }, [fetchDocuments]);
+    // Only show completed documents
+    const completedDocuments = useMemo(
+        () => documents.filter((doc) => doc.processing_status === "completed"),
+        [documents]
+    );
 
     const handleToggle = (documentUuid: string, checked: boolean) => {
         if (checked) {
@@ -76,25 +50,7 @@ export const DocumentSelector = ({
         return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
     };
 
-    if (loading) {
-        return (
-            <div className="space-y-2">
-                {showLabel && (
-                    <>
-                        <Label>{label}</Label>
-                        {description && (
-                            <Label className="text-xs text-muted-foreground">{description}</Label>
-                        )}
-                    </>
-                )}
-                <div className="border rounded-md p-4 text-sm text-muted-foreground text-center">
-                    Loading documents...
-                </div>
-            </div>
-        );
-    }
-
-    if (documents.length === 0) {
+    if (completedDocuments.length === 0) {
         return (
             <div className="space-y-2">
                 {showLabel && (
@@ -133,7 +89,7 @@ export const DocumentSelector = ({
             )}
             <div className="border rounded-md max-h-[300px] overflow-y-auto">
                 <div className="divide-y">
-                    {documents.map((doc) => (
+                    {completedDocuments.map((doc) => (
                         <div
                             key={doc.document_uuid}
                             className="flex items-start gap-3 p-3 hover:bg-muted/50 transition-colors"

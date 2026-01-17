@@ -133,9 +133,7 @@ class S3FileSystem(BaseFileSystem):
             async with self.session.client(
                 "s3", region_name=self.region_name
             ) as s3_client:
-                await s3_client.download_file(
-                    self.bucket_name, source_path, local_path
-                )
+                await s3_client.download_file(self.bucket_name, source_path, local_path)
             return True
         except ClientError:
             return False

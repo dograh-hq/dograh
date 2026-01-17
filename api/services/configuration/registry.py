@@ -8,6 +8,7 @@ class ServiceType(Enum):
     LLM = auto()
     TTS = auto()
     STT = auto()
+    EMBEDDINGS = auto()
 
 
 class ServiceProviders(str, Enum):
@@ -50,11 +51,16 @@ class BaseSTTConfiguration(BaseServiceConfiguration):
     model: str
 
 
+class BaseEmbeddingsConfiguration(BaseServiceConfiguration):
+    model: str
+
+
 # Unified registry for all service types
 REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
     ServiceType.LLM: {},
     ServiceType.TTS: {},
     ServiceType.STT: {},
+    ServiceType.EMBEDDINGS: {},
 }
 
 T = TypeVar("T", bound=BaseServiceConfiguration)
@@ -91,6 +97,10 @@ def register_tts(cls: Type[BaseTTSConfiguration]):
 
 def register_stt(cls: Type[BaseSTTConfiguration]):
     return register_service(ServiceType.STT)(cls)
+
+
+def register_embeddings(cls: Type[BaseEmbeddingsConfiguration]):
+    return register_service(ServiceType.EMBEDDINGS)(cls)
 
 
 ###################################################### LLM ########################################################################
@@ -436,6 +446,27 @@ STTConfig = Annotated[
     Field(discriminator="provider"),
 ]
 
+###################################################### EMBEDDINGS ########################################################################
+
+OPENAI_EMBEDDING_MODELS = ["text-embedding-3-small"]
+
+
+@register_embeddings
+class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
+    model: str = Field(
+        default="text-embedding-3-small",
+        json_schema_extra={"examples": OPENAI_EMBEDDING_MODELS},
+    )
+    api_key: str
+
+
+EmbeddingsConfig = Annotated[
+    Union[OpenAIEmbeddingsConfiguration],
+    Field(discriminator="provider"),
+]
+
 ServiceConfig = Annotated[
-    Union[LLMConfig, TTSConfig, STTConfig], Field(discriminator="provider")
+    Union[LLMConfig, TTSConfig, STTConfig, EmbeddingsConfig],
+    Field(discriminator="provider"),
 ]

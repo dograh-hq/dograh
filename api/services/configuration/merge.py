@@ -9,7 +9,7 @@ from typing import Dict
 from api.schemas.user_configuration import UserConfiguration
 from api.services.configuration.masking import is_mask_of
 
-SERVICE_FIELDS = ("llm", "tts", "stt")
+SERVICE_FIELDS = ("llm", "tts", "stt", "embeddings")
 
 
 def merge_user_configurations(

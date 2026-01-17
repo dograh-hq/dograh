@@ -332,6 +332,7 @@ class KnowledgeBaseClient(BaseDBClient):
         limit: int = 5,
         document_ids: Optional[List[int]] = None,
         document_uuids: Optional[List[str]] = None,
+        embedding_model: Optional[str] = None,
     ) -> List[dict]:
         """Search for similar chunks using vector similarity.
 
@@ -344,6 +345,7 @@ class KnowledgeBaseClient(BaseDBClient):
             limit: Maximum number of results to return
             document_ids: Optional list of document IDs to filter by
             document_uuids: Optional list of document UUIDs to filter by
+            embedding_model: Optional embedding model to filter by (for dimension compatibility)
 
         Returns:
             List of dictionaries with chunk data and similarity scores, ordered by similarity (highest first)
@@ -359,22 +361,36 @@ class KnowledgeBaseClient(BaseDBClient):
                 "c.organization_id = $2",
                 "d.is_active = true",
             ]
-            params = [None, organization_id, limit]  # $1 will be embedding_str, $3 is limit
+            params = [
+                None,
+                organization_id,
+                limit,
+            ]  # $1 will be embedding_str, $3 is limit
             param_index = 4  # Next available parameter index
 
             # Add document_ids filter if provided
             if document_ids:
-                placeholders = ", ".join(f"${param_index + i}" for i in range(len(document_ids)))
+                placeholders = ", ".join(
+                    f"${param_index + i}" for i in range(len(document_ids))
+                )
                 where_conditions.append(f"c.document_id IN ({placeholders})")
                 params.extend(document_ids)
                 param_index += len(document_ids)
 
             # Add document_uuids filter if provided
             if document_uuids:
-                placeholders = ", ".join(f"${param_index + i}" for i in range(len(document_uuids)))
+                placeholders = ", ".join(
+                    f"${param_index + i}" for i in range(len(document_uuids))
+                )
                 where_conditions.append(f"d.document_uuid IN ({placeholders})")
                 params.extend(document_uuids)
                 param_index += len(document_uuids)
+
+            # Add embedding_model filter if provided (for dimension compatibility)
+            if embedding_model:
+                where_conditions.append(f"c.embedding_model = ${param_index}")
+                params.append(embedding_model)
+                param_index += 1
 
             # Build the complete SQL query
             where_clause = " AND ".join(where_conditions)

@@ -278,6 +278,7 @@ async def _validate_inbound_request(
     x_twilio_signature: str = None,
     x_vobiz_signature: str = None,
     x_vobiz_timestamp: str = None,
+    x_cx_apikey: str = None,
 ) -> tuple[bool, TelephonyError, dict, object]:
     """
     Validate all aspects of inbound request.
@@ -309,9 +310,9 @@ async def _validate_inbound_request(
     if not is_valid:
         return False, TelephonyError.PHONE_NUMBER_NOT_CONFIGURED, {}, None
 
-    # Verify webhook signature if provided
+    # Verify webhook signature/API key if provided
     provider_instance = None
-    if x_twilio_signature or x_vobiz_signature:
+    if x_twilio_signature or x_vobiz_signature or x_cx_apikey:
         backend_endpoint = await TunnelURLProvider.get_tunnel_url()
         webhook_url = (
             f"https://{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
@@ -334,13 +335,18 @@ async def _validate_inbound_request(
                 x_vobiz_timestamp,
                 webhook_body,
             )
+        elif provider_class.PROVIDER_NAME == "cloudonix" and x_cx_apikey:
+            logger.info(f"Verifying Cloudonix API key for URL: {webhook_url}")
+            signature_valid = await provider_instance.verify_inbound_signature(
+                webhook_url, webhook_data, x_cx_apikey
+            )
         else:
             logger.warning(
-                f"No signature validation for provider {provider_class.PROVIDER_NAME}"
+                f"No signature/API key validation for provider {provider_class.PROVIDER_NAME}"
             )
             signature_valid = True
 
-        logger.info(f"Signature validation result: {signature_valid}")
+        logger.info(f"Signature/API key validation result: {signature_valid}")
         if not signature_valid:
             return (
                 False,
@@ -582,6 +588,7 @@ async def handle_twilio_status_callback(
     x_webhook_signature: Optional[str] = Header(None),
 ):
     """Handle Twilio-specific status callbacks."""
+    set_current_run_id(workflow_run_id)
 
     # Parse form data
     form_data = await request.form()
@@ -725,6 +732,7 @@ async def handle_vonage_events(
     Vonage sends all call events to a single endpoint.
     Events include: started, ringing, answered, complete, failed, etc.
     """
+    set_current_run_id(workflow_run_id)
     # Parse the event data
     event_data = await request.json()
     logger.info(f"[run {workflow_run_id}] Received Vonage event: {event_data}")
@@ -802,6 +810,7 @@ async def handle_vobiz_xml_webhook(
 
     Vobiz uses Plivo-compatible XML format similar to Twilio's TwiML.
     """
+    set_current_run_id(workflow_run_id)
     logger.info(
         f"[run {workflow_run_id}] Vobiz XML webhook called - "
         f"workflow_id={workflow_id}, user_id={user_id}, org_id={organization_id}"
@@ -834,7 +843,8 @@ async def handle_vobiz_hangup_callback(
     Vobiz sends callbacks to hangup_url when the call terminates.
     This includes call duration, status, and billing information.
     """
-    # TODO: Remove this debug logging after Vobiz team clarifies webhook authentication
+    set_current_run_id(workflow_run_id)
+
     # Logging all headers and body to understand what Vobiz actually sends
     all_headers = dict(request.headers)
     logger.info(
@@ -954,7 +964,8 @@ async def handle_vobiz_ring_callback(
     Vobiz can send callbacks to ring_url when the call starts ringing.
     This is optional and used for tracking ringing status.
     """
-    # TODO: Remove this debug logging after Vobiz team clarifies webhook authentication
+    set_current_run_id(workflow_run_id)
+
     # Logging all headers and body to understand what Vobiz actually sends
     all_headers = dict(request.headers)
     logger.info(
@@ -1056,6 +1067,7 @@ async def handle_cloudonix_status_callback(
 
     Cloudonix sends call status updates to the callback URL specified during call initiation.
     """
+    set_current_run_id(workflow_run_id)
     # Parse callback data - determine if JSON or form data
     content_type = request.headers.get("content-type", "")
 
@@ -1194,6 +1206,7 @@ async def handle_vobiz_hangup_callback_by_workflow(
                 return {"status": "ignored", "reason": "workflow_run_not_found"}
 
             workflow_run_id = workflow_run_row[0]
+            set_current_run_id(workflow_run_id)
             logger.info(
                 f"[workflow {workflow_id}] Found workflow run {workflow_run_id} for call {call_uuid}"
             )
@@ -1243,12 +1256,14 @@ async def handle_inbound_telephony(
     x_twilio_signature: Optional[str] = Header(None),
     x_vobiz_signature: Optional[str] = Header(None),
     x_vobiz_timestamp: Optional[str] = Header(None),
+    x_cx_apikey: Optional[str] = Header(None),
 ):
     """Handle inbound telephony calls from any supported provider with common processing"""
     logger.info(f"Inbound call received for workflow_id: {workflow_id}")
 
     try:
         webhook_data, data_source = await parse_webhook_request(request)
+        logger.info(f"Inbound call data with data source: {data_source} and data :{dict(webhook_data)}")
         headers = dict(request.headers)
 
         # Detect provider and normalize data
@@ -1293,6 +1308,7 @@ async def handle_inbound_telephony(
             x_twilio_signature,
             x_vobiz_signature,
             x_vobiz_timestamp,
+            x_cx_apikey,
         )
 
         if not is_valid:

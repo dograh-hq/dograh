@@ -297,9 +297,33 @@ class TwilioProvider(TelephonyProvider):
     ) -> bool:
         """
         Determine if this provider can handle the incoming webhook.
-        Twilio webhooks contain CallSid field.
+        
+        Twilio webhooks have specific characteristics:
+        - User-Agent: "TwilioProxy/1.1"
+        - Headers: "x-twilio-signature", "i-twilio-idempotency-token"
+        - Data: CallSid + AccountSid (AC prefix) + ApiVersion
+        - AccountSid format: starts with "AC" (not a domain)
         """
-        return "CallSid" in webhook_data
+        # 1: Check for Twilio-specific User-Agent
+        user_agent = headers.get("user-agent", "")
+        if "twilioproxy" in user_agent.lower() or user_agent.startswith("TwilioProxy"):
+            return True
+            
+        # 2: Check for Twilio-specific headers
+        twilio_headers = ["x-twilio-signature", "i-twilio-idempotency-token", "x-home-region"]
+        if any(header in headers for header in twilio_headers):
+            return True
+        
+        # 3: Check data structure - CallSid + AccountSid with AC prefix + ApiVersion
+        if ("CallSid" in webhook_data and 
+            "AccountSid" in webhook_data and 
+            "ApiVersion" in webhook_data):
+            # Ensure AccountSid looks like Twilio (starts with AC, not a domain)
+            account_sid = webhook_data.get("AccountSid", "")
+            if account_sid.startswith("AC") and not "." in account_sid:
+                return True
+                
+        return False
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:

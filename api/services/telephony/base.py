@@ -278,7 +278,9 @@ class TelephonyProvider(ABC):
 
     @staticmethod
     @abstractmethod
-    async def generate_inbound_response(websocket_url: str, workflow_run_id: int = None) -> tuple:
+    async def generate_inbound_response(
+        websocket_url: str, workflow_run_id: int = None
+    ) -> tuple:
         """
         Generate the appropriate response for an inbound webhook.
 

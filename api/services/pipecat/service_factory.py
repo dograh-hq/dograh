@@ -1,4 +1,3 @@
-import os
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -242,24 +241,3 @@ def create_llm_service(user_config):
         )
     else:
         raise HTTPException(status_code=400, detail="Invalid LLM provider")
-
-
-def create_voicemail_classification_llm():
-    """Create a fast, lightweight LLM service for voicemail classification.
-
-    Uses gpt-4o-mini which is fast and cost-effective for simple classification tasks.
-    The model only needs to output "CONVERSATION" or "VOICEMAIL" based on transcriptions.
-
-    Returns:
-        OpenAILLMService instance, or None if OPENAI_API_KEY is not set.
-    """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        logger.warning("OPENAI_API_KEY not set - voicemail detection will be disabled")
-        return None
-
-    return OpenAILLMService(
-        api_key=api_key,
-        model="gpt-4o",
-        params=OpenAILLMService.InputParams(temperature=0.0),
-    )

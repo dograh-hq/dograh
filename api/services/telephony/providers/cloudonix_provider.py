@@ -434,29 +434,37 @@ class CloudonixProvider(TelephonyProvider):
         user_agent = headers.get("user-agent", "").lower()
         if "cloudonix" in user_agent:
             return True
-        
+
         # 2: Check for Cloudonix-specific headers
-        cloudonix_headers = ["x-cx-apikey", "x-cx-domain", "x-cx-session", "x-cx-source"]
+        cloudonix_headers = [
+            "x-cx-apikey",
+            "x-cx-domain",
+            "x-cx-session",
+            "x-cx-source",
+        ]
         if any(header in headers for header in cloudonix_headers):
             return True
-        
+
         # 3: Check data structure for Cloudonix-specific fields
-        if ("SessionData" in webhook_data and "Domain" in webhook_data and 
-            webhook_data.get("Domain", "").endswith(".cloudonix.net")):
+        if (
+            "SessionData" in webhook_data
+            and "Domain" in webhook_data
+            and webhook_data.get("Domain", "").endswith(".cloudonix.net")
+        ):
             return True
-            
+
         # Check if AccountSid is a Cloudonix domain
         account_sid = webhook_data.get("AccountSid", "")
         if account_sid.endswith(".cloudonix.net"):
             return True
-            
+
         return False
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
         """
         Parse Cloudonix-specific inbound webhook data into normalized format.
-        
+
         Cloudonix webhook structure includes:
         - CallSid: Call id
         - From: Caller number
@@ -467,13 +475,11 @@ class CloudonixProvider(TelephonyProvider):
 
         session_data = webhook_data.get("SessionData", {})
         token = session_data.get("token", "") if isinstance(session_data, dict) else ""
-        
-        call_id = (webhook_data.get("Session") or 
-                  webhook_data.get("CallSid") or 
-                  token)
-        
-        account_id = (webhook_data.get("Domain") or webhook_data.get("AccountSid", ""))
-        
+
+        call_id = webhook_data.get("Session") or webhook_data.get("CallSid") or token
+
+        account_id = webhook_data.get("Domain") or webhook_data.get("AccountSid", "")
+
         # Extract underlying provider information from SessionData if available
         session_data = webhook_data.get("SessionData", {})
         underlying_provider = None
@@ -482,7 +488,7 @@ class CloudonixProvider(TelephonyProvider):
             trunk_headers = profile.get("trunk-sip-headers", {})
             if "Twilio-AccountSid" in trunk_headers:
                 underlying_provider = "twilio"
-        
+
         return NormalizedInboundData(
             provider=CloudonixProvider.PROVIDER_NAME,
             call_id=call_id,
@@ -492,7 +498,7 @@ class CloudonixProvider(TelephonyProvider):
             call_status=webhook_data.get("CallStatus", "in-progress"),
             account_id=account_id,
             from_country=webhook_data.get("FromCountry"),
-            to_country=webhook_data.get("ToCountry"), 
+            to_country=webhook_data.get("ToCountry"),
             raw_data={
                 **webhook_data,
                 "underlying_provider": underlying_provider,
@@ -503,9 +509,9 @@ class CloudonixProvider(TelephonyProvider):
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
         """
         Validate that the account_id from webhook matches the Cloudonix configuration.
-        
+
         For Cloudonix:
-        - webhook_account_id is the Domain field (e.g., "test1.cloudonix.net") 
+        - webhook_account_id is the Domain field (e.g., "test1.cloudonix.net")
         - config domain_id stores the same domain string
         """
         if not webhook_account_id:
@@ -551,30 +557,30 @@ class CloudonixProvider(TelephonyProvider):
     ) -> bool:
         """
         Verify the API key of an inbound Cloudonix webhook for security.
-        
+
         Cloudonix uses x-cx-apikey header validation instead of signature verification.
         The API key from the webhook should match the bearer_token in our configuration.
         """
         if not api_key:
             logger.warning("No x-cx-apikey provided in Cloudonix webhook")
             return False
-            
+
         # The bearer_token in config is the same as x-cx-apikey header value
         if not self.bearer_token:
             logger.warning("No bearer_token configured for Cloudonix provider")
             return False
-            
+
         # Compare the API keys
         is_valid = api_key == self.bearer_token
-        
+
         if is_valid:
             logger.info("Cloudonix x-cx-apikey validation successful")
         else:
-            logger.warning(f"Cloudonix x-cx-apikey validation failed. Expected key ending with ...{self.bearer_token[-8:] if len(self.bearer_token) > 8 else 'SHORT_KEY'}")
-            
-        return True #TODO: update this post clarification from cloudonix
+            logger.warning(
+                f"Cloudonix x-cx-apikey validation failed. Expected key ending with ...{self.bearer_token[-8:] if len(self.bearer_token) > 8 else 'SHORT_KEY'}"
+            )
 
-    
+        return True  # TODO: update this post clarification from cloudonix
 
     @staticmethod
     async def generate_inbound_response(
@@ -582,11 +588,11 @@ class CloudonixProvider(TelephonyProvider):
     ) -> tuple:
         """
         Generate the appropriate CXML response for an inbound Cloudonix webhook.
-        
+
         Returns CXML to connect to WebSocket, same format as outbound calls.
         """
         from fastapi import Response
-        
+
         # Generate CXML response (same format as outbound calls)
         cxml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -595,26 +601,23 @@ class CloudonixProvider(TelephonyProvider):
     </Connect>
     <Pause length="40"/>
 </Response>"""
-        
+
         logger.info(f"Cloudonix inbound CXML response content:")
         logger.info(cxml_content)
-        
-        response = Response(
-            content=cxml_content, 
-            media_type="application/xml"
-        )
-        
+
+        response = Response(content=cxml_content, media_type="application/xml")
+
         logger.info(f"Cloudonix inbound response object: {response}")
         logger.info(f"Response headers: {response.headers}")
         logger.info(f"Response media type: {response.media_type}")
-        
+
         return response
 
     @staticmethod
     def generate_validation_error_response(error_type) -> tuple:
         """
         Generate Cloudonix-specific error response for validation failures.
-        
+
         Since Cloudonix is TwiML-compatible, we use the same XML format.
         """
         from fastapi import Response

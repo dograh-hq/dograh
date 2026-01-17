@@ -69,6 +69,8 @@ class PipecatEngine:
         node_transition_callback: Optional[
             Callable[[str, Optional[str]], Awaitable[None]]
         ] = None,
+        embeddings_api_key: Optional[str] = None,
+        embeddings_model: Optional[str] = None,
     ):
         self.task = task
         self.llm = llm
@@ -102,6 +104,10 @@ class PipecatEngine:
 
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
+
+        # Embeddings configuration (passed from run_pipeline.py)
+        self._embeddings_api_key: Optional[str] = embeddings_api_key
+        self._embeddings_model: Optional[str] = embeddings_model
 
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -318,11 +324,19 @@ class PipecatEngine:
                         "Organization ID not available for knowledge base retrieval"
                     )
 
+                if not self._embeddings_api_key:
+                    raise ValueError(
+                        "Embeddings API key not configured. Please set your API key in "
+                        "Model Configurations > Embedding."
+                    )
+
                 result = await retrieve_from_knowledge_base(
                     query=query,
                     organization_id=organization_id,
                     document_uuids=document_uuids,
                     limit=3,  # Return top 3 most relevant chunks
+                    embeddings_api_key=self._embeddings_api_key,
+                    embeddings_model=self._embeddings_model,
                 )
 
                 await function_call_params.result_callback(result)

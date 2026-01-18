@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.11.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.10.0...dograh-v1.11.0) (2026-01-18)
+
+
+### Features
+
+* add end_call tool ([#118](https://github.com/dograh-hq/dograh/issues/118)) ([a172db8](https://github.com/dograh-hq/dograh/commit/a172db8022469631826a3198382518c26e812c72))
+* add rtf in logs ([#119](https://github.com/dograh-hq/dograh/issues/119)) ([cac2587](https://github.com/dograh-hq/dograh/commit/cac25879bf0ca62385bd7ba3444b911ef67494bc))
+* add transcript panel during live call for better visibility ([#116](https://github.com/dograh-hq/dograh/issues/116)) ([e771247](https://github.com/dograh-hq/dograh/commit/e7712474c14701ff415881d0faff76d62ae354e7))
+* handle cloudonix incoming calls ([#121](https://github.com/dograh-hq/dograh/issues/121)) ([e2fa4bb](https://github.com/dograh-hq/dograh/commit/e2fa4bbb98bba5cc6ef9c568e686b6c1097805dd))
+* knowledge base functionality for the voice agent ([#120](https://github.com/dograh-hq/dograh/issues/120)) ([ef5b9e4](https://github.com/dograh-hq/dograh/commit/ef5b9e40a90703c17c23f2d003045df28deb490e))
+
+
+### Bug Fixes
+
+* fix npm run build ([692ef27](https://github.com/dograh-hq/dograh/commit/692ef27751352922f8fbd3c14a5b4877c11cdb66))
+* fix OPENAI_API_KEY bug in retrieval ([d35eeb1](https://github.com/dograh-hq/dograh/commit/d35eeb1b7b3ddc449adbee0243c2745103d86f2c))
+* make embeddings api key optional ([3b614b8](https://github.com/dograh-hq/dograh/commit/3b614b8b8252cb127f2792da02d408f6aad25ab1))
+
 ## [1.10.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.9.0...dograh-v1.10.0) (2026-01-13)
 
 

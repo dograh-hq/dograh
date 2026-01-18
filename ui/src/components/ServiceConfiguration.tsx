@@ -385,7 +385,8 @@ export default function ServiceConfiguration() {
                             type="text"
                             placeholder="Enter API key"
                             {...register(`${service}_api_key`, {
-                                required: providerSchema.required?.includes("api_key"),
+                                // Embeddings is optional, so don't require its api_key
+                                required: service !== "embeddings" && providerSchema.required?.includes("api_key"),
                             })}
                         />
                         {errors[`${service}_api_key`] && (
@@ -547,7 +548,8 @@ export default function ServiceConfiguration() {
                 {...(actualSchema?.type === "number" && { step: "any" })}
                 placeholder={`Enter ${field}`}
                 {...register(`${service}_${field}`, {
-                    required: providerSchema.required?.includes(field),
+                    // Embeddings is optional, so don't require its fields
+                    required: service !== "embeddings" && providerSchema.required?.includes(field),
                     valueAsNumber: actualSchema?.type === "number"
                 })}
             />

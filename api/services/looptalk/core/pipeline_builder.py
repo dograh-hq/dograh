@@ -103,7 +103,6 @@ class LoopTalkPipelineBuilder:
 
         # Set the context and audio_buffer after creation
         engine.set_context(context)
-        engine.set_audio_buffer(audio_buffer)
 
         context_aggregator = LLMContextAggregatorPair(context)
 

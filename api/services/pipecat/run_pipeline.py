@@ -44,31 +44,22 @@ from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
-from pipecat.processors.aggregators.llm_response import (
-    LLMAssistantAggregatorParams,
-    LLMUserAggregatorParams,
-)
 from pipecat.processors.aggregators.llm_response_universal import (
+    LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.turns.mute.mute_until_first_bot_complete_user_mute_strategy import (
-    MuteUntilFirstBotCompleteUserMuteStrategy,
-)
+from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
 from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
     TranscriptionUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
     VADUserTurnStartStrategy,
 )
-from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
-    TurnAnalyzerUserTurnStopStrategy,
-)
+from pipecat.turns.user_stop import TranscriptionUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.context import set_current_run_id
 from pipecat.utils.enums import EndTaskReason
@@ -532,7 +523,6 @@ async def _run_pipeline(
 
     # Set the context and audio_buffer after creation
     engine.set_context(context)
-    engine.set_audio_buffer(audio_buffer)
 
     # Set Stasis connection for immediate transfers (if available)
     if stasis_connection:
@@ -545,14 +535,11 @@ async def _run_pipeline(
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=UserTurnStrategies(
             start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
-            stop=[
-                TurnAnalyzerUserTurnStopStrategy(
-                    turn_analyzer=LocalSmartTurnAnalyzerV3()
-                )
-            ],
+            stop=[TranscriptionUserTurnStopStrategy()],
         ),
         user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
         enable_emulated_vad_interruptions=True,
+        user_idle_timeout=max_user_idle_timeout,
     )
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params
@@ -567,13 +554,20 @@ async def _run_pipeline(
     )
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
-    # Use engine's user idle callback with configured timeout
-    user_idle_disconnect = UserIdleProcessor(
-        callback=engine.create_user_idle_callback(), timeout=max_user_idle_timeout
-    )
 
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
+
+    # Register user idle event handlers
+    user_idle_handler = engine.create_user_idle_handler()
+
+    @user_context_aggregator.event_handler("on_user_turn_idle")
+    async def on_user_turn_idle(aggregator):
+        await user_idle_handler.handle_idle(aggregator)
+
+    @user_context_aggregator.event_handler("on_user_turn_started")
+    async def on_user_turn_started(aggregator, strategy):
+        user_idle_handler.reset()
 
     # Create voicemail detector if enabled in the workflow's start node
     voicemail_detector = None
@@ -609,7 +603,6 @@ async def _run_pipeline(
         assistant_context_aggregator,
         pipeline_engine_callback_processor,
         pipeline_metrics_aggregator,
-        user_idle_disconnect,
         voicemail_detector=voicemail_detector,
     )
 

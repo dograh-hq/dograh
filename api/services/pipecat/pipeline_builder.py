@@ -48,7 +48,6 @@ def build_pipeline(
     assistant_context_aggregator,
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
-    user_idle_disconnect,
     voicemail_detector=None,
 ):
     """Build the main pipeline with all components.
@@ -75,7 +74,6 @@ def build_pipeline(
     # Continue with the rest of the pipeline
     processors.extend(
         [
-            user_idle_disconnect,
             transcript.user(),
             user_context_aggregator,
             llm,  # LLM

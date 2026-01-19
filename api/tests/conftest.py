@@ -41,7 +41,7 @@ class MockTransportProcessor(FrameProcessor):
 
     Args:
         emit_bot_speaking: If True, also emits BotSpeakingFrame on TTSAudioRawFrame
-            which is needed for UserIdleProcessor to start conversation tracking. Default True.
+            which is needed for user idle tracking to start conversation tracking. Default True.
     """
 
     def __init__(
@@ -63,7 +63,7 @@ class MockTransportProcessor(FrameProcessor):
                 BotStartedSpeakingFrame(), direction=FrameDirection.UPSTREAM
             )
         elif isinstance(frame, TTSAudioRawFrame):
-            # Emit BotSpeakingFrame - this is what triggers the UserIdleProcessor
+            # Emit BotSpeakingFrame - this is what triggers user idle tracking
             # to start conversation tracking
             if self._emit_bot_speaking:
                 await self.push_frame(BotSpeakingFrame())

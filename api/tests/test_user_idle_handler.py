@@ -1,10 +1,10 @@
 """
 Simulates a user idle condition and tests the behaviour
-of the user idle processor.
+of the user idle handler.
 
 This module tests the behavior when the user becomes idle during a conversation,
-ensuring the UserIdleProcessor properly triggers the callback and the engine
-handles it correctly.
+ensuring the user_idle_timeout in LLMUserAggregatorParams properly triggers
+the on_user_turn_idle event and the engine handles it correctly.
 """
 
 import asyncio
@@ -23,8 +23,8 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response import LLMAssistantAggregatorParams
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
 )
-from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.tests import MockLLMService, MockTTSService
 
 
@@ -32,8 +32,8 @@ async def run_pipeline_with_user_idle(
     workflow: WorkflowGraph,
     user_idle_timeout: float = 0.2,
     mock_steps: list | None = None,
-) -> tuple[MockLLMService, LLMContext, UserIdleProcessor]:
-    """Run a pipeline with UserIdleProcessor and simulate user idle condition.
+) -> tuple[MockLLMService, LLMContext]:
+    """Run a pipeline with user_idle_timeout and simulate user idle condition.
 
     Args:
         workflow: The workflow graph to use.
@@ -42,7 +42,7 @@ async def run_pipeline_with_user_idle(
             defaults to a simple greeting followed by text responses.
 
     Returns:
-        Tuple of (MockLLMService, LLMContext, UserIdleProcessor) for assertions.
+        Tuple of (MockLLMService, LLMContext) for assertions.
     """
     # Create mock responses - bot will speak first, then respond to idle prompts
     # Step 1: Initial greeting
@@ -64,10 +64,11 @@ async def run_pipeline_with_user_idle(
     # Create LLM context
     context = LLMContext()
 
-    # Create context aggregator with both user and assistant aggregators
+    # Create context aggregator with user_idle_timeout in user_params
     assistant_params = LLMAssistantAggregatorParams(expect_stripped_words=True)
+    user_params = LLMUserAggregatorParams(user_idle_timeout=user_idle_timeout)
     context_aggregator = LLMContextAggregatorPair(
-        context, assistant_params=assistant_params
+        context, assistant_params=assistant_params, user_params=user_params
     )
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
@@ -81,18 +82,20 @@ async def run_pipeline_with_user_idle(
         workflow_run_id=1,
     )
 
-    # Create UserIdleProcessor with engine's callback and a short timeout
-    user_idle_processor = UserIdleProcessor(
-        callback=engine.create_user_idle_callback(),
-        timeout=user_idle_timeout,
-    )
+    # Register user idle event handlers
+    user_idle_handler = engine.create_user_idle_handler()
 
-    # Build the pipeline:
-    # llm -> mock_transport -> user_idle_processor -> assistant_context_aggregator
-    # The user_context_aggregator would normally be at the start for user input
+    @user_context_aggregator.event_handler("on_user_turn_idle")
+    async def on_user_turn_idle(aggregator):
+        await user_idle_handler.handle_idle(aggregator)
+
+    @user_context_aggregator.event_handler("on_user_turn_started")
+    async def on_user_turn_started(aggregator, strategy):
+        user_idle_handler.reset()
+
+    # Build the pipeline
     pipeline = Pipeline(
         [
-            user_idle_processor,
             user_context_aggregator,
             llm,
             tts,
@@ -154,11 +157,11 @@ async def run_pipeline_with_user_idle(
                 return_exceptions=True,
             )
 
-    return llm, context, user_idle_processor
+    return llm, context
 
 
 class TestUserIdleHandler:
-    """Test user idle handling through PipecatEngine and UserIdleProcessor."""
+    """Test user idle handling through PipecatEngine and UserIdleHandler."""
 
     @pytest.mark.asyncio
     async def test_user_idle_triggers_callback(self, simple_workflow: WorkflowGraph):
@@ -167,13 +170,13 @@ class TestUserIdleHandler:
         This test verifies that when:
         1. The bot starts speaking (triggers conversation tracking)
         2. No user input is received for the timeout period
-        3. The UserIdleProcessor triggers the idle callback
+        3. The on_user_turn_idle event triggers the idle handler
 
-        The engine's user idle callback should:
+        The engine's user idle handler should:
         - First retry: Send a message asking if user is still there
         - Second retry: Send goodbye message and end the call
         """
-        llm, context, user_idle_processor = await run_pipeline_with_user_idle(
+        llm, context = await run_pipeline_with_user_idle(
             workflow=simple_workflow,
             user_idle_timeout=0.2,  # Short timeout for faster test
         )
@@ -220,7 +223,7 @@ class TestUserIdleHandler:
             MockLLMService.create_text_chunks("Response 3"),
         ]
 
-        llm, context, user_idle_processor = await run_pipeline_with_user_idle(
+        llm, context = await run_pipeline_with_user_idle(
             workflow=three_node_workflow,
             user_idle_timeout=0.2,
             mock_steps=mock_steps,

@@ -48,6 +48,7 @@ class Node:
         self.delayed_start = data.delayed_start
         self.delayed_start_duration = data.delayed_start_duration
         self.tool_uuids = data.tool_uuids
+        self.document_uuids = data.document_uuids
 
         self.data = data
 
@@ -113,7 +114,6 @@ class WorkflowGraph:
         #     )
 
         errors.extend(self._assert_start_node())
-        errors.extend(self._assert_end_node())
         errors.extend(self._assert_connection_counts())
         errors.extend(self._assert_global_node())
         errors.extend(self._assert_node_configs())
@@ -174,30 +174,6 @@ class WorkflowGraph:
             )
         return errors
 
-    def _assert_end_node(self):
-        errors: list[WorkflowError] = []
-        end_node = [n for n in self.nodes.values() if n.data.is_end]
-        if not end_node:
-            errors.append(
-                WorkflowError(
-                    kind=ItemKind.workflow,
-                    id=None,
-                    field=None,
-                    message="Workflow must have exactly one end node",
-                )
-            )
-
-        elif len(end_node) > 1:
-            errors.append(
-                WorkflowError(
-                    kind=ItemKind.workflow,
-                    id=None,
-                    field=None,
-                    message="Workflow must have exactly one end node",
-                )
-            )
-        return errors
-
     def _assert_connection_counts(self):
         errors: list[WorkflowError] = []
 
@@ -214,16 +190,6 @@ class WorkflowGraph:
             in_d, out_d = in_deg[n.id], out_deg[n.id]
 
             match n.node_type:
-                case NodeType.startNode:
-                    if in_d != 0 or out_d < 1:
-                        errors.append(
-                            WorkflowError(
-                                kind=ItemKind.node,
-                                id=n.id,
-                                field=None,
-                                message=f"StartNode must have at least 1 outgoing edge",
-                            )
-                        )
                 case NodeType.endNode:
                     if in_d < 1 or out_d != 0:
                         errors.append(
@@ -235,13 +201,13 @@ class WorkflowGraph:
                             )
                         )
                 case NodeType.agentNode:
-                    if in_d < 1 or out_d < 1:
+                    if in_d < 1:
                         errors.append(
                             WorkflowError(
                                 kind=ItemKind.node,
                                 id=n.id,
                                 field=None,
-                                message=f"Worker must have at least 1 incoming and 1 outgoing edge",
+                                message=f"Worker must have at least 1 incoming edge",
                             )
                         )
 

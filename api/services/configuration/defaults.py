@@ -13,6 +13,7 @@ left as ``None``.
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
     ElevenlabsTTSConfiguration,
+    OpenAIEmbeddingsConfiguration,
     OpenAILLMService,
     ServiceProviders,
 )
@@ -22,6 +23,7 @@ _DEFAULTS = {
     "llm": (ServiceProviders.OPENAI, OpenAILLMService),
     "tts": (ServiceProviders.ELEVENLABS, ElevenlabsTTSConfiguration),
     "stt": (ServiceProviders.DEEPGRAM, DeepgramSTTConfiguration),
+    "embeddings": (ServiceProviders.OPENAI, OpenAIEmbeddingsConfiguration),
 }
 
 # Public mapping of service name -> default provider

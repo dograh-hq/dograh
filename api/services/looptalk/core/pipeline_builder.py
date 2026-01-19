@@ -83,28 +83,29 @@ class LoopTalkPipelineBuilder:
 
         logger.debug(f"Created services for {role}: STT={stt}, LLM={llm}, TTS={tts}")
 
-        audio_buffer, audio_synchronizer, transcript, context = (
-            create_pipeline_components(audio_config)
-        )
-
-        context_aggregator = LLMContextAggregatorPair(context)
-
         # Get workflow graph
         workflow_graph = WorkflowGraph(
             ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
         )
 
-        # Create engine
+        # Create engine first (needed for create_pipeline_components)
         engine = PipecatEngine(
-            task=None,  # Will be set after creating the task
             llm=llm,
-            context=context,
-            tts=tts,
             workflow=workflow_graph,
             call_context_vars={},
-            audio_buffer=audio_buffer,
             workflow_run_id=None,  # LoopTalk doesn't have workflow runs
         )
+
+        # Create pipeline components with audio configuration and engine
+        audio_buffer, transcript, context = create_pipeline_components(
+            audio_config, engine
+        )
+
+        # Set the context and audio_buffer after creation
+        engine.set_context(context)
+        engine.set_audio_buffer(audio_buffer)
+
+        context_aggregator = LLMContextAggregatorPair(context)
 
         # Create STT mute filter
         stt_mute_filter = STTMuteFilter(
@@ -124,19 +125,13 @@ class LoopTalkPipelineBuilder:
         user_context_aggregator = context_aggregator.user()
         assistant_context_aggregator = context_aggregator.assistant()
 
-        # Register processors with synchronizer for merged audio
-        audio_synchronizer.register_processors(
-            audio_buffer.input(), audio_buffer.output()
-        )
-
         # Get audio streamer for real-time streaming
         audio_streamer = get_or_create_audio_streamer(str(test_session_id), role)
 
-        # Create pipeline
+        # Create pipeline with AudioBufferProcessor after transport.output()
         pipeline = Pipeline(
             [
                 transport.input(),
-                audio_buffer.input(),  # Record input audio
                 audio_streamer,  # Stream audio to connected clients
                 stt_mute_filter,
                 stt,
@@ -146,7 +141,7 @@ class LoopTalkPipelineBuilder:
                 pipeline_engine_callback_processor,
                 tts,
                 transport.output(),
-                audio_buffer.output(),  # Record output audio
+                audio_buffer,  # AudioBufferProcessor - records both input and output audio
                 transcript.assistant(),
                 assistant_context_aggregator,
             ]
@@ -157,13 +152,12 @@ class LoopTalkPipelineBuilder:
         task = create_pipeline_task(pipeline, conversation_id, audio_config)
 
         # Set the task on the engine
-        engine.task = task
+        engine.set_task(task)
 
         return {
             "task": task,
             "engine": engine,
             "audio_buffer": audio_buffer,
-            "audio_synchronizer": audio_synchronizer,
             "transcript": transcript,
             "assistant_context_aggregator": assistant_context_aggregator,
             "audio_streamer": audio_streamer,

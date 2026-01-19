@@ -75,7 +75,7 @@ def create_user_idle_callback(engine: "PipecatEngine"):
 
         message = {
             "role": "system",
-            "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day.",
+            "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
         }
         await user_idle.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
         await engine.send_end_task_frame(

@@ -8,6 +8,7 @@ class ServiceType(Enum):
     LLM = auto()
     TTS = auto()
     STT = auto()
+    EMBEDDINGS = auto()
 
 
 class ServiceProviders(str, Enum):
@@ -21,6 +22,7 @@ class ServiceProviders(str, Enum):
     AZURE = "azure"
     DOGRAH = "dograh"
     SARVAM = "sarvam"
+    SPEECHMATICS = "speechmatics"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -49,11 +51,16 @@ class BaseSTTConfiguration(BaseServiceConfiguration):
     model: str
 
 
+class BaseEmbeddingsConfiguration(BaseServiceConfiguration):
+    model: str
+
+
 # Unified registry for all service types
 REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
     ServiceType.LLM: {},
     ServiceType.TTS: {},
     ServiceType.STT: {},
+    ServiceType.EMBEDDINGS: {},
 }
 
 T = TypeVar("T", bound=BaseServiceConfiguration)
@@ -92,6 +99,10 @@ def register_stt(cls: Type[BaseSTTConfiguration]):
     return register_service(ServiceType.STT)(cls)
 
 
+def register_embeddings(cls: Type[BaseEmbeddingsConfiguration]):
+    return register_service(ServiceType.EMBEDDINGS)(cls)
+
+
 ###################################################### LLM ########################################################################
 
 # Suggested models for each provider (used for UI dropdown)
@@ -121,7 +132,7 @@ GROQ_MODELS = [
     "openai/gpt-oss-120b",
 ]
 AZURE_MODELS = ["gpt-4.1-mini"]
-DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen", "zen_lite"]
+DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen"]
 
 
 @register_llm
@@ -240,6 +251,7 @@ class DograhTTSService(BaseTTSConfiguration):
         default="default", json_schema_extra={"examples": DOGRAH_TTS_MODELS}
     )
     voice: str = "default"
+    speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice")
     api_key: str
 
 
@@ -261,13 +273,17 @@ SARVAM_LANGUAGES = [
 ]
 
 
-# @register_tts
-# class SarvamTTSConfiguration(BaseTTSConfiguration):
-#     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
-#     model: str = Field(default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS})
-#     voice: str = Field(default="anushka", json_schema_extra={"examples": SARVAM_VOICES})
-#     language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
-#     api_key: str
+@register_tts
+class SarvamTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+    model: str = Field(
+        default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS}
+    )
+    voice: str = Field(default="anushka", json_schema_extra={"examples": SARVAM_VOICES})
+    language: str = Field(
+        default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
+    )
+    api_key: str
 
 
 TTSConfig = Annotated[
@@ -276,7 +292,7 @@ TTSConfig = Annotated[
         OpenAITTSService,
         ElevenlabsTTSConfiguration,
         DograhTTSService,
-        # SarvamTTSConfiguration,
+        SarvamTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -352,6 +368,39 @@ class OpenAISTTConfiguration(BaseSTTConfiguration):
 
 # Dograh STT Service
 DOGRAH_STT_MODELS = ["default"]
+DOGRAH_STT_LANGUAGES = [
+    "multi",
+    "en",
+    "en-US",
+    "en-GB",
+    "en-AU",
+    "en-IN",
+    "es",
+    "es-419",
+    "fr",
+    "fr-CA",
+    "de",
+    "it",
+    "pt",
+    "pt-BR",
+    "nl",
+    "hi",
+    "ja",
+    "ko",
+    "zh-CN",
+    "zh-TW",
+    "ru",
+    "pl",
+    "tr",
+    "uk",
+    "vi",
+    "sv",
+    "da",
+    "no",
+    "fi",
+    "id",
+    "th",
+]
 
 
 @register_stt
@@ -360,6 +409,9 @@ class DograhSTTService(BaseSTTConfiguration):
     model: str = Field(
         default="default", json_schema_extra={"examples": DOGRAH_STT_MODELS}
     )
+    language: str = Field(
+        default="multi", json_schema_extra={"examples": DOGRAH_STT_LANGUAGES}
+    )
     api_key: str
 
 
@@ -367,12 +419,56 @@ class DograhSTTService(BaseSTTConfiguration):
 SARVAM_STT_MODELS = ["saarika:v2.5", "saaras:v2"]
 
 
-# @register_stt
-# class SarvamSTTConfiguration(BaseSTTConfiguration):
-#     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
-#     model: str = Field(default="saarika:v2.5", json_schema_extra={"examples": SARVAM_STT_MODELS})
-#     language: str = Field(default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES})
-#     api_key: str
+@register_stt
+class SarvamSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+    model: str = Field(
+        default="saarika:v2.5", json_schema_extra={"examples": SARVAM_STT_MODELS}
+    )
+    language: str = Field(
+        default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
+    )
+    api_key: str
+
+
+# Speechmatics STT Service
+SPEECHMATICS_STT_LANGUAGES = [
+    "en",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "pt",
+    "nl",
+    "ja",
+    "ko",
+    "zh",
+    "ru",
+    "ar",
+    "hi",
+    "pl",
+    "tr",
+    "vi",
+    "th",
+    "id",
+    "ms",
+    "sv",
+    "da",
+    "no",
+    "fi",
+]
+
+
+@register_stt
+class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS
+    model: str = Field(
+        default="enhanced", description="Operating point: standard or enhanced"
+    )
+    language: str = Field(
+        default="en", json_schema_extra={"examples": SPEECHMATICS_STT_LANGUAGES}
+    )
+    api_key: str
 
 
 STTConfig = Annotated[
@@ -380,11 +476,33 @@ STTConfig = Annotated[
         DeepgramSTTConfiguration,
         OpenAISTTConfiguration,
         DograhSTTService,
-        # SarvamSTTConfiguration,
+        SpeechmaticsSTTConfiguration,
+        SarvamSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]
 
+###################################################### EMBEDDINGS ########################################################################
+
+OPENAI_EMBEDDING_MODELS = ["text-embedding-3-small"]
+
+
+@register_embeddings
+class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
+    model: str = Field(
+        default="text-embedding-3-small",
+        json_schema_extra={"examples": OPENAI_EMBEDDING_MODELS},
+    )
+    api_key: str
+
+
+EmbeddingsConfig = Annotated[
+    Union[OpenAIEmbeddingsConfiguration],
+    Field(discriminator="provider"),
+]
+
 ServiceConfig = Annotated[
-    Union[LLMConfig, TTSConfig, STTConfig], Field(discriminator="provider")
+    Union[LLMConfig, TTSConfig, STTConfig, EmbeddingsConfig],
+    Field(discriminator="provider"),
 ]

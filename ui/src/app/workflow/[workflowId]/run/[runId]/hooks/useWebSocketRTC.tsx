@@ -15,6 +15,23 @@ interface UseWebSocketRTCProps {
     initialContextVariables?: Record<string, string> | null;
 }
 
+export interface FeedbackMessage {
+    id: string;
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric';
+    text: string;
+    final?: boolean;
+    timestamp: string;
+    functionName?: string;
+    status?: 'running' | 'completed';
+    // Node transition fields
+    nodeName?: string;
+    previousNode?: string;
+    // TTFB metric fields
+    ttfbSeconds?: number;
+    processor?: string;
+    model?: string;
+}
+
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables }: UseWebSocketRTCProps) => {
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'failed'>('idle');
     const [connectionActive, setConnectionActive] = useState(false);
@@ -24,6 +41,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [workflowConfigModalOpen, setWorkflowConfigModalOpen] = useState(false);
     const [workflowConfigError, setWorkflowConfigError] = useState<string | null>(null);
     const [isStarting, setIsStarting] = useState(false);
+    const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
     const initialContext = initialContextVariables || {};
 
     const {
@@ -271,6 +289,123 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             }
                             break;
 
+                        case 'rtf-user-transcription': {
+                            const transcription = message.payload;
+                            setFeedbackMessages(prev => {
+                                // Step 1: Finalize the last bot message (user started speaking)
+                                const messagesWithBotFinalized = prev.map((msg, idx) => {
+                                    const isLastMessage = idx === prev.length - 1;
+                                    const isUnfinalizedBotMessage = msg.type === 'bot-text' && !msg.final;
+                                    return isLastMessage && isUnfinalizedBotMessage
+                                        ? { ...msg, final: true }
+                                        : msg;
+                                });
+
+                                // Step 2: Remove any previous interim transcription
+                                const messagesWithoutInterim = messagesWithBotFinalized.filter(
+                                    msg => !(msg.type === 'user-transcription' && !msg.final)
+                                );
+
+                                // Step 3: Add new transcription (interim or final)
+                                return [...messagesWithoutInterim, {
+                                    id: `user-${Date.now()}`,
+                                    type: 'user-transcription',
+                                    text: transcription.text,
+                                    final: transcription.final,
+                                    timestamp: new Date().toISOString(),
+                                }];
+                            });
+                            break;
+                        }
+
+                        case 'rtf-bot-text': {
+                            // TTS text comes as sentences/phrases, concatenate with space
+                            setFeedbackMessages(prev => {
+                                const last = prev[prev.length - 1];
+                                if (last && last.type === 'bot-text' && !last.final) {
+                                    // Append to existing bot message with space if needed
+                                    const existingText = last.text;
+                                    const newText = message.payload.text;
+                                    // Add space between chunks if previous doesn't end with space
+                                    // and new doesn't start with space or punctuation
+                                    const needsSpace = existingText.length > 0 &&
+                                        !existingText.endsWith(' ') &&
+                                        !newText.startsWith(' ') &&
+                                        !/^[.,!?;:]/.test(newText);
+                                    return [
+                                        ...prev.slice(0, -1),
+                                        { ...last, text: existingText + (needsSpace ? ' ' : '') + newText }
+                                    ];
+                                }
+                                // Start new bot message
+                                return [...prev, {
+                                    id: `bot-${Date.now()}`,
+                                    type: 'bot-text',
+                                    text: message.payload.text,
+                                    final: false,
+                                    timestamp: new Date().toISOString(),
+                                }];
+                            });
+                            break;
+                        }
+
+                        case 'rtf-function-call-start': {
+                            const { function_name, tool_call_id } = message.payload;
+                            setFeedbackMessages(prev => {
+                                // Check if we already have this function call
+                                const existingId = `func-${tool_call_id}`;
+                                if (prev.some(msg => msg.id === existingId)) {
+                                    return prev;
+                                }
+                                return [...prev, {
+                                    id: existingId,
+                                    type: 'function-call',
+                                    text: function_name,
+                                    functionName: function_name,
+                                    status: 'running',
+                                    timestamp: new Date().toISOString(),
+                                }];
+                            });
+                            break;
+                        }
+
+                        case 'rtf-function-call-end': {
+                            const { tool_call_id, result } = message.payload;
+                            setFeedbackMessages(prev => prev.map(msg =>
+                                msg.id === `func-${tool_call_id}`
+                                    ? { ...msg, status: 'completed' as const, text: result || msg.text }
+                                    : msg
+                            ));
+                            break;
+                        }
+
+                        case 'rtf-node-transition': {
+                            const { node_name, previous_node } = message.payload;
+                            setFeedbackMessages(prev => [...prev, {
+                                id: `node-${Date.now()}`,
+                                type: 'node-transition',
+                                text: node_name,
+                                nodeName: node_name,
+                                previousNode: previous_node,
+                                timestamp: new Date().toISOString(),
+                            }]);
+                            break;
+                        }
+
+                        case 'rtf-ttfb-metric': {
+                            const { ttfb_seconds, processor, model } = message.payload;
+                            setFeedbackMessages(prev => [...prev, {
+                                id: `ttfb-${Date.now()}`,
+                                type: 'ttfb-metric',
+                                text: `${(ttfb_seconds * 1000).toFixed(0)}ms`,
+                                ttfbSeconds: ttfb_seconds,
+                                processor,
+                                model,
+                                timestamp: new Date().toISOString(),
+                            }]);
+                            break;
+                        }
+
                         default:
                             logger.warn('Unknown message type:', message.type);
                     }
@@ -505,6 +640,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         stop,
         isStarting,
         initialContext,
-        getAudioInputDevices
+        getAudioInputDevices,
+        feedbackMessages,
     };
 };

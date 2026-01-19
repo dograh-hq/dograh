@@ -3,6 +3,7 @@ from typing import Optional
 
 from fastapi import HTTPException, WebSocket
 from loguru import logger
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 
 from api.db import db_client
 from api.db.models import WorkflowModel
@@ -14,6 +15,7 @@ from api.services.pipecat.event_handlers import (
     register_transcript_handler,
     register_transport_event_handlers,
 )
+from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import (
     build_pipeline,
     create_pipeline_components,
@@ -23,6 +25,7 @@ from api.services.pipecat.pipeline_engine_callbacks_processor import (
     PipelineEngineCallbacksProcessor,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
+from api.services.pipecat.realtime_feedback_observer import RealtimeFeedbackObserver
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_stt_service,
@@ -37,13 +40,17 @@ from api.services.pipecat.transport_setup import (
     create_vonage_transport,
     create_webrtc_transport,
 )
+from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
-from pipecat.processors.aggregators.llm_response import LLMAssistantAggregatorParams
+from pipecat.processors.aggregators.llm_response import (
+    LLMAssistantAggregatorParams,
+    LLMUserAggregatorParams,
+)
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
@@ -64,6 +71,7 @@ from pipecat.turns.user_stop.turn_analyzer_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.context import set_current_run_id
+from pipecat.utils.enums import EndTaskReason
 from pipecat.utils.tracing.context_registry import ContextProviderRegistry
 
 # Setup tracing if enabled
@@ -469,18 +477,58 @@ async def _run_pipeline(
         ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
     )
 
+    # Create in-memory logs buffer early so it can be used by engine callbacks
+    in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
+
+    # Create node transition callback if WebSocket sender is available
+    node_transition_callback = None
+    ws_sender = get_ws_sender(workflow_run_id)
+    if ws_sender:
+
+        async def send_node_transition(
+            node_name: str, previous_node: Optional[str]
+        ) -> None:
+            """Send node transition event via WebSocket AND log to buffer."""
+            message = {
+                "type": "rtf-node-transition",
+                "payload": {
+                    "node_name": node_name,
+                    "previous_node": previous_node,
+                },
+            }
+            # Send via WebSocket
+            try:
+                await ws_sender(message)
+            except Exception as e:
+                logger.debug(f"Failed to send node transition via WebSocket: {e}")
+
+            # Log to in-memory buffer
+            try:
+                await in_memory_logs_buffer.append(message)
+            except Exception as e:
+                logger.error(f"Failed to append node transition to logs buffer: {e}")
+
+        node_transition_callback = send_node_transition
+
+    # Extract embeddings configuration from user config
+    embeddings_api_key = None
+    embeddings_model = None
+    if user_config and user_config.embeddings:
+        embeddings_api_key = user_config.embeddings.api_key
+        embeddings_model = user_config.embeddings.model
+
     engine = PipecatEngine(
         llm=llm,
-        tts=tts,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,
+        node_transition_callback=node_transition_callback,
+        embeddings_api_key=embeddings_api_key,
+        embeddings_model=embeddings_model,
     )
 
     # Create pipeline components with audio configuration and engine
-    audio_buffer, audio_synchronizer, transcript, context = create_pipeline_components(
-        audio_config, engine
-    )
+    audio_buffer, transcript, context = create_pipeline_components(audio_config, engine)
 
     # Set the context and audio_buffer after creation
     engine.set_context(context)
@@ -504,8 +552,8 @@ async def _run_pipeline(
             ],
         ),
         user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
+        enable_emulated_vad_interruptions=True
     )
-
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params
     )
@@ -527,13 +575,34 @@ async def _run_pipeline(
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
 
+    # Create voicemail detector if enabled in the workflow's start node
+    voicemail_detector = None
+    start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
+    if start_node and start_node.detect_voicemail:
+        logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
+        # Create a separate LLM instance for the voicemail sub-pipeline
+        # (can't share with main pipeline as it would mess up frame linking)
+        voicemail_llm = create_llm_service(user_config)
+        voicemail_detector = VoicemailDetector(
+            llm=voicemail_llm,
+            voicemail_response_delay=2.0,
+        )
+
+        # Register event handler to end task when voicemail is detected
+        @voicemail_detector.event_handler("on_voicemail_detected")
+        async def _on_voicemail_detected(_processor):
+            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
+            await engine.send_end_task_frame(
+                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
+                abort_immediately=True,
+            )
+
     # Build the pipeline with the STT mute filter and context controller
     pipeline = build_pipeline(
         transport,
         stt,
         transcript,
         audio_buffer,
-        audio_synchronizer,
         llm,
         tts,
         user_context_aggregator,
@@ -541,6 +610,7 @@ async def _run_pipeline(
         pipeline_engine_callback_processor,
         pipeline_metrics_aggregator,
         user_idle_disconnect,
+        voicemail_detector=voicemail_detector,
     )
 
     # Create pipeline task with audio configuration
@@ -548,6 +618,9 @@ async def _run_pipeline(
 
     # Now set the task on the engine
     engine.set_task(task)
+
+    # Initialize the engine to set the initial context
+    await engine.initialize()
 
     # Register event handlers
     in_memory_audio_buffer, in_memory_transcript_buffer = (
@@ -557,10 +630,18 @@ async def _run_pipeline(
             workflow_run_id,
             engine=engine,
             audio_buffer=audio_buffer,
-            audio_synchronizer=audio_synchronizer,
             audio_config=audio_config,
         )
     )
+
+    # Add real-time feedback observer if WebSocket sender is available
+    # Note: ws_sender was already fetched earlier for node_transition_callback
+    if ws_sender:
+        feedback_observer = RealtimeFeedbackObserver(
+            ws_sender=ws_sender,
+            logs_buffer=in_memory_logs_buffer,
+        )
+        task.add_observer(feedback_observer)
 
     register_task_event_handler(
         workflow_run_id,
@@ -568,15 +649,13 @@ async def _run_pipeline(
         task,
         transport,
         audio_buffer,
-        audio_synchronizer,
         in_memory_audio_buffer,
         in_memory_transcript_buffer,
+        in_memory_logs_buffer,
         pipeline_metrics_aggregator,
     )
 
-    register_audio_data_handler(
-        audio_synchronizer, workflow_run_id, in_memory_audio_buffer
-    )
+    register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
     register_transcript_handler(
         transcript, workflow_run_id, in_memory_transcript_buffer
     )

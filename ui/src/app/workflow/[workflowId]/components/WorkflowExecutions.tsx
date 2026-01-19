@@ -216,6 +216,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                                         <TableHead className="font-semibold">ID</TableHead>
                                         <TableHead className="font-semibold">Status</TableHead>
                                         <TableHead className="font-semibold">Created At</TableHead>
+                                        <TableHead className="font-semibold">Call Type</TableHead>
                                         <TableHead className="font-semibold">Duration</TableHead>
                                         <TableHead className="font-semibold">Disposition</TableHead>
                                         <TableHead className="font-semibold">Dograh Token</TableHead>
@@ -236,6 +237,11 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                                                 </Badge>
                                             </TableCell>
                                             <TableCell className="text-sm">{formatDate(run.created_at)}</TableCell>
+                                            <TableCell>
+                                                <Badge variant={run.call_type === 'inbound' ? "secondary" : "default"}>
+                                                    {run.call_type === 'inbound' ? 'Inbound' : 'Outbound'}
+                                                </Badge>
+                                            </TableCell>
                                             <TableCell className="text-sm">
                                                 {typeof run.cost_info?.call_duration_seconds === 'number'
                                                     ? `${run.cost_info.call_duration_seconds.toFixed(1)}s`

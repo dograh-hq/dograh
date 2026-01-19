@@ -31,7 +31,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         )
 
         if not workflow_run or not workflow_run.workflow:
-            logger.error("Workflow run or workflow not found")
+            logger.warning("Workflow run or workflow not found")
             return
 
         if not organization_id:
@@ -68,7 +68,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 )
             except Exception as e:
                 # Log error but continue with other webhooks
-                logger.error(
+                logger.warning(
                     f"Failed to execute webhook '{webhook_data.get('name', 'unknown')}': {e}"
                 )
 
@@ -120,7 +120,7 @@ async def _execute_webhook_node(
     # 2. Validate endpoint URL
     url = webhook_data.get("endpoint_url")
     if not url:
-        logger.error(f"Webhook '{webhook_name}' has no endpoint URL")
+        logger.warning(f"Webhook '{webhook_name}' has no endpoint URL")
         return False
 
     # 3. Build headers

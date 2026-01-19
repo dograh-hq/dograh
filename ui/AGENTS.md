@@ -42,7 +42,8 @@ ui/
 
 ## API Client
 
-The `src/client/` directory is auto-generated from the backend OpenAPI spec:
+The `src/client/` directory is auto-generated from the backend OpenAPI spec. Whenever you add a
+new api route in backend, and wish to use it in the UI, generate the client using below command.
 
 ```bash
 npm run generate-client

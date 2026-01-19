@@ -4,7 +4,7 @@ Handles configuration loading from environment (OSS) or database (SaaS).
 The providers themselves don't know or care where config comes from.
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Type
 
 from loguru import logger
 
@@ -71,6 +71,7 @@ async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
             return {
                 "provider": "cloudonix",
                 "bearer_token": config.value.get("bearer_token"),
+                "api_key": config.value.get("api_key"),  # For x-cx-apikey validation
                 "domain_id": config.value.get("domain_id"),
                 "from_numbers": config.value.get("from_numbers", []),
             }
@@ -116,3 +117,14 @@ async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
 
     else:
         raise ValueError(f"Unknown telephony provider: {provider_type}")
+
+
+async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:
+    """
+    Get all available telephony provider classes for webhook detection.
+
+
+    Returns:
+        List of provider classes that can be used for webhook detection
+    """
+    return [CloudonixProvider, TwilioProvider, VobizProvider, VonageProvider]

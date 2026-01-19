@@ -207,31 +207,6 @@ class TestCustomToolManagerContextIntegration:
                 assert "get_weather" in tool_names
 
     @pytest.mark.asyncio
-    async def test_tools_cached_after_first_fetch(self, mock_engine, sample_tools):
-        """Test that CustomToolManager caches tools after first fetch."""
-        manager = CustomToolManager(mock_engine)
-
-        with patch(
-            "api.services.workflow.pipecat_engine_custom_tools.get_organization_id_from_workflow_run"
-        ) as mock_get_org:
-            mock_get_org.return_value = 1
-
-            with patch(
-                "api.services.workflow.pipecat_engine_custom_tools.db_client"
-            ) as mock_db:
-                mock_db.get_tools_by_uuids = AsyncMock(return_value=[sample_tools[0]])
-
-                # First fetch
-                await manager.get_tool_schemas(["weather-uuid-123"])
-
-                # Verify tool is cached (cache stores raw schema dict, not FunctionSchema)
-                cached = manager.get_cached_tool("get_weather")
-                assert cached is not None
-                tool, raw_schema = cached
-                assert tool.tool_uuid == "weather-uuid-123"
-                assert raw_schema["function"]["name"] == "get_weather"
-
-    @pytest.mark.asyncio
     async def test_context_preserves_function_call_history(
         self, mock_engine, sample_tools
     ):

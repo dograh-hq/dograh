@@ -18,6 +18,9 @@ export type SaveUserConfigFunctionParams = {
     stt?: {
         [key: string]: string | number;
     } | null;
+    embeddings?: {
+        [key: string]: string | number;
+    } | null;
     test_phone_number?: string | null;
     timezone?: string | null;
 };

@@ -13,6 +13,7 @@ import pytest
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from api.tests.conftest import END_CALL_SYSTEM_PROMPT, MockTransportProcessor
+from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -123,6 +124,7 @@ async def run_pipeline_with_tool_calls(
                 # Small delay to let runner start
                 await asyncio.sleep(0.01)
                 await engine.initialize()
+                await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
             # Run both concurrently
             await asyncio.gather(run_pipeline(), initialize_engine())

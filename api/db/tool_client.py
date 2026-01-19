@@ -86,7 +86,12 @@ class ToolClient(BaseDBClient):
             )
 
             if status:
-                query = query.where(ToolModel.status == status)
+                # Support comma-separated status values (e.g., "active,archived")
+                status_list = [s.strip() for s in status.split(",")]
+                if len(status_list) > 1:
+                    query = query.where(ToolModel.status.in_(status_list))
+                else:
+                    query = query.where(ToolModel.status == status)
             else:
                 # By default, exclude archived tools
                 query = query.where(ToolModel.status != ToolStatus.ARCHIVED.value)
@@ -232,6 +237,44 @@ class ToolClient(BaseDBClient):
                 )
                 return True
             return False
+
+    async def unarchive_tool(
+        self, tool_uuid: str, organization_id: int
+    ) -> Optional[ToolModel]:
+        """Restore an archived tool by setting its status to active.
+
+        Args:
+            tool_uuid: The unique tool UUID
+            organization_id: ID of the organization (for authorization)
+
+        Returns:
+            The unarchived ToolModel if found, None otherwise
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(ToolModel)
+                .where(
+                    ToolModel.tool_uuid == tool_uuid,
+                    ToolModel.organization_id == organization_id,
+                    ToolModel.status == ToolStatus.ARCHIVED.value,
+                )
+                .values(
+                    status=ToolStatus.ACTIVE.value,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+
+            if result.rowcount > 0:
+                logger.info(
+                    f"Unarchived tool {tool_uuid} for organization {organization_id}"
+                )
+                # Fetch and return the updated tool
+                result = await session.execute(
+                    select(ToolModel).where(ToolModel.tool_uuid == tool_uuid)
+                )
+                return result.scalar_one_or_none()
+            return None
 
     async def validate_tool_uuid(self, tool_uuid: str, organization_id: int) -> bool:
         """Check if a tool UUID exists and belongs to the organization.

@@ -15,6 +15,7 @@ import pytest
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from api.tests.conftest import MockTransportProcessor
+from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -128,6 +129,7 @@ async def run_pipeline_with_user_idle(
                 # Small delay to let runner start
                 await asyncio.sleep(0.01)
                 await engine.initialize()
+                await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
             # Calculate total wait time:
             # - Initial bot speech

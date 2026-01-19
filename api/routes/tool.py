@@ -1,7 +1,7 @@
 """API routes for managing tools."""
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -45,14 +45,38 @@ class HttpApiConfig(BaseModel):
     )
 
 
-class ToolDefinition(BaseModel):
-    """Tool definition schema."""
+class EndCallConfig(BaseModel):
+    """Configuration for End Call tools."""
 
-    schema_version: int = Field(
-        default=1, description="Schema version for compatibility"
+    messageType: Literal["none", "custom"] = Field(
+        default="none", description="Type of goodbye message"
     )
-    type: str = Field(description="Tool type (http_api)")
-    config: HttpApiConfig = Field(description="Tool configuration")
+    customMessage: Optional[str] = Field(
+        default=None, description="Custom message to play before ending the call"
+    )
+
+
+class HttpApiToolDefinition(BaseModel):
+    """Tool definition for HTTP API tools."""
+
+    schema_version: int = Field(default=1, description="Schema version")
+    type: Literal["http_api"] = Field(description="Tool type")
+    config: HttpApiConfig = Field(description="HTTP API configuration")
+
+
+class EndCallToolDefinition(BaseModel):
+    """Tool definition for End Call tools."""
+
+    schema_version: int = Field(default=1, description="Schema version")
+    type: Literal["end_call"] = Field(description="Tool type")
+    config: EndCallConfig = Field(description="End Call configuration")
+
+
+# Union type for tool definitions - Pydantic will discriminate based on 'type' field
+ToolDefinition = Annotated[
+    Union[HttpApiToolDefinition, EndCallToolDefinition],
+    Field(discriminator="type"),
+]
 
 
 class CreateToolRequest(BaseModel):
@@ -140,13 +164,15 @@ def validate_category(category: str) -> None:
 
 
 def validate_status(status: str) -> None:
-    """Validate that the status is valid."""
+    """Validate that the status is valid. Supports comma-separated values."""
     valid_statuses = [s.value for s in ToolStatus]
-    if status not in valid_statuses:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid status '{status}'. Must be one of: {', '.join(valid_statuses)}",
-        )
+    status_list = [s.strip() for s in status.split(",")]
+    for s in status_list:
+        if s not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{s}'. Must be one of: {', '.join(valid_statuses)}",
+            )
 
 
 @router.get("/")
@@ -205,27 +231,18 @@ async def create_tool(
 
     validate_category(request.category)
 
-    try:
-        tool = await db_client.create_tool(
-            organization_id=user.selected_organization_id,
-            user_id=user.id,
-            name=request.name,
-            definition=request.definition.model_dump(),
-            category=request.category,
-            description=request.description,
-            icon=request.icon,
-            icon_color=request.icon_color,
-        )
+    tool = await db_client.create_tool(
+        organization_id=user.selected_organization_id,
+        user_id=user.id,
+        name=request.name,
+        definition=request.definition.model_dump(),
+        category=request.category,
+        description=request.description,
+        icon=request.icon,
+        icon_color=request.icon_color,
+    )
 
-        return build_tool_response(tool)
-
-    except Exception as e:
-        if "unique_org_tool_name" in str(e):
-            raise HTTPException(
-                status_code=409,
-                detail=f"A tool with the name '{request.name}' already exists",
-            )
-        raise HTTPException(status_code=500, detail=str(e))
+    return build_tool_response(tool)
 
 
 @router.get("/{tool_uuid}")
@@ -281,32 +298,21 @@ async def update_tool(
     if request.status:
         validate_status(request.status)
 
-    try:
-        tool = await db_client.update_tool(
-            tool_uuid=tool_uuid,
-            organization_id=user.selected_organization_id,
-            name=request.name,
-            description=request.description,
-            definition=request.definition.model_dump() if request.definition else None,
-            icon=request.icon,
-            icon_color=request.icon_color,
-            status=request.status,
-        )
+    tool = await db_client.update_tool(
+        tool_uuid=tool_uuid,
+        organization_id=user.selected_organization_id,
+        name=request.name,
+        description=request.description,
+        definition=request.definition.model_dump() if request.definition else None,
+        icon=request.icon,
+        icon_color=request.icon_color,
+        status=request.status,
+    )
 
-        if not tool:
-            raise HTTPException(status_code=404, detail="Tool not found")
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
 
-        return build_tool_response(tool, include_created_by=True)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        if "unique_org_tool_name" in str(e):
-            raise HTTPException(
-                status_code=409,
-                detail=f"A tool with the name '{request.name}' already exists",
-            )
-        raise HTTPException(status_code=500, detail=str(e))
+    return build_tool_response(tool, include_created_by=True)
 
 
 @router.delete("/{tool_uuid}")
@@ -334,3 +340,30 @@ async def delete_tool(
         raise HTTPException(status_code=404, detail="Tool not found")
 
     return {"status": "archived", "tool_uuid": tool_uuid}
+
+
+@router.post("/{tool_uuid}/unarchive")
+async def unarchive_tool(
+    tool_uuid: str,
+    user: UserModel = Depends(get_user),
+) -> ToolResponse:
+    """
+    Unarchive a tool (restore from archived state).
+
+    Args:
+        tool_uuid: The UUID of the tool to unarchive
+
+    Returns:
+        The unarchived tool
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(
+            status_code=400, detail="No organization selected for the user"
+        )
+
+    tool = await db_client.unarchive_tool(tool_uuid, user.selected_organization_id)
+
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+
+    return build_tool_response(tool)

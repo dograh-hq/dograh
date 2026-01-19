@@ -4,8 +4,9 @@ from api.db import db_client
 from api.enums import WorkflowRunState
 from api.services.campaign.call_dispatcher import campaign_call_dispatcher
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.pipecat.audio_transcript_buffers import (
+from api.services.pipecat.in_memory_buffers import (
     InMemoryAudioBuffer,
+    InMemoryLogsBuffer,
     InMemoryTranscriptBuffer,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
@@ -16,10 +17,9 @@ from api.services.workflow.disposition_mapper import (
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
-from pipecat.frames.frames import Frame
+from pipecat.frames.frames import Frame, LLMContextFrame
 from pipecat.pipeline.task import PipelineTask
-from pipecat.processors.audio.audio_buffer_processor import AudioBuffer
-from pipecat.processors.audio.audio_synchronizer import AudioSynchronizer
+from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 
 
 def register_transport_event_handlers(
@@ -27,8 +27,7 @@ def register_transport_event_handlers(
     transport,
     workflow_run_id,
     engine: PipecatEngine,
-    audio_buffer: AudioBuffer,
-    audio_synchronizer: AudioSynchronizer,
+    audio_buffer: AudioBufferProcessor,
     audio_config=AudioConfig,
 ):
     """Register event handlers for transport events"""
@@ -53,9 +52,6 @@ def register_transport_event_handlers(
     async def on_client_connected(transport, participant):
         logger.debug("In on_client_connected callback handler - initializing workflow")
         await audio_buffer.start_recording()
-        if audio_synchronizer:
-            await audio_synchronizer.start_recording()
-        await engine.initialize()
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, participant):
@@ -68,8 +64,6 @@ def register_transport_event_handlers(
 
         # Stop recordings
         await audio_buffer.stop_recording()
-        if audio_synchronizer:
-            await audio_synchronizer.stop_recording()
 
         # Only cancel the task if the call is not already disposed by the engine
         if not call_disposed:
@@ -84,12 +78,20 @@ def register_task_event_handler(
     engine: PipecatEngine,
     task: PipelineTask,
     transport,
-    audio_buffer: AudioBuffer,
-    audio_synchronizer: AudioSynchronizer,
+    audio_buffer: AudioBufferProcessor,
     in_memory_audio_buffer: InMemoryAudioBuffer,
     in_memory_transcript_buffer: InMemoryTranscriptBuffer,
+    in_memory_logs_buffer: InMemoryLogsBuffer,
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
 ):
+    @task.event_handler("on_pipeline_started")
+    async def on_pipeline_started(task: PipelineTask, frame: Frame):
+        logger.debug(
+            "In on_pipeline_started callback handler - triggering initial LLM generation"
+        )
+        # Trigger initial LLM generation after pipeline has started
+        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(
         task: PipelineTask,
@@ -101,8 +103,6 @@ def register_task_event_handler(
 
         # Stop recordings
         await audio_buffer.stop_recording()
-        if audio_synchronizer:
-            await audio_synchronizer.stop_recording()
 
         call_disposition = await engine.get_call_disposition()
         logger.debug(f"call disposition in on_pipeline_finished: {call_disposition}")
@@ -187,6 +187,22 @@ def register_task_event_handler(
             state=WorkflowRunState.COMPLETED.value,
         )
 
+        # Save real-time feedback logs to workflow run
+        if not in_memory_logs_buffer.is_empty:
+            try:
+                feedback_events = in_memory_logs_buffer.get_events()
+                await db_client.update_workflow_run(
+                    run_id=workflow_run_id,
+                    logs={"realtime_feedback_events": feedback_events},
+                )
+                logger.debug(
+                    f"Saved {len(feedback_events)} feedback events to workflow run logs"
+                )
+            except Exception as e:
+                logger.error(f"Error saving realtime feedback logs: {e}", exc_info=True)
+        else:
+            logger.debug("Logs buffer is empty, skipping save")
+
         # Release concurrent slot for campaign calls
         if workflow_run and workflow_run.campaign_id:
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
@@ -224,19 +240,21 @@ def register_task_event_handler(
 
 
 def register_audio_data_handler(
-    audio_synchronizer, workflow_run_id, in_memory_buffer: InMemoryAudioBuffer
+    audio_buffer: AudioBufferProcessor,
+    workflow_run_id,
+    in_memory_buffer: InMemoryAudioBuffer,
 ):
     """Register event handler for audio data"""
     logger.info(f"Registering audio data handler for workflow run {workflow_run_id}")
 
-    @audio_synchronizer.event_handler("on_merged_audio")
-    async def on_merged_audio(_, pcm, sample_rate, num_channels):
-        if not pcm:
+    @audio_buffer.event_handler("on_audio_data")
+    async def on_audio_data(buffer, audio, sample_rate, num_channels):
+        if not audio:
             return
 
         # Use in-memory buffer
         try:
-            await in_memory_buffer.append(pcm)
+            await in_memory_buffer.append(audio)
         except MemoryError as e:
             logger.error(f"Memory buffer full: {e}")
             # Could implement overflow to disk here if needed

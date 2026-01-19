@@ -11,7 +11,11 @@ from loguru import logger
 from twilio.request_validator import RequestValidator
 
 from api.enums import WorkflowRunMode
-from api.services.telephony.base import CallInitiationResult, TelephonyProvider
+from api.services.telephony.base import (
+    CallInitiationResult,
+    NormalizedInboundData,
+    TelephonyProvider,
+)
 from api.utils.tunnel import TunnelURLProvider
 
 if TYPE_CHECKING:
@@ -284,3 +288,169 @@ class TwilioProvider(TelephonyProvider):
         except Exception as e:
             logger.error(f"Error in Twilio WebSocket handler: {e}")
             raise
+
+    # ======== INBOUND CALL METHODS ========
+
+    @classmethod
+    def can_handle_webhook(
+        cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
+    ) -> bool:
+        """
+        Determine if this provider can handle the incoming webhook.
+
+        Twilio webhooks have specific characteristics:
+        - User-Agent: "TwilioProxy/1.1"
+        - Headers: "x-twilio-signature", "i-twilio-idempotency-token"
+        - Data: CallSid + AccountSid (AC prefix) + ApiVersion
+        - AccountSid format: starts with "AC" (not a domain)
+        """
+        # 1: Check for Twilio-specific User-Agent
+        user_agent = headers.get("user-agent", "")
+        if "twilioproxy" in user_agent.lower() or user_agent.startswith("TwilioProxy"):
+            return True
+
+        # 2: Check for Twilio-specific headers
+        twilio_headers = [
+            "x-twilio-signature",
+            "i-twilio-idempotency-token",
+            "x-home-region",
+        ]
+        if any(header in headers for header in twilio_headers):
+            return True
+
+        # 3: Check data structure - CallSid + AccountSid with AC prefix + ApiVersion
+        if (
+            "CallSid" in webhook_data
+            and "AccountSid" in webhook_data
+            and "ApiVersion" in webhook_data
+        ):
+            # Ensure AccountSid looks like Twilio (starts with AC, not a domain)
+            account_sid = webhook_data.get("AccountSid", "")
+            if account_sid.startswith("AC") and not "." in account_sid:
+                return True
+
+        return False
+
+    @staticmethod
+    def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+        """
+        Parse Twilio-specific inbound webhook data into normalized format.
+        """
+        return NormalizedInboundData(
+            provider=TwilioProvider.PROVIDER_NAME,
+            call_id=webhook_data.get("CallSid", ""),
+            from_number=TwilioProvider.normalize_phone_number(
+                webhook_data.get("From", "")
+            ),
+            to_number=TwilioProvider.normalize_phone_number(webhook_data.get("To", "")),
+            direction=webhook_data.get("Direction", ""),
+            call_status=webhook_data.get("CallStatus", ""),
+            account_id=webhook_data.get("AccountSid"),
+            from_country=webhook_data.get("FromCountry")
+            or webhook_data.get("CallerCountry"),
+            to_country=webhook_data.get("ToCountry")
+            or webhook_data.get("CalledCountry"),
+            raw_data=webhook_data,
+        )
+
+    @staticmethod
+    def normalize_phone_number(phone_number: str) -> str:
+        """
+        Normalize a phone number to E.164 format for Twilio.
+        Twilio already provides numbers in E.164 format.
+        """
+        if not phone_number:
+            return ""
+
+        # Twilio numbers are already in E.164 format (+1234567890)
+        if phone_number.startswith("+"):
+            return phone_number
+
+        # If for some reason it doesn't have +, assume US and add +1
+        if phone_number.startswith("1") and len(phone_number) == 11:
+            return f"+{phone_number}"
+        elif len(phone_number) == 10:
+            return f"+1{phone_number}"
+
+        return phone_number
+
+    @staticmethod
+    def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
+        """Validate Twilio account_sid from webhook matches configuration"""
+        if not webhook_account_id:
+            return False
+
+        stored_account_sid = config_data.get("account_sid")
+        return stored_account_sid == webhook_account_id
+
+    async def verify_inbound_signature(
+        self, url: str, webhook_data: Dict[str, Any], signature: str
+    ) -> bool:
+        """
+        Verify the signature of an inbound Twilio webhook for security.
+        """
+        return await self.verify_webhook_signature(url, webhook_data, signature)
+
+    @staticmethod
+    async def generate_inbound_response(
+        websocket_url: str, workflow_run_id: int = None
+    ) -> tuple:
+        """
+        Generate TwiML response for an inbound Twilio webhook.
+
+        Uses the same StatusCallback URL pattern as outbound calls for consistency.
+        """
+        from fastapi import Response
+
+        # Generate StatusCallback URL using same pattern as outbound calls
+        status_callback_attr = ""
+        if workflow_run_id:
+            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+            status_callback_url = f"https://{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
+            status_callback_attr = f' statusCallback="{status_callback_url}"'
+
+        twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="{websocket_url}"{status_callback_attr}></Stream>
+    </Connect>
+    <Pause length="40"/>
+</Response>"""
+
+        return Response(content=twiml_content, media_type="application/xml")
+
+    @staticmethod
+    def generate_error_response(error_type: str, message: str) -> tuple:
+        """
+        Generate a Twilio-specific error response.
+        """
+        from fastapi import Response
+
+        twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="alice">Sorry, there was an error processing your call. {message}</Say>
+    <Hangup/>
+</Response>"""
+
+        return Response(content=twiml_content, media_type="application/xml")
+
+    @staticmethod
+    def generate_validation_error_response(error_type) -> tuple:
+        """
+        Generate Twilio-specific error response for validation failures with organizational debugging info.
+        """
+        from fastapi import Response
+
+        from api.errors.telephony_errors import TELEPHONY_ERROR_MESSAGES, TelephonyError
+
+        message = TELEPHONY_ERROR_MESSAGES.get(
+            error_type, TELEPHONY_ERROR_MESSAGES[TelephonyError.GENERAL_AUTH_FAILED]
+        )
+
+        twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="alice">{message}</Say>
+    <Hangup/>
+</Response>"""
+
+        return Response(content=twiml_content, media_type="application/xml")

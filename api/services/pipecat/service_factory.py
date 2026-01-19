@@ -20,6 +20,7 @@ from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
+from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -29,6 +30,9 @@ if TYPE_CHECKING:
 
 def create_stt_service(user_config):
     """Create and return appropriate STT service based on user configuration"""
+    logger.info(
+        f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
+    )
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
@@ -40,24 +44,22 @@ def create_stt_service(user_config):
         )
         logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
-            live_options=live_options,
-            api_key=user_config.stt.api_key
+            live_options=live_options, api_key=user_config.stt.api_key
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         return OpenAISTTService(
-            api_key=user_config.stt.api_key,
-            model=user_config.stt.model
+            api_key=user_config.stt.api_key, model=user_config.stt.model
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
-        return CartesiaSTTService(
-            api_key=user_config.stt.api_key
-        )
+        return CartesiaSTTService(api_key=user_config.stt.api_key)
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:
         base_url = MPS_API_URL.replace("http://", "ws://").replace("https://", "wss://")
+        language = getattr(user_config.stt, "language", None) or "multi"
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
-            model=user_config.stt.model
+            model=user_config.stt.model,
+            language=language,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum
@@ -80,7 +82,24 @@ def create_stt_service(user_config):
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             model=user_config.stt.model,
-            params=SarvamSTTService.InputParams(language=pipecat_language)
+            params=SarvamSTTService.InputParams(language=pipecat_language),
+        )
+    elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
+        from pipecat.services.speechmatics.stt import OperatingPoint
+
+        language = getattr(user_config.stt, "language", None) or "en"
+        # Map model field to operating point (standard or enhanced)
+        operating_point = (
+            OperatingPoint.ENHANCED
+            if user_config.stt.model == "enhanced"
+            else OperatingPoint.STANDARD
+        )
+        return SpeechmaticsSTTService(
+            api_key=user_config.stt.api_key,
+            params=SpeechmaticsSTTService.InputParams(
+                language=language,
+                operating_point=operating_point,
+            ),
         )
     else:
         raise HTTPException(
@@ -95,6 +114,9 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         user_config: User configuration containing TTS settings
         transport_type: Type of transport (e.g., 'stasis', 'twilio', 'webrtc')
     """
+    logger.info(
+        f"Creating TTS service: provider={user_config.tts.provider}, model={user_config.tts.model}"
+    )
     # Create function call filter to prevent TTS from speaking function call tags
     xml_function_tag_filter = XMLFunctionTagFilter()
     if user_config.tts.provider == ServiceProviders.DEEPGRAM.value:
@@ -133,6 +155,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             model=user_config.tts.model,
             voice=user_config.tts.voice,
+            params=DograhTTSService.InputParams(speed=user_config.tts.speed),
             text_filters=[xml_function_tag_filter],
         )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
@@ -170,6 +193,9 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
 def create_llm_service(user_config):
     """Create and return appropriate LLM service based on user configuration"""
     model = user_config.llm.model
+    logger.info(
+        f"Creating LLM service: provider={user_config.llm.provider}, model={model}"
+    )
     if user_config.llm.provider == ServiceProviders.OPENAI.value:
         if "gpt-5" in model:
             return OpenAILLMService(

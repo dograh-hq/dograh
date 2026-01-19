@@ -31,7 +31,7 @@ export default function CreateWorkflowPage() {
     const [showSuccessModal, setShowSuccessModal] = useState(false);
     const [workflowId, setWorkflowId] = useState<string | null>(null);
 
-    const [callType, setCallType] = useState<'INBOUND' | 'OUTBOUND'>('INBOUND');
+    const [callType, setCallType] = useState<'inbound' | 'outbound'>('inbound');
     const [useCase, setUseCase] = useState('');
     const [activityDescription, setActivityDescription] = useState('');
 
@@ -128,15 +128,15 @@ export default function CreateWorkflowPage() {
                     <CardContent className="space-y-6">
                         <div className="space-y-2">
                             <Label htmlFor="call-type">Call Type</Label>
-                            <Select value={callType} onValueChange={(value) => setCallType(value as 'INBOUND' | 'OUTBOUND')}>
+                            <Select value={callType} onValueChange={(value) => setCallType(value as 'inbound' | 'outbound')}>
                                 <SelectTrigger id="call-type">
                                     <SelectValue placeholder="Select type" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="INBOUND">
+                                    <SelectItem value="inbound">
                                         Inbound (Users call AI)
                                     </SelectItem>
-                                    <SelectItem value="OUTBOUND">
+                                    <SelectItem value="outbound">
                                         Outbound (AI calls users)
                                     </SelectItem>
                                 </SelectContent>

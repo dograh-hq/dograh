@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoiceSelector } from "@/components/VoiceSelector";
 import { useUserConfig } from "@/context/UserConfigContext";
 
-type ServiceSegment = "llm" | "tts" | "stt";
+type ServiceSegment = "llm" | "tts" | "stt" | "embeddings";
 
 interface SchemaProperty {
     type?: string;
@@ -41,6 +41,7 @@ const TAB_CONFIG: { key: ServiceSegment; label: string }[] = [
     { key: "llm", label: "LLM" },
     { key: "tts", label: "Voice" },
     { key: "stt", label: "Transcriber" },
+    { key: "embeddings", label: "Embedding" },
 ];
 
 // Display names for language codes (Deepgram + Sarvam)
@@ -109,12 +110,14 @@ export default function ServiceConfiguration() {
     const [schemas, setSchemas] = useState<Record<ServiceSegment, Record<string, ProviderSchema>>>({
         llm: {},
         tts: {},
-        stt: {}
+        stt: {},
+        embeddings: {}
     });
     const [serviceProviders, setServiceProviders] = useState<Record<ServiceSegment, string>>({
         llm: "",
         tts: "",
-        stt: ""
+        stt: "",
+        embeddings: ""
     });
     const [isManualModelInput, setIsManualModelInput] = useState(false);
     const [hasCheckedManualMode, setHasCheckedManualMode] = useState(false);
@@ -136,7 +139,8 @@ export default function ServiceConfiguration() {
                 setSchemas({
                     llm: response.data.llm as Record<string, ProviderSchema>,
                     tts: response.data.tts as Record<string, ProviderSchema>,
-                    stt: response.data.stt as Record<string, ProviderSchema>
+                    stt: response.data.stt as Record<string, ProviderSchema>,
+                    embeddings: response.data.embeddings as Record<string, ProviderSchema>
                 });
             } else {
                 console.error("Failed to fetch configurations");
@@ -147,7 +151,8 @@ export default function ServiceConfiguration() {
             const selectedProviders: Record<ServiceSegment, string> = {
                 llm: response.data.default_providers.llm,
                 tts: response.data.default_providers.tts,
-                stt: response.data.default_providers.stt
+                stt: response.data.default_providers.stt,
+                embeddings: response.data.default_providers.embeddings
             };
 
             const setServicePropertyValues = (service: ServiceSegment) => {
@@ -173,6 +178,7 @@ export default function ServiceConfiguration() {
             setServicePropertyValues("llm");
             setServicePropertyValues("tts");
             setServicePropertyValues("stt");
+            setServicePropertyValues("embeddings");
 
             // IMPORTANT: Reset form values BEFORE changing providers
             // Otherwise, Radix Select sees old values that don't match new provider's enum
@@ -246,7 +252,7 @@ export default function ServiceConfiguration() {
         setApiError(null);
         setIsSaving(true);
 
-        const userConfig = {
+        const userConfig: Record<ServiceSegment, Record<string, string | number>> = {
             llm: {
                 provider: serviceProviders.llm,
                 api_key: data.llm_api_key as string,
@@ -259,6 +265,11 @@ export default function ServiceConfiguration() {
             stt: {
                 provider: serviceProviders.stt,
                 api_key: data.stt_api_key as string
+            },
+            embeddings: {
+                provider: serviceProviders.embeddings,
+                api_key: data.embeddings_api_key as string,
+                model: data.embeddings_model as string
             }
         };
 
@@ -273,12 +284,25 @@ export default function ServiceConfiguration() {
             }
         });
 
+        // Build save config - only include embeddings if api_key is provided
+        const saveConfig: {
+            llm: Record<string, string | number>;
+            tts: Record<string, string | number>;
+            stt: Record<string, string | number>;
+            embeddings?: Record<string, string | number>;
+        } = {
+            llm: userConfig.llm,
+            tts: userConfig.tts,
+            stt: userConfig.stt
+        };
+
+        // Only include embeddings if user has configured it (has api_key)
+        if (userConfig.embeddings.api_key) {
+            saveConfig.embeddings = userConfig.embeddings;
+        }
+
         try {
-            await saveUserConfig({
-                llm: userConfig.llm,
-                tts: userConfig.tts,
-                stt: userConfig.stt
-            });
+            await saveUserConfig(saveConfig);
             setApiError(null);
         } catch (error: unknown) {
             if (error instanceof Error) {
@@ -361,7 +385,8 @@ export default function ServiceConfiguration() {
                             type="text"
                             placeholder="Enter API key"
                             {...register(`${service}_api_key`, {
-                                required: providerSchema.required?.includes("api_key"),
+                                // Embeddings is optional, so don't require its api_key
+                                required: service !== "embeddings" && providerSchema.required?.includes("api_key"),
                             })}
                         />
                         {errors[`${service}_api_key`] && (
@@ -523,7 +548,8 @@ export default function ServiceConfiguration() {
                 {...(actualSchema?.type === "number" && { step: "any" })}
                 placeholder={`Enter ${field}`}
                 {...register(`${service}_${field}`, {
-                    required: providerSchema.required?.includes(field),
+                    // Embeddings is optional, so don't require its fields
+                    required: service !== "embeddings" && providerSchema.required?.includes(field),
                     valueAsNumber: actualSchema?.type === "number"
                 })}
             />
@@ -543,7 +569,7 @@ export default function ServiceConfiguration() {
                 <Card>
                     <CardContent className="pt-6">
                         <Tabs defaultValue="llm" className="w-full">
-                            <TabsList className="grid w-full grid-cols-3 mb-6">
+                            <TabsList className="grid w-full grid-cols-4 mb-6">
                                 {TAB_CONFIG.map(({ key, label }) => (
                                     <TabsTrigger key={key} value={key}>
                                         {label}

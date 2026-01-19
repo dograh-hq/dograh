@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
+import { RealtimeFeedback, WorkflowRunLogs } from '@/app/workflow/[workflowId]/run/[runId]/components/RealtimeFeedback';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
 import { MediaPreviewButtons, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
@@ -23,6 +24,7 @@ interface WorkflowRunResponse {
     recording_url: string | null;
     initial_context: Record<string, string | number | boolean | object> | null;
     gathered_context: Record<string, string | number | boolean | object> | null;
+    logs: WorkflowRunLogs | null;
 }
 
 function ContextDisplay({ title, context }: { title: string; context: Record<string, string | number | boolean | object> | null }) {
@@ -116,6 +118,7 @@ export default function WorkflowRunPage() {
                 recording_url: response.data?.recording_url ?? null,
                 initial_context: response.data?.initial_context as Record<string, string> | null ?? null,
                 gathered_context: response.data?.gathered_context as Record<string, string> | null ?? null,
+                logs: response.data?.logs as WorkflowRunLogs | null ?? null,
             });
         };
         fetchWorkflowRun();
@@ -147,8 +150,10 @@ export default function WorkflowRunPage() {
     }
     else if (workflowRun?.is_completed) {
         returnValue = (
-            <div className="h-full flex items-center justify-center p-6">
-                <div className="w-full max-w-4xl space-y-6">
+            <div className="flex h-full w-full">
+                {/* Main content - 2/3 width */}
+                <div className="w-2/3 h-full flex items-center justify-center overflow-y-auto">
+                    <div className="w-full max-w-4xl space-y-6 p-6">
                     <Card className="border-border">
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -235,16 +240,22 @@ export default function WorkflowRunPage() {
                         </CardContent>
                     </Card>
 
-                    <div className="grid gap-6 md:grid-cols-2">
-                        <ContextDisplay
-                            title="Initial Context"
-                            context={workflowRun?.initial_context}
-                        />
-                        <ContextDisplay
-                            title="Gathered Context"
-                            context={workflowRun?.gathered_context}
-                        />
+                        <div className="grid gap-6 md:grid-cols-2">
+                            <ContextDisplay
+                                title="Initial Context"
+                                context={workflowRun?.initial_context}
+                            />
+                            <ContextDisplay
+                                title="Gathered Context"
+                                context={workflowRun?.gathered_context}
+                            />
+                        </div>
                     </div>
+                </div>
+
+                {/* Transcript panel - 1/3 width */}
+                <div className="w-1/3 h-full shrink-0">
+                    <RealtimeFeedback mode="historical" logs={workflowRun?.logs} />
                 </div>
             </div>
         );

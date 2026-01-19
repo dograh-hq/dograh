@@ -54,10 +54,12 @@ def create_stt_service(user_config):
         return CartesiaSTTService(api_key=user_config.stt.api_key)
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:
         base_url = MPS_API_URL.replace("http://", "ws://").replace("https://", "wss://")
+        language = getattr(user_config.stt, "language", None) or "multi"
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
             model=user_config.stt.model,
+            language=language,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum

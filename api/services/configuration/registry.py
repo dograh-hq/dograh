@@ -368,6 +368,39 @@ class OpenAISTTConfiguration(BaseSTTConfiguration):
 
 # Dograh STT Service
 DOGRAH_STT_MODELS = ["default"]
+DOGRAH_STT_LANGUAGES = [
+    "multi",
+    "en",
+    "en-US",
+    "en-GB",
+    "en-AU",
+    "en-IN",
+    "es",
+    "es-419",
+    "fr",
+    "fr-CA",
+    "de",
+    "it",
+    "pt",
+    "pt-BR",
+    "nl",
+    "hi",
+    "ja",
+    "ko",
+    "zh-CN",
+    "zh-TW",
+    "ru",
+    "pl",
+    "tr",
+    "uk",
+    "vi",
+    "sv",
+    "da",
+    "no",
+    "fi",
+    "id",
+    "th",
+]
 
 
 @register_stt
@@ -375,6 +408,9 @@ class DograhSTTService(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
         default="default", json_schema_extra={"examples": DOGRAH_STT_MODELS}
+    )
+    language: str = Field(
+        default="multi", json_schema_extra={"examples": DOGRAH_STT_LANGUAGES}
     )
     api_key: str
 

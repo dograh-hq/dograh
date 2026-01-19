@@ -11,7 +11,7 @@ from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
     register_task_event_handler,
-    register_transcript_handler,
+    register_transcript_handlers,
     register_transport_event_handlers,
 )
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
@@ -518,8 +518,8 @@ async def _run_pipeline(
         embeddings_model=embeddings_model,
     )
 
-    # Create pipeline components with audio configuration and engine
-    audio_buffer, transcript, context = create_pipeline_components(audio_config, engine)
+    # Create pipeline components with audio configuration
+    audio_buffer, context = create_pipeline_components(audio_config)
 
     # Set the context and audio_buffer after creation
     engine.set_context(context)
@@ -538,7 +538,6 @@ async def _run_pipeline(
             stop=[TranscriptionUserTurnStopStrategy()],
         ),
         user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
-        enable_emulated_vad_interruptions=True,
         user_idle_timeout=max_user_idle_timeout,
     )
     context_aggregator = LLMContextAggregatorPair(
@@ -595,7 +594,6 @@ async def _run_pipeline(
     pipeline = build_pipeline(
         transport,
         stt,
-        transcript,
         audio_buffer,
         llm,
         tts,
@@ -649,8 +647,11 @@ async def _run_pipeline(
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
-    register_transcript_handler(
-        transcript, workflow_run_id, in_memory_transcript_buffer
+    register_transcript_handlers(
+        user_context_aggregator,
+        assistant_context_aggregator,
+        workflow_run_id,
+        in_memory_transcript_buffer,
     )
 
     try:

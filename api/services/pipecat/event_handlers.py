@@ -260,18 +260,26 @@ def register_audio_data_handler(
             # Could implement overflow to disk here if needed
 
 
-def register_transcript_handler(
-    transcript, workflow_run_id, in_memory_buffer: InMemoryTranscriptBuffer
+def register_transcript_handlers(
+    user_aggregator,
+    assistant_aggregator,
+    workflow_run_id,
+    in_memory_buffer: InMemoryTranscriptBuffer,
 ):
-    """Register event handler for transcript updates"""
+    """Register event handlers for transcript updates on context aggregators.
 
-    @transcript.event_handler("on_transcript_update")
-    async def on_transcript_update(processor, frame):
-        transcript_text = ""
-        for msg in frame.messages:
-            timestamp = f"[{msg.timestamp}] " if msg.timestamp else ""
-            line = f"{timestamp}{msg.role}: {msg.content}\n"
-            transcript_text += line
+    Uses the on_user_turn_stopped and on_assistant_turn_stopped events to capture
+    transcripts as turns complete, following the event-based pattern.
+    """
 
-        # Use in-memory buffer
-        await in_memory_buffer.append(transcript_text)
+    @user_aggregator.event_handler("on_user_turn_stopped")
+    async def on_user_turn_stopped(aggregator, strategy, message):
+        timestamp = f"[{message.timestamp}] " if message.timestamp else ""
+        line = f"{timestamp}user: {message.content}\n"
+        await in_memory_buffer.append(line)
+
+    @assistant_aggregator.event_handler("on_assistant_turn_stopped")
+    async def on_assistant_turn_stopped(aggregator, message):
+        timestamp = f"[{message.timestamp}] " if message.timestamp else ""
+        line = f"{timestamp}assistant: {message.content}\n"
+        await in_memory_buffer.append(line)

@@ -3,7 +3,6 @@ from typing import Optional
 
 from fastapi import HTTPException, WebSocket
 from loguru import logger
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 
 from api.db import db_client
 from api.db.models import WorkflowModel
@@ -45,6 +44,7 @@ from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response import (
@@ -552,7 +552,7 @@ async def _run_pipeline(
             ],
         ),
         user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
-        enable_emulated_vad_interruptions=True
+        enable_emulated_vad_interruptions=True,
     )
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params

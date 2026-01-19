@@ -62,7 +62,7 @@ def build_pipeline(
     # Build processors list with optional voicemail detection
     processors = [
         transport.input(),  # Transport user input
-        stt
+        stt,
     ]
 
     # Insert voicemail detector after STT if enabled

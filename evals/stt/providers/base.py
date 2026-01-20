@@ -3,7 +3,10 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+# Event callback type: (event_type, data) -> None
+EventCallback = Callable[[str, dict[str, Any]], None]
 
 
 @dataclass
@@ -107,6 +110,7 @@ class STTProvider(ABC):
         audio_path: Path,
         diarize: bool = False,
         keyterms: list[str] | None = None,
+        on_event: EventCallback | None = None,
         **kwargs: Any,
     ) -> TranscriptionResult:
         """Transcribe audio file.
@@ -115,6 +119,7 @@ class STTProvider(ABC):
             audio_path: Path to the audio file
             diarize: Enable speaker diarization
             keyterms: List of keywords to boost (if supported)
+            on_event: Optional callback for raw WebSocket events (event_type, data)
             **kwargs: Provider-specific parameters
 
         Returns:

@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from ..audio_streamer import AudioConfig, AudioStreamer
-from .base import STTProvider, TranscriptionResult, Word
+from .base import EventCallback, STTProvider, TranscriptionResult, Word
 from loguru import logger
 
 try:
@@ -50,10 +50,12 @@ class DeepgramProvider(STTProvider):
         audio_path: Path,
         diarize: bool = False,
         keyterms: list[str] | None = None,
+        on_event: EventCallback | None = None,
         model: str = "nova-3-general",
         language: str = "en",
         sample_rate: int = 8000,
         punctuate: bool = True,
+        trailing_silence_seconds: float = 3.0,
         **kwargs: Any,
     ) -> TranscriptionResult:
         """Transcribe audio using Deepgram Nova WebSocket streaming.
@@ -62,10 +64,12 @@ class DeepgramProvider(STTProvider):
             audio_path: Path to audio file
             diarize: Enable speaker diarization
             keyterms: List of keywords to boost recognition
+            on_event: Optional callback for raw WebSocket events
             model: Deepgram Nova model (nova-3, nova-2, etc.)
             language: Language code
             sample_rate: Audio sample rate for streaming
             punctuate: Add punctuation
+            trailing_silence_seconds: Seconds of silence after audio to capture pending events
             **kwargs: Additional Deepgram parameters
 
         Returns:
@@ -82,7 +86,8 @@ class DeepgramProvider(STTProvider):
             "interim_results": "true",
             "smart_format": "true",
             "profanity_filter": "true",
-            "vad_events": "true"
+            "vad_events": "true",
+            "utterance_end_ms": "1000"
         }
 
         if diarize:
@@ -123,8 +128,10 @@ class DeepgramProvider(STTProvider):
                 async def send_audio():
                     """Send audio chunks to Deepgram."""
                     chunk_no = 0
-                    async for chunk in streamer.stream_file(audio_path):
-                        logger.debug(f"[deepgram] Sent audio chunk {chunk_no}")
+                    async for chunk in streamer.stream_file(
+                        audio_path, trailing_silence_seconds=trailing_silence_seconds
+                    ):
+                        logger.trace(f"[deepgram] Sent audio chunk {chunk_no}")
                         await ws.send(chunk)
                         chunk_no += 1
                     # Send close message
@@ -141,6 +148,10 @@ class DeepgramProvider(STTProvider):
                             data = json.loads(message)
                             msg_type = data.get("type")
                             logger.debug(f"[deepgram] Received {msg_type}: {data}")
+
+                            # Emit event via callback if provided
+                            if on_event and msg_type:
+                                on_event(msg_type, data)
 
                             if msg_type == "Results":
                                 # Nova-style response
@@ -176,7 +187,7 @@ class DeepgramProvider(STTProvider):
                 except asyncio.TimeoutError:
                     pass  # Normal - websocket closes after final results
         except Exception as e:
-            logger.debug(e)
+            logger.exception(e)
 
         return self._parse_results(
             all_words, final_transcript.strip(), duration, params, keyterms

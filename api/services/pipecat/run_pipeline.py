@@ -7,6 +7,7 @@ from loguru import logger
 from api.db import db_client
 from api.db.models import WorkflowModel
 from api.enums import WorkflowRunMode
+from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
@@ -53,13 +54,17 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
-from pipecat.turns.user_start.transcription_user_turn_start_strategy import (
+from pipecat.turns.user_start import (
+    ExternalUserTurnStartStrategy,
     TranscriptionUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
     VADUserTurnStartStrategy,
 )
-from pipecat.turns.user_stop import TranscriptionUserTurnStopStrategy
+from pipecat.turns.user_stop import (
+    ExternalUserTurnStopStrategy,
+    TranscriptionUserTurnStopStrategy,
+)
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.context import set_current_run_id
 from pipecat.utils.enums import EndTaskReason
@@ -532,11 +537,28 @@ async def _run_pipeline(
         expect_stripped_words=True,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
-    user_params = LLMUserAggregatorParams(
-        user_turn_strategies=UserTurnStrategies(
+
+    # Configure turn strategies based on STT provider and model
+    # Deepgram Flux uses external turn detection (VAD + External start/stop)
+    # Other models use transcription-based turn detection with smart turn analyzer
+    is_deepgram_flux = (
+        user_config.stt.provider == ServiceProviders.DEEPGRAM.value
+        and user_config.stt.model == "flux-general-en"
+    )
+
+    if is_deepgram_flux:
+        user_turn_strategies = UserTurnStrategies(
+            start=[VADUserTurnStartStrategy(), ExternalUserTurnStartStrategy()],
+            stop=[ExternalUserTurnStopStrategy()],
+        )
+    else:
+        user_turn_strategies = UserTurnStrategies(
             start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
             stop=[TranscriptionUserTurnStopStrategy()],
-        ),
+        )
+
+    user_params = LLMUserAggregatorParams(
+        user_turn_strategies=user_turn_strategies,
         user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
         user_idle_timeout=max_user_idle_timeout,
     )

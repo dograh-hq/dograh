@@ -1,0 +1,445 @@
+{
+  "audio_file": "nope.m4a",
+  "audio_path": "../audio/nope.m4a",
+  "provider": "deepgram-flux",
+  "duration": 3.390113,
+  "created_at": "2026-01-20T13:34:04.075559",
+  "events": [
+    {
+      "timestamp": 3.3294782042503357e-07,
+      "event_type": "Connected",
+      "data": {
+        "type": "Connected",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "sequence_id": 0
+      }
+    },
+    {
+      "timestamp": 0.6400237919297069,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.24,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.1726,
+        "sequence_id": 1
+      }
+    },
+    {
+      "timestamp": 0.850623874925077,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.48,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0643,
+        "sequence_id": 2
+      }
+    },
+    {
+      "timestamp": 1.0877662498969585,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.72,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0343,
+        "sequence_id": 3
+      }
+    },
+    {
+      "timestamp": 1.3602930000051856,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.96,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.023,
+        "sequence_id": 4
+      }
+    },
+    {
+      "timestamp": 1.5734205420594662,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "StartOfTurn",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 1.2,
+        "transcript": "No.",
+        "words": [
+          {
+            "word": "No.",
+            "confidence": 0.9956
+          }
+        ],
+        "end_of_turn_confidence": 0.1445,
+        "sequence_id": 5
+      }
+    },
+    {
+      "timestamp": 1.7732612078543752,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "EndOfTurn",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 1.36,
+        "transcript": "No.",
+        "words": [
+          {
+            "word": "No.",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.7266,
+        "sequence_id": 6
+      }
+    },
+    {
+      "timestamp": 2.0032672078814358,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 1.6,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.2114,
+        "sequence_id": 7
+      }
+    },
+    {
+      "timestamp": 2.272528207860887,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 1.8399999,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.2886,
+        "sequence_id": 8
+      }
+    },
+    {
+      "timestamp": 2.4770477078855038,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 2.08,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.1366,
+        "sequence_id": 9
+      }
+    },
+    {
+      "timestamp": 2.7586996669415385,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 2.32,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0687,
+        "sequence_id": 10
+      }
+    },
+    {
+      "timestamp": 2.9688463748898357,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 2.56,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0571,
+        "sequence_id": 11
+      }
+    },
+    {
+      "timestamp": 3.2333728750236332,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 2.8,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0284,
+        "sequence_id": 12
+      }
+    },
+    {
+      "timestamp": 3.4381651668809354,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 3.04,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0352,
+        "sequence_id": 13
+      }
+    },
+    {
+      "timestamp": 3.7163160829804838,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 3.28,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0211,
+        "sequence_id": 14
+      }
+    },
+    {
+      "timestamp": 3.936306041898206,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 3.52,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0123,
+        "sequence_id": 15
+      }
+    },
+    {
+      "timestamp": 4.212840874912217,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 3.76,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0399,
+        "sequence_id": 16
+      }
+    },
+    {
+      "timestamp": 4.417071416974068,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 4.0,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0503,
+        "sequence_id": 17
+      }
+    },
+    {
+      "timestamp": 4.685962416930124,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 4.24,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0443,
+        "sequence_id": 18
+      }
+    },
+    {
+      "timestamp": 4.898042541928589,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 4.48,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0367,
+        "sequence_id": 19
+      }
+    },
+    {
+      "timestamp": 5.167347207898274,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 4.7200003,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0221,
+        "sequence_id": 20
+      }
+    },
+    {
+      "timestamp": 5.415992958005518,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 4.96,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.1116,
+        "sequence_id": 21
+      }
+    },
+    {
+      "timestamp": 5.703707166947424,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 5.2,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0883,
+        "sequence_id": 22
+      }
+    },
+    {
+      "timestamp": 5.923421707935631,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 5.44,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0663,
+        "sequence_id": 23
+      }
+    },
+    {
+      "timestamp": 6.128664416959509,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 5.68,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0324,
+        "sequence_id": 24
+      }
+    },
+    {
+      "timestamp": 6.382756792008877,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 5.92,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0138,
+        "sequence_id": 25
+      }
+    },
+    {
+      "timestamp": 6.629080249927938,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "b42d9771-4a63-4c7f-aa89-33370cd70d23",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 1.36,
+        "audio_window_end": 6.16,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0064,
+        "sequence_id": 26
+      }
+    }
+  ],
+  "transcript": "No."
+}

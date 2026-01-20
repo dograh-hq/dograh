@@ -321,9 +321,20 @@ export default function ServiceConfiguration() {
         if (!providerSchema) return [];
 
         // Find all config fields (not provider, not api_key)
-        return Object.keys(providerSchema.properties).filter(
+        const fields = Object.keys(providerSchema.properties).filter(
             field => field !== "provider" && field !== "api_key"
         );
+
+        // For Deepgram STT, hide language field when flux-general-en model is selected
+        // Flux model is English-only and doesn't support language selection
+        if (service === "stt" && currentProvider === "deepgram") {
+            const currentModel = watch("stt_model") as string;
+            if (currentModel === "flux-general-en") {
+                return fields.filter(field => field !== "language");
+            }
+        }
+
+        return fields;
     };
 
     const renderServiceFields = (service: ServiceSegment) => {

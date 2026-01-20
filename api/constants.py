@@ -14,7 +14,6 @@ FILLER_SOUND_PROBABILITY = 0.0
 VOICEMAIL_RECORDING_DURATION = 5.0
 
 # Configuration constants
-ENABLE_SMART_TURN = os.getenv("ENABLE_SMART_TURN", "false").lower() == "true"
 ENABLE_TRACING = os.getenv("ENABLE_TRACING", "false").lower() == "true"
 ENABLE_RNNOISE = os.getenv("ENABLE_RNNOISE", "false").lower() == "true"
 

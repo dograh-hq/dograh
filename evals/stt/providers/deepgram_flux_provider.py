@@ -14,7 +14,7 @@ from urllib.parse import urlencode
 from loguru import logger
 
 from ..audio_streamer import AudioConfig, AudioStreamer
-from .base import STTProvider, TranscriptionResult, Word
+from .base import EventCallback, STTProvider, TranscriptionResult, Word
 
 try:
     from websockets.asyncio.client import connect as websocket_connect
@@ -55,11 +55,13 @@ class DeepgramFluxProvider(STTProvider):
         audio_path: Path,
         diarize: bool = False,  # Ignored - Flux doesn't support diarization
         keyterms: list[str] | None = None,
+        on_event: EventCallback | None = None,
         model: str = "flux-general-en",
         sample_rate: int = 16000,
-        eot_threshold: float | None = None,
-        eot_timeout_ms: int | None = None,
+        eot_threshold: float | None = 0.70,
+        eot_timeout_ms: int | None = 3000,
         eager_eot_threshold: float | None = None,
+        trailing_silence_seconds: float = 3.0,
         **kwargs: Any,
     ) -> TranscriptionResult:
         """Transcribe audio using Deepgram Flux WebSocket streaming.
@@ -68,11 +70,13 @@ class DeepgramFluxProvider(STTProvider):
             audio_path: Path to audio file
             diarize: IGNORED - Flux does not support diarization
             keyterms: List of keywords to boost recognition
+            on_event: Optional callback for raw WebSocket events
             model: Flux model (default: flux-general-en)
             sample_rate: Audio sample rate (default: 16000 for Flux)
             eot_threshold: End-of-turn confidence threshold (0-1, default 0.7)
             eot_timeout_ms: Timeout in ms to force end of turn (default 5000)
             eager_eot_threshold: Threshold for eager end-of-turn events
+            trailing_silence_seconds: Seconds of silence after audio to capture pending events
             **kwargs: Additional Flux parameters
 
         Returns:
@@ -127,8 +131,10 @@ class DeepgramFluxProvider(STTProvider):
                 await connected.wait()
 
                 chunk_no = 0
-                async for chunk in streamer.stream_file(audio_path):
-                    logger.debug(f"[deepgram-flux] Sent audio chunk {chunk_no}")
+                async for chunk in streamer.stream_file(
+                    audio_path, trailing_silence_seconds=trailing_silence_seconds
+                ):
+                    logger.trace(f"[deepgram-flux] Sent audio chunk {chunk_no}")
                     await ws.send(chunk)
                     chunk_no += 1
 
@@ -141,6 +147,10 @@ class DeepgramFluxProvider(STTProvider):
                         data = json.loads(message)
                         msg_type = data.get("type")
                         logger.debug(f"[deepgram-flux] Received {msg_type}: {data}")
+
+                        # Emit event via callback if provided
+                        if on_event and msg_type:
+                            on_event(msg_type, data)
 
                         if msg_type == "Connected":
                             logger.info("[deepgram-flux] Connected")

@@ -2,10 +2,9 @@ import os
 
 from fastapi import WebSocket
 
-from api.constants import APP_ROOT_DIR, ENABLE_SMART_TURN
+from api.constants import APP_ROOT_DIR
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey
-from api.services.looptalk.internal_transport import InternalTransport
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.telephony.stasis_rtp_serializer import StasisRTPFrameSerializer
@@ -15,8 +14,6 @@ from api.services.telephony.stasis_rtp_transport import (
 )
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
-from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.serializers.vobiz import VobizFrameSerializer
@@ -32,19 +29,6 @@ from pipecat.transports.websocket.fastapi import (
 librnnoise_path = os.path.normpath(
     str(APP_ROOT_DIR / "native" / "rnnoise" / "librnnoise.so")
 )
-
-
-def create_turn_analyzer(workflow_run_id: int, audio_config: AudioConfig):
-    """Create a turn analyzer backed by the local Smart Turn HTTP service.
-
-    Args:
-        workflow_run_id: ID of the workflow run for turn analyzer context
-        audio_config: Audio configuration containing pipeline sample rate
-    """
-    if ENABLE_SMART_TURN:
-        return LocalSmartTurnAnalyzerV3(params=SmartTurnParams())
-
-    return None
 
 
 async def create_twilio_transport(
@@ -76,8 +60,6 @@ async def create_twilio_transport(
         raise ValueError(
             f"Incomplete Twilio configuration for organization {organization_id}"
         )
-
-    turn_analyzer = create_turn_analyzer(workflow_run_id, audio_config)
 
     serializer = TwilioFrameSerializer(
         stream_sid=stream_sid,
@@ -495,40 +477,44 @@ def create_internal_transport(
     Returns:
         InternalTransport instance configured with turn analyzer
     """
+    pass
+    # Commented out because looptalk coming in the regular import flow
+    # was causing issue. May be move this to looptalk/orchestrator.py
+
     # Create and return the internal transport with latency
-    return InternalTransport(
-        params=TransportParams(
-            audio_out_enabled=True,
-            audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_channels=1,
-            audio_in_enabled=True,
-            audio_in_sample_rate=audio_config.transport_in_sample_rate,
-            audio_in_channels=1,
-            vad_analyzer=(
-                SileroVADAnalyzer(
-                    params=VADParams(
-                        confidence=vad_config.get("confidence", 0.7),
-                        start_secs=vad_config.get("start_seconds", 0.4),
-                        stop_secs=vad_config.get("stop_seconds", 0.8),
-                        min_volume=vad_config.get("minimum_volume", 0.6),
-                    )
-                )
-                if vad_config
-                else SileroVADAnalyzer()
-            ),
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
-        ),
-        latency_seconds=latency_seconds,
-    )
+    # return InternalTransport(
+    #     params=TransportParams(
+    #         audio_out_enabled=True,
+    #         audio_out_sample_rate=audio_config.transport_out_sample_rate,
+    #         audio_out_channels=1,
+    #         audio_in_enabled=True,
+    #         audio_in_sample_rate=audio_config.transport_in_sample_rate,
+    #         audio_in_channels=1,
+    #         vad_analyzer=(
+    #             SileroVADAnalyzer(
+    #                 params=VADParams(
+    #                     confidence=vad_config.get("confidence", 0.7),
+    #                     start_secs=vad_config.get("start_seconds", 0.4),
+    #                     stop_secs=vad_config.get("stop_seconds", 0.8),
+    #                     min_volume=vad_config.get("minimum_volume", 0.6),
+    #                 )
+    #             )
+    #             if vad_config
+    #             else SileroVADAnalyzer()
+    #         ),
+    #         audio_out_mixer=(
+    #             SoundfileMixer(
+    #                 sound_files={
+    #                     "office": APP_ROOT_DIR
+    #                     / "assets"
+    #                     / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
+    #                 },
+    #                 default_sound="office",
+    #                 volume=ambient_noise_config.get("volume", 0.3),
+    #             )
+    #             if ambient_noise_config and ambient_noise_config.get("enabled", False)
+    #             else SilenceAudioMixer()
+    #         ),
+    #     ),
+    #     latency_seconds=latency_seconds,
+    # )

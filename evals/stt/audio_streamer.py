@@ -68,12 +68,15 @@ class AudioStreamer:
         self,
         audio_path: Path,
         realtime: bool = True,
+        trailing_silence_seconds: float = 0.0,
     ) -> AsyncIterator[bytes]:
         """Stream audio file as PCM16 chunks.
 
         Args:
             audio_path: Path to audio file
             realtime: If True, add delays to simulate real-time streaming
+            trailing_silence_seconds: Seconds of silence to append after audio ends.
+                Useful for capturing pending end-of-turn events from STT providers.
 
         Yields:
             PCM16 audio chunks
@@ -84,11 +87,21 @@ class AudioStreamer:
         chunk_size = self.config.chunk_size
         delay = self.config.chunk_duration_ms / 1000.0 if realtime else 0
 
-        # Stream in chunks
+        # Stream audio chunks
         for i in range(0, len(pcm_data), chunk_size):
             chunk = pcm_data[i : i + chunk_size]
             if chunk:
                 yield chunk
+                if realtime and delay > 0:
+                    await asyncio.sleep(delay)
+
+        # Stream trailing silence if requested
+        if trailing_silence_seconds > 0:
+            silence_chunk = bytes(chunk_size)  # Zero-filled bytes = silence
+            num_silence_chunks = int(trailing_silence_seconds / (self.config.chunk_duration_ms / 1000.0))
+
+            for _ in range(num_silence_chunks):
+                yield silence_chunk
                 if realtime and delay > 0:
                     await asyncio.sleep(delay)
 

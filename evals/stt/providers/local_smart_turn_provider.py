@@ -14,7 +14,7 @@ import numpy as np
 from loguru import logger
 
 from ..audio_streamer import AudioConfig, AudioStreamer
-from .base import STTProvider, TranscriptionResult, Word
+from .base import EventCallback, STTProvider, TranscriptionResult, Word
 
 try:
     import onnxruntime as ort
@@ -158,6 +158,7 @@ class LocalSmartTurnProvider(STTProvider):
         audio_path: Path,
         diarize: bool = False,  # Ignored - not applicable
         keyterms: list[str] | None = None,  # Ignored - not applicable
+        on_event: EventCallback | None = None,  # Ignored - not applicable
         sample_rate: int = 16000,  # Must be 16kHz for smart turn
         analysis_interval_ms: int = 500,  # How often to check for turn completion
         **kwargs: Any,
@@ -171,6 +172,7 @@ class LocalSmartTurnProvider(STTProvider):
             audio_path: Path to audio file
             diarize: Ignored (not applicable for turn detection)
             keyterms: Ignored (not applicable for turn detection)
+            on_event: Ignored (not applicable for turn detection)
             sample_rate: Must be 16000 Hz for smart turn model
             analysis_interval_ms: How often to run turn detection (ms)
             **kwargs: Additional parameters (ignored)

@@ -9,7 +9,7 @@ from typing import Any
 from loguru import logger
 
 from ..audio_streamer import AudioConfig, AudioStreamer
-from .base import STTProvider, TranscriptionResult, Word
+from .base import EventCallback, STTProvider, TranscriptionResult, Word
 
 try:
     from websockets.asyncio.client import connect as websocket_connect
@@ -46,11 +46,13 @@ class SpeechmaticsProvider(STTProvider):
         audio_path: Path,
         diarize: bool = False,
         keyterms: list[str] | None = None,
+        on_event: EventCallback | None = None,
         language: str = "en",
         operating_point: str = "enhanced",
         sample_rate: int = 8000,
         speaker_sensitivity: float | None = None,
         max_speakers: int | None = None,
+        trailing_silence_seconds: float = 3.0,
         **kwargs: Any,
     ) -> TranscriptionResult:
         """Transcribe audio using Speechmatics WebSocket streaming.
@@ -59,11 +61,13 @@ class SpeechmaticsProvider(STTProvider):
             audio_path: Path to audio file
             diarize: Enable speaker diarization
             keyterms: Additional vocabulary (limited support)
+            on_event: Optional callback for raw WebSocket events
             language: Language code
             operating_point: "standard" or "enhanced"
             sample_rate: Audio sample rate for streaming
             speaker_sensitivity: 0.0-1.0, higher = more speakers detected
             max_speakers: Maximum number of speakers to detect
+            trailing_silence_seconds: Seconds of silence after audio to capture pending events
             **kwargs: Additional config parameters
 
         Returns:
@@ -134,7 +138,9 @@ class SpeechmaticsProvider(STTProvider):
                 await recognition_started.wait()
 
                 chunk_no = 0
-                async for chunk in streamer.stream_file(audio_path):
+                async for chunk in streamer.stream_file(
+                    audio_path, trailing_silence_seconds=trailing_silence_seconds
+                ):
                     logger.debug(f"[speechmatics] Sent audio chunk {chunk_no}")
                     await ws.send(chunk)
                     chunk_no += 1
@@ -152,6 +158,10 @@ class SpeechmaticsProvider(STTProvider):
                         data = json.loads(message)
                         msg_type = data.get("message")
                         logger.debug(f"[speechmatics] Received {msg_type}: {data}")
+
+                        # Emit event via callback if provided
+                        if on_event and msg_type:
+                            on_event(msg_type, data)
 
                         if msg_type == "RecognitionStarted":
                             logger.info("[speechmatics] Connected")

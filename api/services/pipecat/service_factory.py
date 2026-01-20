@@ -7,6 +7,7 @@ from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.cartesia.stt import CartesiaSTTService
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.services.dograh.llm import DograhLLMService
@@ -34,6 +35,20 @@ def create_stt_service(user_config):
         f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
     )
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
+        # Check if using Flux model (English-only, no language selection)
+        if user_config.stt.model == "flux-general-en":
+            logger.debug("Using DeepGram Flux Model")
+            return DeepgramFluxSTTService(
+                api_key=user_config.stt.api_key,
+                model=user_config.stt.model,
+                params=DeepgramFluxSTTService.InputParams(
+                    eot_timeout_ms=3000,
+                    eot_threshold=0.7,
+                ),
+                should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
+            )
+
+        # Other models than flux
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
         live_options = LiveOptions(
@@ -44,7 +59,9 @@ def create_stt_service(user_config):
         )
         logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
-            live_options=live_options, api_key=user_config.stt.api_key
+            live_options=live_options,
+            api_key=user_config.stt.api_key,
+            should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         return OpenAISTTService(

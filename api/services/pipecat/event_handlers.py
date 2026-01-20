@@ -22,16 +22,21 @@ from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 
 
-def register_transport_event_handlers(
+def register_event_handlers(
     task: PipelineTask,
     transport,
-    workflow_run_id,
+    workflow_run_id: int,
     engine: PipecatEngine,
     audio_buffer: AudioBufferProcessor,
+    in_memory_logs_buffer: InMemoryLogsBuffer,
+    pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
 ):
-    """Register event handlers for transport events"""
+    """Register all event handlers for transport and task events.
 
+    Returns:
+        Tuple of (in_memory_audio_buffer, in_memory_transcript_buffer) for use by other handlers.
+    """
     # Initialize in-memory buffers with proper audio configuration
     sample_rate = audio_config.pipeline_sample_rate if audio_config else 16000
     num_channels = 1  # Pipeline audio is always mono
@@ -48,13 +53,35 @@ def register_transport_event_handlers(
     )
     in_memory_transcript_buffer = InMemoryTranscriptBuffer(workflow_run_id)
 
+    # Track both events to ensure LLM is only triggered after both occur
+    ready_state = {
+        "pipeline_started": False,
+        "client_connected": False,
+        "llm_triggered": False,
+    }
+
+    async def maybe_trigger_llm():
+        """Trigger LLM only after both pipeline_started and client_connected events."""
+        if (
+            ready_state["pipeline_started"]
+            and ready_state["client_connected"]
+            and not ready_state["llm_triggered"]
+        ):
+            ready_state["llm_triggered"] = True
+            logger.debug(
+                "Both pipeline_started and client_connected received - triggering initial LLM generation"
+            )
+            await engine.llm.queue_frame(LLMContextFrame(engine.context))
+
     @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, participant):
-        logger.debug("In on_client_connected callback handler - initializing workflow")
+    async def on_client_connected(_transport, _participant):
+        logger.debug("In on_client_connected callback handler")
         await audio_buffer.start_recording()
+        ready_state["client_connected"] = True
+        await maybe_trigger_llm()
 
     @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, participant):
+    async def on_client_disconnected(_transport, _participant):
         call_disposed = engine.is_call_disposed()
 
         logger.debug(
@@ -69,33 +96,16 @@ def register_transport_event_handlers(
         if not call_disposed:
             await task.cancel()
 
-    # Return the buffers so they can be passed to other handlers
-    return in_memory_audio_buffer, in_memory_transcript_buffer
-
-
-def register_task_event_handler(
-    workflow_run_id: int,
-    engine: PipecatEngine,
-    task: PipelineTask,
-    transport,
-    audio_buffer: AudioBufferProcessor,
-    in_memory_audio_buffer: InMemoryAudioBuffer,
-    in_memory_transcript_buffer: InMemoryTranscriptBuffer,
-    in_memory_logs_buffer: InMemoryLogsBuffer,
-    pipeline_metrics_aggregator: PipelineMetricsAggregator,
-):
     @task.event_handler("on_pipeline_started")
-    async def on_pipeline_started(task: PipelineTask, frame: Frame):
-        logger.debug(
-            "In on_pipeline_started callback handler - triggering initial LLM generation"
-        )
-        # Trigger initial LLM generation after pipeline has started
-        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+    async def on_pipeline_started(_task: PipelineTask, _frame: Frame):
+        logger.debug("In on_pipeline_started callback handler")
+        ready_state["pipeline_started"] = True
+        await maybe_trigger_llm()
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(
         task: PipelineTask,
-        frame: Frame,
+        _frame: Frame,
     ):
         logger.debug(f"In on_pipeline_finished callback handler")
 
@@ -237,6 +247,9 @@ def register_task_event_handler(
         await enqueue_job(
             FunctionNames.RUN_INTEGRATIONS_POST_WORKFLOW_RUN, workflow_run_id
         )
+
+    # Return the buffers so they can be passed to other handlers
+    return in_memory_audio_buffer, in_memory_transcript_buffer
 
 
 def register_audio_data_handler(

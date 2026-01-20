@@ -11,9 +11,8 @@ from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
-    register_task_event_handler,
+    register_event_handlers,
     register_transcript_handlers,
-    register_transport_event_handlers,
 )
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import (
@@ -635,18 +634,6 @@ async def _run_pipeline(
     # Initialize the engine to set the initial context
     await engine.initialize()
 
-    # Register event handlers
-    in_memory_audio_buffer, in_memory_transcript_buffer = (
-        register_transport_event_handlers(
-            task,
-            transport,
-            workflow_run_id,
-            engine=engine,
-            audio_buffer=audio_buffer,
-            audio_config=audio_config,
-        )
-    )
-
     # Add real-time feedback observer if WebSocket sender is available
     # Note: ws_sender was already fetched earlier for node_transition_callback
     if ws_sender:
@@ -656,16 +643,16 @@ async def _run_pipeline(
         )
         task.add_observer(feedback_observer)
 
-    register_task_event_handler(
-        workflow_run_id,
-        engine,
+    # Register event handlers
+    in_memory_audio_buffer, in_memory_transcript_buffer = register_event_handlers(
         task,
         transport,
-        audio_buffer,
-        in_memory_audio_buffer,
-        in_memory_transcript_buffer,
-        in_memory_logs_buffer,
-        pipeline_metrics_aggregator,
+        workflow_run_id,
+        engine=engine,
+        audio_buffer=audio_buffer,
+        in_memory_logs_buffer=in_memory_logs_buffer,
+        pipeline_metrics_aggregator=pipeline_metrics_aggregator,
+        audio_config=audio_config,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

@@ -1,0 +1,168 @@
+---
+title: "Inbound Calling"
+description: "Configure inbound calling for Twilio, Vonage, and Cloudonix providers in Dograh AI"
+---
+
+## Overview
+
+Dograh AI supports inbound calling across all supported telephony providers. When someone calls your configured phone number, your voice agent automatically answers and handles the interaction. The inbound calling configuration in Dograh AI uses the same telephony settings as outbound calling.
+
+## Supported Providers for Inbound Calls
+
+<CardGroup cols={3}>
+  <Card title="Twilio" href="/integrations/telephony/twilio">
+    Industry-leading platform with robust inbound call handling
+  </Card>
+  <Card title="Cloudonix" href="/integrations/telephony/cloudonix">
+    SIP-based inbound calling with flexible trunk configuration
+  </Card>
+  <Card title="Vobiz" href="/integrations/telephony/vobiz">
+    Cloud-based telephony with global reach and competitive pricing
+  </Card>
+</CardGroup>
+
+<Note>
+**Vonage**: Inbound calling support is coming soon. Currently supports outbound calling only.
+</Note>
+
+## How Inbound Calling Works
+
+When someone calls your configured phone number:
+
+1. **Call Received**: The telephony provider receives the incoming call
+2. **Webhook Triggered**: The provider sends a webhook to Dograh AI
+3. **Agent Activated**: Dograh AI activates your configured voice agent workflow
+4. **Audio Streaming**: Real-time audio streams between caller and agent via WebSocket
+5. **Conversation Handled**: Your voice agent manages the entire conversation
+
+## Configuration in Dograh AI
+
+Setting up inbound calling requires three simple steps:
+
+### Step 1: Configure Telephony Provider
+
+The telephony configuration for inbound calling is **identical** to outbound calling. Follow the **Configuration** section in your provider's documentation page:
+
+- [Twilio Configuration](/integrations/telephony/twilio#configuration)
+- [Cloudonix Configuration](/integrations/telephony/cloudonix#configuration)
+- [Vobiz Configuration](/integrations/telephony/vobiz#configuration)
+
+### Step 2: Get Your Workflow Webhook URL
+
+1. **Find Your Workflow ID**: 
+   - Navigate to your workflow page (e.g., `https://app.dograh.com/workflow/3`)
+   - Note the workflow ID from the URL (in this example: `3`)
+
+2. **Construct Webhook URL**:
+   ```
+   https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}
+   ```
+   
+   For example, if your workflow ID is `3`:
+   ```
+   https://api.dograh.com/api/v1/telephony/inbound/3
+   ```
+
+   <Note>
+   If you're using a self-hosted Dograh instance, replace `api.dograh.com` with your own domain.
+   </Note>
+
+### Step 3: Configure Provider-Specific Inbound Settings
+
+Each telephony provider requires additional configuration to route incoming calls to your Dograh AI webhook. Follow the provider-specific inbound setup instructions:
+
+- [Twilio Inbound Setup](/integrations/telephony/twilio#inbound-calling-setup)
+- [Vonage Inbound Setup](/integrations/telephony/vonage#inbound-calling-setup)
+- [Cloudonix Inbound Setup](/integrations/telephony/cloudonix#inbound-calling-setup)
+- [Vobiz Inbound Setup](/integrations/telephony/vobiz#inbound-calling-setup)
+
+
+## Testing Inbound Calls
+
+After completing both the Dograh AI configuration and provider-specific setup:
+
+1. **Test Call**: Call your configured phone number from another phone
+2. **Verify Connection**: Ensure your voice agent answers and responds appropriately
+3. **Check Logs**: Monitor call logs in both Dograh AI and your provider's dashboard
+4. **Audio Quality**: Verify clear two-way audio communication
+
+## Troubleshooting Common Issues
+
+<AccordionGroup>
+  <Accordion title="Calls go to voicemail instead of agent">
+    - Verify webhook URLs are correctly configured at your provider
+    - Check that webhook endpoints are publicly accessible
+    - Ensure phone numbers are properly linked to your application
+  </Accordion>
+  
+  <Accordion title="Agent doesn't respond to incoming calls">
+    - Confirm your voice agent workflow is properly configured
+    - Check webhook signature validation is working
+    - Verify WebSocket connections are established successfully
+  </Accordion>
+  
+  <Accordion title="Provider mismatch error">
+    - **Error**: "Configuration error: This phone number is configured for a different telephony provider"
+    - **Solution**: Check your dashboard settings and update your webhook URL configuration to match the correct provider
+    - Ensure the phone number is configured for the same provider in both Dograh AI and your telephony console
+  </Accordion>
+  
+  <Accordion title="Workflow not found error">
+    - **Error**: "Workflow not found"
+    - **Solution**: Verify the workflow ID in your webhook URL is correct and the workflow exists in your dashboard
+    - Double-check the webhook URL format: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
+  </Accordion>
+  
+  <Accordion title="Account validation failed">
+    - **Error**: "Authentication error: Account credentials do not match"
+    - **Solution**: Verify your account SID/credentials configuration in Dograh AI matches your telephony provider settings
+    - Re-enter your provider credentials in the telephony configuration page
+  </Accordion>
+  
+  <Accordion title="Phone number not configured">
+    - **Error**: "Phone number not configured: This number is not set up for inbound calls"
+    - **Solution**: Add this phone number to your telephony configuration in Dograh AI
+    - Ensure the phone number is properly linked to your provider account
+  </Accordion>
+  
+  <Accordion title="Signature validation failed">
+    - **Error**: "Security error: Webhook signature validation failed"
+    - **Solution**: Verify your auth token configuration in Dograh AI matches your provider settings
+    - Ensure webhook requests are coming from your telephony provider's verified IP ranges
+    - Check that your webhook URL is accessible and responding correctly
+  </Accordion>
+  
+  <Accordion title="Quota exceeded error">
+    - **Error**: "Service temporarily unavailable: Your account has exceeded usage limits"
+    - **Solution**: Contact your administrator or upgrade your plan to continue receiving calls
+    - Check your provider account billing and usage limits
+  </Accordion>
+  
+  <Accordion title="General authentication failed">
+    - **Error**: "Authentication failed"
+    - **Solution**: Check your webhook URL configuration and ensure your telephony provider settings match your dashboard configuration
+    - Verify all credentials are entered correctly and haven't expired
+    - Test the webhook URL is publicly accessible from your provider's servers
+  </Accordion>
+  
+  <Accordion title="Poor audio quality on inbound calls">
+    - Check network bandwidth and latency from provider to Dograh AI
+    - Verify audio pipeline configuration matches provider requirements
+    - Review WebSocket connection stability
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- **Single Configuration**: Use the same telephony configuration for both inbound and outbound calls
+- **Testing**: Always test inbound calling after configuration changes
+- **Monitoring**: Monitor both Dograh AI logs and provider dashboards for call analytics
+- **Backup Numbers**: Configure multiple phone numbers for redundancy
+- **Security**: Ensure webhook signature verification is enabled for security
+
+## Next Steps
+
+1. Choose your telephony provider and complete the basic configuration
+2. Follow the provider-specific setup instructions (to be detailed)
+3. Test your inbound calling setup
+4. Configure your voice agent workflow for optimal caller experience

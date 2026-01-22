@@ -54,22 +54,65 @@ Watch this step-by-step guide to set up Cloudonix with Dograh AI:
 2. Click "Test Call" to verify connection
 3. Check call logs for successful connection
 
-## How It Works
+## Inbound Calling Setup
 
-### Outbound Calling
-When you initiate a call through Dograh AI:
-1. The system selects a phone number from your configured pool
-2. Cloudonix places the call to your recipient, via a pre-configured Cloudonix outbound voice trunk
-3. Once connected, audio streams through WebSocket for real-time voice interaction
-4. Call status updates are tracked throughout the lifecycle
+The Dograh AI configuration for inbound calling is **identical** to outbound calling - use the same credentials configured above. However, you need additional setup in your Cloudonix Console to route incoming calls to Dograh AI.
 
+### Configure Inbound Trunk and Application
 
-## Campaign Features
+1. **Set Up Inbound Trunk**:
+   - Log in to your [Cloudonix Console](https://cockpit.cloudonix.io)
+   - Navigate to **Trunks** → **Create Inbound Trunk**
+   - Configure your inbound trunk with your voice service provider
+   - Ensure the trunk can receive calls to your desired phone numbers
 
-When using Cloudonix with campaigns:
-- **Rate Limiting**: Enforced per organization to prevent overwhelming
-- **Automatic Retry**: Failed calls (busy/no-answer) are retried automatically
-- **Concurrent Call Management**: System manages call slots to optimize throughput
+2. **Create Application for Your Domain**:
+   - Select your domain in the Cloudonix Console
+
+   <img
+     className="block dark:hidden"
+     src="/images/cloudonix-inbound-config-1.png"
+     alt="Cloudonix console showing domain selection"
+   />
+   <img
+     className="hidden dark:block"
+     src="/images/cloudonix-inbound-config-1.png"
+     alt="Cloudonix console showing domain selection"
+   />
+
+   - Create a new application for your domain
+   - Set the webhook URL in the application:
+     ```
+     https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}
+     ```
+
+   <Note>
+   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Dograh, replace `api.dograh.com` with your domain.
+   </Note>
+
+   <img
+     className="block dark:hidden"
+     src="/images/cloudonix-inbound-config-2.png"
+     alt="Cloudonix application creation with webhook URL configuration"
+   />
+   <img
+     className="hidden dark:block"
+     src="/images/cloudonix-inbound-config-2.png"
+     alt="Cloudonix application creation with webhook URL configuration"
+   />
+
+3. **Verify Configuration**:
+   - Ensure your Dograh AI instance is publicly accessible
+   - Test that webhook URL responds correctly
+   - Verify any firewalls allow Cloudonix's IP ranges
+   - Confirm your inbound trunk is active and receiving calls
+
+### Test Inbound Calling
+
+1. Call your configured phone number from another phone
+2. Verify your Dograh AI voice agent answers and responds
+3. Check call logs in both Dograh AI dashboard and Cloudonix Console
+4. Confirm clear two-way audio communication
 
 ## Troubleshooting
 
@@ -88,6 +131,20 @@ When using Cloudonix with campaigns:
     - Verify WebSocket connection is established
     - Check firewall rules for WebSocket traffic
     - Ensure audio pipeline is configured correctly
+  </Accordion>
+  
+  <Accordion title="Inbound calls not reaching voice agent">
+    - Verify inbound trunk is properly configured and active
+    - Check routing rules point to correct Dograh AI webhook endpoint
+    - Ensure webhook URLs are publicly accessible
+    - Confirm phone numbers are correctly routed to your trunk
+  </Accordion>
+  
+  <Accordion title="Voice agent doesn't respond to inbound calls">
+    - Verify organization_id in webhook URLs matches your setup
+    - Check that voice agent workflow is properly configured
+    - Ensure SIP connection instructions are correctly returned
+    - Review webhook logs for error responses
   </Accordion>
 </AccordionGroup>
 

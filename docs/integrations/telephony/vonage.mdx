@@ -65,49 +65,20 @@ Watch this step-by-step guide to set up Vonage with Dograh AI:
 2. Click "Test Call" to verify connection
 3. Check call logs for successful connection
 
-## How It Works
+## Inbound Calling
 
-### Technical Details
+<Note>
+**Coming Soon**: Inbound calling support for Vonage is currently under development and will be available in a future release. For now, Vonage integration supports outbound calling only.
+</Note>
 
-Vonage integration differs from other providers in key ways:
+Vonage integration currently supports outbound calling. Inbound calling functionality is being developed and will include:
 
-- **Audio Format**: Uses 16kHz Linear PCM (vs Twilio's 8kHz μ-law)
-- **Protocol**: NCCO (Nexmo Call Control Objects) instead of TwiML
-- **Authentication**: JWT-based authentication using private keys
-- **WebSocket**: Binary audio frames instead of base64-encoded
+- Webhook configuration for incoming calls
+- NCCO response handling
+- Event tracking for call lifecycle management
+- WebSocket audio streaming for inbound calls
 
-### Call Flow
-
-1. Dograh AI generates a JWT token using your private key
-2. Call is initiated via Vonage Voice API
-3. Vonage requests NCCO instructions at the webhook URL
-4. Dograh returns WebSocket connection details
-5. Audio streams as 16kHz PCM over WebSocket
-6. Real-time voice interaction occurs with your agent
-
-### NCCO Response Example
-
-```json
-[
-  {
-    "action": "connect",
-    "endpoint": [{
-      "type": "websocket",
-      "uri": "wss://your-domain/api/v1/telephony/ws/123/456/789",
-      "content-type": "audio/l16;rate=16000",
-      "headers": {}
-    }]
-  }
-]
-```
-
-## Campaign Features
-
-When using Vonage with campaigns:
-- **Global Reach**: Excellent international call quality and coverage
-- **Number Pool Management**: Automatic rotation of configured numbers
-- **Call Analytics**: Detailed metrics via Vonage Dashboard
-- **Cost Tracking**: Per-call cost calculation for billing
+For inbound calling needs, consider using [Twilio](/integrations/telephony/twilio), [Cloudonix](/integrations/telephony/cloudonix), or [Vobiz](/integrations/telephony/vobiz) which have full inbound support.
 
 ## Audio Quality Optimization
 
@@ -150,6 +121,20 @@ Vonage uses higher quality audio (16kHz) which provides:
     - Verify no timeout in load balancer/proxy
     - Monitor for audio pipeline errors
     - Review max call duration settings
+  </Accordion>
+  
+  <Accordion title="Inbound calls not reaching voice agent">
+    - Verify Answer URL is correctly configured in Vonage application
+    - Ensure Answer URL is publicly accessible and returns valid NCCO
+    - Check that phone numbers are linked to the correct application
+    - Verify Event URL is configured for call tracking
+  </Accordion>
+  
+  <Accordion title="Voice agent doesn't respond to inbound calls">
+    - Confirm NCCO response includes correct WebSocket endpoint
+    - Check that organization_id in Event URL matches your setup
+    - Verify voice agent workflow is properly configured
+    - Review webhook logs for error responses
   </Accordion>
 </AccordionGroup>
 

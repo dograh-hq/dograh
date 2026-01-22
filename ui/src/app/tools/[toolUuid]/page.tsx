@@ -8,7 +8,7 @@ import {
     getToolApiV1ToolsToolUuidGet,
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
-import type { ToolResponse } from "@/client/types.gen";
+import type { ToolResponse, TransferCallConfig as APITransferCallConfig } from "@/client/types.gen";
 import { type HttpMethod, type KeyValueItem, type ToolParameter, validateUrl } from "@/components/http";
 import { Button } from "@/components/ui/button";
 import {
@@ -29,7 +29,7 @@ import {
     renderToolIcon,
     type ToolCategory,
 } from "../config";
-import { EndCallToolConfig, HttpApiToolConfig } from "./components";
+import { EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 
 // Extended HttpApiConfig with parameters (until client types are regenerated)
 interface HttpApiConfigWithParams {
@@ -68,6 +68,12 @@ export default function ToolDetailPage() {
     // End Call form state
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
     const [endCallCustomMessage, setEndCallCustomMessage] = useState("");
+
+    // Transfer Call form state
+    const [transferDestination, setTransferDestination] = useState("");
+    const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
+    const [transferCustomMessage, setTransferCustomMessage] = useState("");
+    const [transferTimeout, setTransferTimeout] = useState(30);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -117,6 +123,20 @@ export default function ToolDetailPage() {
                 setEndCallMessageType("none");
                 setEndCallCustomMessage("");
             }
+        } else if (tool.category === "transfer_call") {
+            // Populate transfer call specific fields
+            const config = tool.definition?.config as APITransferCallConfig | undefined;
+            if (config) {
+                setTransferDestination(config.destination || "");
+                setTransferMessageType(config.messageType || "none");
+                setTransferCustomMessage(config.customMessage || "");
+                setTransferTimeout(config.timeout ?? 30);
+            } else {
+                setTransferDestination("");
+                setTransferMessageType("none");
+                setTransferCustomMessage("");
+                setTransferTimeout(30);
+            }
         } else {
             // Populate HTTP API specific fields
             const config = tool.definition?.config as HttpApiConfigWithParams | undefined;
@@ -163,7 +183,14 @@ export default function ToolDetailPage() {
         if (!tool) return;
 
         // Validation based on tool type
-        if (tool.category !== "end_call") {
+        if (tool.category === "transfer_call") {
+            // Validate destination phone number for Transfer Call tools
+            const e164Pattern = /^\+[1-9]\d{1,14}$/;
+            if (!transferDestination || !e164Pattern.test(transferDestination)) {
+                setError("Please enter a valid phone number in E.164 format (e.g., +1234567890)");
+                return;
+            }
+        } else if (tool.category !== "end_call") {
             // Validate URL for HTTP API tools
             const urlValidation = validateUrl(url);
             if (!urlValidation.valid) {
@@ -198,6 +225,22 @@ export default function ToolDetailPage() {
                         config: {
                             messageType: endCallMessageType,
                             customMessage: endCallMessageType === "custom" ? endCallCustomMessage : undefined,
+                        },
+                    },
+                };
+            } else if (tool.category === "transfer_call") {
+                // Build transfer call request body
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        schema_version: 1,
+                        type: "transfer_call",
+                        config: {
+                            destination: transferDestination,
+                            messageType: transferMessageType,
+                            customMessage: transferMessageType === "custom" ? transferCustomMessage : undefined,
+                            timeout: transferTimeout,
                         },
                     },
                 };
@@ -331,6 +374,7 @@ const data = await response.json();`;
     }
 
     const isEndCallTool = tool.category === "end_call";
+    const isTransferCallTool = tool.category === "transfer_call";
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
     return (
@@ -413,6 +457,21 @@ const data = await response.json();`;
                             onMessageTypeChange={setEndCallMessageType}
                             customMessage={endCallCustomMessage}
                             onCustomMessageChange={setEndCallCustomMessage}
+                        />
+                    ) : isTransferCallTool ? (
+                        <TransferCallToolConfig
+                            name={name}
+                            onNameChange={setName}
+                            description={description}
+                            onDescriptionChange={setDescription}
+                            destination={transferDestination}
+                            onDestinationChange={setTransferDestination}
+                            messageType={transferMessageType}
+                            onMessageTypeChange={setTransferMessageType}
+                            customMessage={transferCustomMessage}
+                            onCustomMessageChange={setTransferCustomMessage}
+                            timeout={transferTimeout}
+                            onTimeoutChange={setTransferTimeout}
                         />
                     ) : (
                         <HttpApiToolConfig

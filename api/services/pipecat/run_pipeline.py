@@ -115,6 +115,7 @@ async def run_pipeline_twilio(
     # Create audio configuration for Twilio
     audio_config = create_audio_config(WorkflowRunMode.TWILIO.value)
 
+
     transport = await create_twilio_transport(
         websocket_client,
         stream_sid,
@@ -125,6 +126,7 @@ async def run_pipeline_twilio(
         vad_config,
         ambient_noise_config,
     )
+    
     await _run_pipeline(
         transport,
         workflow_id,
@@ -543,6 +545,7 @@ async def _run_pipeline(
 
     engine = PipecatEngine(
         llm=llm,
+        transport=transport,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,
@@ -552,7 +555,7 @@ async def _run_pipeline(
         embeddings_base_url=embeddings_base_url,
     )
 
-    # Create pipeline components with audio configuration
+    # Create pipeline components
     audio_buffer, context = create_pipeline_components(audio_config)
 
     # Set the context and audio_buffer after creation

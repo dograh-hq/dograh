@@ -680,3 +680,29 @@ class CloudonixProvider(TelephonyProvider):
 </Response>"""
 
         return Response(content=twiml, media_type="application/xml"), "application/xml"
+
+    # ======== CALL TRANSFER METHODS ========
+
+    async def transfer_call(
+        self,
+        destination: str,
+        tool_call_id: str,
+        timeout: int = 30,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """
+        Cloudonix provider does not support call transfers.
+
+        Raises:
+            NotImplementedError: Always, as Cloudonix doesn't support transfers
+        """
+        raise NotImplementedError("Cloudonix provider does not support call transfers")
+
+    def supports_transfers(self) -> bool:
+        """
+        Cloudonix does not support call transfers.
+
+        Returns:
+            False - Cloudonix provider does not support call transfers
+        """
+        return False

@@ -4,13 +4,22 @@ Consolidated from split modules for easier maintenance.
 """
 
 import json
+import time
 import uuid
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Dict, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+)
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import text
 from sqlalchemy.future import select
 from starlette.responses import HTMLResponse
@@ -26,6 +35,8 @@ from api.services.auth.depends import get_user
 from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
 from api.services.quota_service import check_dograh_quota, check_dograh_quota_by_user_id
+from api.services.telephony.transfer_coordination import get_transfer_coordinator
+from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.telephony.factory import (
     get_all_telephony_providers,
     get_telephony_provider,
@@ -37,9 +48,17 @@ from api.utils.telephony_helper import (
     numbers_match,
     parse_webhook_request,
 )
+from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.run_context import set_current_run_id
 
 router = APIRouter(prefix="/telephony")
+
+# Module-level storage for webhook-driven function call completion
+# Stores function call contexts that are waiting for webhook completion
+pending_function_calls: Dict[str, tuple[FunctionCallParams, float]] = {}
+
+# Note: Transfer contexts now stored in Redis via TransferCoordinator
+# pending_transfers dictionary removed in favor of Redis-based coordination
 
 
 class InitiateCallRequest(BaseModel):
@@ -157,7 +176,8 @@ async def initiate_call(
     if not phone_number:
         raise HTTPException(
             status_code=400,
-            detail="Phone number must be provided in request or set in user configuration",
+            detail="Phone number must be provided in request or set in user "
+            "configuration",
         )
 
     workflow_run_id = request.workflow_run_id
@@ -473,12 +493,13 @@ async def _validate_organization_provider_config(
 
 @router.post("/twiml", include_in_schema=False)
 async def handle_twiml_webhook(
-    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int
+    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int, CallSid: str = Form(...)
 ):
     """
     Handle initial webhook from telephony provider.
     Returns provider-specific response (e.g., TwiML for Twilio).
     """
+    logger.info(f"[TWIML-DEBUG] CallSid received: {CallSid}")
 
     provider = await get_telephony_provider(organization_id)
 
@@ -487,6 +508,26 @@ async def handle_twiml_webhook(
     )
 
     return HTMLResponse(content=response_content, media_type="application/xml")
+
+
+@router.post("/transfer-twiml/{conference_name}", include_in_schema=False)
+async def transfer_twiml(conference_name: str):
+    """
+    TwiML endpoint that puts the caller into a conference.
+    Called by Twilio when we redirect the call after closing the WebSocket stream.
+    """
+    logger.info(f"[TRANSFER-TWIML] Generating conference TwiML for: {conference_name}")
+    
+    twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Connecting you now.</Say>
+    <Dial>
+        <Conference endConferenceOnExit="false" startConferenceOnEnter="true">{conference_name}</Conference>
+    </Dial>
+</Response>"""
+    
+    logger.info(f"[TRANSFER-TWIML] Generated TwiML: {twiml_content}")
+    return HTMLResponse(content=twiml_content, media_type="application/xml")
 
 
 @router.get("/ncco", include_in_schema=False)
@@ -1385,6 +1426,7 @@ async def handle_inbound_telephony(
         logger.info(
             f"Generated {normalized_data.provider} response for call {normalized_data.call_id}"
         )
+        logger.info(f"response is {response}")
         return response
 
     except ValueError as e:
@@ -1427,8 +1469,6 @@ async def handle_inbound_fallback(request: Request):
         )
 
         return generic_hangup_response()
-
-
 @router.post("/cloudonix/cdr")
 async def handle_cloudonix_cdr(request: Request):
     """Handle Cloudonix CDR (Call Detail Record) webhooks.
@@ -1479,4 +1519,366 @@ async def handle_cloudonix_cdr(request: Request):
         f"disposition: {cdr_data.get('disposition')}, status: {status_update.status}"
     )
 
+
     return {"status": "success"}
+
+
+class CallTransferRequest(BaseModel):
+    """Request model for call transfer"""
+    target_phone_number: Optional[str] = None
+    phone_number: Optional[str] = None  # Alternative field name
+    number: Optional[str] = None  # Another alternative
+    current_call_sid: Optional[str] = None
+    
+    def get_target_number(self) -> str:
+        """Get the target phone number from any of the possible fields"""
+        return self.target_phone_number or self.phone_number or self.number or ""
+
+
+class TransferCallRequest(BaseModel):
+    """Request model for initiating call transfer using webhook-driven completion"""
+    destination: str  # E.164 format phone number (required)
+    organization_id: int  # Organization ID for provider configuration
+    timeout: Optional[int] = 20  # seconds to wait for answer
+    tool_call_id: Optional[str] = None  # will generate if not provided
+    tool_uuid: Optional[str] = None  # tool UUID for tracing and validation
+    original_call_sid: Optional[str] = None  # original caller's call SID
+    caller_number: Optional[str] = None  # original caller's phone number
+
+    @field_validator("destination")
+    @classmethod
+    def validate_destination(cls, destination: str) -> str:
+        """Validate destination is in E.164 format."""
+        import re
+        if not destination or not destination.strip():
+            raise ValueError("Destination phone number is required")
+        
+        e164_pattern = r"^\+[1-9]\d{1,14}$"
+        if not re.match(e164_pattern, destination.strip()):
+            raise ValueError(f"Invalid phone number format: {destination}. Must be E.164 format (e.g., +1234567890)")
+        
+        return destination.strip()
+
+
+
+
+@router.post("/call-transfer")
+async def initiate_call_transfer(request: TransferCallRequest):
+    """Initiate call transfer without blocking the pipeline"""
+    import aiohttp
+    
+    logger.info(f"Received call transfer request: {request}")
+    # Generate tool_call_id if not provided
+    if not request.tool_call_id:
+        request.tool_call_id = f"transfer_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+    
+    # Log tool details for tracing
+    logger.info(f"Starting non-blocking call transfer to {request.destination} with tool_call_id: {request.tool_call_id}, tool_uuid: {request.tool_uuid}")
+    
+    # TODO: Add tool UUID validation here if needed
+    # For example: Validate that the tool UUID corresponds to a valid transfer call tool
+    # and that the destination matches the tool's configured destination pattern
+    
+    try:
+        # Get provider that supports transfers (validates Twilio-only requirement)
+        from api.services.telephony.factory import get_transfer_provider
+        
+        try:
+            provider = await get_transfer_provider(request.organization_id)
+        except ValueError as e:
+            # Provider doesn't support transfers or organization not configured
+            logger.error(f"Transfer provider validation failed: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Call transfer not supported: {str(e)}"
+            )
+        
+        # Validate configuration before attempting transfer
+        if not provider.validate_config():
+            logger.error(f"Provider {provider.PROVIDER_NAME} configuration is invalid")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Telephony provider '{provider.PROVIDER_NAME}' is not properly configured for transfers"
+            )
+        
+        # Initiate transfer call via provider
+        logger.info(f"Initiating transfer call via {provider.PROVIDER_NAME} provider")
+        try:
+            transfer_result = await provider.transfer_call(
+                destination=request.destination,
+                tool_call_id=request.tool_call_id,
+                timeout=request.timeout
+            )
+        except NotImplementedError as e:
+            # This shouldn't happen due to get_transfer_provider validation, but safety check
+            logger.error(f"Provider {provider.PROVIDER_NAME} doesn't support transfers: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider '{provider.PROVIDER_NAME}' does not support call transfers"
+            )
+        except Exception as e:
+            # Provider API call failed
+            logger.error(f"Provider transfer call failed: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Transfer call failed: {str(e)}"
+            )
+        
+        call_sid = transfer_result.get("call_sid")
+        logger.info(f"Transfer call initiated successfully: {call_sid}")
+        logger.info(f"Transfer result: {transfer_result}")
+        
+        # Store the transfer context in Redis for webhook completion
+        transfer_coordinator = await get_transfer_coordinator()
+        transfer_context = TransferContext(
+            tool_call_id=request.tool_call_id,
+            call_sid=call_sid,
+            target_number=request.destination,
+            tool_uuid=request.tool_uuid,
+            original_call_sid=request.original_call_sid,
+            caller_number=request.caller_number,
+            initiated_at=time.time(),
+            workflow_run_id=0  # TODO: Add workflow_run_id to request if needed
+        )
+        await transfer_coordinator.store_transfer_context(transfer_context)
+        
+        # Return immediately without blocking
+        return {
+            "status": "transfer_initiated", 
+            "call_id": call_sid,
+            "message": f"Calling {request.destination}...",
+            "tool_call_id": request.tool_call_id,
+            "provider": provider.PROVIDER_NAME
+        }
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (already properly formatted)
+        raise
+    except Exception as e:
+        # Catch any other unexpected errors
+        logger.error(f"Unexpected error during transfer call: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error during transfer: {str(e)}"
+        )
+
+
+@router.post("/transfer-call-handler/{tool_call_id}")
+async def handle_transfer_call_answered(tool_call_id: str, request: Request):
+    """Handle when target answers the transfer call"""
+    logger.info(f"Transfer call answered for tool_call_id: {tool_call_id}")
+    
+    form_data = await request.form()
+    data = dict(form_data)
+    call_sid = data.get("CallSid", "")
+    
+    # Get transfer context from Redis
+    transfer_coordinator = await get_transfer_coordinator()
+    transfer_context = await transfer_coordinator.get_transfer_context(tool_call_id)
+    
+    original_call_sid = transfer_context.original_call_sid if transfer_context else None
+    caller_number = transfer_context.caller_number if transfer_context else None
+    
+    # Use original call SID for conference name if available, otherwise fall back to transfer call SID  
+    base_call_sid = original_call_sid or call_sid
+    conference_name = f"transfer-{base_call_sid}"
+    
+    logger.info(f"Using conference name: {conference_name}")
+    
+    # Publish Redis event for transfer answer completion
+    try:
+        # Get transfer coordinator and context
+        transfer_coordinator = await get_transfer_coordinator()
+        transfer_context = await transfer_coordinator.get_transfer_context(tool_call_id)
+        
+        if transfer_context:
+            # Create transfer answered event
+            from api.services.telephony.transfer_event_protocol import TransferEvent, TransferEventType
+            
+            transfer_event = TransferEvent(
+                type=TransferEventType.TRANSFER_ANSWERED,
+                tool_call_id=tool_call_id,
+                workflow_run_id=transfer_context.workflow_run_id,
+                original_call_sid=original_call_sid,
+                transfer_call_sid=call_sid,
+                conference_name=conference_name,
+                message="Great! The person answered. Let me transfer you now.",
+                status="success",
+                action="transfer_success"
+            )
+            
+            # Publish the event to Redis
+            await transfer_coordinator.publish_transfer_event(transfer_event)
+            logger.info(f"Published TRANSFER_ANSWERED event for {tool_call_id}")
+            
+        else:
+            logger.warning(f"No transfer context found for {tool_call_id}")
+            
+    except Exception as e:
+        logger.error(f"Error publishing transfer answered event for {tool_call_id}: {e}")
+    
+    # Return TwiML to put the answerer into the conference
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>You have answered a transfer call. Connecting you now.</Say>
+    <Dial>
+        <Conference>{conference_name}</Conference>
+    </Dial>
+</Response>"""
+    
+    return HTMLResponse(content=twiml, media_type="application/xml")
+
+
+@router.post("/transfer-result/{tool_call_id}")
+async def complete_transfer_function_call(tool_call_id: str, request: Request):
+    """Webhook endpoint to complete the function call with transfer result"""
+    form_data = await request.form()
+    data = dict(form_data)
+    
+    call_status = data.get("CallStatus", "")
+    call_sid = data.get("CallSid", "")
+    
+    logger.info(f"Transfer result webhook: {tool_call_id} status={call_status}")
+    
+    # Note: All transfer coordination now handled via Redis events
+    
+    # If this is a "completed" status but we already handled the success case via answer webhook,
+    # we should still publish the COMPLETED event but not override previous results
+    if call_status == "completed":
+        # Check if we already published an ANSWERED event
+        logger.info(f"Processing 'completed' status for {tool_call_id}")
+        # We'll still publish COMPLETED event but with different handling
+    
+    # Import required event classes
+    from api.services.telephony.transfer_event_protocol import TransferEvent, TransferEventType
+    
+    # Get transfer context from Redis for additional information
+    transfer_coordinator = await get_transfer_coordinator()
+    transfer_context = await transfer_coordinator.get_transfer_context(tool_call_id)
+    
+    original_call_sid = transfer_context.original_call_sid if transfer_context else None
+    caller_number = transfer_context.caller_number if transfer_context else None
+    
+    
+    # Determine the result based on call status with user-friendly messaging
+    if call_status == "answered":
+        # Use original call SID for conference name if available, otherwise fall back to transfer call SID
+        base_call_sid = original_call_sid or call_sid
+        conference_name = f"transfer-{base_call_sid}"
+        
+        result = {
+            "status": "success",
+            "message": "Great! The person answered. Let me transfer you now.",
+            "action": "transfer_success",
+            "conference_id": conference_name,
+            "transfer_call_sid": call_sid,  # The outbound transfer call SID
+            "original_call_sid": original_call_sid,  # The original caller's SID
+            "caller_number": caller_number,
+            "end_call": False  # Continue with transfer
+        }
+    elif call_status == "no-answer":
+        result = {
+            "status": "transfer_failed",
+            "reason": "no_answer",
+            "message": "The transfer call was not answered. The person may be busy or unavailable right now.",
+            "action": "transfer_failed",
+            "call_sid": call_sid,
+            "end_call": True
+        }
+    elif call_status == "busy":
+        result = {
+            "status": "transfer_failed", 
+            "reason": "busy",
+            "message": "The transfer call encountered a busy signal. The person is likely on another call.",
+            "action": "transfer_failed",
+            "call_sid": call_sid,
+            "end_call": True
+        }
+    elif call_status == "failed":
+        result = {
+            "status": "transfer_failed",
+            "reason": "call_failed",
+            "message": "The transfer call failed to connect. There may be a network issue or the number is unavailable.",
+            "action": "transfer_failed", 
+            "call_sid": call_sid,
+            "end_call": True
+        }
+    elif call_status == "completed":
+        # Call completed successfully
+        result = {
+            "status": "completed",
+            "message": "Your call has been completed successfully.",
+            "action": "transfer_completed",
+            "call_sid": call_sid,
+            "end_call": True  # End call normally
+        }
+    else:
+        # Intermediate status (ringing, in-progress, etc.), don't complete yet
+        logger.info(f"Received intermediate status {call_status}, waiting for final status")
+        return {"status": "pending"}
+    
+    # Complete the function call with Redis event publishing
+    try:
+        # Determine event type based on result status
+        if result["status"] == "success":
+            event_type = TransferEventType.TRANSFER_COMPLETED
+        elif result.get("reason") == "timeout":
+            event_type = TransferEventType.TRANSFER_TIMEOUT
+        else:
+            event_type = TransferEventType.TRANSFER_FAILED
+            
+        # Create and publish transfer event  
+        # Add caller_number to result if not already present
+        if "caller_number" not in result and caller_number:
+            result["caller_number"] = caller_number
+            
+        transfer_event = TransferEvent(
+            type=event_type,
+            tool_call_id=tool_call_id,
+            workflow_run_id=0,  # TODO: Extract from context if needed
+            original_call_sid=original_call_sid or "",
+            transfer_call_sid=call_sid,
+            conference_name=result.get("conference_id"),
+            message=result.get("message", ""),
+            status=result["status"],
+            action=result.get("action", ""),
+            reason=result.get("reason"),
+            end_call=result.get("end_call", False)
+        )
+        
+        # Publish the event via Redis
+        await transfer_coordinator.publish_transfer_event(transfer_event)
+        logger.info(f"Published {event_type} event for {tool_call_id}")
+        
+        
+        # Clean up transfer context from Redis
+        await transfer_coordinator.remove_transfer_context(tool_call_id)
+        
+        logger.info(f"Function call {tool_call_id} completed with result: {result['status']}")
+        
+    except Exception as e:
+        logger.error(f"Error completing function call {tool_call_id}: {e}")
+        
+    return {"status": "completed", "result": result}
+
+
+@router.post("/register-transfer-tool-call")
+async def register_transfer_tool_call(request: Request):
+    """Register a pending transfer function call for webhook completion"""
+    data = await request.json()
+    
+    tool_call_id = data.get("tool_call_id")
+    function_call_params = data.get("function_call_params")
+    
+    if not tool_call_id or not function_call_params:
+        raise HTTPException(status_code=400, detail="Missing required fields")
+    
+    # Store the function call context for webhook completion
+    pending_function_calls[tool_call_id] = (function_call_params, time.time())
+    
+    logger.info(f"Registered transfer tool call: {tool_call_id}")
+    
+    return {"status": "registered", "tool_call_id": tool_call_id}
+
+
+    

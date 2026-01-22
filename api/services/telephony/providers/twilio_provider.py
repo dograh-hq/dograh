@@ -10,6 +10,7 @@ import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 from twilio.request_validator import RequestValidator
+from pipecat.utils.context import set_current_call_sid
 
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
@@ -72,6 +73,7 @@ class TwilioProvider(TelephonyProvider):
         if from_number is None:
             from_number = random.choice(self.from_numbers)
         logger.info(f"Selected phone number {from_number} for outbound call")
+        logger.info(f"Webhook url received - {webhook_url}")
 
         # Prepare call data
         data = {"To": to_number, "From": from_number, "Url": webhook_url}
@@ -172,6 +174,7 @@ class TwilioProvider(TelephonyProvider):
     </Connect>
     <Pause length="40"/>
 </Response>"""
+        logger.info(f"Twiml content generated - {twiml_content}")
         return twiml_content
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
@@ -280,6 +283,11 @@ class TwilioProvider(TelephonyProvider):
             try:
                 stream_sid = start_msg["start"]["streamSid"]
                 call_sid = start_msg["start"]["callSid"]
+                
+                # Set call SID in Pipecat context for use throughout the pipeline
+                set_current_call_sid(call_sid)
+                logger.info(f"Set call SID context: {call_sid}")
+                
             except KeyError:
                 logger.error("Missing streamSid or callSid in start message")
                 await websocket.close(code=4400, reason="Missing stream identifiers")
@@ -459,3 +467,111 @@ class TwilioProvider(TelephonyProvider):
 </Response>"""
 
         return Response(content=twiml_content, media_type="application/xml")
+
+    # ======== CALL TRANSFER METHODS ========
+
+    async def transfer_call(
+        self,
+        destination: str,
+        tool_call_id: str,
+        timeout: int = 30,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """
+        Initiate a call transfer via Twilio.
+
+        Args:
+            destination: The destination phone number (E.164 format)
+            tool_call_id: Unique identifier for tracking this transfer
+            timeout: Transfer timeout in seconds
+            **kwargs: Additional Twilio-specific parameters
+
+        Returns:
+            Dict containing transfer result information
+
+        Raises:
+            ValueError: If provider configuration is invalid
+            Exception: If Twilio API call fails
+        """
+        if not self.validate_config():
+            raise ValueError("Twilio provider not properly configured")
+
+        # Select a random phone number for the transfer
+        from_number = random.choice(self.from_numbers)
+        logger.info(f"Selected phone number {from_number} for transfer call")
+
+        backend_endpoint, _ = await get_backend_endpoints()
+
+        # Generate webhook URLs for the transfer call
+        call_url = f"{backend_endpoint}/api/v1/telephony/transfer-call-handler/{tool_call_id}"
+        status_callback_url = f"{backend_endpoint}/api/v1/telephony/transfer-result/{tool_call_id}"
+
+        logger.debug(f"Transfer webhook URLs - Answer: {call_url}, Status: {status_callback_url}")
+
+        # Prepare Twilio API call data
+        endpoint = f"{self.base_url}/Calls.json"
+        data = {
+            "To": destination,
+            "From": from_number,
+            "Timeout": timeout,
+            "Url": call_url,
+            "StatusCallback": status_callback_url,
+            "StatusCallbackEvent": ["answered", "no-answer", "busy", "failed", "completed"],
+            "StatusCallbackMethod": "POST"
+        }
+
+        # Add any additional kwargs
+        data.update(kwargs)
+
+        try:
+            # Make Twilio API call
+            logger.info(f"Making Twilio transfer API call to: {endpoint}")
+            logger.info(f"Transfer call data: {data}")
+
+            async with aiohttp.ClientSession() as session:
+                auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
+                async with session.post(endpoint, data=data, auth=auth) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+                    
+                    logger.info(f"Twilio transfer API response status: {response_status}")
+                    logger.info(f"Twilio transfer API response body: {response_text}")
+
+                    if response_status in [200, 201]:
+                        try:
+                            response_data = await response.json()
+                            call_sid = response_data.get("sid")
+                            logger.info(f"Transfer call initiated successfully: {call_sid}")
+
+                            return {
+                                "call_sid": call_sid,
+                                "status": response_data.get("status", "queued"),
+                                "provider": self.PROVIDER_NAME,
+                                "webhook_urls": {
+                                    "answer": call_url,
+                                    "status": status_callback_url
+                                },
+                                "from_number": from_number,
+                                "to_number": destination,
+                                "raw_response": response_data
+                            }
+                        except Exception as e:
+                            logger.error(f"Failed to parse Twilio transfer response JSON: {e}")
+                            raise Exception(f"Failed to parse transfer response: {e}")
+                    else:
+                        error_msg = f"Twilio API call failed with status {response_status}: {response_text}"
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+
+        except Exception as e:
+            logger.error(f"Exception during Twilio transfer call: {e}")
+            raise
+
+    def supports_transfers(self) -> bool:
+        """
+        Twilio supports call transfers.
+
+        Returns:
+            True - Twilio provider supports call transfers
+        """
+        return True

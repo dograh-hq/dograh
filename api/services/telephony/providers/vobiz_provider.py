@@ -533,3 +533,29 @@ class VobizProvider(TelephonyProvider):
 </Response>"""
 
         return Response(content=vobiz_xml_content, media_type="application/xml")
+
+    # ======== CALL TRANSFER METHODS ========
+
+    async def transfer_call(
+        self,
+        destination: str,
+        tool_call_id: str,
+        timeout: int = 30,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """
+        Vobiz provider does not support call transfers.
+
+        Raises:
+            NotImplementedError: Always, as Vobiz doesn't support transfers
+        """
+        raise NotImplementedError("Vobiz provider does not support call transfers")
+
+    def supports_transfers(self) -> bool:
+        """
+        Vobiz does not support call transfers.
+
+        Returns:
+            False - Vobiz provider does not support call transfers
+        """
+        return False

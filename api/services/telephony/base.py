@@ -309,3 +309,45 @@ class TelephonyProvider(ABC):
             Tuple of (Response, media_type) - Response object and content type
         """
         pass
+
+    # ======== CALL TRANSFER METHODS ========
+
+    @abstractmethod
+    async def transfer_call(
+        self,
+        destination: str,
+        tool_call_id: str,
+        timeout: int = 30,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """
+        Initiate a call transfer to a destination number.
+
+        Args:
+            destination: The destination phone number (E.164 format)
+            tool_call_id: Unique identifier for tracking this transfer
+            timeout: Transfer timeout in seconds
+            **kwargs: Provider-specific additional parameters
+
+        Returns:
+            Dict containing:
+                - call_sid: Provider's call identifier
+                - status: Transfer initiation status
+                - provider: Provider name
+                - webhook_urls: Dict with answer and status callback URLs
+
+        Raises:
+            NotImplementedError: If provider doesn't support transfers
+            ValueError: If provider configuration is invalid
+        """
+        pass
+
+    @abstractmethod
+    def supports_transfers(self) -> bool:
+        """
+        Check if this provider supports call transfers.
+
+        Returns:
+            True if provider supports call transfers, False otherwise
+        """
+        pass

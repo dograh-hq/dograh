@@ -21,8 +21,9 @@ from fastapi import (
     status,
 )
 from fastapi.websockets import WebSocketState
-from pipecat.audio.turn.smart_turn.local_smart_turn_v2 import LocalSmartTurnAnalyzerV2
 from scipy.io import wavfile
+
+from pipecat.audio.turn.smart_turn.local_smart_turn_v2 import LocalSmartTurnAnalyzerV2
 
 LOG_LEVEL = (
     logging.DEBUG

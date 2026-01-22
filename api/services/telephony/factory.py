@@ -128,3 +128,29 @@ async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:
         List of provider classes that can be used for webhook detection
     """
     return [CloudonixProvider, TwilioProvider, VobizProvider, VonageProvider]
+
+
+async def get_transfer_provider(organization_id: int) -> TelephonyProvider:
+    """
+    Get telephony provider that supports call transfers.
+
+    Args:
+        organization_id: Organization ID for provider lookup
+
+    Returns:
+        Configured telephony provider that supports transfers
+
+    Raises:
+        ValueError: If provider doesn't support transfers or org not configured
+    """
+    provider = await get_telephony_provider(organization_id)
+    
+    if not provider.supports_transfers():
+        config = await load_telephony_config(organization_id)
+        provider_type = config.get("provider", "unknown")
+        raise ValueError(
+            f"Organization telephony provider '{provider_type}' does not support call transfers. "
+            f"Only Twilio provider supports transfers."
+        )
+    
+    return provider

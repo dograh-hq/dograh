@@ -259,7 +259,9 @@ export type CreateToolRequest = {
         type?: 'http_api';
     } & HttpApiToolDefinition) | ({
         type?: 'end_call';
-    } & EndCallToolDefinition);
+    } & EndCallToolDefinition) | ({
+        type?: 'transfer_call';
+    } & TransferCallToolDefinition);
 };
 
 export type CreateWorkflowRequest = {
@@ -673,6 +675,27 @@ export type LoadTestStatsResponse = {
     }>;
 };
 
+/**
+ * Request schema for order status lookup.
+ */
+export type OrderRequest = {
+    order_id: string;
+};
+
+/**
+ * Response schema for order status.
+ */
+export type OrderResponse = {
+    order_id: string;
+    status: string;
+    refund_status: string;
+    amount: number;
+    currency: string;
+    created_at: string;
+    refunded_at: string | null;
+    refund_amount: number | null;
+};
+
 export type PresignedUploadUrlRequest = {
     /**
      * CSV filename
@@ -858,6 +881,56 @@ export type ToolResponse = {
 };
 
 /**
+ * Configuration for Transfer Call tools.
+ */
+export type TransferCallConfig = {
+    /**
+     * Phone number to transfer the call to (E.164 format, e.g., +1234567890)
+     */
+    destination: string;
+    /**
+     * Type of message to play before transfer
+     */
+    messageType?: 'none' | 'custom';
+    /**
+     * Custom message to play before transferring the call
+     */
+    customMessage?: string | null;
+    /**
+     * Maximum time in seconds to wait for destination to answer (5-120 seconds)
+     */
+    timeout?: number;
+};
+
+/**
+ * Request model for initiating call transfer using webhook-driven completion
+ */
+export type TransferCallRequest = {
+    destination: string;
+    timeout?: number | null;
+    tool_call_id?: string | null;
+    tool_uuid?: string | null;
+};
+
+/**
+ * Tool definition for Transfer Call tools.
+ */
+export type TransferCallToolDefinition = {
+    /**
+     * Schema version
+     */
+    schema_version?: number;
+    /**
+     * Tool type
+     */
+    type: 'transfer_call';
+    /**
+     * Transfer Call configuration
+     */
+    config: TransferCallConfig;
+};
+
+/**
  * Request model for triggering a call via API
  */
 export type TriggerCallRequest = {
@@ -945,7 +1018,9 @@ export type UpdateToolRequest = {
         type?: 'http_api';
     } & HttpApiToolDefinition) | ({
         type?: 'end_call';
-    } & EndCallToolDefinition)) | null;
+    } & EndCallToolDefinition) | ({
+        type?: 'transfer_call';
+    } & TransferCallToolDefinition)) | null;
     status?: string | null;
 };
 
@@ -4793,6 +4868,35 @@ export type SearchChunksApiV1KnowledgeBaseSearchPostResponses = {
 };
 
 export type SearchChunksApiV1KnowledgeBaseSearchPostResponse = SearchChunksApiV1KnowledgeBaseSearchPostResponses[keyof SearchChunksApiV1KnowledgeBaseSearchPostResponses];
+
+export type GetOrderStatusApiV1OrderStatusPostData = {
+    body: OrderRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/order/status';
+};
+
+export type GetOrderStatusApiV1OrderStatusPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetOrderStatusApiV1OrderStatusPostError = GetOrderStatusApiV1OrderStatusPostErrors[keyof GetOrderStatusApiV1OrderStatusPostErrors];
+
+export type GetOrderStatusApiV1OrderStatusPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrderResponse;
+};
+
+export type GetOrderStatusApiV1OrderStatusPostResponse = GetOrderStatusApiV1OrderStatusPostResponses[keyof GetOrderStatusApiV1OrderStatusPostResponses];
 
 export type HealthApiV1HealthGetData = {
     body?: never;

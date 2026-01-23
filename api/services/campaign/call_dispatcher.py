@@ -182,6 +182,9 @@ class CampaignCallDispatcher:
         # Get provider first to determine the mode
         provider = await self.get_telephony_provider(campaign.organization_id)
         workflow_run_mode = provider.PROVIDER_NAME
+        
+        logger.info(f"Provider name: {provider.PROVIDER_NAME}")
+        logger.info(f"Queued run context: {queued_run.context_variables}")
 
         # Merge context variables (queued_run context already includes retry info if applicable)
         initial_context = {
@@ -190,6 +193,8 @@ class CampaignCallDispatcher:
             "campaign_id": campaign.id,
             "provider": provider.PROVIDER_NAME,
         }
+        
+        logger.info(f"Final initial_context: {initial_context}")
 
         # Create workflow run with queued_run_id tracking
         workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
@@ -243,6 +248,8 @@ class CampaignCallDispatcher:
                 to_number=phone_number,
                 webhook_url=webhook_url,
                 workflow_run_id=workflow_run.id,
+                workflow_id=campaign.workflow_id,
+                user_id=campaign.created_by,
             )
 
             # Store provider type and metadata in gathered_context

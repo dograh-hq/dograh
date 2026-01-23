@@ -530,7 +530,7 @@ async def websocket_endpoint(
         logger.info(f"Workflow run {workflow_run_id} mode: {workflow_run.mode}")
 
         if workflow_run.initial_context:
-            provider_type = workflow_run.initial_context.get("provider")
+            provider_type = workflow_run.initial_context.get("provider") or workflow_run.gathered_context.get("provider")
             logger.info(f"Extracted provider_type: {provider_type}")
 
         if not provider_type:

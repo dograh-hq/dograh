@@ -170,13 +170,6 @@ class CampaignCallDispatcher:
             )
             raise ValueError(f"Workflow {campaign.workflow_id} not found")
 
-        # Merge context variables (queued_run context already includes retry info if applicable)
-        initial_context = {
-            **workflow.template_context_variables,
-            **queued_run.context_variables,
-            "campaign_id": campaign.id,
-        }
-
         # Extract phone number
         phone_number = queued_run.context_variables.get("phone_number")
         if not phone_number:
@@ -186,13 +179,20 @@ class CampaignCallDispatcher:
             )
             raise ValueError(f"No phone number in queued run {queued_run.id}")
 
-        # Create workflow run with queued_run_id tracking
-        workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
-
         # Get provider first to determine the mode
         provider = await self.get_telephony_provider(campaign.organization_id)
         workflow_run_mode = provider.PROVIDER_NAME
 
+        # Merge context variables (queued_run context already includes retry info if applicable)
+        initial_context = {
+            **workflow.template_context_variables,
+            **queued_run.context_variables,
+            "campaign_id": campaign.id,
+            "provider": provider.PROVIDER_NAME,
+        }
+
+        # Create workflow run with queued_run_id tracking
+        workflow_run_name = f"WR-CAMPAIGN-{campaign.id}-{queued_run.id}"
         try:
             workflow_run = await db_client.create_workflow_run(
                 name=workflow_run_name,

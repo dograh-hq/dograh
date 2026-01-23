@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.11.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.10.0...dograh-v1.11.0) (2026-01-23)
+
+
+### Features
+
+* add end_call tool ([#118](https://github.com/dograh-hq/dograh/issues/118)) ([a172db8](https://github.com/dograh-hq/dograh/commit/a172db8022469631826a3198382518c26e812c72))
+* add rtf in logs ([#119](https://github.com/dograh-hq/dograh/issues/119)) ([cac2587](https://github.com/dograh-hq/dograh/commit/cac25879bf0ca62385bd7ba3444b911ef67494bc))
+* add transcript panel during live call for better visibility ([#116](https://github.com/dograh-hq/dograh/issues/116)) ([e771247](https://github.com/dograh-hq/dograh/commit/e7712474c14701ff415881d0faff76d62ae354e7))
+* add voices in Dograh configuration ([c58aa55](https://github.com/dograh-hq/dograh/commit/c58aa557de9de9ddf7904029a977a8ead9a4bb27))
+* handle cloudonix incoming calls ([#121](https://github.com/dograh-hq/dograh/issues/121)) ([e2fa4bb](https://github.com/dograh-hq/dograh/commit/e2fa4bbb98bba5cc6ef9c568e686b6c1097805dd))
+* knowledge base functionality for the voice agent ([#120](https://github.com/dograh-hq/dograh/issues/120)) ([ef5b9e4](https://github.com/dograh-hq/dograh/commit/ef5b9e40a90703c17c23f2d003045df28deb490e))
+
+
+### Bug Fixes
+
+* changes to update pipecat version to 0.0.100 ([#122](https://github.com/dograh-hq/dograh/issues/122)) ([911c5ed](https://github.com/dograh-hq/dograh/commit/911c5ed4169d6058f098c98b54cc57c602f09357))
+* fix npm run build ([692ef27](https://github.com/dograh-hq/dograh/commit/692ef27751352922f8fbd3c14a5b4877c11cdb66))
+* fix OPENAI_API_KEY bug in retrieval ([d35eeb1](https://github.com/dograh-hq/dograh/commit/d35eeb1b7b3ddc449adbee0243c2745103d86f2c))
+* fix release please ([4c073b7](https://github.com/dograh-hq/dograh/commit/4c073b7894008076ad373ef4944a891b93b4e68e))
+* make embeddings api key optional ([3b614b8](https://github.com/dograh-hq/dograh/commit/3b614b8b8252cb127f2792da02d408f6aad25ab1))
+* set_node during node execution ([a4367bd](https://github.com/dograh-hq/dograh/commit/a4367bd83beaf15b96abc5e7ca4303ac31595d42))
+
+
+### Documentation
+
+* inbound telephony ([#124](https://github.com/dograh-hq/dograh/issues/124)) ([b996cb8](https://github.com/dograh-hq/dograh/commit/b996cb80cf84e1e48c13de1af5c84166c6b45e0a))
+
 ## [1.10.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.9.0...dograh-v1.10.0) (2026-01-13)
 
 

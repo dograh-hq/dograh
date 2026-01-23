@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from loguru import logger
+from pydantic import BaseModel
 
 from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
@@ -49,9 +50,19 @@ router.include_router(workflow_embed_router)
 router.include_router(knowledge_base_router)
 
 
-@router.get("/health")
-async def health():
-    from api.constants import APP_VERSION
+class HealthResponse(BaseModel):
+    status: str
+    version: str
+    backend_api_endpoint: str
+
+
+@router.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    from api.constants import APP_VERSION, BACKEND_API_ENDPOINT
 
     logger.debug("Health endpoint called")
-    return {"status": "ok", "version": APP_VERSION}
+    return HealthResponse(
+        status="ok",
+        version=APP_VERSION,
+        backend_api_endpoint=BACKEND_API_ENDPOINT,
+    )

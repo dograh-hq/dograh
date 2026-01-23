@@ -8,6 +8,7 @@ import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAppConfig } from "@/context/AppConfigContext";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -26,6 +27,7 @@ interface TriggerNodeProps extends NodeProps {
 export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
     const { open, setOpen, handleSaveNodeData, handleDeleteNode } = useNodeHandlers({ id });
     const { saveWorkflow } = useWorkflow();
+    const { config } = useAppConfig();
 
     // Form state
     const [name, setName] = useState(data.name || "API Trigger");
@@ -33,8 +35,9 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
     // Generate trigger_path if not present (should be done on node creation)
     const [triggerPath] = useState(() => data.trigger_path ?? crypto.randomUUID());
 
-    // Get backend URL from environment
-    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+    // Get backend URL from app config (fetched from backend health endpoint)
+    // Falls back to env variable, then to localhost for local development
+    const backendUrl = config?.backendApiEndpoint || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
     const endpoint = `${backendUrl}/api/v1/public/agent/${triggerPath}`;
 
     // Copy state for button feedback

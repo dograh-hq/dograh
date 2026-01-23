@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React, { useEffect, useState } from "react";
+import React from "react";
 
 import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
@@ -46,6 +46,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAppConfig } from "@/context/AppConfigContext";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -61,28 +62,18 @@ const StackTeamSwitcher = React.lazy(() =>
   }))
 );
 
-interface VersionInfo {
-  ui: string;
-  api: string;
-}
-
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { state } = useSidebar();
   const { provider, getSelectedTeam } = useAuth();
-  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const { config } = useAppConfig();
 
   // Get selected team for Stack auth (cast to Team type from Stack)
   const selectedTeam = provider === "stack" && getSelectedTeam ? getSelectedTeam() as Team | null : null;
 
-  // Fetch version info on mount
-  useEffect(() => {
-    fetch("/api/config/version")
-      .then((res) => res.json())
-      .then((data) => setVersionInfo(data))
-      .catch(() => setVersionInfo({ ui: "dev", api: "unknown" }));
-  }, []);
+  // Version info from app config context
+  const versionInfo = config ? { ui: config.uiVersion, api: config.apiVersion } : null;
 
   const isActive = (path: string) => {
     return pathname.startsWith(path);

@@ -524,6 +524,12 @@ export type HttpValidationError = {
     detail?: Array<ValidationError>;
 };
 
+export type HealthResponse = {
+    status: string;
+    version: string;
+    backend_api_endpoint: string;
+};
+
 /**
  * Configuration for HTTP API tools.
  */
@@ -4222,6 +4228,41 @@ export type InitiateCallApiV1PublicAgentUuidPostResponses = {
 
 export type InitiateCallApiV1PublicAgentUuidPostResponse = InitiateCallApiV1PublicAgentUuidPostResponses[keyof InitiateCallApiV1PublicAgentUuidPostResponses];
 
+export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetData = {
+    body?: never;
+    path: {
+        token: string;
+        artifact_type: 'recording' | 'transcript';
+    };
+    query?: {
+        /**
+         * Display inline in browser instead of download
+         */
+        inline?: boolean;
+    };
+    url: '/api/v1/public/download/workflow/{token}/{artifact_type}';
+};
+
+export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetError = DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetErrors[keyof DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetErrors];
+
+export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type DeactivateEmbedTokenApiV1WorkflowWorkflowIdEmbedTokenDeleteData = {
     body?: never;
     headers?: {
@@ -4554,8 +4595,10 @@ export type HealthApiV1HealthGetResponses = {
     /**
      * Successful Response
      */
-    200: unknown;
+    200: HealthResponse;
 };
+
+export type HealthApiV1HealthGetResponse = HealthApiV1HealthGetResponses[keyof HealthApiV1HealthGetResponses];
 
 export type ClientOptions = {
     baseUrl: 'http://127.0.0.1:8000' | (string & {});

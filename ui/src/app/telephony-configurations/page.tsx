@@ -663,7 +663,7 @@ export default function ConfigureTelephonyPage() {
                     </>
                   )}
 
-                  <div className="pt-4">
+                  <div className="pt-4 space-y-3">
                     <Button
                       type="submit"
                       className="w-full"
@@ -671,6 +671,19 @@ export default function ConfigureTelephonyPage() {
                     >
                       {isLoading ? "Saving..." : "Save Configuration"}
                     </Button>
+                    <div className="text-center">
+                      <p className="text-xs text-muted-foreground">
+                        Configure inbound calling?{" "}
+                        <a
+                          href="https://docs.dograh.com/integrations/telephony/inbound"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          View documentation
+                        </a>
+                      </p>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

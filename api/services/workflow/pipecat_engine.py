@@ -199,8 +199,8 @@ class PipecatEngine:
                 f"Function: {name} -> transitioning to node: {transition_to_node}"
             )
             logger.info(f"Arguments: {function_call_params.arguments}")
+            await self.set_node(transition_to_node)
             try:
-
                 async def on_context_updated() -> None:
                     """
                     pipecat framework will run this function after the function call result has been updated in the context.
@@ -211,7 +211,6 @@ class PipecatEngine:
                     await self._perform_variable_extraction_if_needed(
                         self._current_node
                     )
-                    await self.set_node(transition_to_node)
 
                 result = {"status": "done"}
 

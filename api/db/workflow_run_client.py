@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -414,3 +415,56 @@ class WorkflowRunClient(BaseDBClient):
 
             organization_id = workflow_run.workflow.user.selected_organization_id
             return workflow_run, organization_id
+
+    async def ensure_public_access_token(self, workflow_run_id: int) -> Optional[str]:
+        """Generate a public access token if not exists, return existing if present (idempotent).
+
+        Args:
+            workflow_run_id: The ID of the workflow run
+
+        Returns:
+            The public access token string, or None if workflow run not found
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel).where(WorkflowRunModel.id == workflow_run_id)
+            )
+            run = result.scalars().first()
+            if not run:
+                return None
+
+            # Return existing token if present
+            if run.public_access_token:
+                return run.public_access_token
+
+            # Generate and persist new token
+            token = str(uuid.uuid4())
+            run.public_access_token = token
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(run)
+
+            return run.public_access_token
+
+    async def get_workflow_run_by_public_token(
+        self, token: str
+    ) -> Optional[WorkflowRunModel]:
+        """Lookup workflow run by public access token.
+
+        Args:
+            token: The public access token
+
+        Returns:
+            The WorkflowRunModel if found, None otherwise
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowRunModel).where(
+                    WorkflowRunModel.public_access_token == token
+                )
+            )
+            return result.scalars().first()

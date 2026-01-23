@@ -1,10 +1,11 @@
 """Execute webhook integrations after workflow run completion."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import httpx
 from loguru import logger
 
+from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
 from api.db.models import WorkflowRunModel
 from api.utils.credential_auth import build_auth_header
@@ -54,10 +55,13 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
 
         logger.info(f"Found {len(webhook_nodes)} webhook nodes to execute")
 
-        # Step 4: Build render context
-        render_context = _build_render_context(workflow_run)
+        # Step 4: Generate public access token (on-demand, only when webhooks exist)
+        public_token = await db_client.ensure_public_access_token(workflow_run_id)
 
-        # Step 5: Execute each webhook node
+        # Step 5: Build render context
+        render_context = _build_render_context(workflow_run, public_token)
+
+        # Step 6: Execute each webhook node
         for node in webhook_nodes:
             webhook_data = node.get("data", {})
             try:
@@ -77,9 +81,19 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         raise
 
 
-def _build_render_context(workflow_run: WorkflowRunModel) -> Dict[str, Any]:
-    """Build the context dict for template rendering."""
-    return {
+def _build_render_context(
+    workflow_run: WorkflowRunModel, public_token: Optional[str] = None
+) -> Dict[str, Any]:
+    """Build the context dict for template rendering.
+
+    Args:
+        workflow_run: The workflow run model
+        public_token: Optional public access token for download URLs
+
+    Returns:
+        Dict containing all fields available for template rendering
+    """
+    context = {
         # Top-level fields
         "workflow_run_id": workflow_run.id,
         "workflow_run_name": workflow_run.name,
@@ -89,9 +103,24 @@ def _build_render_context(workflow_run: WorkflowRunModel) -> Dict[str, Any]:
         "initial_context": workflow_run.initial_context or {},
         "gathered_context": workflow_run.gathered_context or {},
         "cost_info": workflow_run.usage_info or {},
-        "recording_url": getattr(workflow_run, "recording_url", None),
-        "transcript_url": getattr(workflow_run, "transcript_url", None),
     }
+
+    # Add public download URLs if token is available
+    if public_token:
+        base_url = (
+            f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{public_token}"
+        )
+        context["recording_url"] = (
+            f"{base_url}/recording" if workflow_run.recording_url else None
+        )
+        context["transcript_url"] = (
+            f"{base_url}/transcript" if workflow_run.transcript_url else None
+        )
+    else:
+        context["recording_url"] = workflow_run.recording_url
+        context["transcript_url"] = workflow_run.transcript_url
+
+    return context
 
 
 async def _execute_webhook_node(

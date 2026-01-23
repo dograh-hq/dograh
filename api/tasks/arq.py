@@ -49,8 +49,7 @@ from api.tasks.campaign_tasks import (
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
 from api.tasks.s3_upload import (
-    upload_audio_to_s3,
-    upload_transcript_to_s3,
+    process_workflow_completion,
     upload_voicemail_audio_to_s3,
 )
 
@@ -59,9 +58,8 @@ class WorkerSettings:
     functions = [
         calculate_workflow_run_cost,
         run_integrations_post_workflow_run,
-        upload_audio_to_s3,
-        upload_transcript_to_s3,
         upload_voicemail_audio_to_s3,
+        process_workflow_completion,
         sync_campaign_source,
         process_campaign_batch,
         monitor_campaign_progress,

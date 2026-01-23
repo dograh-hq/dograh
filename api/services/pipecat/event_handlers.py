@@ -217,25 +217,19 @@ def register_event_handlers(
         if workflow_run and workflow_run.campaign_id:
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
 
-        # Write buffers to temp files and enqueue S3 upload
+        # Write buffers to temp files and enqueue combined processing task
+        audio_temp_path = None
+        transcript_temp_path = None
+
         try:
-            # Only upload if buffers have content
             if not in_memory_audio_buffer.is_empty:
                 audio_temp_path = await in_memory_audio_buffer.write_to_temp_file()
-                await enqueue_job(
-                    FunctionNames.UPLOAD_AUDIO_TO_S3, workflow_run_id, audio_temp_path
-                )
             else:
                 logger.debug("Audio buffer is empty, skipping upload")
 
             if not in_memory_transcript_buffer.is_empty:
                 transcript_temp_path = (
                     await in_memory_transcript_buffer.write_to_temp_file()
-                )
-                await enqueue_job(
-                    FunctionNames.UPLOAD_TRANSCRIPT_TO_S3,
-                    workflow_run_id,
-                    transcript_temp_path,
                 )
             else:
                 logger.debug("Transcript buffer is empty, skipping upload")
@@ -244,8 +238,13 @@ def register_event_handlers(
             logger.error(f"Error preparing buffers for S3 upload: {e}", exc_info=True)
 
         await enqueue_job(FunctionNames.CALCULATE_WORKFLOW_RUN_COST, workflow_run_id)
+
+        # Combined task: uploads artifacts then runs integrations sequentially
         await enqueue_job(
-            FunctionNames.RUN_INTEGRATIONS_POST_WORKFLOW_RUN, workflow_run_id
+            FunctionNames.PROCESS_WORKFLOW_COMPLETION,
+            workflow_run_id,
+            audio_temp_path,
+            transcript_temp_path,
         )
 
     # Return the buffers so they can be passed to other handlers

@@ -16,6 +16,11 @@
             "type": "json",
             "path": "ui/package.json",
             "jsonpath": "$.version"
+          },
+          {
+            "type": "toml",
+            "path": "api/pyproject.toml",
+            "key": "project.version"
           }
         ]
       }

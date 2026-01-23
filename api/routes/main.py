@@ -49,5 +49,7 @@ router.include_router(knowledge_base_router)
 
 @router.get("/health")
 async def health():
+    from api.constants import APP_VERSION
+
     logger.debug("Health endpoint called")
-    return {"message": "OK"}
+    return {"status": "ok", "version": APP_VERSION}

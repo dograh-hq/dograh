@@ -51,6 +51,23 @@ ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "false").lower() == "true"
 
+
+def _get_version() -> str:
+    """Read version from pyproject.toml."""
+    try:
+        import tomllib
+
+        pyproject_path = APP_ROOT_DIR / "pyproject.toml"
+        with open(pyproject_path, "rb") as f:
+            pyproject = tomllib.load(f)
+        return pyproject.get("project", {}).get("version", "dev")
+    except Exception:
+        return "dev"
+
+
+# Application version (read from pyproject.toml)
+APP_VERSION = _get_version()
+
 # Country code mapping: ISO country code -> international dialing prefix
 COUNTRY_CODES = {
     "US": "1",  # United States

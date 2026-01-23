@@ -4,7 +4,7 @@ on:
   release:
     types: [published]
 
-# Ensure only one workflow run per branch at a time; cancel any in-progress runs on new push 
+# Ensure only one workflow run per branch at a time; cancel any in-progress runs on new push
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -13,11 +13,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      COMMIT_SHA: ${{ github.sha }}  # Used to tag images with short commit SHA
+      COMMIT_SHA: ${{ github.sha }}
 
     strategy:
       matrix:
-        service: 
+        service:
           - "dograh-api|api/Dockerfile|."
           - "dograh-ui|ui/Dockerfile|."
 
@@ -25,14 +25,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: true  # Only for version check, not used in build
+          submodules: true
 
-      # Pipecat version check removed - now using local submodule
-
-      - name: Set up QEMU  # Enables cross-platform builds (e.g., arm64)
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      - name: Set up Docker Buildx  # Enables multi-arch and advanced Docker builds
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to DockerHub
@@ -51,48 +49,50 @@ jobs:
       - name: Set build variables
         id: build-vars
         run: |
-          # Parse matrix entry and set variables early (before build)
           SERVICE="${{ matrix.service }}"
           IMAGE_NAME=$(echo "$SERVICE" | cut -d '|' -f1)
           SHORT_SHA=${COMMIT_SHA::8}
-          
-          # Export for use in subsequent steps
+
+          # Get version from release tag (removes 'dograh-' and 'v' prefixes if present)
+          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${VERSION#dograh-}"
+          VERSION="${VERSION#v}"
+
           echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "service=${SERVICE}" >> $GITHUB_OUTPUT
-      
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
       - name: Build and Push ${{ matrix.service }}
         id: docker-build
         run: |
-          # Parse matrix entry into individual variables
           SERVICE="${{ matrix.service }}"
           IMAGE_NAME=$(echo "$SERVICE" | cut -d '|' -f1)
           DOCKERFILE=$(echo "$SERVICE" | cut -d '|' -f2)
           CONTEXT=$(echo "$SERVICE" | cut -d '|' -f3)
           SHORT_SHA=${COMMIT_SHA::8}
+          VERSION="${{ steps.build-vars.outputs.version }}"
 
           echo "Building and pushing image: $IMAGE_NAME"
           echo "Dockerfile: $DOCKERFILE"
           echo "Context: $CONTEXT"
-          echo "Commit SHA: $SHORT_SHA"
-          
-          # Export tags for Slack notification
+          echo "Version: $VERSION"
+
           echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
           echo "dockerhub_tag=${{ secrets.DOCKERHUB_USERNAME }}/${IMAGE_NAME}:${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "ghcr_tag=ghcr.io/${{ secrets.GHCR_USERNAME }}/${IMAGE_NAME}:${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-          # Build and push multi-arch Docker image to DockerHub and GHCR
           docker buildx build \
             -f "$DOCKERFILE" \
             --platform linux/amd64,linux/arm64 \
+            --tag ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:$VERSION \
             --tag ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:$SHORT_SHA \
             --tag ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:latest \
+            --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:$VERSION \
             --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:$SHORT_SHA \
             --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:latest \
             --push "$CONTEXT"
-      
-      # Success notification
+
       - name: Send Slack notification - Success
         if: success()
         uses: slackapi/slack-github-action@v1.26.0
@@ -101,10 +101,9 @@ jobs:
         with:
           payload: |
             {
-              "text": "✅ Docker Build Successful - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.short_sha }}) on ${{ github.ref_name }} by ${{ github.actor }}"
+              "text": "✅ Docker Build Successful - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.version }}) on ${{ github.ref_name }} by ${{ github.actor }}"
             }
-      
-      # Failure notification
+
       - name: Send Slack notification - Failure
         if: failure()
         uses: slackapi/slack-github-action@v1.26.0
@@ -113,5 +112,5 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ Docker Build Failed - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.short_sha }}) on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+              "text": "❌ Docker Build Failed - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.version }}) on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
             }

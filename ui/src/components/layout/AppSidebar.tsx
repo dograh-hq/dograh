@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
@@ -61,14 +61,28 @@ const StackTeamSwitcher = React.lazy(() =>
   }))
 );
 
+interface VersionInfo {
+  ui: string;
+  api: string;
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { state } = useSidebar();
   const { provider, getSelectedTeam } = useAuth();
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
 
   // Get selected team for Stack auth (cast to Team type from Stack)
   const selectedTeam = provider === "stack" && getSelectedTeam ? getSelectedTeam() as Team | null : null;
+
+  // Fetch version info on mount
+  useEffect(() => {
+    fetch("/api/config/version")
+      .then((res) => res.json())
+      .then((data) => setVersionInfo(data))
+      .catch(() => setVersionInfo({ ui: "dev", api: "unknown" }));
+  }, []);
 
   const isActive = (path: string) => {
     return pathname.startsWith(path);
@@ -207,6 +221,11 @@ export function AppSidebar() {
               className="flex items-center gap-2 px-2 text-xl font-bold"
             >
               Dograh
+              {versionInfo && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  v{versionInfo.ui}
+                </span>
+              )}
             </Link>
           )}
           {/* Toggle button - center it when collapsed */}
@@ -445,6 +464,7 @@ export function AppSidebar() {
               />
             )}
           </div>
+
         </div>
       </SidebarFooter>
       <SidebarRail />

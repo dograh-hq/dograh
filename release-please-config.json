@@ -1,28 +1,52 @@
 {
-    "packages": {
-      ".": {
-        "release-type": "simple",
-        "package-name": "dograh",
-        "changelog-sections": [
-          {"type": "feat", "section": "Features", "hidden": false},
-          {"type": "fix", "section": "Bug Fixes", "hidden": false},
-          {"type": "docs", "section": "Documentation", "hidden": false},
-          {"type": "perf", "section": "Performance Improvements", "hidden": false},
-          {"type": "refactor", "section": "Code Refactoring", "hidden": false},
-          {"type": "chore", "section": "Miscellaneous", "hidden": true}
-        ],
-        "extra-files": [
-          {
-            "type": "json",
-            "path": "ui/package.json",
-            "jsonpath": "$.version"
-          },
-          {
-            "type": "toml",
-            "path": "api/pyproject.toml",
-            "key": "project.version"
-          }
-        ]
-      }
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "dograh",
+      "changelog-sections": [
+        {
+          "type": "feat",
+          "section": "Features",
+          "hidden": false
+        },
+        {
+          "type": "fix",
+          "section": "Bug Fixes",
+          "hidden": false
+        },
+        {
+          "type": "docs",
+          "section": "Documentation",
+          "hidden": false
+        },
+        {
+          "type": "perf",
+          "section": "Performance Improvements",
+          "hidden": false
+        },
+        {
+          "type": "refactor",
+          "section": "Code Refactoring",
+          "hidden": false
+        },
+        {
+          "type": "chore",
+          "section": "Miscellaneous",
+          "hidden": true
+        }
+      ],
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "ui/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "toml",
+          "path": "api/pyproject.toml",
+          "jsonpath": "$.project.version"
+        }
+      ]
     }
   }
+}

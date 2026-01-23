@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { getWorkflowsApiV1WorkflowFetchGet } from "@/client/sdk.gen";
+import { getWorkflowCountApiV1WorkflowCountGet } from "@/client/sdk.gen";
 import { getServerAccessToken,getServerAuthProvider, getServerUser } from "@/lib/auth/server";
 import logger from '@/lib/logger';
 import { getRedirectUrl } from "@/lib/utils";
@@ -34,21 +34,18 @@ export default async function AfterSignInPage() {
     try {
         const accessToken = await getServerAccessToken();
         if (accessToken) {
-            const workflowsResponse = await getWorkflowsApiV1WorkflowFetchGet({
+            const countResponse = await getWorkflowCountApiV1WorkflowCountGet({
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },
             });
 
-            const workflows = workflowsResponse.data ? (Array.isArray(workflowsResponse.data) ? workflowsResponse.data : [workflowsResponse.data]) : [];
-            const activeWorkflows = workflows.filter(w => w.status === 'active');
-
             logger.debug('[AfterSignInPage] Found workflows:', {
-                total: workflows.length,
-                active: activeWorkflows.length
+                total: countResponse.data?.total,
+                active: countResponse.data?.active
             });
 
-            if (activeWorkflows.length > 0) {
+            if (countResponse.data && countResponse.data.active > 0) {
                 logger.debug('[AfterSignInPage] Redirecting to /workflow - user has workflows');
                 redirect('/workflow');
             } else {

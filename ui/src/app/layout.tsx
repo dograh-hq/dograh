@@ -9,6 +9,7 @@ import AppLayout from "@/components/layout/AppLayout";
 import PostHogIdentify from "@/components/PostHogIdentify";
 import SpinLoader from "@/components/SpinLoader";
 import { Toaster } from "@/components/ui/sonner";
+import { AppConfigProvider } from "@/context/AppConfigContext";
 import { OnboardingProvider } from "@/context/OnboardingContext";
 import { UserConfigProvider } from "@/context/UserConfigContext";
 import { AuthProvider } from "@/lib/auth";
@@ -59,18 +60,20 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>
-          <Suspense fallback={<SpinLoader />}>
-            <UserConfigProvider>
-              <OnboardingProvider>
-                <PostHogIdentify />
-                <AppLayout>
-                  {children}
-                </AppLayout>
-                <Toaster />
-                <ChatwootWidget />
-              </OnboardingProvider>
-            </UserConfigProvider>
-          </Suspense>
+          <AppConfigProvider>
+            <Suspense fallback={<SpinLoader />}>
+              <UserConfigProvider>
+                <OnboardingProvider>
+                  <PostHogIdentify />
+                  <AppLayout>
+                    {children}
+                  </AppLayout>
+                  <Toaster />
+                  <ChatwootWidget />
+                </OnboardingProvider>
+              </UserConfigProvider>
+            </Suspense>
+          </AppConfigProvider>
         </AuthProvider>
       </body>
     </html>

@@ -42,7 +42,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.tests import MockLLMService, MockTTSService
 
-
 # Define prompts for test nodes
 START_NODE_PROMPT = "Start Node System Prompt"
 AGENT_NODE_PROMPT = "Agent Node System Prompt"
@@ -143,14 +142,20 @@ class ContextCapturingMockLLM(MockLLMService):
             msg_copy = dict(msg)
             # Copy content to avoid reference issues
             if "content" in msg_copy:
-                msg_copy["content"] = str(msg_copy["content"]) if msg_copy["content"] else None
+                msg_copy["content"] = (
+                    str(msg_copy["content"]) if msg_copy["content"] else None
+                )
             messages_snapshot.append(msg_copy)
 
-        self.captured_contexts.append({
-            "step": self._current_step,
-            "messages": messages_snapshot,
-            "system_prompt": messages_snapshot[0]["content"] if messages_snapshot else None,
-        })
+        self.captured_contexts.append(
+            {
+                "step": self._current_step,
+                "messages": messages_snapshot,
+                "system_prompt": messages_snapshot[0]["content"]
+                if messages_snapshot
+                else None,
+            }
+        )
 
         # Call parent implementation to stream the mock chunks
         return await super()._stream_chat_completions_universal_context(context)
@@ -306,14 +311,26 @@ class TestContextUpdateBeforeNextCompletion:
         transition completes. The test verifies the context is still correctly updated.
         """
         # Step 0 (Start node): call collect_info to transition to agent
-        step_0_chunks = MockLLMService.create_multiple_function_call_chunks([
-            {"name": "collect_info", "arguments": {}, "tool_call_id": "call_transition_1"},
-        ])
+        step_0_chunks = MockLLMService.create_multiple_function_call_chunks(
+            [
+                {
+                    "name": "collect_info",
+                    "arguments": {},
+                    "tool_call_id": "call_transition_1",
+                },
+            ]
+        )
 
         # Step 1 (Agent node): call end_call to transition to end
-        step_1_chunks = MockLLMService.create_multiple_function_call_chunks([
-            {"name": "end_call", "arguments": {}, "tool_call_id": "call_transition_2"},
-        ])
+        step_1_chunks = MockLLMService.create_multiple_function_call_chunks(
+            [
+                {
+                    "name": "end_call",
+                    "arguments": {},
+                    "tool_call_id": "call_transition_2",
+                },
+            ]
+        )
 
         # Step 2 (End node): text response (end node has no outgoing edges)
         step_2_chunks = MockLLMService.create_text_chunks("Goodbye!")
@@ -327,7 +344,7 @@ class TestContextUpdateBeforeNextCompletion:
         )
 
         # Should have been called 3 times: start node, agent node, end node
-        assert llm.get_current_step() == 2, (
+        assert llm.get_current_step() == 3, (
             f"Expected 3 LLM generations (start, agent, end), got {llm.get_current_step()}"
         )
 
@@ -376,14 +393,26 @@ class TestContextUpdateBeforeNextCompletion:
         is handled correctly.
         """
         # Step 0 (Start node): call collect_info to transition to agent
-        step_0_chunks = MockLLMService.create_multiple_function_call_chunks([
-            {"name": "collect_info", "arguments": {}, "tool_call_id": "call_transition_1"},
-        ])
+        step_0_chunks = MockLLMService.create_multiple_function_call_chunks(
+            [
+                {
+                    "name": "collect_info",
+                    "arguments": {},
+                    "tool_call_id": "call_transition_1",
+                },
+            ]
+        )
 
         # Step 1 (Agent node): call end_call to transition to end
-        step_1_chunks = MockLLMService.create_multiple_function_call_chunks([
-            {"name": "end_call", "arguments": {}, "tool_call_id": "call_transition_2"},
-        ])
+        step_1_chunks = MockLLMService.create_multiple_function_call_chunks(
+            [
+                {
+                    "name": "end_call",
+                    "arguments": {},
+                    "tool_call_id": "call_transition_2",
+                },
+            ]
+        )
 
         # Step 2 (End node): text response
         step_2_chunks = MockLLMService.create_text_chunks("Goodbye!")
@@ -397,7 +426,7 @@ class TestContextUpdateBeforeNextCompletion:
         )
 
         # Verify all three nodes were executed
-        assert llm.get_current_step() == 2, (
+        assert llm.get_current_step() == 3, (
             f"Expected 3 steps, got {llm.get_current_step()}"
         )
 
@@ -408,8 +437,7 @@ class TestContextUpdateBeforeNextCompletion:
         assert AGENT_NODE_PROMPT in llm.get_system_prompt_at_step(1)
 
         # Step 2: End node - should have end prompt
-        # FIXME - EndFrame is getting processed before LLMContextFrame
-        # assert END_NODE_PROMPT in llm.get_system_prompt_at_step(2)
+        assert END_NODE_PROMPT in llm.get_system_prompt_at_step(2)
 
         # Verify each subsequent step has the previous tool results
         step_1_ctx = llm.get_context_at_step(1)
@@ -423,14 +451,14 @@ class TestContextUpdateBeforeNextCompletion:
         assert step_1_has_tool, "Agent node should see collect_info tool result"
 
         # Step 2 should have tool results from both transitions
-        # FIXME - EndFrame is getting processed before LLMContextFrame
-        # step_2_tool_messages = [
-        #     msg for msg in step_2_ctx["messages"]
-        #     if msg.get("role") == "tool" or msg.get("tool_call_id")
-        # ]
-        # assert len(step_2_tool_messages) >= 2, (
-        #     f"End node should see at least 2 tool results, got {len(step_2_tool_messages)}"
-        # )
+        step_2_tool_messages = [
+            msg
+            for msg in step_2_ctx["messages"]
+            if msg.get("role") == "tool" or msg.get("tool_call_id")
+        ]
+        assert len(step_2_tool_messages) >= 2, (
+            f"End node should see at least 2 tool results, got {len(step_2_tool_messages)}"
+        )
 
     @pytest.mark.asyncio
     async def test_context_messages_preserve_conversation_history(
@@ -444,14 +472,26 @@ class TestContextUpdateBeforeNextCompletion:
         - Tool call messages and results
         """
         # Step 0 (Start node): call collect_info to transition to agent
-        step_0_chunks = MockLLMService.create_multiple_function_call_chunks([
-            {"name": "collect_info", "arguments": {}, "tool_call_id": "call_transition_1"},
-        ])
+        step_0_chunks = MockLLMService.create_multiple_function_call_chunks(
+            [
+                {
+                    "name": "collect_info",
+                    "arguments": {},
+                    "tool_call_id": "call_transition_1",
+                },
+            ]
+        )
 
         # Step 1 (Agent node): call end_call to transition to end
-        step_1_chunks = MockLLMService.create_multiple_function_call_chunks([
-            {"name": "end_call", "arguments": {}, "tool_call_id": "call_transition_2"},
-        ])
+        step_1_chunks = MockLLMService.create_multiple_function_call_chunks(
+            [
+                {
+                    "name": "end_call",
+                    "arguments": {},
+                    "tool_call_id": "call_transition_2",
+                },
+            ]
+        )
 
         # Step 2 (End node): text response
         step_2_chunks = MockLLMService.create_text_chunks("Goodbye!")
@@ -472,18 +512,15 @@ class TestContextUpdateBeforeNextCompletion:
         assert len(ctx_1["messages"]) > len(ctx_0["messages"]), (
             "Context at step 1 should have more messages than step 0"
         )
-        
-        # FIXME 
-        # assert len(ctx_2["messages"]) > len(ctx_1["messages"]), (
-        #     "Context at step 2 should have more messages than step 1"
-        # )
+
+        assert len(ctx_2["messages"]) > len(ctx_1["messages"]), (
+            "Context at step 2 should have more messages than step 1"
+        )
 
         # Verify assistant messages are accumulated
-        # FIXME
-        # assistant_messages_at_step_2 = [
-        #     msg for msg in ctx_2["messages"]
-        #     if msg.get("role") == "assistant"
-        # ]
-        # assert len(assistant_messages_at_step_2) >= 2, (
-        #     "Should have at least 2 assistant messages by step 2"
-        # )
+        assistant_messages_at_step_2 = [
+            msg for msg in ctx_2["messages"] if msg.get("role") == "assistant"
+        ]
+        assert len(assistant_messages_at_step_2) >= 2, (
+            "Should have at least 2 assistant messages by step 2"
+        )

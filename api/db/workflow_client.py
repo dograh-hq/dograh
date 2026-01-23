@@ -4,7 +4,7 @@ from typing import Optional
 
 from sqlalchemy import func
 from sqlalchemy.future import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import load_only, selectinload
 
 from api.db.base_client import BaseDBClient
 from api.db.models import WorkflowDefinitionModel, WorkflowModel, WorkflowRunModel
@@ -110,6 +110,70 @@ class WorkflowClient(BaseDBClient):
 
             result = await session.execute(query)
             return result.scalars().all()
+
+    async def get_all_workflows_for_listing(
+        self, organization_id: int = None, status: str = None
+    ) -> list[WorkflowModel]:
+        """Get workflows with only the columns needed for listing.
+
+        This is an optimized version that excludes large JSON columns like
+        workflow_definition, template_context_variables, etc.
+
+        Args:
+            organization_id: Filter by organization ID
+            status: Filter by status (active/archived)
+
+        Returns:
+            List of WorkflowModel with only id, name, status, created_at loaded
+        """
+        async with self.async_session() as session:
+            query = select(WorkflowModel).options(
+                load_only(
+                    WorkflowModel.id,
+                    WorkflowModel.name,
+                    WorkflowModel.status,
+                    WorkflowModel.created_at,
+                )
+            )
+
+            if organization_id:
+                query = query.where(WorkflowModel.organization_id == organization_id)
+
+            if status:
+                query = query.where(WorkflowModel.status == status)
+
+            result = await session.execute(query)
+            return result.scalars().all()
+
+    async def get_workflow_counts(self, organization_id: int = None) -> dict[str, int]:
+        """Get workflow counts by status.
+
+        Args:
+            organization_id: Filter by organization ID
+
+        Returns:
+            Dict with 'total', 'active', 'archived' counts
+        """
+        async with self.async_session() as session:
+            query = select(
+                WorkflowModel.status,
+                func.count(WorkflowModel.id).label("count"),
+            )
+
+            if organization_id:
+                query = query.where(WorkflowModel.organization_id == organization_id)
+
+            query = query.group_by(WorkflowModel.status)
+
+            result = await session.execute(query)
+            rows = result.all()
+
+            counts = {"total": 0, "active": 0, "archived": 0}
+            for status, count in rows:
+                counts[status] = count
+                counts["total"] += count
+
+            return counts
 
     async def get_workflow(
         self, workflow_id: int, user_id: int = None, organization_id: int = None
@@ -310,3 +374,33 @@ class WorkflowClient(BaseDBClient):
                 )
             )
             return result.scalar() or 0
+
+    async def get_workflow_run_counts(self, workflow_ids: list[int]) -> dict[int, int]:
+        """Get run counts for multiple workflows in a single query.
+
+        Args:
+            workflow_ids: List of workflow IDs to get counts for
+
+        Returns:
+            Dict mapping workflow_id to run count
+        """
+        if not workflow_ids:
+            return {}
+
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(
+                    WorkflowRunModel.workflow_id,
+                    func.count(WorkflowRunModel.id).label("run_count"),
+                )
+                .where(WorkflowRunModel.workflow_id.in_(workflow_ids))
+                .group_by(WorkflowRunModel.workflow_id)
+            )
+            rows = result.all()
+
+            # Build dict with counts, defaulting to 0 for workflows with no runs
+            counts = {workflow_id: 0 for workflow_id in workflow_ids}
+            for workflow_id, run_count in rows:
+                counts[workflow_id] = run_count
+
+            return counts

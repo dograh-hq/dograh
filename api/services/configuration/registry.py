@@ -300,7 +300,7 @@ TTSConfig = Annotated[
 ###################################################### STT ########################################################################
 
 
-DEEPGRAM_STT_MODELS = ["nova-2", "nova-3-general"]
+DEEPGRAM_STT_MODELS = ["nova-2", "nova-3-general", "flux-general-en"]
 DEEPGRAM_LANGUAGES = [
     "multi",
     "en",

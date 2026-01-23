@@ -326,14 +326,64 @@ export default function UsagePage() {
                                     isDisabled={savingTimezone || userConfigLoading}
                                     placeholder={userConfigLoading ? "Loading..." : "Select timezone"}
                                     styles={{
-                                        control: (base) => ({
+                                        control: (base, state) => ({
                                             ...base,
                                             minHeight: '36px',
                                             fontSize: '14px',
+                                            backgroundColor: 'var(--background)',
+                                            borderColor: state.isFocused ? 'var(--ring)' : 'var(--border)',
+                                            boxShadow: state.isFocused ? '0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent)' : 'none',
+                                            '&:hover': {
+                                                borderColor: 'var(--border)',
+                                            },
                                         }),
                                         menu: (base) => ({
                                             ...base,
                                             zIndex: 9999,
+                                            backgroundColor: 'var(--popover)',
+                                            border: '1px solid var(--border)',
+                                            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)',
+                                        }),
+                                        menuList: (base) => ({
+                                            ...base,
+                                            backgroundColor: 'var(--popover)',
+                                            padding: 0,
+                                        }),
+                                        option: (base, state) => ({
+                                            ...base,
+                                            backgroundColor: state.isSelected
+                                                ? 'var(--accent)'
+                                                : state.isFocused
+                                                ? 'var(--accent)'
+                                                : 'var(--popover)',
+                                            color: 'var(--foreground)',
+                                            cursor: 'pointer',
+                                            '&:active': {
+                                                backgroundColor: 'var(--accent)',
+                                            },
+                                        }),
+                                        singleValue: (base) => ({
+                                            ...base,
+                                            color: 'var(--foreground)',
+                                        }),
+                                        input: (base) => ({
+                                            ...base,
+                                            color: 'var(--foreground)',
+                                        }),
+                                        placeholder: (base) => ({
+                                            ...base,
+                                            color: 'var(--muted-foreground)',
+                                        }),
+                                        indicatorSeparator: (base) => ({
+                                            ...base,
+                                            backgroundColor: 'var(--border)',
+                                        }),
+                                        dropdownIndicator: (base) => ({
+                                            ...base,
+                                            color: 'var(--muted-foreground)',
+                                            '&:hover': {
+                                                color: 'var(--foreground)',
+                                            },
                                         }),
                                     }}
                                 />

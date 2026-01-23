@@ -15,6 +15,8 @@ The serializer:
 from typing import Optional
 
 from loguru import logger
+from pydantic import BaseModel
+
 from pipecat.audio.utils import create_default_resampler, pcm_to_ulaw, ulaw_to_pcm
 from pipecat.frames.frames import (
     AudioRawFrame,
@@ -22,8 +24,7 @@ from pipecat.frames.frames import (
     InputAudioRawFrame,
     StartFrame,
 )
-from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
-from pydantic import BaseModel
+from pipecat.serializers.base_serializer import FrameSerializer
 
 
 class StasisRTPFrameSerializer(FrameSerializer):
@@ -58,11 +59,6 @@ class StasisRTPFrameSerializer(FrameSerializer):
 
         # Resampler shared between encode / decode paths
         self._resampler = create_default_resampler()
-
-    @property
-    def type(self) -> FrameSerializerType:
-        """Stasis uses raw bytes → BINARY."""
-        return FrameSerializerType.BINARY
 
     async def setup(self, frame: StartFrame):
         """Remember pipeline configuration."""

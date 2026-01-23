@@ -12,9 +12,8 @@ from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,
     OutputAudioRawFrame,
-    StartFrame,
 )
-from pipecat.serializers.base_serializer import FrameSerializer, FrameSerializerType
+from pipecat.serializers.base_serializer import FrameSerializer
 
 
 class InternalFrameSerializer(FrameSerializer):
@@ -23,15 +22,6 @@ class InternalFrameSerializer(FrameSerializer):
     This serializer ensures only audio frames are passed between agents,
     preventing control frames from creating infinite loops.
     """
-
-    @property
-    def type(self) -> FrameSerializerType:
-        """Internal transport uses binary frames."""
-        return FrameSerializerType.BINARY
-
-    async def setup(self, frame: StartFrame):
-        """No setup required for internal transport."""
-        pass
 
     async def serialize(self, frame: Frame) -> bytes | None:
         """Only serialize audio frames for transmission between agents."""

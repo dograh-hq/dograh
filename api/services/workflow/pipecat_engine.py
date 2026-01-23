@@ -19,7 +19,6 @@ from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
     from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
-    from pipecat.processors.audio.audio_buffer_processor import AudioBuffer
     from pipecat.services.anthropic.llm import AnthropicLLMService
     from pipecat.services.google.llm import GoogleLLMService
     from pipecat.services.openai.llm import OpenAILLMService
@@ -64,7 +63,6 @@ class PipecatEngine:
         transport: Optional[BaseTransport] = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
-        audio_buffer: Optional["AudioBuffer"] = None,
         workflow_run_id: Optional[int] = None,
         node_transition_callback: Optional[
             Callable[[str, Optional[str]], Awaitable[None]]
@@ -78,7 +76,6 @@ class PipecatEngine:
         self.transport = transport
         self.workflow = workflow
         self._call_context_vars = call_context_vars
-        self._audio_buffer = audio_buffer
         self._workflow_run_id = workflow_run_id
         self._node_transition_callback = node_transition_callback
         self._initialized = False
@@ -204,6 +201,7 @@ class PipecatEngine:
             logger.info(f"Arguments: {function_call_params.arguments}")
             await self.set_node(transition_to_node)
             try:
+
                 async def on_context_updated() -> None:
                     """
                     pipecat framework will run this function after the function call result has been updated in the context.
@@ -214,6 +212,12 @@ class PipecatEngine:
                     await self._perform_variable_extraction_if_needed(
                         self._current_node
                     )
+
+                    # Queue EndFrame if we just transitioned to EndNode
+                    if self._current_node.is_end:
+                        await self.send_end_task_frame(
+                            EndTaskReason.USER_QUALIFIED.value
+                        )
 
                 result = {"status": "done"}
 
@@ -478,8 +482,6 @@ class PipecatEngine:
         if node.extraction_enabled and node.extraction_variables:
             await self._perform_variable_extraction_if_needed(node)
 
-        await self.send_end_task_frame(EndTaskReason.USER_QUALIFIED.value)
-
     async def _handle_agent_node(self, node: Node) -> None:
         """Handle agent node execution."""
         if node.is_static:
@@ -680,12 +682,12 @@ class PipecatEngine:
         """
         return engine_callbacks.create_should_mute_callback(self)
 
-    def create_user_idle_callback(self):
+    def create_user_idle_handler(self):
         """
-        This callback is called when the user is idle for a certain duration.
-        We use this to either play the static text or end the call
+        Returns a UserIdleHandler that manages user-idle timeouts with state.
+        The handler tracks retry count and handles escalating prompts.
         """
-        return engine_callbacks.create_user_idle_callback(self)
+        return engine_callbacks.create_user_idle_handler(self)
 
     def create_max_duration_callback(self):
         """
@@ -720,14 +722,6 @@ class PipecatEngine:
         which is useful when the task needs to be created after the engine.
         """
         self.task = task
-
-    def set_audio_buffer(self, audio_buffer: "AudioBuffer") -> None:
-        """Set the audio buffer.
-
-        This allows setting the audio buffer after the engine has been created,
-        which is useful when the audio buffer needs to be created after the engine.
-        """
-        self._audio_buffer = audio_buffer
 
     def set_stasis_connection(
         self, connection: Optional["StasisRTPConnection"]

@@ -46,6 +46,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAppConfig } from "@/context/AppConfigContext";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -66,9 +67,13 @@ export function AppSidebar() {
   const router = useRouter();
   const { state } = useSidebar();
   const { provider, getSelectedTeam } = useAuth();
+  const { config } = useAppConfig();
 
   // Get selected team for Stack auth (cast to Team type from Stack)
   const selectedTeam = provider === "stack" && getSelectedTeam ? getSelectedTeam() as Team | null : null;
+
+  // Version info from app config context
+  const versionInfo = config ? { ui: config.uiVersion, api: config.apiVersion } : null;
 
   const isActive = (path: string) => {
     return pathname.startsWith(path);
@@ -207,6 +212,11 @@ export function AppSidebar() {
               className="flex items-center gap-2 px-2 text-xl font-bold"
             >
               Dograh
+              {versionInfo && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  v{versionInfo.ui}
+                </span>
+              )}
             </Link>
           )}
           {/* Toggle button - center it when collapsed */}
@@ -445,6 +455,7 @@ export function AppSidebar() {
               />
             )}
           </div>
+
         </div>
       </SidebarFooter>
       <SidebarRail />

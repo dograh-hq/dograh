@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:17
+    image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -82,6 +82,10 @@ services:
       # Core application config
       ENVIRONMENT: "local"
       LOG_LEVEL: "INFO"
+
+      # Replace this environment variable if you are using a custom
+      # domain to host the stack
+      BACKEND_API_ENDPOINT: "http://localhost:8000"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"

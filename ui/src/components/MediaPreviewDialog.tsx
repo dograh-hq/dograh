@@ -22,6 +22,7 @@ export function MediaPreviewDialog({ accessToken }: MediaPreviewDialogProps) {
     const [isOpen, setIsOpen] = useState(false);
     const [mediaType, setMediaType] = useState<'audio' | 'transcript' | null>(null);
     const [mediaSignedUrl, setMediaSignedUrl] = useState<string | null>(null);
+    const [transcriptContent, setTranscriptContent] = useState<string | null>(null);
     const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
     const [mediaDownloadKey, setMediaDownloadKey] = useState<string | null>(null);
     const [mediaLoading, setMediaLoading] = useState(false);
@@ -47,6 +48,7 @@ export function MediaPreviewDialog({ accessToken }: MediaPreviewDialogProps) {
         async (fileKey: string | null, runId: number) => {
             if (!fileKey || !accessToken) return;
             setMediaLoading(true);
+            setTranscriptContent(null);
             const signed = await getSignedUrl(fileKey, accessToken, true);
             if (signed) {
                 setMediaType('transcript');
@@ -54,6 +56,14 @@ export function MediaPreviewDialog({ accessToken }: MediaPreviewDialogProps) {
                 setMediaDownloadKey(fileKey);
                 setSelectedRunId(runId);
                 setIsOpen(true);
+                // Fetch transcript content with proper UTF-8 encoding
+                try {
+                    const response = await fetch(signed);
+                    const text = await response.text();
+                    setTranscriptContent(text);
+                } catch (error) {
+                    console.error('Error fetching transcript:', error);
+                }
             }
             setMediaLoading(false);
         },
@@ -84,12 +94,10 @@ export function MediaPreviewDialog({ accessToken }: MediaPreviewDialogProps) {
                         <audio src={mediaSignedUrl} controls autoPlay className="w-full mt-4" />
                     )}
 
-                    {!mediaLoading && mediaType === 'transcript' && mediaSignedUrl && (
-                        <iframe
-                            src={mediaSignedUrl}
-                            title="Transcript"
-                            className="w-full h-[60vh] border rounded-md mt-4"
-                        />
+                    {!mediaLoading && mediaType === 'transcript' && transcriptContent && (
+                        <pre className="w-full h-[60vh] overflow-auto border rounded-md mt-4 p-4 bg-muted text-sm whitespace-pre-wrap font-mono">
+                            {transcriptContent}
+                        </pre>
                     )}
 
                     <DialogFooter className="pt-4">

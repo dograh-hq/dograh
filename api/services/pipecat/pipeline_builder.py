@@ -1,5 +1,4 @@
 import os
-from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -11,14 +10,10 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
-from pipecat.processors.transcript_processor import TranscriptProcessor
 from pipecat.utils.context import turn_var
 
-if TYPE_CHECKING:
-    from api.services.workflow.pipecat_engine import PipecatEngine
 
-
-def create_pipeline_components(audio_config: AudioConfig, engine: "PipecatEngine"):
+def create_pipeline_components(audio_config: AudioConfig):
     """Create and return the main pipeline components with proper audio configuration"""
     logger.info(f"Creating pipeline components with audio config: {audio_config}")
 
@@ -28,28 +23,21 @@ def create_pipeline_components(audio_config: AudioConfig, engine: "PipecatEngine
         buffer_size=audio_config.buffer_size_bytes,
     )
 
-    transcript = TranscriptProcessor(
-        assistant_correct_aggregation_callback=engine.create_aggregation_correction_callback()
-    )
-
     context = LLMContext()
 
-    return audio_buffer, transcript, context
+    return audio_buffer, context
 
 
 def build_pipeline(
     transport,
     stt,
-    transcript,
     audio_buffer,
     llm,
     tts,
     user_context_aggregator,
     assistant_context_aggregator,
     pipeline_engine_callback_processor,
-    stt_mute_filter,
     pipeline_metrics_aggregator,
-    user_idle_disconnect,
     voicemail_detector=None,
 ):
     """Build the main pipeline with all components.
@@ -63,7 +51,7 @@ def build_pipeline(
     # Build processors list with optional voicemail detection
     processors = [
         transport.input(),  # Transport user input
-        stt,  # STT (audio_passthrough=True by default, passes InputAudioRawFrame)
+        stt,
     ]
 
     # Insert voicemail detector after STT if enabled
@@ -76,16 +64,12 @@ def build_pipeline(
     # Continue with the rest of the pipeline
     processors.extend(
         [
-            stt_mute_filter,  # STTMuteFilters don't let VAD related events pass through if muted
-            user_idle_disconnect,
-            transcript.user(),
             user_context_aggregator,
             llm,  # LLM
             pipeline_engine_callback_processor,
             tts,  # TTS
             transport.output(),  # Transport bot output
             audio_buffer,  # AudioBufferProcessor - records both input and output audio
-            transcript.assistant(),
             assistant_context_aggregator,  # Assistant spoken responses
             pipeline_metrics_aggregator,
         ]
@@ -98,7 +82,6 @@ def create_pipeline_task(pipeline, workflow_run_id, audio_config: AudioConfig = 
     """Create a pipeline task with appropriate parameters"""
     # Set up pipeline params with audio configuration if provided
     pipeline_params = PipelineParams(
-        allow_interruptions=True,
         enable_metrics=True,
         enable_usage_metrics=True,
         send_initial_empty_metrics=False,
@@ -119,6 +102,7 @@ def create_pipeline_task(pipeline, workflow_run_id, audio_config: AudioConfig = 
         pipeline,
         params=pipeline_params,
         enable_tracing=ENABLE_TRACING,
+        enable_rtvi=False,
         conversation_id=f"{workflow_run_id}",
     )
 

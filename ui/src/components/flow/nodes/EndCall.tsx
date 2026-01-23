@@ -35,7 +35,7 @@ interface EndCallNodeProps extends NodeProps {
 }
 
 export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
-    const { open, setOpen, handleSaveNodeData } = useNodeHandlers({
+    const { open, setOpen, handleSaveNodeData, handleDeleteNode } = useNodeHandlers({
         id,
         additionalData: { is_end: true }
     });
@@ -122,9 +122,14 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
             </NodeContent>
 
             <NodeToolbar isVisible={selected} position={Position.Right}>
-                <Button onClick={() => setOpen(true)} variant="outline" size="icon">
-                    <Edit />
-                </Button>
+                <div className="flex flex-col gap-1">
+                    <Button onClick={() => setOpen(true)} variant="outline" size="icon">
+                        <Edit />
+                    </Button>
+                    <Button onClick={handleDeleteNode} variant="outline" size="icon">
+                        <Trash2Icon />
+                    </Button>
+                </div>
             </NodeToolbar>
 
             <NodeEditDialog

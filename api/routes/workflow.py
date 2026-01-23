@@ -97,6 +97,24 @@ class WorkflowResponse(BaseModel):
     workflow_configurations: dict | None = None
 
 
+class WorkflowListResponse(BaseModel):
+    """Lightweight response for workflow listings (excludes large fields)."""
+
+    id: int
+    name: str
+    status: str
+    created_at: datetime
+    total_runs: int
+
+
+class WorkflowCountResponse(BaseModel):
+    """Response for workflow count endpoint."""
+
+    total: int
+    active: int
+    archived: int
+
+
 class WorkflowTemplateResponse(BaseModel):
     id: int
     template_name: str
@@ -359,6 +377,26 @@ class WorkflowSummaryResponse(BaseModel):
     name: str
 
 
+@router.get("/count")
+async def get_workflow_count(
+    user: UserModel = Depends(get_user),
+) -> WorkflowCountResponse:
+    """Get workflow counts for the authenticated user's organization.
+
+    This is a lightweight endpoint for checking if the user has workflows,
+    useful for redirect logic without fetching full workflow data.
+    """
+    counts = await db_client.get_workflow_counts(
+        organization_id=user.selected_organization_id
+    )
+
+    return WorkflowCountResponse(
+        total=counts["total"],
+        active=counts["active"],
+        archived=counts["archived"],
+    )
+
+
 @router.get("/fetch")
 async def get_workflows(
     user: UserModel = Depends(get_user),
@@ -366,45 +404,43 @@ async def get_workflows(
         None,
         description="Filter by status - can be single value (active/archived) or comma-separated (active,archived)",
     ),
-) -> List[WorkflowResponse]:
-    """Get all workflows for the authenticated user's organization"""
+) -> List[WorkflowListResponse]:
+    """Get all workflows for the authenticated user's organization.
+
+    Returns a lightweight response with only essential fields for listing.
+    Use GET /workflow/fetch/{workflow_id} to get full workflow details.
+    """
     # Handle comma-separated status values
     if status and "," in status:
         # Split comma-separated values and fetch workflows for each status
         status_list = [s.strip() for s in status.split(",")]
         all_workflows = []
         for status_value in status_list:
-            workflows = await db_client.get_all_workflows(
+            workflows = await db_client.get_all_workflows_for_listing(
                 organization_id=user.selected_organization_id, status=status_value
             )
             all_workflows.extend(workflows)
         workflows = all_workflows
     else:
         # Single status or no status filter
-        workflows = await db_client.get_all_workflows(
+        workflows = await db_client.get_all_workflows_for_listing(
             organization_id=user.selected_organization_id, status=status
         )
 
-    # Get run counts for each workflow
-    workflow_responses = []
-    for workflow in workflows:
-        run_count = await db_client.get_workflow_run_count(workflow.id)
-        workflow_responses.append(
-            {
-                "id": workflow.id,
-                "name": workflow.name,
-                "status": workflow.status,
-                "created_at": workflow.created_at,
-                "workflow_definition": workflow.workflow_definition_with_fallback,
-                "current_definition_id": workflow.current_definition_id,
-                "template_context_variables": workflow.template_context_variables,
-                "call_disposition_codes": workflow.call_disposition_codes,
-                "workflow_configurations": workflow.workflow_configurations,
-                "total_runs": run_count,
-            }
-        )
+    # Get run counts for all workflows in a single query
+    workflow_ids = [workflow.id for workflow in workflows]
+    run_counts = await db_client.get_workflow_run_counts(workflow_ids)
 
-    return workflow_responses
+    return [
+        WorkflowListResponse(
+            id=workflow.id,
+            name=workflow.name,
+            status=workflow.status,
+            created_at=workflow.created_at,
+            total_runs=run_counts.get(workflow.id, 0),
+        )
+        for workflow in workflows
+    ]
 
 
 @router.get("/fetch/{workflow_id}")

@@ -1,0 +1,1131 @@
+{
+  "audio_file": "vad.m4a",
+  "audio_path": "../audio/vad.m4a",
+  "provider": "deepgram",
+  "duration": 13.606893,
+  "created_at": "2026-01-20T13:23:22.720144",
+  "events": [
+    {
+      "timestamp": 2.1248124539852142e-06,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0399375,
+        "start": 0.0,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 0.5033409169409424,
+      "event_type": "SpeechStarted",
+      "data": {
+        "type": "SpeechStarted",
+        "channel": [
+          0,
+          1
+        ],
+        "timestamp": 1.1
+      }
+    },
+    {
+      "timestamp": 1.0483719168696553,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0799375,
+        "start": 0.0,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 1.2717794578056782,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.23,
+        "start": 0.0,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 1.3922397918067873,
+      "event_type": "SpeechStarted",
+      "data": {
+        "type": "SpeechStarted",
+        "channel": [
+          0,
+          1
+        ],
+        "timestamp": 2.51
+      }
+    },
+    {
+      "timestamp": 2.141541542019695,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0499375,
+        "start": 2.23,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "This is",
+              "confidence": 0.99902344,
+              "words": [
+                {
+                  "word": "this",
+                  "start": 2.31,
+                  "end": 2.71,
+                  "confidence": 0.8803711,
+                  "punctuated_word": "This"
+                },
+                {
+                  "word": "is",
+                  "start": 2.71,
+                  "end": 2.87,
+                  "confidence": 0.99902344,
+                  "punctuated_word": "is"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 3.198163916822523,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0899377,
+        "start": 2.23,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "This is something that",
+              "confidence": 0.9970703,
+              "words": [
+                {
+                  "word": "this",
+                  "start": 2.31,
+                  "end": 2.71,
+                  "confidence": 0.9223633,
+                  "punctuated_word": "This"
+                },
+                {
+                  "word": "is",
+                  "start": 2.71,
+                  "end": 2.95,
+                  "confidence": 1.0,
+                  "punctuated_word": "is"
+                },
+                {
+                  "word": "something",
+                  "start": 2.95,
+                  "end": 3.67,
+                  "confidence": 0.93408203,
+                  "punctuated_word": "something"
+                },
+                {
+                  "word": "that",
+                  "start": 3.67,
+                  "end": 3.99,
+                  "confidence": 0.9970703,
+                  "punctuated_word": "that"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 3.610837416956201,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.4299998,
+        "start": 2.23,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "This is something that",
+              "confidence": 0.9980469,
+              "words": [
+                {
+                  "word": "this",
+                  "start": 2.31,
+                  "end": 2.71,
+                  "confidence": 0.9448242,
+                  "punctuated_word": "This"
+                },
+                {
+                  "word": "is",
+                  "start": 2.71,
+                  "end": 2.95,
+                  "confidence": 1.0,
+                  "punctuated_word": "is"
+                },
+                {
+                  "word": "something",
+                  "start": 2.95,
+                  "end": 3.75,
+                  "confidence": 0.9291992,
+                  "punctuated_word": "something"
+                },
+                {
+                  "word": "that",
+                  "start": 3.75,
+                  "end": 4.0699997,
+                  "confidence": 0.9980469,
+                  "punctuated_word": "that"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 4.484807749977335,
+      "event_type": "SpeechStarted",
+      "data": {
+        "type": "SpeechStarted",
+        "channel": [
+          0,
+          1
+        ],
+        "timestamp": 5.55
+      }
+    },
+    {
+      "timestamp": 4.5869907499291,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0199375,
+        "start": 4.66,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "I",
+              "confidence": 0.9301758,
+              "words": [
+                {
+                  "word": "i",
+                  "start": 5.2999997,
+                  "end": 5.54,
+                  "confidence": 0.9301758,
+                  "punctuated_word": "I"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 4.587112749926746,
+      "event_type": "UtteranceEnd",
+      "data": {
+        "type": "UtteranceEnd",
+        "channel": [
+          0,
+          1
+        ],
+        "last_word_end": 4.0699997
+      }
+    },
+    {
+      "timestamp": 5.644599041901529,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0599375,
+        "start": 4.66,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "I am testing to",
+              "confidence": 0.9980469,
+              "words": [
+                {
+                  "word": "i",
+                  "start": 5.3799996,
+                  "end": 5.62,
+                  "confidence": 0.9980469,
+                  "punctuated_word": "I"
+                },
+                {
+                  "word": "am",
+                  "start": 5.62,
+                  "end": 5.8599997,
+                  "confidence": 0.96240234,
+                  "punctuated_word": "am"
+                },
+                {
+                  "word": "testing",
+                  "start": 5.8599997,
+                  "end": 6.2599998,
+                  "confidence": 1.0,
+                  "punctuated_word": "testing"
+                },
+                {
+                  "word": "to",
+                  "start": 6.2599998,
+                  "end": 6.5,
+                  "confidence": 0.9892578,
+                  "punctuated_word": "to"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 5.970383666921407,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.31,
+        "start": 4.66,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "I am testing to",
+              "confidence": 0.99902344,
+              "words": [
+                {
+                  "word": "i",
+                  "start": 5.3799996,
+                  "end": 5.62,
+                  "confidence": 0.99902344,
+                  "punctuated_word": "I"
+                },
+                {
+                  "word": "am",
+                  "start": 5.62,
+                  "end": 5.8599997,
+                  "confidence": 0.95410156,
+                  "punctuated_word": "am"
+                },
+                {
+                  "word": "testing",
+                  "start": 5.8599997,
+                  "end": 6.2599998,
+                  "confidence": 1.0,
+                  "punctuated_word": "testing"
+                },
+                {
+                  "word": "to",
+                  "start": 6.2599998,
+                  "end": 6.58,
+                  "confidence": 0.99316406,
+                  "punctuated_word": "to"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 6.601957832928747,
+      "event_type": "SpeechStarted",
+      "data": {
+        "type": "SpeechStarted",
+        "channel": [
+          0,
+          1
+        ],
+        "timestamp": 7.62
+      }
+    },
+    {
+      "timestamp": 6.9396405830048025,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0299377,
+        "start": 6.97,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 6.939695374807343,
+      "event_type": "UtteranceEnd",
+      "data": {
+        "type": "UtteranceEnd",
+        "channel": [
+          0,
+          1
+        ],
+        "last_word_end": 6.58
+      }
+    },
+    {
+      "timestamp": 8.006767624989152,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0699382,
+        "start": 6.97,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "make sure that",
+              "confidence": 0.99902344,
+              "words": [
+                {
+                  "word": "make",
+                  "start": 7.5299997,
+                  "end": 8.17,
+                  "confidence": 0.99902344,
+                  "punctuated_word": "make"
+                },
+                {
+                  "word": "sure",
+                  "start": 8.17,
+                  "end": 8.41,
+                  "confidence": 1.0,
+                  "punctuated_word": "sure"
+                },
+                {
+                  "word": "that",
+                  "start": 8.41,
+                  "end": 8.65,
+                  "confidence": 0.9980469,
+                  "punctuated_word": "that"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 8.733146582962945,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.7199998,
+        "start": 6.97,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "make sure that that",
+              "confidence": 0.99902344,
+              "words": [
+                {
+                  "word": "make",
+                  "start": 7.5299997,
+                  "end": 8.25,
+                  "confidence": 0.99902344,
+                  "punctuated_word": "make"
+                },
+                {
+                  "word": "sure",
+                  "start": 8.25,
+                  "end": 8.41,
+                  "confidence": 1.0,
+                  "punctuated_word": "sure"
+                },
+                {
+                  "word": "that",
+                  "start": 8.41,
+                  "end": 8.969999,
+                  "confidence": 0.9980469,
+                  "punctuated_word": "that"
+                },
+                {
+                  "word": "that",
+                  "start": 8.969999,
+                  "end": 9.37,
+                  "confidence": 0.34033203,
+                  "punctuated_word": "that"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 8.792208916973323,
+      "event_type": "SpeechStarted",
+      "data": {
+        "type": "SpeechStarted",
+        "channel": [
+          0,
+          1
+        ],
+        "timestamp": 9.79
+      }
+    },
+    {
+      "timestamp": 9.710732833016664,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0299377,
+        "start": 9.69,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "is",
+              "confidence": 0.99316406,
+              "words": [
+                {
+                  "word": "is",
+                  "start": 10.089999,
+                  "end": 10.33,
+                  "confidence": 0.99316406,
+                  "punctuated_word": "is"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 10.779752457980067,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.9800005,
+        "start": 9.69,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "is working properly.",
+              "confidence": 0.93603516,
+              "words": [
+                {
+                  "word": "is",
+                  "start": 10.089999,
+                  "end": 10.41,
+                  "confidence": 0.93603516,
+                  "punctuated_word": "is"
+                },
+                {
+                  "word": "working",
+                  "start": 10.41,
+                  "end": 11.049999,
+                  "confidence": 0.99121094,
+                  "punctuated_word": "working"
+                },
+                {
+                  "word": "properly",
+                  "start": 11.049999,
+                  "end": 11.45,
+                  "confidence": 0.7998047,
+                  "punctuated_word": "properly."
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 11.75167812500149,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0499372,
+        "start": 11.67,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 11.75173195800744,
+      "event_type": "UtteranceEnd",
+      "data": {
+        "type": "UtteranceEnd",
+        "channel": [
+          0,
+          1
+        ],
+        "last_word_end": 11.45
+      }
+    },
+    {
+      "timestamp": 13.053302166983485,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0968122,
+        "start": 11.67,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 13.95449158293195,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 3.1368122,
+        "start": 11.67,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 15.400284249801189,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 4.176812,
+        "start": 11.67,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 15.893622082890943,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 3.0199995,
+        "start": 11.67,
+        "is_final": true,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 15.894181541865692,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0368128,
+        "start": 14.69,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 16.9369917078875,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 3.0768137,
+        "start": 14.69,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 18.010773707879707,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 3.876813,
+        "start": 14.69,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 18.01088787498884,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 0.0,
+        "start": 18.566813,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 18.01097366702743,
+      "event_type": "Metadata",
+      "data": {
+        "type": "Metadata",
+        "transaction_key": "deprecated",
+        "request_id": "02f8e10c-b08e-4ffd-952e-3cde2adcbf2f",
+        "sha256": "8dd2361b38ded42a65ec3b79bd9f64742e3bec916a0eb8783f2204e55cb663fc",
+        "created": "2026-01-20T07:53:03.141Z",
+        "duration": 18.566813,
+        "channels": 1,
+        "models": [
+          "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        ],
+        "model_info": {
+          "40bd3654-e622-47c4-a111-63a61b23bfe8": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          }
+        }
+      }
+    }
+  ],
+  "transcript": "This is something that I am testing to make sure that that is working properly."
+}

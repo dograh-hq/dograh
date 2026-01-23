@@ -360,6 +360,17 @@ class WorkflowRunModel(Base):
     campaign = relationship("CampaignModel")
     queued_run_id = Column(Integer, ForeignKey("queued_runs.id"), nullable=True)
     queued_run = relationship("QueuedRunModel", foreign_keys=[queued_run_id])
+    public_access_token = Column(String(36), nullable=True)
+
+    # Indexes
+    __table_args__ = (
+        Index(
+            "idx_workflow_runs_public_access_token",
+            "public_access_token",
+            unique=True,
+            postgresql_where=text("public_access_token IS NOT NULL"),
+        ),
+    )
 
 
 # LoopTalk Testing Models

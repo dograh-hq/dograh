@@ -7,12 +7,12 @@ from loguru import logger
 from api.db import db_client
 from api.db.models import WorkflowModel
 from api.enums import WorkflowRunMode
+from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
-    register_task_event_handler,
-    register_transcript_handler,
-    register_transport_event_handlers,
+    register_event_handlers,
+    register_transcript_handlers,
 )
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import (
@@ -46,20 +46,25 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
-from pipecat.processors.aggregators.llm_response import (
+from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
+    LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-)
-from pipecat.processors.filters.stt_mute_filter import (
-    STTMuteConfig,
-    STTMuteFilter,
-    STTMuteStrategy,
-)
-from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
+from pipecat.turns.user_start import (
+    ExternalUserTurnStartStrategy,
+    TranscriptionUserTurnStartStrategy,
+)
+from pipecat.turns.user_start.vad_user_turn_start_strategy import (
+    VADUserTurnStartStrategy,
+)
+from pipecat.turns.user_stop import (
+    ExternalUserTurnStopStrategy,
+    TranscriptionUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.context import set_current_run_id
 from pipecat.utils.enums import EndTaskReason
 from pipecat.utils.tracing.context_registry import ContextProviderRegistry
@@ -517,12 +522,11 @@ async def _run_pipeline(
         embeddings_model=embeddings_model,
     )
 
-    # Create pipeline components with audio configuration and engine
-    audio_buffer, transcript, context = create_pipeline_components(audio_config, engine)
+    # Create pipeline components with audio configuration
+    audio_buffer, context = create_pipeline_components(audio_config)
 
     # Set the context and audio_buffer after creation
     engine.set_context(context)
-    engine.set_audio_buffer(audio_buffer)
 
     # Set Stasis connection for immediate transfers (if available)
     if stasis_connection:
@@ -532,7 +536,31 @@ async def _run_pipeline(
         expect_stripped_words=True,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
-    user_params = LLMUserAggregatorParams(enable_emulated_vad_interruptions=True)
+
+    # Configure turn strategies based on STT provider and model
+    # Deepgram Flux uses external turn detection (VAD + External start/stop)
+    # Other models use transcription-based turn detection with smart turn analyzer
+    is_deepgram_flux = (
+        user_config.stt.provider == ServiceProviders.DEEPGRAM.value
+        and user_config.stt.model == "flux-general-en"
+    )
+
+    if is_deepgram_flux:
+        user_turn_strategies = UserTurnStrategies(
+            start=[VADUserTurnStartStrategy(), ExternalUserTurnStartStrategy()],
+            stop=[ExternalUserTurnStopStrategy()],
+        )
+    else:
+        user_turn_strategies = UserTurnStrategies(
+            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
+            stop=[TranscriptionUserTurnStopStrategy()],
+        )
+
+    user_params = LLMUserAggregatorParams(
+        user_turn_strategies=user_turn_strategies,
+        user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
+        user_idle_timeout=max_user_idle_timeout,
+    )
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params
     )
@@ -547,24 +575,19 @@ async def _run_pipeline(
 
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
 
-    # Create STT mute filter using the selected strategies and the engine's callback
-    stt_mute_filter = STTMuteFilter(
-        config=STTMuteConfig(
-            strategies={
-                STTMuteStrategy.MUTE_UNTIL_FIRST_BOT_COMPLETE,
-                STTMuteStrategy.CUSTOM,
-            },
-            should_mute_callback=engine.create_should_mute_callback(),
-        )
-    )
-
-    # Use engine's user idle callback with configured timeout
-    user_idle_disconnect = UserIdleProcessor(
-        callback=engine.create_user_idle_callback(), timeout=max_user_idle_timeout
-    )
-
     user_context_aggregator = context_aggregator.user()
     assistant_context_aggregator = context_aggregator.assistant()
+
+    # Register user idle event handlers
+    user_idle_handler = engine.create_user_idle_handler()
+
+    @user_context_aggregator.event_handler("on_user_turn_idle")
+    async def on_user_turn_idle(aggregator):
+        await user_idle_handler.handle_idle(aggregator)
+
+    @user_context_aggregator.event_handler("on_user_turn_started")
+    async def on_user_turn_started(aggregator, strategy):
+        user_idle_handler.reset()
 
     # Create voicemail detector if enabled in the workflow's start node
     voicemail_detector = None
@@ -592,16 +615,13 @@ async def _run_pipeline(
     pipeline = build_pipeline(
         transport,
         stt,
-        transcript,
         audio_buffer,
         llm,
         tts,
         user_context_aggregator,
         assistant_context_aggregator,
         pipeline_engine_callback_processor,
-        stt_mute_filter,
         pipeline_metrics_aggregator,
-        user_idle_disconnect,
         voicemail_detector=voicemail_detector,
     )
 
@@ -614,18 +634,6 @@ async def _run_pipeline(
     # Initialize the engine to set the initial context
     await engine.initialize()
 
-    # Register event handlers
-    in_memory_audio_buffer, in_memory_transcript_buffer = (
-        register_transport_event_handlers(
-            task,
-            transport,
-            workflow_run_id,
-            engine=engine,
-            audio_buffer=audio_buffer,
-            audio_config=audio_config,
-        )
-    )
-
     # Add real-time feedback observer if WebSocket sender is available
     # Note: ws_sender was already fetched earlier for node_transition_callback
     if ws_sender:
@@ -635,21 +643,24 @@ async def _run_pipeline(
         )
         task.add_observer(feedback_observer)
 
-    register_task_event_handler(
-        workflow_run_id,
-        engine,
+    # Register event handlers
+    in_memory_audio_buffer, in_memory_transcript_buffer = register_event_handlers(
         task,
         transport,
-        audio_buffer,
-        in_memory_audio_buffer,
-        in_memory_transcript_buffer,
-        in_memory_logs_buffer,
-        pipeline_metrics_aggregator,
+        workflow_run_id,
+        engine=engine,
+        audio_buffer=audio_buffer,
+        in_memory_logs_buffer=in_memory_logs_buffer,
+        pipeline_metrics_aggregator=pipeline_metrics_aggregator,
+        audio_config=audio_config,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
-    register_transcript_handler(
-        transcript, workflow_run_id, in_memory_transcript_buffer
+    register_transcript_handlers(
+        user_context_aggregator,
+        assistant_context_aggregator,
+        workflow_run_id,
+        in_memory_transcript_buffer,
     )
 
     try:

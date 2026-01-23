@@ -1,0 +1,2931 @@
+{
+  "audio_file": "vad.m4a",
+  "audio_path": "../audio/vad.m4a",
+  "provider": "deepgram-flux",
+  "duration": 13.606893,
+  "created_at": "2026-01-20T13:06:16.523794",
+  "events": [
+    {
+      "timestamp": 2.0791776478290558e-07,
+      "event_type": "Connected",
+      "data": {
+        "type": "Connected",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "sequence_id": 0
+      }
+    },
+    {
+      "timestamp": 0.5991181668359786,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.24,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0739,
+        "sequence_id": 1
+      }
+    },
+    {
+      "timestamp": 0.8387298330198973,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.48,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0226,
+        "sequence_id": 2
+      }
+    },
+    {
+      "timestamp": 1.0813759579323232,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.72,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0106,
+        "sequence_id": 3
+      }
+    },
+    {
+      "timestamp": 1.329924332909286,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 0.96,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0058,
+        "sequence_id": 4
+      }
+    },
+    {
+      "timestamp": 1.5782449168618768,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 1.2,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0292,
+        "sequence_id": 5
+      }
+    },
+    {
+      "timestamp": 1.8236550828441978,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 1.44,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0247,
+        "sequence_id": 6
+      }
+    },
+    {
+      "timestamp": 2.073379916837439,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 1.6800001,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.009,
+        "sequence_id": 7
+      }
+    },
+    {
+      "timestamp": 2.3028037920594215,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 1.9200001,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0031,
+        "sequence_id": 8
+      }
+    },
+    {
+      "timestamp": 2.5454757078550756,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 2.16,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0017,
+        "sequence_id": 9
+      }
+    },
+    {
+      "timestamp": 2.8026564170140773,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 2.4,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0024,
+        "sequence_id": 10
+      }
+    },
+    {
+      "timestamp": 3.034466916928068,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 2.6399999,
+        "transcript": "The",
+        "words": [
+          {
+            "word": "The",
+            "confidence": 0.5684
+          }
+        ],
+        "end_of_turn_confidence": 0.0023,
+        "sequence_id": 11
+      }
+    },
+    {
+      "timestamp": 3.280960999894887,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "StartOfTurn",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 2.88,
+        "transcript": "This is",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0304,
+        "sequence_id": 12
+      }
+    },
+    {
+      "timestamp": 3.507918791845441,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 3.12,
+        "transcript": "This is",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0345,
+        "sequence_id": 13
+      }
+    },
+    {
+      "timestamp": 3.767754166852683,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 3.3600001,
+        "transcript": "This is",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0382,
+        "sequence_id": 14
+      }
+    },
+    {
+      "timestamp": 4.002102291909978,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 3.6,
+        "transcript": "This is some",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "some",
+            "confidence": 0.5229
+          }
+        ],
+        "end_of_turn_confidence": 0.002,
+        "sequence_id": 15
+      }
+    },
+    {
+      "timestamp": 4.240494291996583,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 3.84,
+        "transcript": "This is something",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 0.9692
+          }
+        ],
+        "end_of_turn_confidence": 0.01,
+        "sequence_id": 16
+      }
+    },
+    {
+      "timestamp": 4.523886707844213,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 4.08,
+        "transcript": "This is something that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 0.9941
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0206,
+        "sequence_id": 17
+      }
+    },
+    {
+      "timestamp": 4.734341792063788,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 4.32,
+        "transcript": "This is something that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 0.9985
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0133,
+        "sequence_id": 18
+      }
+    },
+    {
+      "timestamp": 5.001597333000973,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 4.56,
+        "transcript": "This is something that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 0.9995
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0151,
+        "sequence_id": 19
+      }
+    },
+    {
+      "timestamp": 5.227020208025351,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 4.8,
+        "transcript": "This is something that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0108,
+        "sequence_id": 20
+      }
+    },
+    {
+      "timestamp": 5.476216417038813,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 5.04,
+        "transcript": "This is something that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.017,
+        "sequence_id": 21
+      }
+    },
+    {
+      "timestamp": 5.706772041972727,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 5.28,
+        "transcript": "This is something that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0259,
+        "sequence_id": 22
+      }
+    },
+    {
+      "timestamp": 5.9626319168601185,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 5.52,
+        "transcript": "This is something that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0107,
+        "sequence_id": 23
+      }
+    },
+    {
+      "timestamp": 6.2007496249862015,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 5.76,
+        "transcript": "This is something that I am",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9551
+          }
+        ],
+        "end_of_turn_confidence": 0.006,
+        "sequence_id": 24
+      }
+    },
+    {
+      "timestamp": 6.439131374936551,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 6.0,
+        "transcript": "This is something that I am just",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9868
+          },
+          {
+            "word": "just",
+            "confidence": 0.7397
+          }
+        ],
+        "end_of_turn_confidence": 0.0036,
+        "sequence_id": 25
+      }
+    },
+    {
+      "timestamp": 6.685360916890204,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 6.24,
+        "transcript": "This is something that I am testing",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.999
+          },
+          {
+            "word": "testing",
+            "confidence": 0.9897
+          }
+        ],
+        "end_of_turn_confidence": 0.0223,
+        "sequence_id": 26
+      }
+    },
+    {
+      "timestamp": 6.922765875002369,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 6.48,
+        "transcript": "This is something that I am testing to",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.9995
+          },
+          {
+            "word": "to",
+            "confidence": 0.9907
+          }
+        ],
+        "end_of_turn_confidence": 0.0156,
+        "sequence_id": 27
+      }
+    },
+    {
+      "timestamp": 7.1796076248865575,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 6.7200003,
+        "transcript": "This is something that I am testing to",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.033,
+        "sequence_id": 28
+      }
+    },
+    {
+      "timestamp": 7.420775583013892,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 6.96,
+        "transcript": "This is something that I am testing to",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0189,
+        "sequence_id": 29
+      }
+    },
+    {
+      "timestamp": 7.662735000019893,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 7.2,
+        "transcript": "This is something that I am testing to",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.9985
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0316,
+        "sequence_id": 30
+      }
+    },
+    {
+      "timestamp": 7.901641249889508,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 7.44,
+        "transcript": "This is something that I am testing to",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.9985
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0467,
+        "sequence_id": 31
+      }
+    },
+    {
+      "timestamp": 8.193162374896929,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 7.68,
+        "transcript": "This is something that I am testing to",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.998
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0161,
+        "sequence_id": 32
+      }
+    },
+    {
+      "timestamp": 8.390170000027865,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 7.92,
+        "transcript": "This is something that I am testing to",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.9976
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0323,
+        "sequence_id": 33
+      }
+    },
+    {
+      "timestamp": 8.670882124919444,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 8.16,
+        "transcript": "This is something that I am testing to make",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.9976
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 0.9697
+          }
+        ],
+        "end_of_turn_confidence": 0.0029,
+        "sequence_id": 34
+      }
+    },
+    {
+      "timestamp": 8.921790292020887,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 8.4,
+        "transcript": "This is something that I am testing to make sure",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.9985
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 0.9995
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0081,
+        "sequence_id": 35
+      }
+    },
+    {
+      "timestamp": 9.150760042015463,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 8.64,
+        "transcript": "This is something that I am testing to make sure that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.002,
+        "sequence_id": 36
+      }
+    },
+    {
+      "timestamp": 9.389485124964267,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 8.88,
+        "transcript": "This is something that I am testing to make sure that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0078,
+        "sequence_id": 37
+      }
+    },
+    {
+      "timestamp": 10.12114379205741,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 9.12,
+        "transcript": "This is something that I am testing to make sure that",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0092,
+        "sequence_id": 38
+      }
+    },
+    {
+      "timestamp": 10.164927457924932,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 9.36,
+        "transcript": "This is something that I am testing to make sure that the web",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.6372
+          },
+          {
+            "word": "web",
+            "confidence": 0.2715
+          }
+        ],
+        "end_of_turn_confidence": 0.0168,
+        "sequence_id": 39
+      }
+    },
+    {
+      "timestamp": 10.287556666880846,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 9.6,
+        "transcript": "This is something that I am testing to make sure that the bag",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.7988
+          },
+          {
+            "word": "bag",
+            "confidence": 0.4683
+          }
+        ],
+        "end_of_turn_confidence": 0.0435,
+        "sequence_id": 40
+      }
+    },
+    {
+      "timestamp": 10.371591208036989,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 9.84,
+        "transcript": "This is something that I am testing to make sure that bad",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "bad",
+            "confidence": 0.5386
+          }
+        ],
+        "end_of_turn_confidence": 0.0258,
+        "sequence_id": 41
+      }
+    },
+    {
+      "timestamp": 10.592813499970362,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 10.08,
+        "transcript": "This is something that I am testing to make sure that bad",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "bad",
+            "confidence": 0.7607
+          }
+        ],
+        "end_of_turn_confidence": 0.0147,
+        "sequence_id": 42
+      }
+    },
+    {
+      "timestamp": 10.8256475829985,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 10.32,
+        "transcript": "This is something that I am testing to make sure that bad is",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "bad",
+            "confidence": 0.6484
+          },
+          {
+            "word": "is",
+            "confidence": 0.9995
+          }
+        ],
+        "end_of_turn_confidence": 0.0019,
+        "sequence_id": 43
+      }
+    },
+    {
+      "timestamp": 11.079555582953617,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 10.56,
+        "transcript": "This is something that I am testing to make sure that the VAT is",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.2808
+          },
+          {
+            "word": "VAT",
+            "confidence": 0.3472
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0118,
+        "sequence_id": 44
+      }
+    },
+    {
+      "timestamp": 11.314390541985631,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 10.8,
+        "transcript": "This is something that I am testing to make sure that that is what",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 0.2949
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "what",
+            "confidence": 0.6787
+          }
+        ],
+        "end_of_turn_confidence": 0.0087,
+        "sequence_id": 45
+      }
+    },
+    {
+      "timestamp": 11.60575837502256,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 11.04,
+        "transcript": "This is something that I am testing to make sure that that is working",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 0.2474
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 0.998
+          }
+        ],
+        "end_of_turn_confidence": 0.0225,
+        "sequence_id": 46
+      }
+    },
+    {
+      "timestamp": 11.842209457885474,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 11.28,
+        "transcript": "This is something that I am testing to make sure that VAD is working properly",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "VAD",
+            "confidence": 0.999
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 0.9995
+          },
+          {
+            "word": "properly",
+            "confidence": 0.8716
+          }
+        ],
+        "end_of_turn_confidence": 0.0368,
+        "sequence_id": 47
+      }
+    },
+    {
+      "timestamp": 12.073602374875918,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 11.52,
+        "transcript": "This is something that I am testing to make sure that the rad is working properly",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.3406
+          },
+          {
+            "word": "rad",
+            "confidence": 0.1747
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 1.0
+          },
+          {
+            "word": "properly",
+            "confidence": 0.998
+          }
+        ],
+        "end_of_turn_confidence": 0.0746,
+        "sequence_id": 48
+      }
+    },
+    {
+      "timestamp": 12.294721042038873,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 11.76,
+        "transcript": "This is something that I am testing to make sure that the VAT is working properly.",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.5513
+          },
+          {
+            "word": "VAT",
+            "confidence": 0.205
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 1.0
+          },
+          {
+            "word": "properly.",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.2715,
+        "sequence_id": 49
+      }
+    },
+    {
+      "timestamp": 12.542759666917846,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 12.0,
+        "transcript": "This is something that I am testing to make sure that the VAT is working properly.",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.5513
+          },
+          {
+            "word": "VAT",
+            "confidence": 0.1903
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 1.0
+          },
+          {
+            "word": "properly.",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.0775,
+        "sequence_id": 50
+      }
+    },
+    {
+      "timestamp": 12.783193832961842,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 12.24,
+        "transcript": "This is something that I am testing to make sure that the rad is working properly.",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.5513
+          },
+          {
+            "word": "rad",
+            "confidence": 0.1826
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 1.0
+          },
+          {
+            "word": "properly.",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.1837,
+        "sequence_id": 51
+      }
+    },
+    {
+      "timestamp": 13.045388832921162,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 12.48,
+        "transcript": "This is something that I am testing to make sure that the rad is working properly.",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.5513
+          },
+          {
+            "word": "rad",
+            "confidence": 0.1855
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 1.0
+          },
+          {
+            "word": "properly.",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.4099,
+        "sequence_id": 52
+      }
+    },
+    {
+      "timestamp": 13.27779766684398,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 12.72,
+        "transcript": "This is something that I am testing to make sure that the rad is working properly.",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.5513
+          },
+          {
+            "word": "rad",
+            "confidence": 0.1855
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 1.0
+          },
+          {
+            "word": "properly.",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.7061,
+        "sequence_id": 53
+      }
+    },
+    {
+      "timestamp": 13.36575054191053,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "EndOfTurn",
+        "turn_index": 0,
+        "audio_window_start": 0.0,
+        "audio_window_end": 12.8,
+        "transcript": "This is something that I am testing to make sure that the rad is working properly.",
+        "words": [
+          {
+            "word": "This",
+            "confidence": 1.0
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "something",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "I",
+            "confidence": 1.0
+          },
+          {
+            "word": "am",
+            "confidence": 0.9995
+          },
+          {
+            "word": "testing",
+            "confidence": 0.999
+          },
+          {
+            "word": "to",
+            "confidence": 1.0
+          },
+          {
+            "word": "make",
+            "confidence": 1.0
+          },
+          {
+            "word": "sure",
+            "confidence": 1.0
+          },
+          {
+            "word": "that",
+            "confidence": 1.0
+          },
+          {
+            "word": "the",
+            "confidence": 0.5513
+          },
+          {
+            "word": "rad",
+            "confidence": 0.1859
+          },
+          {
+            "word": "is",
+            "confidence": 1.0
+          },
+          {
+            "word": "working",
+            "confidence": 1.0
+          },
+          {
+            "word": "properly.",
+            "confidence": 1.0
+          }
+        ],
+        "end_of_turn_confidence": 0.791,
+        "sequence_id": 54
+      }
+    },
+    {
+      "timestamp": 13.604034666903317,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 13.04,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.5913,
+        "sequence_id": 55
+      }
+    },
+    {
+      "timestamp": 13.757088999962434,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 13.2,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.7568,
+        "sequence_id": 56
+      }
+    },
+    {
+      "timestamp": 13.844318666961044,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 13.28,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.8135,
+        "sequence_id": 57
+      }
+    },
+    {
+      "timestamp": 14.096143374918029,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 13.52,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.6445,
+        "sequence_id": 58
+      }
+    },
+    {
+      "timestamp": 14.32369429199025,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 13.76,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.6685,
+        "sequence_id": 59
+      }
+    },
+    {
+      "timestamp": 14.57952274987474,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 14.0,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.6743,
+        "sequence_id": 60
+      }
+    },
+    {
+      "timestamp": 14.821225458057597,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 14.24,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.3857,
+        "sequence_id": 61
+      }
+    },
+    {
+      "timestamp": 15.078599707921967,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 14.48,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.1913,
+        "sequence_id": 62
+      }
+    },
+    {
+      "timestamp": 15.8081968750339,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 14.72,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.1469,
+        "sequence_id": 63
+      }
+    },
+    {
+      "timestamp": 15.853020707843825,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 14.96,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0952,
+        "sequence_id": 64
+      }
+    },
+    {
+      "timestamp": 15.972035791957751,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 15.2,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0655,
+        "sequence_id": 65
+      }
+    },
+    {
+      "timestamp": 16.056484082946554,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 15.44,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0452,
+        "sequence_id": 66
+      }
+    },
+    {
+      "timestamp": 16.30366349988617,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 15.68,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0339,
+        "sequence_id": 67
+      }
+    },
+    {
+      "timestamp": 16.55612133303657,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 15.92,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0199,
+        "sequence_id": 68
+      }
+    },
+    {
+      "timestamp": 16.809007041854784,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 16.16,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0143,
+        "sequence_id": 69
+      }
+    },
+    {
+      "timestamp": 17.008537916932255,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 16.4,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.3384,
+        "sequence_id": 70
+      }
+    },
+    {
+      "timestamp": 17.2497119999025,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 16.64,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.3823,
+        "sequence_id": 71
+      }
+    },
+    {
+      "timestamp": 17.51993320789188,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 16.88,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.3843,
+        "sequence_id": 72
+      }
+    },
+    {
+      "timestamp": 17.765261041931808,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 17.12,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.2246,
+        "sequence_id": 73
+      }
+    },
+    {
+      "timestamp": 18.005616874899715,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 17.36,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.1076,
+        "sequence_id": 74
+      }
+    },
+    {
+      "timestamp": 18.270230083027855,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 17.6,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0357,
+        "sequence_id": 75
+      }
+    },
+    {
+      "timestamp": 18.490703457966447,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 17.84,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0112,
+        "sequence_id": 76
+      }
+    },
+    {
+      "timestamp": 18.75762120797299,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 18.08,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0053,
+        "sequence_id": 77
+      }
+    },
+    {
+      "timestamp": 18.954981041839346,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 18.32,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0018,
+        "sequence_id": 78
+      }
+    },
+    {
+      "timestamp": 19.206135916989297,
+      "event_type": "TurnInfo",
+      "data": {
+        "type": "TurnInfo",
+        "request_id": "d7bb925b-1ba7-4fff-a36e-5077b6c580f7",
+        "event": "Update",
+        "turn_index": 1,
+        "audio_window_start": 12.8,
+        "audio_window_end": 18.56,
+        "transcript": "",
+        "words": [],
+        "end_of_turn_confidence": 0.0008,
+        "sequence_id": 79
+      }
+    }
+  ],
+  "transcript": "This is something that I am testing to make sure that the rad is working properly."
+}

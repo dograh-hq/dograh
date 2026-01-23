@@ -23,7 +23,6 @@ from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
-    from pipecat.processors.user_idle_processor import UserIdleProcessor
 
 
 # ---------------------------------------------------------------------------
@@ -57,33 +56,43 @@ def create_should_mute_callback(
 # ---------------------------------------------------------------------------
 
 
-def create_user_idle_callback(engine: "PipecatEngine"):
-    """Return a callback that handles user-idle timeouts."""
+class UserIdleHandler:
+    """Helper class to manage user idle retry logic with state."""
 
-    async def handle_user_idle(
-        user_idle: "UserIdleProcessor", retry_count: int
-    ) -> bool:
-        logger.debug(f"Handling user_idle, attempt: {retry_count}")
+    def __init__(self, engine: "PipecatEngine"):
+        self._engine = engine
+        self._retry_count = 0
 
-        if retry_count == 1:
+    def reset(self):
+        """Reset the retry count when user becomes active."""
+        self._retry_count = 0
+
+    async def handle_idle(self, aggregator):
+        """Handle user idle event with escalating prompts."""
+        self._retry_count += 1
+        logger.debug(f"Handling user_idle, attempt: {self._retry_count}")
+
+        if self._retry_count == 1:
             message = {
                 "role": "system",
                 "content": "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far.",
             }
-            await user_idle.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-            return True
+            await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
+            return
 
         message = {
             "role": "system",
             "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
         }
-        await user_idle.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-        await engine.send_end_task_frame(
+        await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
+        await self._engine.send_end_task_frame(
             EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
         )
-        return False
 
-    return handle_user_idle
+
+def create_user_idle_handler(engine: "PipecatEngine") -> UserIdleHandler:
+    """Return a UserIdleHandler that manages user-idle timeouts with state."""
+    return UserIdleHandler(engine)
 
 
 # ---------------------------------------------------------------------------

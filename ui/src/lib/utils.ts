@@ -2,7 +2,7 @@ import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
 import { getAuthUserApiV1UserAuthUserGet } from "@/client/sdk.gen";
-import { getWorkflowsApiV1WorkflowFetchGet } from "@/client/sdk.gen";
+import { getWorkflowCountApiV1WorkflowCountGet } from "@/client/sdk.gen";
 import { impersonateApiV1SuperuserImpersonatePost } from "@/client/sdk.gen";
 
 export function cn(...inputs: ClassValue[]) {
@@ -73,21 +73,18 @@ export async function getRedirectUrl(token: string, permissions: { id: string }[
   // Check if user has any workflows
   try {
     console.log('[getRedirectUrl] Checking for existing workflows...');
-    const workflowsResponse = await getWorkflowsApiV1WorkflowFetchGet({
+    const countResponse = await getWorkflowCountApiV1WorkflowCountGet({
       headers: {
         Authorization: `Bearer ${token}`,
       },
     });
 
-    const workflows = workflowsResponse.data ? (Array.isArray(workflowsResponse.data) ? workflowsResponse.data : [workflowsResponse.data]) : [];
-    const activeWorkflows = workflows.filter(w => w.status === 'active');
-
     console.log('[getRedirectUrl] Found workflows:', {
-      total: workflows.length,
-      active: activeWorkflows.length
+      total: countResponse.data?.total,
+      active: countResponse.data?.active
     });
 
-    if (activeWorkflows.length > 0) {
+    if (countResponse.data && countResponse.data.active > 0) {
       console.log('[getRedirectUrl] User has workflows, redirecting to /workflow');
       return "/workflow";
     } else {

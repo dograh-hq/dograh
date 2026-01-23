@@ -201,6 +201,7 @@ class PipecatEngine:
             logger.info(f"Arguments: {function_call_params.arguments}")
             await self.set_node(transition_to_node)
             try:
+
                 async def on_context_updated() -> None:
                     """
                     pipecat framework will run this function after the function call result has been updated in the context.
@@ -211,6 +212,12 @@ class PipecatEngine:
                     await self._perform_variable_extraction_if_needed(
                         self._current_node
                     )
+
+                    # Queue EndFrame if we just transitioned to EndNode
+                    if self._current_node.is_end:
+                        await self.send_end_task_frame(
+                            EndTaskReason.USER_QUALIFIED.value
+                        )
 
                 result = {"status": "done"}
 
@@ -474,8 +481,6 @@ class PipecatEngine:
         # If this end node has extraction enabled, perform extraction immediately
         if node.extraction_enabled and node.extraction_variables:
             await self._perform_variable_extraction_if_needed(node)
-
-        await self.send_end_task_frame(EndTaskReason.USER_QUALIFIED.value)
 
     async def _handle_agent_node(self, node: Node) -> None:
         """Handle agent node execution."""

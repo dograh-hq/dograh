@@ -102,6 +102,7 @@ def create_pipeline_task(pipeline, workflow_run_id, audio_config: AudioConfig = 
         pipeline,
         params=pipeline_params,
         enable_tracing=ENABLE_TRACING,
+        enable_rtvi=False,
         conversation_id=f"{workflow_run_id}",
     )
 

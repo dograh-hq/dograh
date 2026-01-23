@@ -1042,11 +1042,31 @@ export type VonageConfigurationResponse = {
  */
 export type WebhookCredentialType = 'none' | 'api_key' | 'bearer_token' | 'basic_auth' | 'custom_header';
 
+/**
+ * Response for workflow count endpoint.
+ */
+export type WorkflowCountResponse = {
+    total: number;
+    active: number;
+    archived: number;
+};
+
 export type WorkflowError = {
     kind: ItemKind;
     id: string | null;
     field: string | null;
     message: string;
+};
+
+/**
+ * Lightweight response for workflow listings (excludes large fields).
+ */
+export type WorkflowListResponse = {
+    id: number;
+    name: string;
+    status: string;
+    created_at: string;
+    total_runs: number;
 };
 
 export type WorkflowOption = {
@@ -1391,6 +1411,7 @@ export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
         'x-twilio-signature'?: string | null;
         'x-vobiz-signature'?: string | null;
         'x-vobiz-timestamp'?: string | null;
+        'x-cx-apikey'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -1655,6 +1676,39 @@ export type CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponses =
 
 export type CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponse = CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponses[keyof CreateWorkflowFromTemplateApiV1WorkflowCreateTemplatePostResponses];
 
+export type GetWorkflowCountApiV1WorkflowCountGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow/count';
+};
+
+export type GetWorkflowCountApiV1WorkflowCountGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetWorkflowCountApiV1WorkflowCountGetError = GetWorkflowCountApiV1WorkflowCountGetErrors[keyof GetWorkflowCountApiV1WorkflowCountGetErrors];
+
+export type GetWorkflowCountApiV1WorkflowCountGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowCountResponse;
+};
+
+export type GetWorkflowCountApiV1WorkflowCountGetResponse = GetWorkflowCountApiV1WorkflowCountGetResponses[keyof GetWorkflowCountApiV1WorkflowCountGetResponses];
+
 export type GetWorkflowsApiV1WorkflowFetchGetData = {
     body?: never;
     headers?: {
@@ -1688,7 +1742,7 @@ export type GetWorkflowsApiV1WorkflowFetchGetResponses = {
     /**
      * Successful Response
      */
-    200: Array<WorkflowResponse>;
+    200: Array<WorkflowListResponse>;
 };
 
 export type GetWorkflowsApiV1WorkflowFetchGetResponse = GetWorkflowsApiV1WorkflowFetchGetResponses[keyof GetWorkflowsApiV1WorkflowFetchGetResponses];

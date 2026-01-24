@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.11.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.0...dograh-v1.11.1) (2026-01-24)
+
+
+### Bug Fixes
+
+* free disk space for docker build ([#126](https://github.com/dograh-hq/dograh/issues/126)) ([be50a24](https://github.com/dograh-hq/dograh/commit/be50a244f6bdcd47beb920bd1acc46c7a0e6608d))
+
 ## [1.11.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.10.0...dograh-v1.11.0) (2026-01-23)
 
 

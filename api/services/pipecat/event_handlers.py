@@ -10,16 +10,13 @@ from api.services.pipecat.in_memory_buffers import (
     InMemoryTranscriptBuffer,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
-from api.services.workflow.disposition_mapper import (
-    apply_disposition_mapping,
-    get_organization_id_from_workflow_run,
-)
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 from pipecat.frames.frames import Frame, LLMContextFrame
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
+from pipecat.utils.enums import EndTaskReason
 
 
 def register_event_handlers(
@@ -83,18 +80,17 @@ def register_event_handlers(
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(_transport, _participant):
         call_disposed = engine.is_call_disposed()
-
         logger.debug(
             f"In on_client_disconnected callback handler. Call disposed: {call_disposed}"
         )
-        engine.handle_client_disconnected()
 
         # Stop recordings
         await audio_buffer.stop_recording()
 
-        # Only cancel the task if the call is not already disposed by the engine
-        if not call_disposed:
-            await task.cancel()
+        # End the call
+        await engine.end_call_with_reason(
+            EndTaskReason.USER_HANGUP.value, abort_immediately=True
+        )
 
     @task.event_handler("on_pipeline_started")
     async def on_pipeline_started(_task: PipelineTask, _frame: Frame):
@@ -114,9 +110,6 @@ def register_event_handlers(
         # Stop recordings
         await audio_buffer.stop_recording()
 
-        call_disposition = await engine.get_call_disposition()
-        logger.debug(f"call disposition in on_pipeline_finished: {call_disposition}")
-
         gathered_context = await engine.get_gathered_context()
 
         # Add trace URL if available (must be done before conversation tracing ends)
@@ -128,13 +121,6 @@ def register_event_handlers(
 
         # also consider existing gathered context in workflow_run
         gathered_context = {**gathered_context, **workflow_run.gathered_context}
-
-        organization_id = await get_organization_id_from_workflow_run(workflow_run_id)
-        mapped_call_disposition = await apply_disposition_mapping(
-            call_disposition, organization_id
-        )
-
-        gathered_context.update({"mapped_call_disposition": mapped_call_disposition})
 
         # Set user_speech call tag
         if in_memory_transcript_buffer:

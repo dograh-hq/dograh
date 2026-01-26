@@ -14,7 +14,6 @@ import pytest
 
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
-from api.tests.conftest import MockTransportProcessor
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -26,6 +25,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.tests import MockLLMService, MockTTSService
+from pipecat.tests.mock_transport import MockTransport
 
 
 async def run_pipeline_with_user_idle(
@@ -52,14 +52,15 @@ async def run_pipeline_with_user_idle(
     if mock_steps is None:
         mock_steps = MockLLMService.create_multi_step_responses(
             MockLLMService.create_text_chunks("Hello, how can I help you today?"),
-            num_text_steps=3,  # Initial + 2 idle responses
+            num_text_steps=4,  # Initial + 2 idle responses + 1 variable extraction
             step_prefix="Response",
         )
 
     llm = MockLLMService(mock_steps=mock_steps, chunk_delay=0.001)
     tts = MockTTSService(mock_audio_duration_ms=10)
 
-    mock_transport = MockTransportProcessor()
+    # Create MockTransport for simulating transport behavior
+    mock_transport = MockTransport(emit_bot_speaking=True)
 
     # Create LLM context
     context = LLMContext()
@@ -99,7 +100,7 @@ async def run_pipeline_with_user_idle(
             user_context_aggregator,
             llm,
             tts,
-            mock_transport,
+            mock_transport.output(),
             assistant_context_aggregator,
         ]
     )
@@ -145,8 +146,6 @@ async def run_pipeline_with_user_idle(
             async def wait_for_idle_to_trigger():
                 # Wait long enough for idle timeouts to trigger
                 await asyncio.sleep(total_wait_time)
-                # Cancel the task if it's still running
-                await task.cancel()
 
             # Run all concurrently
             await asyncio.gather(

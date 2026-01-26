@@ -11,44 +11,17 @@ unit-testing.
 """
 
 import re
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
 from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
 )
-from pipecat.processors.filters.stt_mute_filter import STTMuteFilter
 from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
-
-
-# ---------------------------------------------------------------------------
-# STT mute handling
-# ---------------------------------------------------------------------------
-
-
-def create_should_mute_callback(
-    engine: "PipecatEngine",
-) -> Callable[[STTMuteFilter], Awaitable[bool]]:
-    """Return a callback indicating whether STT should be muted.
-
-    STT is muted when *interruptions are **not*** allowed on the current node.
-    """
-
-    async def callback(_: STTMuteFilter) -> bool:  # noqa: D401
-        if engine._current_node is None:
-            # Default to not muting if we have no active node yet.
-            return False
-
-        logger.debug(
-            f"STT mute callback: allow_interrupt={engine._current_node.allow_interrupt}"
-        )
-        return not engine._current_node.allow_interrupt
-
-    return callback
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +58,7 @@ class UserIdleHandler:
             "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
         }
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-        await self._engine.send_end_task_frame(
+        await self._engine.end_call_with_reason(
             EndTaskReason.USER_IDLE_MAX_DURATION_EXCEEDED.value
         )
 
@@ -105,7 +78,7 @@ def create_max_duration_callback(engine: "PipecatEngine"):
 
     async def handle_max_duration():
         logger.debug("Max call duration exceeded. Terminating call")
-        await engine.send_end_task_frame(EndTaskReason.CALL_DURATION_EXCEEDED.value)
+        await engine.end_call_with_reason(EndTaskReason.CALL_DURATION_EXCEEDED.value)
 
     return handle_max_duration
 

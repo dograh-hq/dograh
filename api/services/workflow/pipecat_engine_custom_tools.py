@@ -23,13 +23,10 @@ from api.services.workflow.tools.custom_tool import (
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import FunctionCallResultProperties, TTSSpeakFrame
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
-
-
-# End task reason for end call tool
-END_CALL_TOOL_REASON = "end_call_tool"
 
 
 class CustomToolManager:
@@ -214,21 +211,22 @@ class CustomToolManager:
                     logger.info(f"Playing custom goodbye message: {custom_message}")
                     await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
                     # End the call after the message (not immediately)
-                    await self._engine.send_end_task_frame(
-                        END_CALL_TOOL_REASON, abort_immediately=False
+                    await self._engine.end_call_with_reason(
+                        EndTaskReason.END_CALL_TOOL_REASON.value,
+                        abort_immediately=False,
                     )
                 else:
                     # No message - end call immediately
                     logger.info("Ending call immediately (no goodbye message)")
-                    await self._engine.send_end_task_frame(
-                        END_CALL_TOOL_REASON, abort_immediately=True
+                    await self._engine.end_call_with_reason(
+                        EndTaskReason.END_CALL_TOOL_REASON.value, abort_immediately=True
                     )
 
             except Exception as e:
                 logger.error(f"End call tool '{function_name}' execution failed: {e}")
                 # Still try to end the call even if there's an error
-                await self._engine.send_end_task_frame(
-                    END_CALL_TOOL_REASON, abort_immediately=True
+                await self._engine.end_call_with_reason(
+                    EndTaskReason.UNEXPECTED_ERROR.value, abort_immediately=True
                 )
 
         return end_call_handler

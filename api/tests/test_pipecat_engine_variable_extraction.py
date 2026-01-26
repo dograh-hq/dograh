@@ -33,7 +33,11 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.workflow import WorkflowGraph
-from api.tests.conftest import MockTransportProcessor
+from api.tests.conftest import (
+    AGENT_SYSTEM_PROMPT,
+    END_CALL_SYSTEM_PROMPT,
+    START_CALL_SYSTEM_PROMPT,
+)
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -44,24 +48,21 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.tests import MockLLMService, MockTTSService
-
-# Define prompts for test nodes
-START_NODE_PROMPT = "Start Node System Prompt"
-AGENT_NODE_PROMPT = "Agent Node System Prompt"
-END_NODE_PROMPT = "End Node System Prompt"
+from pipecat.tests.mock_transport import MockTransport
 
 
 @pytest.fixture
-def three_node_workflow_with_extraction_on_start() -> WorkflowGraph:
-    """Create a three-node workflow where only the start node has extraction enabled.
+def three_node_workflow_extraction_start_only() -> WorkflowGraph:
+    """Create a three-node workflow with extraction enabled ONLY on start node.
+
+    This fixture is specifically for testing that variable extraction is triggered
+    for the correct node during transitions. The agent node has extraction disabled
+    to verify extraction happens for the SOURCE node, not the TARGET node.
 
     The workflow has:
-    - Start node with extraction_enabled=True and extraction_variables set
-    - Agent node with extraction_enabled=False (default)
-    - End node with extraction_enabled=False (default)
-
-    This is used to test that variable extraction is triggered for the correct node
-    during transitions.
+    - Start node with extraction enabled (extracts user_name)
+    - Agent node with extraction DISABLED
+    - End node (no extraction)
     """
     dto = ReactFlowDTO(
         nodes=[
@@ -71,7 +72,7 @@ def three_node_workflow_with_extraction_on_start() -> WorkflowGraph:
                 position=Position(x=0, y=0),
                 data=NodeDataDTO(
                     name="Start Call",
-                    prompt=START_NODE_PROMPT,
+                    prompt=START_CALL_SYSTEM_PROMPT,
                     is_start=True,
                     allow_interrupt=False,
                     add_global_prompt=False,
@@ -92,10 +93,10 @@ def three_node_workflow_with_extraction_on_start() -> WorkflowGraph:
                 position=Position(x=0, y=200),
                 data=NodeDataDTO(
                     name="Collect Info",
-                    prompt=AGENT_NODE_PROMPT,
+                    prompt=AGENT_SYSTEM_PROMPT,
                     allow_interrupt=False,
                     add_global_prompt=False,
-                    extraction_enabled=False,  # Explicitly disabled
+                    extraction_enabled=False,  # Explicitly disabled for testing
                 ),
             ),
             RFNodeDTO(
@@ -104,11 +105,11 @@ def three_node_workflow_with_extraction_on_start() -> WorkflowGraph:
                 position=Position(x=0, y=400),
                 data=NodeDataDTO(
                     name="End Call",
-                    prompt=END_NODE_PROMPT,
+                    prompt=END_CALL_SYSTEM_PROMPT,
                     is_end=True,
                     allow_interrupt=False,
                     add_global_prompt=False,
-                    extraction_enabled=False,  # Explicitly disabled
+                    extraction_enabled=False,
                 ),
             ),
         ],
@@ -141,7 +142,7 @@ class TestVariableExtractionDuringTransitions:
 
     @pytest.mark.asyncio
     async def test_extraction_called_for_source_node_not_target_node(
-        self, three_node_workflow_with_extraction_on_start: WorkflowGraph
+        self, three_node_workflow_extraction_start_only: WorkflowGraph
     ):
         """Test that when transitioning from START to AGENT, extraction is called for START node.
 
@@ -183,7 +184,8 @@ class TestVariableExtractionDuringTransitions:
         # Create MockTTSService
         tts = MockTTSService(mock_audio_duration_ms=10, frame_delay=0)
 
-        mock_transport_emulator = MockTransportProcessor(emit_bot_speaking=False)
+        # Create MockTransport for simulating transport behavior
+        mock_transport = MockTransport(emit_bot_speaking=False)
 
         # Create LLM context
         context = LLMContext()
@@ -195,7 +197,7 @@ class TestVariableExtractionDuringTransitions:
         )
         assistant_context_aggregator = context_aggregator.assistant()
 
-        workflow = three_node_workflow_with_extraction_on_start
+        workflow = three_node_workflow_extraction_start_only
 
         # Create PipecatEngine with the workflow
         engine = PipecatEngine(
@@ -209,7 +211,7 @@ class TestVariableExtractionDuringTransitions:
         # Patch _perform_variable_extraction_if_needed to track calls
         original_perform_extraction = engine._perform_variable_extraction_if_needed
 
-        async def tracked_perform_extraction(node):
+        async def tracked_perform_extraction(node, run_in_background=True):
             extraction_calls.append(
                 {
                     "node_id": node.id if node else None,
@@ -228,7 +230,7 @@ class TestVariableExtractionDuringTransitions:
             [
                 llm,
                 tts,
-                mock_transport_emulator,
+                mock_transport.output(),
                 assistant_context_aggregator,
             ]
         )

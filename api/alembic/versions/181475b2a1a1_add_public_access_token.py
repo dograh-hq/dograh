@@ -23,15 +23,6 @@ def upgrade() -> None:
     op.drop_index(op.f("ix_api_keys_key_hash"), table_name="api_keys")
     op.create_index("ix_api_keys_key_hash", "api_keys", ["key_hash"], unique=False)
     op.create_index(
-        "ix_kb_chunks_embedding_ivfflat",
-        "knowledge_base_chunks",
-        ["embedding"],
-        unique=False,
-        postgresql_using="ivfflat",
-        postgresql_with={"lists": 100},
-        postgresql_ops={"embedding": "vector_cosine_ops"},
-    )
-    op.create_index(
         "ix_kb_chunks_embedding_model",
         "knowledge_base_chunks",
         ["embedding_model"],
@@ -60,13 +51,6 @@ def downgrade() -> None:
     )
     op.drop_column("workflow_runs", "public_access_token")
     op.drop_index("ix_kb_chunks_embedding_model", table_name="knowledge_base_chunks")
-    op.drop_index(
-        "ix_kb_chunks_embedding_ivfflat",
-        table_name="knowledge_base_chunks",
-        postgresql_using="ivfflat",
-        postgresql_with={"lists": 100},
-        postgresql_ops={"embedding": "vector_cosine_ops"},
-    )
     op.drop_index("ix_api_keys_key_hash", table_name="api_keys")
     op.create_index(op.f("ix_api_keys_key_hash"), "api_keys", ["key_hash"], unique=True)
     # ### end Alembic commands ###

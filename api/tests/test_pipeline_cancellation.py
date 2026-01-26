@@ -50,7 +50,7 @@ async def test_interruption_with_blocked_end_frame():
     transport = MockTransport()
     pipeline = Pipeline([transport, busy_wait_processor])
 
-    task = PipelineTask(pipeline)
+    task = PipelineTask(pipeline, enable_rtvi=False)
 
     async def run_pipeline():
         loop = asyncio.get_running_loop()

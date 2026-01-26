@@ -199,6 +199,13 @@ class PipecatEngine:
                 f"Function: {name} -> transitioning to node: {transition_to_node}"
             )
             logger.info(f"Arguments: {function_call_params.arguments}")
+
+            # Perform variable extraction before transitioning to new node
+            await self._perform_variable_extraction_if_needed(self._current_node)
+
+            # Set context for the new node, so that when the function call result
+            # frame is received by LLMContextAggregator and an LLM generation
+            # is done, we have updated context and functions
             await self.set_node(transition_to_node)
             try:
 
@@ -208,11 +215,6 @@ class PipecatEngine:
                     This way, when we do set_node from within this function, and go for LLM completion with updated
                     system prompts, the context is updated with function call result.
                     """
-                    # Perform variable extraction before transitioning to new node
-                    await self._perform_variable_extraction_if_needed(
-                        self._current_node
-                    )
-
                     # Queue EndFrame if we just transitioned to EndNode
                     if self._current_node.is_end:
                         await self.send_end_task_frame(

@@ -258,8 +258,7 @@ async def run_pipeline_and_capture_context(
 
     # Create pipeline task
     task = PipelineTask(
-        pipeline,
-        params=PipelineParams(allow_interruptions=False),
+        pipeline, params=PipelineParams(allow_interruptions=False), enable_rtvi=False
     )
 
     engine.set_task(task)
@@ -311,25 +310,17 @@ class TestContextUpdateBeforeNextCompletion:
         transition completes. The test verifies the context is still correctly updated.
         """
         # Step 0 (Start node): call collect_info to transition to agent
-        step_0_chunks = MockLLMService.create_multiple_function_call_chunks(
-            [
-                {
-                    "name": "collect_info",
-                    "arguments": {},
-                    "tool_call_id": "call_transition_1",
-                },
-            ]
+        step_0_chunks = MockLLMService.create_function_call_chunks(
+            function_name="collect_info",
+            arguments={},
+            tool_call_id="call_transition_1",
         )
 
         # Step 1 (Agent node): call end_call to transition to end
-        step_1_chunks = MockLLMService.create_multiple_function_call_chunks(
-            [
-                {
-                    "name": "end_call",
-                    "arguments": {},
-                    "tool_call_id": "call_transition_2",
-                },
-            ]
+        step_1_chunks = MockLLMService.create_function_call_chunks(
+            function_name="end_call",
+            arguments={},
+            tool_call_id="call_transition_2",
         )
 
         # Step 2 (End node): text response (end node has no outgoing edges)
@@ -393,25 +384,17 @@ class TestContextUpdateBeforeNextCompletion:
         is handled correctly.
         """
         # Step 0 (Start node): call collect_info to transition to agent
-        step_0_chunks = MockLLMService.create_multiple_function_call_chunks(
-            [
-                {
-                    "name": "collect_info",
-                    "arguments": {},
-                    "tool_call_id": "call_transition_1",
-                },
-            ]
+        step_0_chunks = MockLLMService.create_function_call_chunks(
+            function_name="collect_info",
+            arguments={},
+            tool_call_id="call_transition_1",
         )
 
         # Step 1 (Agent node): call end_call to transition to end
-        step_1_chunks = MockLLMService.create_multiple_function_call_chunks(
-            [
-                {
-                    "name": "end_call",
-                    "arguments": {},
-                    "tool_call_id": "call_transition_2",
-                },
-            ]
+        step_1_chunks = MockLLMService.create_function_call_chunks(
+            function_name="end_call",
+            arguments={},
+            tool_call_id="call_transition_2",
         )
 
         # Step 2 (End node): text response
@@ -472,25 +455,17 @@ class TestContextUpdateBeforeNextCompletion:
         - Tool call messages and results
         """
         # Step 0 (Start node): call collect_info to transition to agent
-        step_0_chunks = MockLLMService.create_multiple_function_call_chunks(
-            [
-                {
-                    "name": "collect_info",
-                    "arguments": {},
-                    "tool_call_id": "call_transition_1",
-                },
-            ]
+        step_0_chunks = MockLLMService.create_function_call_chunks(
+            function_name="collect_info",
+            arguments={},
+            tool_call_id="call_transition_1",
         )
 
         # Step 1 (Agent node): call end_call to transition to end
-        step_1_chunks = MockLLMService.create_multiple_function_call_chunks(
-            [
-                {
-                    "name": "end_call",
-                    "arguments": {},
-                    "tool_call_id": "call_transition_2",
-                },
-            ]
+        step_1_chunks = MockLLMService.create_function_call_chunks(
+            function_name="end_call",
+            arguments={},
+            tool_call_id="call_transition_2",
         )
 
         # Step 2 (End node): text response

@@ -219,9 +219,7 @@ async def create_engine_with_tracking(
     )
 
     # Create pipeline task
-    task = PipelineTask(
-        pipeline, params=PipelineParams(allow_interruptions=False), enable_rtvi=False
-    )
+    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
 
     engine.set_task(task)
 

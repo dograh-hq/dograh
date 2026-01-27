@@ -99,9 +99,7 @@ async def run_pipeline_with_tool_calls(
     )
 
     # Create a real pipeline task
-    task = PipelineTask(
-        pipeline, params=PipelineParams(allow_interruptions=False), enable_rtvi=False
-    )
+    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
 
     engine.set_task(task)
 

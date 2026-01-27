@@ -550,7 +550,7 @@ async def _run_pipeline(
 
     if is_deepgram_flux:
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(), ExternalUserTurnStartStrategy()],
+            start=[ExternalUserTurnStartStrategy()],
             stop=[ExternalUserTurnStopStrategy()],
         )
     else:

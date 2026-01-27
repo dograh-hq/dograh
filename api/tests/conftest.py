@@ -18,7 +18,7 @@ from api.services.workflow.dto import (
 from api.services.workflow.workflow import WorkflowGraph
 
 START_CALL_SYSTEM_PROMPT = "Start Call System Prompt"
-AGENT_SYSTEM_PROMPT = "Agent Node SYstem Prompt"
+AGENT_SYSTEM_PROMPT = "Agent Node System Prompt"
 END_CALL_SYSTEM_PROMPT = "End Call System Prompt"
 
 # Default workflow definition for mocking database WorkflowModel
@@ -351,6 +351,166 @@ def three_node_workflow() -> WorkflowGraph:
                             prompt="The user's name",
                         ),
                     ],
+                ),
+            ),
+            RFNodeDTO(
+                id="end",
+                type=NodeType.endNode,
+                position=Position(x=0, y=400),
+                data=NodeDataDTO(
+                    name="End Call",
+                    prompt=END_CALL_SYSTEM_PROMPT,
+                    is_end=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,
+                ),
+            ),
+        ],
+        edges=[
+            RFEdgeDTO(
+                id="start-agent",
+                source="start",
+                target="agent",
+                data=EdgeDataDTO(
+                    label="Collect Info",
+                    condition="When user has been greeted, proceed to collect information",
+                ),
+            ),
+            RFEdgeDTO(
+                id="agent-end",
+                source="agent",
+                target="end",
+                data=EdgeDataDTO(
+                    label="End Call",
+                    condition="When information collection is complete, end the call",
+                ),
+            ),
+        ],
+    )
+    return WorkflowGraph(dto)
+
+
+@pytest.fixture
+def three_node_workflow_extraction_start_only() -> WorkflowGraph:
+    """Create a three-node workflow with extraction enabled ONLY on start node.
+
+    This fixture is specifically for testing that variable extraction is triggered
+    for the correct node during transitions. The agent node has extraction disabled
+    to verify extraction happens for the SOURCE node, not the TARGET node.
+
+    The workflow has:
+    - Start node with extraction enabled (extracts user_name)
+    - Agent node with extraction DISABLED
+    - End node (no extraction)
+    """
+    dto = ReactFlowDTO(
+        nodes=[
+            RFNodeDTO(
+                id="start",
+                type=NodeType.startNode,
+                position=Position(x=0, y=0),
+                data=NodeDataDTO(
+                    name="Start Call",
+                    prompt=START_CALL_SYSTEM_PROMPT,
+                    is_start=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=True,
+                    extraction_prompt="Extract the user's name from the conversation.",
+                    extraction_variables=[
+                        ExtractionVariableDTO(
+                            name="user_name",
+                            type=VariableType.string,
+                            prompt="The name the user provided",
+                        ),
+                    ],
+                ),
+            ),
+            RFNodeDTO(
+                id="agent",
+                type=NodeType.agentNode,
+                position=Position(x=0, y=200),
+                data=NodeDataDTO(
+                    name="Collect Info",
+                    prompt=AGENT_SYSTEM_PROMPT,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,  # Explicitly disabled for testing
+                ),
+            ),
+            RFNodeDTO(
+                id="end",
+                type=NodeType.endNode,
+                position=Position(x=0, y=400),
+                data=NodeDataDTO(
+                    name="End Call",
+                    prompt=END_CALL_SYSTEM_PROMPT,
+                    is_end=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,
+                ),
+            ),
+        ],
+        edges=[
+            RFEdgeDTO(
+                id="start-agent",
+                source="start",
+                target="agent",
+                data=EdgeDataDTO(
+                    label="Collect Info",
+                    condition="When user has been greeted, proceed to collect information",
+                ),
+            ),
+            RFEdgeDTO(
+                id="agent-end",
+                source="agent",
+                target="end",
+                data=EdgeDataDTO(
+                    label="End Call",
+                    condition="When information collection is complete, end the call",
+                ),
+            ),
+        ],
+    )
+    return WorkflowGraph(dto)
+
+
+@pytest.fixture
+def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
+    """Create a three-node workflow without variable extraction
+
+    The workflow has:
+    - Start node with extraction DISABLED
+    - Agent node with extraction DISABLED
+    - End node (no extraction)
+    """
+    dto = ReactFlowDTO(
+        nodes=[
+            RFNodeDTO(
+                id="start",
+                type=NodeType.startNode,
+                position=Position(x=0, y=0),
+                data=NodeDataDTO(
+                    name="Start Call",
+                    prompt=START_CALL_SYSTEM_PROMPT,
+                    is_start=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,
+                ),
+            ),
+            RFNodeDTO(
+                id="agent",
+                type=NodeType.agentNode,
+                position=Position(x=0, y=200),
+                data=NodeDataDTO(
+                    name="Collect Info",
+                    prompt=AGENT_SYSTEM_PROMPT,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,  # Explicitly disabled for testing
                 ),
             ),
             RFNodeDTO(

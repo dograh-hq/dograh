@@ -45,7 +45,6 @@ def create_stt_service(user_config):
                     eot_timeout_ms=3000,
                     eot_threshold=0.7,
                 ),
-                should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
             )
 
         # Other models than flux

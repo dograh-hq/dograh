@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.2](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.1...dograh-v1.11.2) (2026-01-27)
+
+
+### Bug Fixes
+
+* fix variable extraction during pipeline execution flow ([6b408e5](https://github.com/dograh-hq/dograh/commit/6b408e588c61ad2a3d61593f48d19371bf090d7d))
+* remove duplicate index addition in migration ([#129](https://github.com/dograh-hq/dograh/issues/129)) ([2aedb83](https://github.com/dograh-hq/dograh/commit/2aedb839ffd24377eb8b5b996cb7c36e7d8b7321))
+
 ## [1.11.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.0...dograh-v1.11.1) (2026-01-24)
 
 

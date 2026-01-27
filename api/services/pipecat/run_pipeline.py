@@ -52,9 +52,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.turns.user_mute import MuteUntilFirstBotCompleteUserMuteStrategy
+from pipecat.turns.user_mute import (
+    CallbackUserMuteStrategy,
+    MuteUntilFirstBotCompleteUserMuteStrategy,
+)
 from pipecat.turns.user_start import (
-    ExternalUserTurnStartStrategy,
     TranscriptionUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
@@ -547,7 +549,7 @@ async def _run_pipeline(
 
     if is_deepgram_flux:
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(), ExternalUserTurnStartStrategy()],
+            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
             stop=[ExternalUserTurnStopStrategy()],
         )
     else:
@@ -556,9 +558,16 @@ async def _run_pipeline(
             stop=[TranscriptionUserTurnStopStrategy()],
         )
 
+    # Create user mute strategies
+    # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
+    user_mute_strategies = [
+        MuteUntilFirstBotCompleteUserMuteStrategy(),
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+    ]
+
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
-        user_mute_strategies=[MuteUntilFirstBotCompleteUserMuteStrategy()],
+        user_mute_strategies=user_mute_strategies,
         user_idle_timeout=max_user_idle_timeout,
     )
     context_aggregator = LLMContextAggregatorPair(
@@ -606,7 +615,7 @@ async def _run_pipeline(
         @voicemail_detector.event_handler("on_voicemail_detected")
         async def _on_voicemail_detected(_processor):
             logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-            await engine.send_end_task_frame(
+            await engine.end_call_with_reason(
                 reason=EndTaskReason.VOICEMAIL_DETECTED.value,
                 abort_immediately=True,
             )

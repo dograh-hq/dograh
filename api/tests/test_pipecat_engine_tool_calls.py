@@ -12,7 +12,7 @@ import pytest
 
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
-from api.tests.conftest import END_CALL_SYSTEM_PROMPT, MockTransportProcessor
+from api.tests.conftest import END_CALL_SYSTEM_PROMPT
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -23,6 +23,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.tests import MockLLMService, MockTTSService
+from pipecat.tests.mock_transport import MockTransport
 
 
 async def run_pipeline_with_tool_calls(
@@ -65,7 +66,8 @@ async def run_pipeline_with_tool_calls(
     # Create MockTTSService to generate TTS frames
     tts = MockTTSService(mock_audio_duration_ms=10, frame_delay=0)
 
-    mock_transport_emulator = MockTransportProcessor(emit_bot_speaking=False)
+    # Create MockTransport for simulating transport behavior
+    mock_transport = MockTransport(emit_bot_speaking=False)
 
     # Create LLM context
     context = LLMContext()
@@ -91,15 +93,13 @@ async def run_pipeline_with_tool_calls(
         [
             llm,
             tts,
-            mock_transport_emulator,
+            mock_transport.output(),
             assistant_context_aggregator,
         ]
     )
 
     # Create a real pipeline task
-    task = PipelineTask(
-        pipeline, params=PipelineParams(allow_interruptions=False), enable_rtvi=False
-    )
+    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
 
     engine.set_task(task)
 

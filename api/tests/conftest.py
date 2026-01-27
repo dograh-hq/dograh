@@ -6,27 +6,20 @@ import pytest
 
 from api.services.workflow.dto import (
     EdgeDataDTO,
+    ExtractionVariableDTO,
     NodeDataDTO,
     NodeType,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
     RFNodeDTO,
+    VariableType,
 )
 from api.services.workflow.workflow import WorkflowGraph
-from pipecat.frames.frames import (
-    BotSpeakingFrame,
-    BotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame,
-    Frame,
-    TTSAudioRawFrame,
-    TTSStartedFrame,
-    TTSStoppedFrame,
-)
-from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
-START_CALL_SYSTEM_PROMPT = "start_call_system_prompt"
-END_CALL_SYSTEM_PROMPT = "end_call_system_prompt"
+START_CALL_SYSTEM_PROMPT = "Start Call System Prompt"
+AGENT_SYSTEM_PROMPT = "Agent Node System Prompt"
+END_CALL_SYSTEM_PROMPT = "End Call System Prompt"
 
 # Default workflow definition for mocking database WorkflowModel
 DEFAULT_WORKFLOW_DEFINITION = {
@@ -108,57 +101,6 @@ class MockUserConfig:
     tts: Optional[Any] = None
     llm: Optional[Any] = None
     embeddings: Optional[Any] = None
-
-
-class MockTransportProcessor(FrameProcessor):
-    """
-    Mocks the transport behavior by emitting Bot speaking frames
-    when it encounters TTS frames.
-
-    This simulates what a real transport would do when the bot is speaking:
-    - TTSStartedFrame -> BotStartedSpeakingFrame
-    - TTSAudioRawFrame -> BotSpeakingFrame
-    - TTSStoppedFrame -> BotStoppedSpeakingFrame
-
-    Args:
-        emit_bot_speaking: If True, also emits BotSpeakingFrame on TTSAudioRawFrame
-            which is needed for user idle tracking to start conversation tracking. Default True.
-    """
-
-    def __init__(
-        self,
-        *,
-        emit_bot_speaking: bool = True,
-        **kwargs,
-    ):
-        super().__init__(**kwargs)
-        self._emit_bot_speaking = emit_bot_speaking
-
-    async def process_frame(self, frame: Frame, direction: FrameDirection):
-        await super().process_frame(frame, direction)
-
-        if isinstance(frame, TTSStartedFrame):
-            # Emit BotStartedSpeakingFrame to indicate bot started speaking
-            await self.push_frame(BotStartedSpeakingFrame())
-            await self.push_frame(
-                BotStartedSpeakingFrame(), direction=FrameDirection.UPSTREAM
-            )
-        elif isinstance(frame, TTSAudioRawFrame):
-            # Emit BotSpeakingFrame - this is what triggers user idle tracking
-            # to start conversation tracking
-            if self._emit_bot_speaking:
-                await self.push_frame(BotSpeakingFrame())
-                await self.push_frame(
-                    BotSpeakingFrame(), direction=FrameDirection.UPSTREAM
-                )
-        elif isinstance(frame, TTSStoppedFrame):
-            # Emit BotStoppedSpeakingFrame to indicate bot stopped speaking
-            await self.push_frame(BotStoppedSpeakingFrame())
-            await self.push_frame(
-                BotStoppedSpeakingFrame(), direction=FrameDirection.UPSTREAM
-            )
-
-        await self.push_frame(frame, direction)
 
 
 @dataclass
@@ -299,14 +241,14 @@ def simple_workflow() -> WorkflowGraph:
     """Create a simple two-node workflow for testing.
 
     The workflow has:
-    - Start node with a prompt
+    - Start node with extraction enabled (extracts user_intent)
     - End node with a prompt
     - One edge connecting them with label "End Call"
     """
     dto = ReactFlowDTO(
         nodes=[
             RFNodeDTO(
-                id="1",
+                id="start",
                 type=NodeType.startNode,
                 position=Position(x=0, y=0),
                 data=NodeDataDTO(
@@ -315,10 +257,19 @@ def simple_workflow() -> WorkflowGraph:
                     is_start=True,
                     allow_interrupt=False,
                     add_global_prompt=False,
+                    extraction_enabled=True,
+                    extraction_prompt="Extract user information from the conversation.",
+                    extraction_variables=[
+                        ExtractionVariableDTO(
+                            name="user_intent",
+                            type=VariableType.string,
+                            prompt="The user's intent or reason for calling",
+                        ),
+                    ],
                 ),
             ),
             RFNodeDTO(
-                id="2",
+                id="end",
                 type=NodeType.endNode,
                 position=Position(x=0, y=200),
                 data=NodeDataDTO(
@@ -327,14 +278,15 @@ def simple_workflow() -> WorkflowGraph:
                     is_end=True,
                     allow_interrupt=False,
                     add_global_prompt=False,
+                    extraction_enabled=False,
                 ),
             ),
         ],
         edges=[
             RFEdgeDTO(
-                id="1-2",
-                source="1",
-                target="2",
+                id="start-end",
+                source="start",
+                target="end",
                 data=EdgeDataDTO(
                     label="End Call",
                     condition="When the user says to end the call, end the call",
@@ -350,37 +302,59 @@ def three_node_workflow() -> WorkflowGraph:
     """Create a three-node workflow for testing with an intermediate agent node.
 
     The workflow has:
-    - Start node
-    - Agent node (for collecting information)
-    - End node
+    - Start node with extraction enabled (extracts greeting_type)
+    - Agent node with extraction enabled (extracts user_name)
+    - End node (no extraction)
+
+    Edges:
+    - Start -> Agent (label: "Collect Info")
+    - Agent -> End (label: "End Call")
     """
     dto = ReactFlowDTO(
         nodes=[
             RFNodeDTO(
-                id="1",
+                id="start",
                 type=NodeType.startNode,
                 position=Position(x=0, y=0),
                 data=NodeDataDTO(
                     name="Start Call",
                     prompt=START_CALL_SYSTEM_PROMPT,
                     is_start=True,
-                    allow_interrupt=True,
+                    allow_interrupt=False,
                     add_global_prompt=False,
+                    extraction_enabled=True,
+                    extraction_prompt="Extract greeting information from the conversation.",
+                    extraction_variables=[
+                        ExtractionVariableDTO(
+                            name="greeting_type",
+                            type=VariableType.string,
+                            prompt="The type of greeting used",
+                        ),
+                    ],
                 ),
             ),
             RFNodeDTO(
-                id="2",
+                id="agent",
                 type=NodeType.agentNode,
                 position=Position(x=0, y=200),
                 data=NodeDataDTO(
                     name="Collect Info",
-                    prompt="Help the user with their request. Ask clarifying questions if needed.",
-                    allow_interrupt=True,
+                    prompt=AGENT_SYSTEM_PROMPT,
+                    allow_interrupt=False,
                     add_global_prompt=False,
+                    extraction_enabled=True,
+                    extraction_prompt="Extract user details from the conversation.",
+                    extraction_variables=[
+                        ExtractionVariableDTO(
+                            name="user_name",
+                            type=VariableType.string,
+                            prompt="The user's name",
+                        ),
+                    ],
                 ),
             ),
             RFNodeDTO(
-                id="3",
+                id="end",
                 type=NodeType.endNode,
                 position=Position(x=0, y=400),
                 data=NodeDataDTO(
@@ -389,26 +363,187 @@ def three_node_workflow() -> WorkflowGraph:
                     is_end=True,
                     allow_interrupt=False,
                     add_global_prompt=False,
+                    extraction_enabled=False,
                 ),
             ),
         ],
         edges=[
             RFEdgeDTO(
-                id="1-2",
-                source="1",
-                target="2",
+                id="start-agent",
+                source="start",
+                target="agent",
                 data=EdgeDataDTO(
                     label="Collect Info",
-                    condition="When the user wants help, collect their information",
+                    condition="When user has been greeted, proceed to collect information",
                 ),
             ),
             RFEdgeDTO(
-                id="2-3",
-                source="2",
-                target="3",
+                id="agent-end",
+                source="agent",
+                target="end",
                 data=EdgeDataDTO(
                     label="End Call",
-                    condition="When the user is done or wants to end the call",
+                    condition="When information collection is complete, end the call",
+                ),
+            ),
+        ],
+    )
+    return WorkflowGraph(dto)
+
+
+@pytest.fixture
+def three_node_workflow_extraction_start_only() -> WorkflowGraph:
+    """Create a three-node workflow with extraction enabled ONLY on start node.
+
+    This fixture is specifically for testing that variable extraction is triggered
+    for the correct node during transitions. The agent node has extraction disabled
+    to verify extraction happens for the SOURCE node, not the TARGET node.
+
+    The workflow has:
+    - Start node with extraction enabled (extracts user_name)
+    - Agent node with extraction DISABLED
+    - End node (no extraction)
+    """
+    dto = ReactFlowDTO(
+        nodes=[
+            RFNodeDTO(
+                id="start",
+                type=NodeType.startNode,
+                position=Position(x=0, y=0),
+                data=NodeDataDTO(
+                    name="Start Call",
+                    prompt=START_CALL_SYSTEM_PROMPT,
+                    is_start=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=True,
+                    extraction_prompt="Extract the user's name from the conversation.",
+                    extraction_variables=[
+                        ExtractionVariableDTO(
+                            name="user_name",
+                            type=VariableType.string,
+                            prompt="The name the user provided",
+                        ),
+                    ],
+                ),
+            ),
+            RFNodeDTO(
+                id="agent",
+                type=NodeType.agentNode,
+                position=Position(x=0, y=200),
+                data=NodeDataDTO(
+                    name="Collect Info",
+                    prompt=AGENT_SYSTEM_PROMPT,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,  # Explicitly disabled for testing
+                ),
+            ),
+            RFNodeDTO(
+                id="end",
+                type=NodeType.endNode,
+                position=Position(x=0, y=400),
+                data=NodeDataDTO(
+                    name="End Call",
+                    prompt=END_CALL_SYSTEM_PROMPT,
+                    is_end=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,
+                ),
+            ),
+        ],
+        edges=[
+            RFEdgeDTO(
+                id="start-agent",
+                source="start",
+                target="agent",
+                data=EdgeDataDTO(
+                    label="Collect Info",
+                    condition="When user has been greeted, proceed to collect information",
+                ),
+            ),
+            RFEdgeDTO(
+                id="agent-end",
+                source="agent",
+                target="end",
+                data=EdgeDataDTO(
+                    label="End Call",
+                    condition="When information collection is complete, end the call",
+                ),
+            ),
+        ],
+    )
+    return WorkflowGraph(dto)
+
+
+@pytest.fixture
+def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
+    """Create a three-node workflow without variable extraction
+
+    The workflow has:
+    - Start node with extraction DISABLED
+    - Agent node with extraction DISABLED
+    - End node (no extraction)
+    """
+    dto = ReactFlowDTO(
+        nodes=[
+            RFNodeDTO(
+                id="start",
+                type=NodeType.startNode,
+                position=Position(x=0, y=0),
+                data=NodeDataDTO(
+                    name="Start Call",
+                    prompt=START_CALL_SYSTEM_PROMPT,
+                    is_start=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,
+                ),
+            ),
+            RFNodeDTO(
+                id="agent",
+                type=NodeType.agentNode,
+                position=Position(x=0, y=200),
+                data=NodeDataDTO(
+                    name="Collect Info",
+                    prompt=AGENT_SYSTEM_PROMPT,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,  # Explicitly disabled for testing
+                ),
+            ),
+            RFNodeDTO(
+                id="end",
+                type=NodeType.endNode,
+                position=Position(x=0, y=400),
+                data=NodeDataDTO(
+                    name="End Call",
+                    prompt=END_CALL_SYSTEM_PROMPT,
+                    is_end=True,
+                    allow_interrupt=False,
+                    add_global_prompt=False,
+                    extraction_enabled=False,
+                ),
+            ),
+        ],
+        edges=[
+            RFEdgeDTO(
+                id="start-agent",
+                source="start",
+                target="agent",
+                data=EdgeDataDTO(
+                    label="Collect Info",
+                    condition="When user has been greeted, proceed to collect information",
+                ),
+            ),
+            RFEdgeDTO(
+                id="agent-end",
+                source="agent",
+                target="end",
+                data=EdgeDataDTO(
+                    label="End Call",
+                    condition="When information collection is complete, end the call",
                 ),
             ),
         ],

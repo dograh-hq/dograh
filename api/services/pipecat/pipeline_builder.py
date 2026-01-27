@@ -57,6 +57,10 @@ def build_pipeline(
     # Insert voicemail detector after STT if enabled
     # Note: We intentionally do NOT use voicemail_detector.gate() to allow TTS
     # frames to continue flowing during classification (non-blocking detection)
+
+    # Note: We must keep user_context_aggregator after voicemail_detector
+    # or else, LLMContextFrames generated from user_context_aggregator will
+    # start generating LLM Completion from Voicemail Classifier
     if voicemail_detector:
         logger.info("Adding native voicemail detector to pipeline")
         processors.append(voicemail_detector.detector())

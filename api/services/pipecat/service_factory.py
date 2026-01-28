@@ -29,8 +29,13 @@ if TYPE_CHECKING:
     from api.services.pipecat.audio_config import AudioConfig
 
 
-def create_stt_service(user_config):
-    """Create and return appropriate STT service based on user configuration"""
+def create_stt_service(user_config, keyterms: list[str] | None = None):
+    """Create and return appropriate STT service based on user configuration
+
+    Args:
+        user_config: User configuration containing STT settings
+        keyterms: Optional list of keyterms for speech recognition boosting (Deepgram only)
+    """
     logger.info(
         f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
     )
@@ -44,6 +49,7 @@ def create_stt_service(user_config):
                 params=DeepgramFluxSTTService.InputParams(
                     eot_timeout_ms=3000,
                     eot_threshold=0.7,
+                    keyterm=keyterms or [],
                 ),
                 should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
             )
@@ -56,6 +62,7 @@ def create_stt_service(user_config):
             profanity_filter=False,
             endpointing=100,
             model=user_config.stt.model,
+            keyterm=keyterms or [],
         )
         logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
@@ -77,6 +84,7 @@ def create_stt_service(user_config):
             api_key=user_config.stt.api_key,
             model=user_config.stt.model,
             language=language,
+            keyterms=keyterms,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum
@@ -102,7 +110,10 @@ def create_stt_service(user_config):
             params=SarvamSTTService.InputParams(language=pipecat_language),
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
-        from pipecat.services.speechmatics.stt import OperatingPoint
+        from pipecat.services.speechmatics.stt import (
+            AdditionalVocabEntry,
+            OperatingPoint,
+        )
 
         language = getattr(user_config.stt, "language", None) or "en"
         # Map model field to operating point (standard or enhanced)
@@ -111,11 +122,16 @@ def create_stt_service(user_config):
             if user_config.stt.model == "enhanced"
             else OperatingPoint.STANDARD
         )
+        # Convert keyterms to AdditionalVocabEntry objects for Speechmatics
+        additional_vocab = []
+        if keyterms:
+            additional_vocab = [AdditionalVocabEntry(content=term) for term in keyterms]
         return SpeechmaticsSTTService(
             api_key=user_config.stt.api_key,
             params=SpeechmaticsSTTService.InputParams(
                 language=language,
                 operating_point=operating_point,
+                additional_vocab=additional_vocab,
             ),
         )
     else:

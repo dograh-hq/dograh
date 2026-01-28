@@ -1,5 +1,5 @@
 import { Trash2Icon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -22,6 +22,15 @@ export const TemplateContextVariablesDialog = ({
     const [contextVars, setContextVars] = useState<Record<string, string>>(templateContextVariables);
     const [newKey, setNewKey] = useState("");
     const [newValue, setNewValue] = useState("");
+
+    // Sync local state with prop when dialog opens
+    useEffect(() => {
+        if (open) {
+            setContextVars(templateContextVariables);
+            setNewKey("");
+            setNewValue("");
+        }
+    }, [open, templateContextVariables]);
 
     const handleAddContextVar = () => {
         if (newKey && newValue) {

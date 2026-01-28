@@ -20,7 +20,7 @@ import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import logger from '@/lib/logger';
 import { getNextNodeId, getRandomId } from "@/lib/utils";
-import { WorkflowConfigurations } from "@/types/workflow-configurations";
+import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from "@/types/workflow-configurations";
 
 export function getDefaultAllowInterrupt(type: string = NodeType.START_CALL): boolean {
     switch (type) {
@@ -141,6 +141,8 @@ export const useWorkflowState = ({
         setWorkflowValidationErrors,
         setTemplateContextVariables,
         setWorkflowConfigurations,
+        setDictionary,
+        dictionary,
         clearValidationErrors,
         markNodeAsInvalid,
         markEdgeAsInvalid,
@@ -174,7 +176,8 @@ export const useWorkflowState = ({
             initialNodes,
             initialFlow?.edges ?? [],
             initialTemplateContextVariables,
-            initialWorkflowConfigurations
+            initialWorkflowConfigurations,
+            initialWorkflowConfigurations?.dictionary ?? ''
         );
     }, []);
 
@@ -222,6 +225,11 @@ export const useWorkflowState = ({
             ...getNewNode(nodeType, position, nodes),
             selected: true, // Mark the new node as selected
         };
+
+        // Deselect all existing nodes before adding the new one
+        const currentNodes = rfInstance.current.getNodes();
+        const deselectedNodes = currentNodes.map(node => ({ ...node, selected: false }));
+        rfInstance.current.setNodes(deselectedNodes);
 
         // Use addNodes from ReactFlow instance
         rfInstance.current.addNodes([newNode]);
@@ -326,6 +334,19 @@ export const useWorkflowState = ({
         await validateWorkflow();
     }, [workflowId, workflowName, setIsDirty, user, getAccessToken, validateWorkflow]);
 
+    // Set up keyboard shortcut for save (Cmd/Ctrl + S)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                saveWorkflow();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [saveWorkflow]);
+
     const onConnect: OnConnect = useCallback((connection) => {
         if (!rfInstance.current) return;
 
@@ -411,6 +432,9 @@ export const useWorkflowState = ({
     const saveWorkflowConfigurations = useCallback(async (configurations: WorkflowConfigurations, newWorkflowName: string) => {
         if (!user) return;
         const accessToken = await getAccessToken();
+        // Preserve the current dictionary when saving other configurations
+        const currentDictionary = useWorkflowStore.getState().dictionary;
+        const configurationsWithDictionary: WorkflowConfigurations = { ...configurations, dictionary: currentDictionary };
         try {
             await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {
@@ -419,13 +443,13 @@ export const useWorkflowState = ({
                 body: {
                     name: newWorkflowName,
                     workflow_definition: null,
-                    workflow_configurations: configurations as Record<string, unknown>,
+                    workflow_configurations: configurationsWithDictionary as Record<string, unknown>,
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                 },
             });
-            setWorkflowConfigurations(configurations);
+            setWorkflowConfigurations(configurationsWithDictionary);
             setWorkflowName(newWorkflowName);
             logger.info('Workflow configurations saved successfully');
         } catch (error) {
@@ -433,6 +457,34 @@ export const useWorkflowState = ({
             throw error;
         }
     }, [workflowId, user, getAccessToken, setWorkflowConfigurations, setWorkflowName]);
+
+    // Save dictionary
+    const saveDictionary = useCallback(async (newDictionary: string) => {
+        if (!user) return;
+        const accessToken = await getAccessToken();
+        const currentConfigurations = useWorkflowStore.getState().workflowConfigurations ?? DEFAULT_WORKFLOW_CONFIGURATIONS;
+        const updatedConfigurations: WorkflowConfigurations = { ...currentConfigurations, dictionary: newDictionary };
+        try {
+            await updateWorkflowApiV1WorkflowWorkflowIdPut({
+                path: {
+                    workflow_id: workflowId,
+                },
+                body: {
+                    name: workflowName,
+                    workflow_definition: null,
+                    workflow_configurations: updatedConfigurations as Record<string, unknown>,
+                },
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+            });
+            setDictionary(newDictionary);
+            setWorkflowConfigurations(updatedConfigurations);
+        } catch (error) {
+            logger.error(`Error saving dictionary: ${error}`);
+            throw error;
+        }
+    }, [workflowId, workflowName, user, getAccessToken, setDictionary, setWorkflowConfigurations]);
 
     // Update rfInstance when it changes
     useEffect(() => {
@@ -456,6 +508,7 @@ export const useWorkflowState = ({
         workflowValidationErrors,
         templateContextVariables,
         workflowConfigurations,
+        dictionary,
         setNodes,
         setIsDirty,
         setIsAddNodePanelOpen,
@@ -468,6 +521,7 @@ export const useWorkflowState = ({
         onRun,
         saveTemplateContextVariables,
         saveWorkflowConfigurations,
+        saveDictionary,
         // Export undo/redo state
         undo,
         redo,

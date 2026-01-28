@@ -76,8 +76,22 @@ class LoopTalkPipelineBuilder:
             pipeline_sample_rate=16000,
         )
 
+        # Extract keyterms from workflow configurations
+        keyterms = None
+        if (
+            workflow.workflow_configurations
+            and "dictionary" in workflow.workflow_configurations
+        ):
+            dictionary = workflow.workflow_configurations["dictionary"]
+            if dictionary and isinstance(dictionary, str):
+                keyterms = [
+                    term.strip() for term in dictionary.split(",") if term.strip()
+                ]
+                if keyterms:
+                    logger.info(f"Using {len(keyterms)} keyterms for STT: {keyterms}")
+
         # Create services
-        stt = create_stt_service(user_config)
+        stt = create_stt_service(user_config, keyterms=keyterms)
         llm = create_llm_service(user_config)
         tts = create_tts_service(user_config, audio_config)
 

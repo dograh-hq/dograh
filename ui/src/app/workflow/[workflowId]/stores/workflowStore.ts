@@ -35,6 +35,7 @@ interface WorkflowState {
   // Configuration
   templateContextVariables: Record<string, string>;
   workflowConfigurations: WorkflowConfigurations | null;
+  dictionary: string;
 
   // ReactFlow instance reference
   rfInstance: ReactFlowInstance<FlowNode, FlowEdge> | null;
@@ -48,7 +49,8 @@ interface WorkflowActions {
     nodes: FlowNode[],
     edges: FlowEdge[],
     templateContextVariables?: Record<string, string>,
-    workflowConfigurations?: WorkflowConfigurations | null
+    workflowConfigurations?: WorkflowConfigurations | null,
+    dictionary?: string
   ) => void;
 
   // History management
@@ -74,6 +76,7 @@ interface WorkflowActions {
   setWorkflowName: (name: string) => void;
   setTemplateContextVariables: (variables: Record<string, string>) => void;
   setWorkflowConfigurations: (configurations: WorkflowConfigurations) => void;
+  setDictionary: (dictionary: string) => void;
 
   // UI state
   setIsDirty: (isDirty: boolean) => void;
@@ -110,10 +113,11 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   workflowValidationErrors: [],
   templateContextVariables: {},
   workflowConfigurations: DEFAULT_WORKFLOW_CONFIGURATIONS,
+  dictionary: '',
   rfInstance: null,
 
   // Actions
-  initializeWorkflow: (workflowId, workflowName, nodes, edges, templateContextVariables = {}, workflowConfigurations = DEFAULT_WORKFLOW_CONFIGURATIONS) => {
+  initializeWorkflow: (workflowId, workflowName, nodes, edges, templateContextVariables = {}, workflowConfigurations = DEFAULT_WORKFLOW_CONFIGURATIONS, dictionary = '') => {
     const initialHistory: HistoryState = { nodes, edges, workflowName };
     set({
       workflowId,
@@ -122,6 +126,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       edges,
       templateContextVariables,
       workflowConfigurations,
+      dictionary,
       isDirty: false,
       workflowValidationErrors: [],
       history: [initialHistory],
@@ -195,18 +200,28 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   setNodes: (nodes, changes) => {
     // Determine whether to push to history and set isDirty based on change types
     if (changes && changes.length > 0) {
-      // Check if any changes are user-initiated (not just selections or dimensions)
-      const hasDirtyChanges = changes.some(change =>
-        change.type === 'add' ||
-        change.type === 'remove' ||
-        (change.type === 'position' && change.dragging)
+      // Check for add/remove changes (always push to history)
+      const hasAddRemoveChanges = changes.some(change =>
+        change.type === 'add' || change.type === 'remove'
       );
 
-      if (hasDirtyChanges) {
+      // Check for position changes - only push to history when drag ENDS (dragging: false)
+      // but still mark as dirty during dragging
+      const hasDragEndChanges = changes.some(change =>
+        change.type === 'position' && change.dragging === false
+      );
+      const isActiveDragging = changes.some(change =>
+        change.type === 'position' && change.dragging === true
+      );
+
+      if (hasAddRemoveChanges || hasDragEndChanges) {
         get().pushToHistory();
         set({ nodes, isDirty: true });
+      } else if (isActiveDragging) {
+        // During active dragging, update nodes but don't push to history
+        set({ nodes, isDirty: true });
       } else {
-        // For selection changes or dimension updates, don't push to history
+        // For selection changes or dimension updates, don't push to history or set dirty
         set({ nodes });
       }
     } else {
@@ -312,6 +327,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     set({ workflowConfigurations });
   },
 
+  setDictionary: (dictionary) => {
+    set({ dictionary });
+  },
+
   setIsDirty: (isDirty) => {
     set({ isDirty });
   },
@@ -375,6 +394,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       workflowValidationErrors: [],
       templateContextVariables: {},
       workflowConfigurations: DEFAULT_WORKFLOW_CONFIGURATIONS,
+      dictionary: '',
       rfInstance: null,
     });
   },

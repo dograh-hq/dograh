@@ -18,7 +18,7 @@ from api.services.telephony.base import (
     NormalizedInboundData,
     TelephonyProvider,
 )
-from api.utils.tunnel import TunnelURLProvider
+from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -106,8 +106,10 @@ class VonageProvider(TelephonyProvider):
 
         # Add event webhook if workflow_run_id provided
         if workflow_run_id:
-            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-            event_url = f"https://{backend_endpoint}/api/v1/telephony/vonage/events/{workflow_run_id}"
+            backend_endpoint, _ = await get_backend_endpoints()
+            event_url = (
+                f"{backend_endpoint}/api/v1/telephony/vonage/events/{workflow_run_id}"
+            )
             data.update({"event_url": [event_url], "event_method": "POST"})
 
         data.update(kwargs)
@@ -201,7 +203,7 @@ class VonageProvider(TelephonyProvider):
         Generate NCCO response for starting a call session.
         NCCO (Nexmo Call Control Objects) is JSON-based, unlike TwiML which is XML.
         """
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+        _, wss_backend_endpoint = await get_backend_endpoints()
 
         # NCCO for WebSocket connection
         ncco = [
@@ -210,7 +212,7 @@ class VonageProvider(TelephonyProvider):
                 "endpoint": [
                     {
                         "type": "websocket",
-                        "uri": f"wss://{backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}",
+                        "uri": f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}",
                         "content-type": "audio/l16;rate=16000",  # 16kHz Linear PCM
                         "headers": {},
                     }

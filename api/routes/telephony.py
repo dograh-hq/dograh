@@ -30,13 +30,13 @@ from api.services.telephony.factory import (
     get_all_telephony_providers,
     get_telephony_provider,
 )
+from api.utils.common import get_backend_endpoints
 from api.utils.telephony_helper import (
     generic_hangup_response,
     normalize_webhook_data,
     numbers_match,
     parse_webhook_request,
 )
-from api.utils.tunnel import TunnelURLProvider
 from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/telephony")
@@ -159,12 +159,12 @@ async def initiate_call(
         workflow_run_name = workflow_run.name
 
     # Construct webhook URL based on provider type
-    backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+    backend_endpoint, _ = await get_backend_endpoints()
 
     webhook_endpoint = provider.WEBHOOK_ENDPOINT
 
     webhook_url = (
-        f"https://{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
+        f"{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
         f"?workflow_id={request.workflow_id}"
         f"&user_id={user.id}"
         f"&workflow_run_id={workflow_run_id}"
@@ -313,10 +313,8 @@ async def _validate_inbound_request(
     # Verify webhook signature/API key if provided
     provider_instance = None
     if x_twilio_signature or x_vobiz_signature or x_cx_apikey:
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-        webhook_url = (
-            f"https://{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
-        )
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
 
         # Get the real telephony provider with actual credentials for signature verification
         provider_instance = await get_telephony_provider(organization_id)
@@ -613,8 +611,8 @@ async def handle_twilio_status_callback(
     provider = await get_telephony_provider(workflow.organization_id)
 
     if x_webhook_signature:
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-        full_url = f"https://{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
+        backend_endpoint, _ = await get_backend_endpoints()
+        full_url = f"{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
 
         is_valid = await provider.verify_webhook_signature(
             full_url, callback_data, x_webhook_signature
@@ -887,8 +885,8 @@ async def handle_vobiz_hangup_callback(
         webhook_body = raw_body.decode("utf-8")
 
         # Verify signature
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-        webhook_url = f"https://{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
 
         is_valid = await provider.verify_webhook_signature(
             webhook_url,
@@ -1009,8 +1007,10 @@ async def handle_vobiz_ring_callback(
         webhook_body = raw_body.decode("utf-8")
 
         # Verify signature
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-        webhook_url = f"https://{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = (
+            f"{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
+        )
 
         is_valid = await provider.verify_webhook_signature(
             webhook_url,
@@ -1157,8 +1157,8 @@ async def handle_vobiz_hangup_callback_by_workflow(
     if x_vobiz_signature:
         raw_body = await request.body()
         webhook_body = raw_body.decode("utf-8")
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-        webhook_url = f"https://{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}"
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}"
 
         is_valid = await provider.verify_webhook_signature(
             webhook_url,
@@ -1338,8 +1338,8 @@ async def handle_inbound_telephony(
         )
 
         # Generate response URLs
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-        websocket_url = f"wss://{backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
+        _, wss_backend_endpoint = await get_backend_endpoints()
+        websocket_url = f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
         response = await provider_class.generate_inbound_response(
             websocket_url, workflow_run_id
         )

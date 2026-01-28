@@ -11,7 +11,7 @@ from api.enums import OrganizationConfigurationKey, WorkflowRunState
 from api.services.campaign.rate_limiter import rate_limiter
 from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.factory import get_telephony_provider
-from api.utils.tunnel import TunnelURLProvider
+from api.utils.common import get_backend_endpoints
 
 
 class CampaignCallDispatcher:
@@ -233,10 +233,10 @@ class CampaignCallDispatcher:
         # Initiate call via telephony provider
         try:
             # Construct webhook URL with parameters
-            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+            backend_endpoint, _ = await get_backend_endpoints()
             webhook_endpoint = provider.WEBHOOK_ENDPOINT
             webhook_url = (
-                f"https://{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
+                f"{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
                 f"?workflow_id={campaign.workflow_id}"
                 f"&user_id={campaign.created_by}"
                 f"&workflow_run_id={workflow_run.id}"

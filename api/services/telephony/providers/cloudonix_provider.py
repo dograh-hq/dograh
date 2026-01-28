@@ -15,7 +15,7 @@ from api.services.telephony.base import (
     NormalizedInboundData,
     TelephonyProvider,
 )
-from api.utils.tunnel import TunnelURLProvider
+from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -91,13 +91,13 @@ class CloudonixProvider(TelephonyProvider):
 
         # Prepare call data using Cloudonix callObject schema
         # Note: 'caller-id' is REQUIRED by Cloudonix API
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         data: Dict[str, Any] = {
             "destination": to_number,
             "cxml": f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="wss://{backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
+        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
     </Connect>
     <Pause length="40"/>
 </Response>""",
@@ -106,7 +106,7 @@ class CloudonixProvider(TelephonyProvider):
 
         # Add status callback if workflow_run_id provided
         if workflow_run_id:
-            callback_url = f"https://{backend_endpoint}/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}"
+            callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}"
             data["callback"] = callback_url
 
         # Merge any additional kwargs

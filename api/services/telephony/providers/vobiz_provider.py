@@ -15,7 +15,7 @@ from api.services.telephony.base import (
     NormalizedInboundData,
     TelephonyProvider,
 )
-from api.utils.tunnel import TunnelURLProvider
+from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -89,9 +89,9 @@ class VobizProvider(TelephonyProvider):
 
         # Add hangup callback if workflow_run_id provided
         if workflow_run_id:
-            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-            hangup_url = f"https://{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
-            ring_url = f"https://{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
+            backend_endpoint, _ = await get_backend_endpoints()
+            hangup_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
+            ring_url = f"{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
             data.update(
                 {
                     "hangup_url": hangup_url,
@@ -254,11 +254,11 @@ class VobizProvider(TelephonyProvider):
         - audioTrack: Which audio to stream (inbound, outbound, both)
         - contentType: audio/x-mulaw;rate=8000
         """
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+        _, wss_backend_endpoint = await get_backend_endpoints()
 
         vobiz_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">wss://{backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}</Stream>
+    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}</Stream>
 </Response>"""
         return vobiz_xml
 

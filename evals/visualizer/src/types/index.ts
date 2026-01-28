@@ -12,6 +12,7 @@ export interface EventCaptureResult {
   created_at: string;
   events: CapturedEvent[];
   transcript: string;
+  keyterms?: string[];
 }
 
 export interface ResultSummary {
@@ -21,4 +22,5 @@ export interface ResultSummary {
   duration: number;
   created_at: string;
   event_count: number;
+  keyterms?: string[];
 }

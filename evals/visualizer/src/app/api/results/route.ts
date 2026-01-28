@@ -27,6 +27,7 @@ export async function GET() {
           duration: data.duration,
           created_at: data.created_at,
           event_count: data.events.length,
+          keyterms: data.keyterms,
         });
       } catch {
         console.error(`Failed to parse ${file}`);

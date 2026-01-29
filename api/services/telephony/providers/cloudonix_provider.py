@@ -325,6 +325,7 @@ class CloudonixProvider(TelephonyProvider):
             "busy": "busy",
             "no-answer": "no-answer",
             "canceled": "canceled",
+            "error": "error",
         }
 
         call_status = data.get("status", "")

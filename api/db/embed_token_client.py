@@ -287,6 +287,8 @@ class EmbedTokenClient(BaseDBClient):
         Returns:
             Dictionary with usage statistics
         """
+        from sqlalchemy import func
+
         async with self.async_session() as session:
             # Get the token
             result = await session.execute(
@@ -302,16 +304,16 @@ class EmbedTokenClient(BaseDBClient):
             if not token:
                 return {}
 
-            # Count active sessions
+            # Count active sessions using SQL COUNT
             active_sessions_result = await session.execute(
-                select(EmbedSessionModel).where(
+                select(func.count(EmbedSessionModel.id)).where(
                     and_(
                         EmbedSessionModel.embed_token_id == token_id,
                         EmbedSessionModel.expires_at > datetime.now(UTC),
                     )
                 )
             )
-            active_sessions = len(active_sessions_result.scalars().all())
+            active_sessions = active_sessions_result.scalar() or 0
 
             return {
                 "token_id": token_id,

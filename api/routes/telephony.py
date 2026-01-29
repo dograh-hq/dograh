@@ -721,7 +721,7 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             state=WorkflowRunState.COMPLETED.value,
         )
 
-    elif status.status in ["failed", "busy", "no-answer", "canceled"]:
+    elif status.status in ["failed", "busy", "no-answer", "canceled", "error"]:
         logger.warning(
             f"[run {workflow_run_id}] Call failed with status: {status.status}"
         )

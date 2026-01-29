@@ -224,23 +224,56 @@ class LoopTalkClient(BaseDBClient):
         self, load_test_group_id: str, organization_id: int
     ) -> Dict[str, Any]:
         """Get statistics for a load test group."""
+        from sqlalchemy import case, func
+
         async with self.async_session() as session:
-            # Get all sessions in the group
-            result = await session.execute(
-                select(LoopTalkTestSession).where(
+            # Get status counts using SQL aggregation
+            counts_result = await session.execute(
+                select(
+                    func.count().label("total"),
+                    func.sum(
+                        case((LoopTalkTestSession.status == "pending", 1), else_=0)
+                    ).label("pending"),
+                    func.sum(
+                        case((LoopTalkTestSession.status == "running", 1), else_=0)
+                    ).label("running"),
+                    func.sum(
+                        case((LoopTalkTestSession.status == "completed", 1), else_=0)
+                    ).label("completed"),
+                    func.sum(
+                        case((LoopTalkTestSession.status == "failed", 1), else_=0)
+                    ).label("failed"),
+                ).where(
                     LoopTalkTestSession.load_test_group_id == load_test_group_id,
                     LoopTalkTestSession.organization_id == organization_id,
                 )
             )
-            sessions = result.scalars().all()
+            counts = counts_result.one()
 
-            # Calculate stats
+            # Get session details (still needed for the sessions list)
+            sessions_result = await session.execute(
+                select(
+                    LoopTalkTestSession.id,
+                    LoopTalkTestSession.name,
+                    LoopTalkTestSession.status,
+                    LoopTalkTestSession.test_index,
+                    LoopTalkTestSession.created_at,
+                    LoopTalkTestSession.started_at,
+                    LoopTalkTestSession.completed_at,
+                    LoopTalkTestSession.error,
+                ).where(
+                    LoopTalkTestSession.load_test_group_id == load_test_group_id,
+                    LoopTalkTestSession.organization_id == organization_id,
+                )
+            )
+            sessions = sessions_result.all()
+
             stats = {
-                "total": len(sessions),
-                "pending": sum(1 for s in sessions if s.status == "pending"),
-                "running": sum(1 for s in sessions if s.status == "running"),
-                "completed": sum(1 for s in sessions if s.status == "completed"),
-                "failed": sum(1 for s in sessions if s.status == "failed"),
+                "total": counts.total or 0,
+                "pending": counts.pending or 0,
+                "running": counts.running or 0,
+                "completed": counts.completed or 0,
+                "failed": counts.failed or 0,
                 "sessions": [
                     {
                         "id": s.id,

@@ -377,6 +377,8 @@ class WorkflowRunModel(Base):
             text("(gathered_context->>'call_id')"),
             postgresql_where=text("gathered_context->>'call_id' IS NOT NULL"),
         ),
+        Index("idx_workflow_runs_workflow_id", "workflow_id"),
+        Index("idx_workflow_runs_campaign_id", "campaign_id"),
     )
 
 

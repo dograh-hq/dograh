@@ -49,14 +49,21 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         nodes = workflow_definition.get("nodes", [])
         webhook_nodes = [n for n in nodes if n.get("type") == "webhook"]
 
+        # Step 4: Generate public access token if webhooks exist or campaign_id is set
+        has_campaign = workflow_run.campaign_id is not None
+        if not webhook_nodes and not has_campaign:
+            logger.debug("No webhook nodes and no campaign, skipping")
+            return
+
+        public_token = None
+        if webhook_nodes or has_campaign:
+            public_token = await db_client.ensure_public_access_token(workflow_run_id)
+
         if not webhook_nodes:
             logger.debug("No webhook nodes in workflow")
             return
 
         logger.info(f"Found {len(webhook_nodes)} webhook nodes to execute")
-
-        # Step 4: Generate public access token (on-demand, only when webhooks exist)
-        public_token = await db_client.ensure_public_access_token(workflow_run_id)
 
         # Step 5: Build render context
         render_context = _build_render_context(workflow_run, public_token)

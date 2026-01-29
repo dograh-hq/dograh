@@ -185,7 +185,7 @@ class CloudonixProvider(TelephonyProvider):
                     call_id=session_token,
                     status="initiated",
                     provider_metadata={
-                        "session_token": session_token,
+                        "call_id": session_token,
                         "domain_id": domain_id,
                         "subscriber_id": subscriber_id,
                     },

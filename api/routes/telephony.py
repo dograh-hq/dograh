@@ -100,6 +100,31 @@ class StatusCallbackRequest(BaseModel):
             extra=data,
         )
 
+    @classmethod
+    def from_cloudonix_cdr(cls, data: dict):
+        """Convert Cloudonix CDR to generic format"""
+        # Map Cloudonix disposition to common format
+        disposition_map = {
+            "ANSWER": "completed",
+            "BUSY": "busy",
+            "CANCEL": "canceled",
+            "FAILED": "failed",
+            "CONGESTION": "failed",
+            "NOANSWER": "no-answer",
+        }
+
+        disposition = data.get("disposition", "")
+        status = disposition_map.get(disposition.upper(), disposition.lower())
+
+        return cls(
+            call_id=data.get("session").get("token"),
+            status=status,
+            from_number=data.get("from"),
+            to_number=data.get("to"),
+            duration=str(data.get("billsec") or data.get("duration") or 0),
+            extra=data,
+        )
+
 
 @router.post("/initiate-call")
 async def initiate_call(
@@ -639,15 +664,21 @@ async def handle_twilio_status_callback(
     )
 
     # Process the status update
-    await _process_status_update(workflow_run_id, status_update, workflow_run)
+    await _process_status_update(workflow_run_id, status_update)
 
     return {"status": "success"}
 
 
-async def _process_status_update(
-    workflow_run_id: int, status: StatusCallbackRequest, workflow_run: any
-):
+async def _process_status_update(workflow_run_id: int, status: StatusCallbackRequest):
     """Process status updates from telephony providers."""
+
+    # Fetch fresh workflow_run to ensure we have the latest state
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    if not workflow_run:
+        logger.warning(
+            f"[run {workflow_run_id}] Workflow run not found in status update"
+        )
+        return
 
     # Log the status callback
     telephony_callback_logs = workflow_run.logs.get("telephony_status_callbacks", [])
@@ -666,7 +697,14 @@ async def _process_status_update(
         logs={"telephony_status_callbacks": telephony_callback_logs},
     )
 
-    # Handle call completion
+    # The workflow run state is already marked as completed from either status-update
+    # callbacks or CDR update callbacks. Lets skip processing.
+    if workflow_run.state == WorkflowRunState.COMPLETED.value:
+        return
+
+    # Handle call completion - make these updates idempotent - i.e
+    # they should handle multiple API calls (one due to status update,
+    # and other due to CDR updates.)
     if status.status == "completed":
         logger.info(
             f"[run {workflow_run_id}] Call completed with duration: {status.duration}s"
@@ -792,7 +830,7 @@ async def handle_vonage_events(
     )
 
     # Process the status update
-    await _process_status_update(workflow_run_id, status_update, workflow_run)
+    await _process_status_update(workflow_run_id, status_update)
 
     # Return 204 No Content as expected by Vonage
     return {"status": "ok"}
@@ -943,7 +981,7 @@ async def handle_vobiz_hangup_callback(
     )
 
     # Process the status update
-    await _process_status_update(workflow_run_id, status_update, workflow_run)
+    await _process_status_update(workflow_run_id, status_update)
 
     logger.info(f"[run {workflow_run_id}] Vobiz hangup callback processed successfully")
 
@@ -1111,7 +1149,7 @@ async def handle_cloudonix_status_callback(
     )
 
     # Process the status update
-    await _process_status_update(workflow_run_id, status_update, workflow_run)
+    await _process_status_update(workflow_run_id, status_update)
 
     return {"status": "success"}
 
@@ -1235,7 +1273,7 @@ async def handle_vobiz_hangup_callback_by_workflow(
             extra=parsed_data.get("extra", {}),
         )
 
-        await _process_status_update(workflow_run_id, status, workflow_run)
+        await _process_status_update(workflow_run_id, status)
 
         logger.info(
             f"[run {workflow_run_id}] Vobiz hangup callback processed successfully"
@@ -1389,3 +1427,56 @@ async def handle_inbound_fallback(request: Request):
         )
 
         return generic_hangup_response()
+
+
+@router.post("/cloudonix/cdr")
+async def handle_cloudonix_cdr(request: Request):
+    """Handle Cloudonix CDR (Call Detail Record) webhooks.
+
+    Cloudonix sends CDR records when calls complete. The CDR contains:
+    - domain: Used to identify the organization
+    - call_id: Used to find the workflow run
+    - disposition: Call termination status (ANSWER, BUSY, CANCEL, FAILED, CONGESTION, NOANSWER)
+    - duration/billsec: Call duration information
+    """
+    try:
+        cdr_data = await request.json()
+    except Exception as e:
+        logger.error(f"Failed to parse Cloudonix CDR JSON: {e}")
+        return {"status": "error", "message": "Invalid JSON payload"}
+
+    # Extract domain to find organization
+    domain = cdr_data.get("domain")
+    if not domain:
+        logger.warning("Cloudonix CDR missing domain field")
+        return {"status": "error", "message": "Missing domain field"}
+
+    # Extract call_id to find workflow run
+    call_id = cdr_data.get("session").get("token")
+    logger.info(f"Cloudonix CDR data for call id {call_id} - {cdr_data}")
+    if not call_id:
+        logger.warning("Cloudonix CDR missing call_id field")
+        return {"status": "error", "message": "Missing call_id field"}
+
+    # Find workflow run by call_id in gathered_context
+    workflow_run = await db_client.get_workflow_run_by_call_id(call_id)
+    if not workflow_run:
+        logger.warning(f"No workflow run found for Cloudonix call_id: {call_id}")
+        return {"status": "ignored", "reason": "workflow_run_not_found"}
+
+    workflow_run_id = workflow_run.id
+    set_current_run_id(workflow_run_id)
+    logger.info(f"[run {workflow_run_id}] Processing Cloudonix CDR for call {call_id}")
+
+    # Convert CDR to status update using StatusCallbackRequest
+    status_update = StatusCallbackRequest.from_cloudonix_cdr(cdr_data)
+
+    # Process the status update
+    await _process_status_update(workflow_run_id, status_update)
+
+    logger.info(
+        f"[run {workflow_run_id}] Cloudonix CDR processed successfully - "
+        f"disposition: {cdr_data.get('disposition')}, status: {status_update.status}"
+    )
+
+    return {"status": "success"}

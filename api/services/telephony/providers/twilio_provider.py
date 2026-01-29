@@ -16,7 +16,7 @@ from api.services.telephony.base import (
     NormalizedInboundData,
     TelephonyProvider,
 )
-from api.utils.tunnel import TunnelURLProvider
+from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -75,8 +75,8 @@ class TwilioProvider(TelephonyProvider):
 
         # Add status callback if workflow_run_id provided
         if workflow_run_id:
-            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-            callback_url = f"https://{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
+            backend_endpoint, _ = await get_backend_endpoints()
+            callback_url = f"{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
             data.update(
                 {
                     "StatusCallback": callback_url,
@@ -158,12 +158,12 @@ class TwilioProvider(TelephonyProvider):
         """
         Generate TwiML response for starting a call session.
         """
-        backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+        _, wss_backend_endpoint = await get_backend_endpoints()
 
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="wss://{backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
+        <Stream url="{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}"></Stream>
     </Connect>
     <Pause length="40"/>
 </Response>"""
@@ -405,8 +405,8 @@ class TwilioProvider(TelephonyProvider):
         # Generate StatusCallback URL using same pattern as outbound calls
         status_callback_attr = ""
         if workflow_run_id:
-            backend_endpoint = await TunnelURLProvider.get_tunnel_url()
-            status_callback_url = f"https://{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
+            backend_endpoint, _ = await get_backend_endpoints()
+            status_callback_url = f"{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
             status_callback_attr = f' statusCallback="{status_callback_url}"'
 
         twiml_content = f"""<?xml version="1.0" encoding="UTF-8"?>

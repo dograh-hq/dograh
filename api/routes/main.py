@@ -58,11 +58,13 @@ class HealthResponse(BaseModel):
 
 @router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    from api.constants import APP_VERSION, BACKEND_API_ENDPOINT
+    from api.constants import APP_VERSION
+    from api.utils.common import get_backend_endpoints
 
     logger.debug("Health endpoint called")
+    backend_endpoint, _ = await get_backend_endpoints()
     return HealthResponse(
         status="ok",
         version=APP_VERSION,
-        backend_api_endpoint=BACKEND_API_ENDPOINT,
+        backend_api_endpoint=backend_endpoint,
     )

@@ -15,7 +15,7 @@ from api.db import db_client
 from api.enums import TriggerState
 from api.services.quota_service import check_dograh_quota_by_user_id
 from api.services.telephony.factory import get_telephony_provider
-from api.utils.tunnel import TunnelURLProvider
+from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/public/agent")
 
@@ -147,11 +147,11 @@ async def initiate_call(
     )
 
     # 9. Construct webhook URL for telephony provider callback
-    backend_endpoint = await TunnelURLProvider.get_tunnel_url()
+    backend_endpoint, _ = await get_backend_endpoints()
     webhook_endpoint = provider.WEBHOOK_ENDPOINT
 
     webhook_url = (
-        f"https://{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
+        f"{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
         f"?workflow_id={trigger.workflow_id}"
         f"&user_id={api_key.created_by}"
         f"&workflow_run_id={workflow_run.id}"

@@ -1,7 +1,6 @@
 """Utility for getting the cloudflared tunnel URL at runtime."""
 
 import asyncio
-import os
 import re
 from typing import Optional
 
@@ -10,37 +9,26 @@ from loguru import logger
 
 
 class TunnelURLProvider:
-    """Provider for getting the tunnel URL from cloudflared or environment."""
+    """Provider for getting tunnel URLs from cloudflared service."""
 
     @classmethod
-    async def get_tunnel_url(cls) -> str:
+    async def get_tunnel_urls(cls) -> tuple[str, str]:
         """
-        Get the tunnel URL for external access.
-
-        Priority:
-        1. BACKEND_API_ENDPOINT environment variable (if set)
-        2. Query cloudflared metrics endpoint
-        3. Raise error if neither available
+        Get the tunnel URLs for external access.
 
         Returns:
-            str: The tunnel domain (without protocol)
+            tuple[str, str]: (https_url, wss_url) - Both URLs include full protocol
 
         Raises:
             ValueError: If no tunnel URL can be determined
         """
-        # First priority: Check environment variable
-        env_endpoint = os.getenv("BACKEND_API_ENDPOINT")
-        if env_endpoint:
-            logger.debug(f"Using BACKEND_API_ENDPOINT from environment: {env_endpoint}")
-            return env_endpoint
 
-        # Second priority: Query cloudflared
         try:
             # Try to get URL from cloudflared metrics
-            url = await cls._get_cloudflared_url()
-            if url:
-                logger.info(f"Retrieved tunnel URL from cloudflared: {url}")
-                return url
+            urls = await cls._get_cloudflared_urls()
+            if urls:
+                logger.info(f"Retrieved tunnel URLs from cloudflared: {urls}")
+                return urls
         except Exception as e:
             logger.warning(f"Failed to get tunnel URL from cloudflared: {e}")
 
@@ -50,12 +38,12 @@ class TunnelURLProvider:
         )
 
     @classmethod
-    async def _get_cloudflared_url(cls) -> Optional[str]:
+    async def _get_cloudflared_urls(cls) -> Optional[tuple[str, str]]:
         """
-        Query cloudflared metrics endpoint to get the tunnel URL.
+        Query cloudflared metrics endpoint to get the tunnel URLs.
 
         Returns:
-            Optional[str]: The tunnel domain (without protocol), or None if not found
+            Optional[tuple[str, str]]: (https_url, wss_url) with full protocols, or None if not found
         """
         try:
             # Try to connect to cloudflared metrics endpoint
@@ -83,12 +71,16 @@ class TunnelURLProvider:
                         hostname = hostname.replace("https://", "").replace(
                             "wss://", ""
                         )
-                        return hostname
+                        return "https://" + hostname, "wss://" + hostname
 
                     # Alternative: Look for trycloudflare.com domain
                     match = re.search(r"([a-z0-9-]+\.trycloudflare\.com)", text)
                     if match:
-                        return match.group(1)
+                        hostname = match.group(1)
+                        hostname = hostname.replace("https://", "").replace(
+                            "wss://", ""
+                        )
+                        return f"https://{hostname}", f"wss://{hostname}"
 
                     logger.warning("Could not find tunnel URL in cloudflared metrics")
                     return None

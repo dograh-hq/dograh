@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.12.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.2...dograh-v1.12.0) (2026-01-29)
+
+
+### Features
+
+* add dictionary support for STT boosting in voice agents ([#136](https://github.com/dograh-hq/dograh/issues/136)) ([db75d90](https://github.com/dograh-hq/dograh/commit/db75d905358dfe42f06b6deaf1327bec3980a87d))
+* add retry config during campaign creation ([6f41e91](https://github.com/dograh-hq/dograh/commit/6f41e91f67cbd79ab106936dccb42074c21910ce))
+* check for duplicate phone number in campaign ([814271e](https://github.com/dograh-hq/dograh/commit/814271e7b1452f7674e9ab1d5b79dc381b71708f))
+* mute on function call ([#138](https://github.com/dograh-hq/dograh/issues/138)) ([9191176](https://github.com/dograh-hq/dograh/commit/91911769b0f5b2a308d71d052f44efa9839bcb2a))
+
+
+### Bug Fixes
+
+* BACKEND_API_ENDPOINT resolution from env and cloudflared tunnel ([#135](https://github.com/dograh-hq/dograh/issues/135)) ([4a8e4fe](https://github.com/dograh-hq/dograh/commit/4a8e4fe7a1cb783d79a9b50d52f35045f13431ec))
+
 ## [1.11.2](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.1...dograh-v1.11.2) (2026-01-27)
 
 

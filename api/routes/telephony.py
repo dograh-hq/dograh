@@ -1453,15 +1453,10 @@ async def handle_cloudonix_cdr(request: Request):
 
     # Extract call_id to find workflow run
     call_id = cdr_data.get("session").get("token")
+    logger.info(f"Cloudonix CDR data for call id {call_id} - {cdr_data}")
     if not call_id:
         logger.warning("Cloudonix CDR missing call_id field")
         return {"status": "error", "message": "Missing call_id field"}
-
-    # Find organization by domain_id in telephony configuration
-    organization_id = await db_client.get_organization_id_by_telephony_domain(domain)
-    if not organization_id:
-        logger.warning(f"No organization found with Cloudonix domain: {domain}")
-        return {"status": "error", "message": "Organization not found for domain"}
 
     # Find workflow run by call_id in gathered_context
     workflow_run = await db_client.get_workflow_run_by_call_id(call_id)

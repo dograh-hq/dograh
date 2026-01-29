@@ -4,7 +4,6 @@ from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.models import OrganizationConfigurationModel
-from api.enums import OrganizationConfigurationKey
 
 
 class OrganizationConfigurationClient(BaseDBClient):
@@ -95,29 +94,3 @@ class OrganizationConfigurationClient(BaseDBClient):
         """Get the value of a configuration, returning default if not found."""
         config = await self.get_configuration(organization_id, key)
         return config.value if config else default
-
-    async def get_organization_id_by_telephony_domain(
-        self, domain: str
-    ) -> Optional[int]:
-        """Find organization ID by domain_id in telephony configuration.
-
-        Args:
-            domain: The telephony domain to search for (e.g., Cloudonix domain_id)
-
-        Returns:
-            Organization ID if found, None otherwise
-        """
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(OrganizationConfigurationModel).where(
-                    OrganizationConfigurationModel.key
-                    == OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
-                )
-            )
-            configs = result.scalars().all()
-
-            for config in configs:
-                if config.value and config.value.get("domain_id") == domain:
-                    return config.organization_id
-
-            return None

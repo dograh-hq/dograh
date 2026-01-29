@@ -54,6 +54,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
+    FunctionCallUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.turns.user_start import (
@@ -572,6 +573,7 @@ async def _run_pipeline(
     # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
     user_mute_strategies = [
         MuteUntilFirstBotCompleteUserMuteStrategy(),
+        FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
 

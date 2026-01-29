@@ -132,7 +132,9 @@ export default function CsvUploadSelector({ accessToken, onFileUploaded, selecte
         )}
       </div>
       <p className="text-sm text-muted-foreground">
-        Upload a CSV file with contact data. Must include phone_number, first_name, and last_name columns. Max 10MB.
+        Upload a CSV file with contact data. Must include phone_number column.
+        The columns can be accessed as initial_context in the workflow nodes. <br/>
+        Max 10MB.
       </p>
     </div>
   );

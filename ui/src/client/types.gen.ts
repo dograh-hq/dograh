@@ -43,6 +43,11 @@ export type AuthUserResponse = {
 
 export type CallType = 'inbound' | 'outbound';
 
+export type CampaignLimitsResponse = {
+    concurrent_call_limit: number;
+    default_retry_config: RetryConfigResponse;
+};
+
 export type CampaignProgressResponse = {
     campaign_id: number;
     state: string;
@@ -72,6 +77,8 @@ export type CampaignResponse = {
     created_at: string;
     started_at: string | null;
     completed_at: string | null;
+    retry_config: RetryConfigResponse;
+    max_concurrency?: number | null;
 };
 
 export type CampaignSourceDownloadResponse = {
@@ -177,6 +184,8 @@ export type CreateCampaignRequest = {
     workflow_id: number;
     source_type: string;
     source_id: string;
+    retry_config?: RetryConfigRequest | null;
+    max_concurrency?: number | null;
 };
 
 /**
@@ -687,6 +696,24 @@ export type ProcessDocumentRequestSchema = {
      * Embedding service to use for processing. Options: 'openai' (default, 1536-dim, requires API key) or 'sentence_transformer' (free, 384-dim)
      */
     embedding_service?: 'sentence_transformer' | 'openai';
+};
+
+export type RetryConfigRequest = {
+    enabled?: boolean;
+    max_retries?: number;
+    retry_delay_seconds?: number;
+    retry_on_busy?: boolean;
+    retry_on_no_answer?: boolean;
+    retry_on_voicemail?: boolean;
+};
+
+export type RetryConfigResponse = {
+    enabled: boolean;
+    max_retries: number;
+    retry_delay_seconds: number;
+    retry_on_busy: boolean;
+    retry_on_no_answer: boolean;
+    retry_on_voicemail: boolean;
 };
 
 export type S3SignedUrlResponse = {
@@ -3288,6 +3315,39 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostRespo
      */
     200: unknown;
 };
+
+export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/campaign-limits';
+};
+
+export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetError = GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetErrors[keyof GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetErrors];
+
+export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CampaignLimitsResponse;
+};
+
+export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponse = GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponses[keyof GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponses];
 
 export type GetSignedUrlApiV1S3SignedUrlGetData = {
     body?: never;

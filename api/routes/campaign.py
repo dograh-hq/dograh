@@ -4,15 +4,52 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
 from api.services.auth.depends import get_user
 from api.services.campaign.runner import campaign_runner_service
+from api.services.campaign.source_validator import (
+    validate_csv_source,
+    validate_google_sheet_source,
+)
 from api.services.quota_service import check_dograh_quota
 from api.services.storage import storage_fs
 
 router = APIRouter(prefix="/campaign")
+
+
+async def _get_org_concurrent_limit(organization_id: int) -> int:
+    """Get the concurrent call limit for an organization."""
+    try:
+        config = await db_client.get_configuration(
+            organization_id,
+            OrganizationConfigurationKey.CONCURRENT_CALL_LIMIT.value,
+        )
+        if config and config.value:
+            return int(config.value.get("value", DEFAULT_ORG_CONCURRENCY_LIMIT))
+    except Exception:
+        pass
+    return DEFAULT_ORG_CONCURRENCY_LIMIT
+
+
+class RetryConfigRequest(BaseModel):
+    enabled: bool = True
+    max_retries: int = Field(default=2, ge=0, le=10)
+    retry_delay_seconds: int = Field(default=120, ge=30, le=3600)
+    retry_on_busy: bool = True
+    retry_on_no_answer: bool = True
+    retry_on_voicemail: bool = True
+
+
+class RetryConfigResponse(BaseModel):
+    enabled: bool
+    max_retries: int
+    retry_delay_seconds: int
+    retry_on_busy: bool
+    retry_on_no_answer: bool
+    retry_on_voicemail: bool
 
 
 class CreateCampaignRequest(BaseModel):
@@ -20,6 +57,8 @@ class CreateCampaignRequest(BaseModel):
     workflow_id: int
     source_type: str = Field(..., pattern="^(google-sheet|csv)$")
     source_id: str  # Google Sheet URL or CSV file key
+    retry_config: Optional[RetryConfigRequest] = None
+    max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
 
 
 class CampaignResponse(BaseModel):
@@ -36,6 +75,8 @@ class CampaignResponse(BaseModel):
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
+    retry_config: RetryConfigResponse
+    max_concurrency: Optional[int] = None
 
 
 class CampaignsResponse(BaseModel):
@@ -63,25 +104,22 @@ class CampaignProgressResponse(BaseModel):
     completed_at: Optional[datetime]
 
 
-@router.post("/create")
-async def create_campaign(
-    request: CreateCampaignRequest,
-    user: UserModel = Depends(get_user),
-) -> CampaignResponse:
-    """Create a new campaign"""
-    # Verify workflow exists and belongs to organization
-    workflow_name = await db_client.get_workflow_name(request.workflow_id, user.id)
-    if not workflow_name:
-        raise HTTPException(status_code=404, detail="Workflow not found")
+# Default retry config for campaigns
 
-    campaign = await db_client.create_campaign(
-        name=request.name,
-        workflow_id=request.workflow_id,
-        source_type=request.source_type,
-        source_id=request.source_id,
-        user_id=user.id,
-        organization_id=user.selected_organization_id,
+
+def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
+    """Build a CampaignResponse from a campaign model."""
+    # Get retry_config from campaign or use defaults
+    retry_config = (
+        campaign.retry_config
+        if campaign.retry_config
+        else DEFAULT_CAMPAIGN_RETRY_CONFIG
     )
+
+    # Get max_concurrency from orchestrator_metadata
+    max_concurrency = None
+    if campaign.orchestrator_metadata:
+        max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
 
     return CampaignResponse(
         id=campaign.id,
@@ -97,7 +135,60 @@ async def create_campaign(
         created_at=campaign.created_at,
         started_at=campaign.started_at,
         completed_at=campaign.completed_at,
+        retry_config=RetryConfigResponse(**retry_config),
+        max_concurrency=max_concurrency,
     )
+
+
+@router.post("/create")
+async def create_campaign(
+    request: CreateCampaignRequest,
+    user: UserModel = Depends(get_user),
+) -> CampaignResponse:
+    """Create a new campaign"""
+    # Verify workflow exists and belongs to organization
+    workflow_name = await db_client.get_workflow_name(request.workflow_id, user.id)
+    if not workflow_name:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    # Validate source data (phone_number column and format)
+    if request.source_type == "csv":
+        validation_result = await validate_csv_source(request.source_id)
+        if not validation_result.is_valid:
+            raise HTTPException(status_code=400, detail=validation_result.error.message)
+    elif request.source_type == "google-sheet":
+        validation_result = await validate_google_sheet_source(
+            request.source_id, user.selected_organization_id
+        )
+        if not validation_result.is_valid:
+            raise HTTPException(status_code=400, detail=validation_result.error.message)
+
+    # Validate max_concurrency against org limit if provided
+    if request.max_concurrency is not None:
+        org_limit = await _get_org_concurrent_limit(user.selected_organization_id)
+        if request.max_concurrency > org_limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"max_concurrency ({request.max_concurrency}) cannot exceed organization limit ({org_limit})",
+            )
+
+    # Build retry_config dict if provided
+    retry_config = None
+    if request.retry_config:
+        retry_config = request.retry_config.model_dump()
+
+    campaign = await db_client.create_campaign(
+        name=request.name,
+        workflow_id=request.workflow_id,
+        source_type=request.source_type,
+        source_id=request.source_id,
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+        retry_config=retry_config,
+        max_concurrency=request.max_concurrency,
+    )
+
+    return _build_campaign_response(campaign, workflow_name)
 
 
 @router.get("/")
@@ -115,21 +206,7 @@ async def get_campaigns(
     workflow_map = {w.id: w.name for w in workflows}
 
     campaign_responses = [
-        CampaignResponse(
-            id=c.id,
-            name=c.name,
-            workflow_id=c.workflow_id,
-            workflow_name=workflow_map.get(c.workflow_id, "Unknown"),
-            state=c.state,
-            source_type=c.source_type,
-            source_id=c.source_id,
-            total_rows=c.total_rows,
-            processed_rows=c.processed_rows,
-            failed_rows=c.failed_rows,
-            created_at=c.created_at,
-            started_at=c.started_at,
-            completed_at=c.completed_at,
-        )
+        _build_campaign_response(c, workflow_map.get(c.workflow_id, "Unknown"))
         for c in campaigns
     ]
 
@@ -148,21 +225,7 @@ async def get_campaign(
 
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return CampaignResponse(
-        id=campaign.id,
-        name=campaign.name,
-        workflow_id=campaign.workflow_id,
-        workflow_name=workflow_name or "Unknown",
-        state=campaign.state,
-        source_type=campaign.source_type,
-        source_id=campaign.source_id,
-        total_rows=campaign.total_rows,
-        processed_rows=campaign.processed_rows,
-        failed_rows=campaign.failed_rows,
-        created_at=campaign.created_at,
-        started_at=campaign.started_at,
-        completed_at=campaign.completed_at,
-    )
+    return _build_campaign_response(campaign, workflow_name or "Unknown")
 
 
 @router.post("/{campaign_id}/start")
@@ -203,21 +266,7 @@ async def start_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return CampaignResponse(
-        id=campaign.id,
-        name=campaign.name,
-        workflow_id=campaign.workflow_id,
-        workflow_name=workflow_name or "Unknown",
-        state=campaign.state,
-        source_type=campaign.source_type,
-        source_id=campaign.source_id,
-        total_rows=campaign.total_rows,
-        processed_rows=campaign.processed_rows,
-        failed_rows=campaign.failed_rows,
-        created_at=campaign.created_at,
-        started_at=campaign.started_at,
-        completed_at=campaign.completed_at,
-    )
+    return _build_campaign_response(campaign, workflow_name or "Unknown")
 
 
 @router.post("/{campaign_id}/pause")
@@ -241,21 +290,7 @@ async def pause_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return CampaignResponse(
-        id=campaign.id,
-        name=campaign.name,
-        workflow_id=campaign.workflow_id,
-        workflow_name=workflow_name or "Unknown",
-        state=campaign.state,
-        source_type=campaign.source_type,
-        source_id=campaign.source_id,
-        total_rows=campaign.total_rows,
-        processed_rows=campaign.processed_rows,
-        failed_rows=campaign.failed_rows,
-        created_at=campaign.created_at,
-        started_at=campaign.started_at,
-        completed_at=campaign.completed_at,
-    )
+    return _build_campaign_response(campaign, workflow_name or "Unknown")
 
 
 @router.get("/{campaign_id}/runs")
@@ -316,21 +351,7 @@ async def resume_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return CampaignResponse(
-        id=campaign.id,
-        name=campaign.name,
-        workflow_id=campaign.workflow_id,
-        workflow_name=workflow_name or "Unknown",
-        state=campaign.state,
-        source_type=campaign.source_type,
-        source_id=campaign.source_id,
-        total_rows=campaign.total_rows,
-        processed_rows=campaign.processed_rows,
-        failed_rows=campaign.failed_rows,
-        created_at=campaign.created_at,
-        started_at=campaign.started_at,
-        completed_at=campaign.completed_at,
-    )
+    return _build_campaign_response(campaign, workflow_name or "Unknown")
 
 
 @router.get("/{campaign_id}/progress")

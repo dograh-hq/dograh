@@ -34,7 +34,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
 
   return (
     <SidebarProvider defaultOpen={!isWorkflowEditor}>
-      <div className="flex h-screen w-full">
+      <div className="flex min-h-screen w-full">
         <AppSidebar />
         <SidebarInset className="flex-1">
           {/* Optional header area for specific pages */}
@@ -60,7 +60,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
           )}
 
           {/* Main content area */}
-          <main className="flex-1 overflow-auto">
+          <main className="flex-1">
             {children}
           </main>
         </SidebarInset>

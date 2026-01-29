@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Pause, Play, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Check, Pause, Play, RefreshCw, X } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -16,6 +16,7 @@ import type { CampaignResponse, WorkflowRunResponse } from '@/client/types.gen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import {
     Table,
     TableBody,
@@ -422,6 +423,76 @@ export default function CampaignDetailPage() {
                                 </div>
                             )}
                         </dl>
+                    </CardContent>
+                </Card>
+
+                {/* Campaign Settings */}
+                <Card className="mb-6">
+                    <CardHeader>
+                        <CardTitle>Campaign Settings</CardTitle>
+                        <CardDescription>
+                            Concurrency and retry configuration
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                        {/* Concurrency Setting */}
+                        <div>
+                            <dt className="text-sm font-medium">Max Concurrent Calls</dt>
+                            <dd className="mt-1">
+                                {campaign.max_concurrency ? (
+                                    <span>{campaign.max_concurrency}</span>
+                                ) : (
+                                    <span className="text-muted-foreground">Using organization default</span>
+                                )}
+                            </dd>
+                        </div>
+
+                        <Separator />
+
+                        {/* Retry Configuration */}
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Retries Enabled</span>
+                                {campaign.retry_config.enabled ? (
+                                    <Badge variant="default" className="flex items-center gap-1">
+                                        <Check className="h-3 w-3" />
+                                        Enabled
+                                    </Badge>
+                                ) : (
+                                    <Badge variant="secondary" className="flex items-center gap-1">
+                                        <X className="h-3 w-3" />
+                                        Disabled
+                                    </Badge>
+                                )}
+                            </div>
+
+                            {campaign.retry_config.enabled && (
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 pl-4 border-l-2 border-muted">
+                                    <div>
+                                        <dt className="text-sm text-muted-foreground">Max Retries</dt>
+                                        <dd className="mt-1 font-medium">{campaign.retry_config.max_retries}</dd>
+                                    </div>
+                                    <div>
+                                        <dt className="text-sm text-muted-foreground">Retry Delay</dt>
+                                        <dd className="mt-1 font-medium">{campaign.retry_config.retry_delay_seconds}s</dd>
+                                    </div>
+                                    <div className="col-span-2 md:col-span-1">
+                                        <dt className="text-sm text-muted-foreground">Retry On</dt>
+                                        <dd className="mt-1 flex flex-wrap gap-1">
+                                            {campaign.retry_config.retry_on_busy && (
+                                                <Badge variant="outline" className="text-xs">Busy</Badge>
+                                            )}
+                                            {campaign.retry_config.retry_on_no_answer && (
+                                                <Badge variant="outline" className="text-xs">No Answer</Badge>
+                                            )}
+                                            {campaign.retry_config.retry_on_voicemail && (
+                                                <Badge variant="outline" className="text-xs">Voicemail</Badge>
+                                            )}
+                                        </dd>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </CardContent>
                 </Card>
 

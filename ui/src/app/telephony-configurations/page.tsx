@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -50,8 +51,8 @@ interface TelephonyConfigForm {
   // Cloudonix fields
   bearer_token?: string;
   domain_id?: string;
-  // Common field
-  from_number: string;
+  // Common field - multiple phone numbers
+  from_numbers: string[];
 }
 
 export default function ConfigureTelephonyPage() {
@@ -73,10 +74,28 @@ export default function ConfigureTelephonyPage() {
   } = useForm<TelephonyConfigForm>({
     defaultValues: {
       provider: "twilio",
+      from_numbers: [""],
     },
   });
 
   const selectedProvider = watch("provider");
+  const fromNumbers = watch("from_numbers") || [""];
+
+  const addPhoneNumber = () => {
+    setValue("from_numbers", [...fromNumbers, ""]);
+  };
+
+  const removePhoneNumber = (index: number) => {
+    if (fromNumbers.length > 1) {
+      setValue("from_numbers", fromNumbers.filter((_, i) => i !== index));
+    }
+  };
+
+  const updatePhoneNumber = (index: number, value: string) => {
+    const newNumbers = [...fromNumbers];
+    newNumbers[index] = value;
+    setValue("from_numbers", newNumbers);
+  };
 
   useEffect(() => {
     // Don't fetch config while auth is still loading
@@ -99,9 +118,7 @@ export default function ConfigureTelephonyPage() {
             setValue("provider", "twilio");
             setValue("account_sid", response.data.twilio.account_sid);
             setValue("auth_token", response.data.twilio.auth_token);
-            if (response.data.twilio.from_numbers?.length > 0) {
-              setValue("from_number", response.data.twilio.from_numbers[0]);
-            }
+            setValue("from_numbers", response.data.twilio.from_numbers?.length > 0 ? response.data.twilio.from_numbers : [""]);
           } else if (response.data?.vonage) {
             setHasExistingConfig(true);
             setValue("provider", "vonage");
@@ -109,26 +126,20 @@ export default function ConfigureTelephonyPage() {
             setValue("private_key", response.data.vonage.private_key);
             setValue("api_key", response.data.vonage.api_key || "");
             setValue("api_secret", response.data.vonage.api_secret || "");
-            if (response.data.vonage.from_numbers?.length > 0) {
-              setValue("from_number", response.data.vonage.from_numbers[0]);
-            }
+            setValue("from_numbers", response.data.vonage.from_numbers?.length > 0 ? response.data.vonage.from_numbers : [""]);
           } else if (response.data?.vobiz) {
             setHasExistingConfig(true);
             setValue("provider", "vobiz");
             setValue("auth_id", response.data.vobiz.auth_id);
             setValue("vobiz_auth_token", response.data.vobiz.auth_token);
-            if (response.data.vobiz.from_numbers?.length > 0) {
-              setValue("from_number", response.data.vobiz.from_numbers[0]);
-            }
+            setValue("from_numbers", response.data.vobiz.from_numbers?.length > 0 ? response.data.vobiz.from_numbers : [""]);
           } else if ((response.data as TelephonyConfigurationResponse)?.cloudonix) {
             const cloudonixConfig = (response.data as TelephonyConfigurationResponse).cloudonix as CloudonixConfigurationResponse;
             setHasExistingConfig(true);
             setValue("provider", "cloudonix");
             setValue("bearer_token", cloudonixConfig.bearer_token);
             setValue("domain_id", cloudonixConfig.domain_id);
-            if (cloudonixConfig.from_numbers?.length > 0) {
-              setValue("from_number", cloudonixConfig.from_numbers[0]);
-            }
+            setValue("from_numbers", cloudonixConfig.from_numbers?.length > 0 ? cloudonixConfig.from_numbers : [""]);
           }
         }
       } catch (error) {
@@ -152,17 +163,51 @@ export default function ConfigureTelephonyPage() {
         | VobizConfigurationRequest
         | CloudonixConfigurationRequest;
 
+      const filteredNumbers = data.from_numbers.filter(n => n.trim() !== "");
+
+      // Validate phone numbers are provided (except for Cloudonix where optional)
+      if (data.provider !== "cloudonix" && filteredNumbers.length === 0) {
+        toast.error("At least one phone number is required");
+        setIsLoading(false);
+        return;
+      }
+
+      // Validate phone number format based on provider
+      const twilioPattern = /^\+[1-9]\d{1,14}$/;
+      const vonageVobizPattern = /^[1-9]\d{1,14}$/;
+      const cloudonixPattern = /^\+?[1-9]\d{1,14}$/;
+
+      let pattern: RegExp;
+      let formatMessage: string;
+      if (data.provider === "twilio") {
+        pattern = twilioPattern;
+        formatMessage = "with + prefix (e.g., +1234567890)";
+      } else if (data.provider === "cloudonix") {
+        pattern = cloudonixPattern;
+        formatMessage = "(e.g., +1234567890)";
+      } else {
+        pattern = vonageVobizPattern;
+        formatMessage = "without + prefix (e.g., 14155551234)";
+      }
+
+      const invalidNumbers = filteredNumbers.filter(n => !pattern.test(n));
+      if (invalidNumbers.length > 0) {
+        toast.error(`Invalid phone number format. Please enter numbers ${formatMessage}`);
+        setIsLoading(false);
+        return;
+      }
+
       if (data.provider === "twilio") {
         requestBody = {
           provider: data.provider,
-          from_numbers: [data.from_number],
+          from_numbers: filteredNumbers,
           account_sid: data.account_sid,
           auth_token: data.auth_token,
         } as TwilioConfigurationRequest;
       } else if (data.provider === "vonage") {
         requestBody = {
           provider: data.provider,
-          from_numbers: [data.from_number],
+          from_numbers: filteredNumbers,
           application_id: data.application_id,
           private_key: data.private_key,
           api_key: data.api_key || undefined,
@@ -171,7 +216,7 @@ export default function ConfigureTelephonyPage() {
       } else if (data.provider === "vobiz") {
         requestBody = {
           provider: data.provider,
-          from_numbers: [data.from_number],
+          from_numbers: filteredNumbers,
           auth_id: data.auth_id,
           auth_token: data.vobiz_auth_token,
         } as VobizConfigurationRequest;
@@ -179,7 +224,7 @@ export default function ConfigureTelephonyPage() {
         // Cloudonix
         requestBody = {
           provider: data.provider,
-          from_numbers: data.from_number ? [data.from_number] : [],
+          from_numbers: filteredNumbers,
           bearer_token: data.bearer_token!,
           domain_id: data.domain_id!,
         } as CloudonixConfigurationRequest;
@@ -416,23 +461,39 @@ export default function ConfigureTelephonyPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="from_number">From Phone Number</Label>
-                        <Input
-                          id="from_number"
-                          autoComplete="tel"
-                          placeholder="+1234567890"
-                          {...register("from_number", {
-                            required: "Phone number is required",
-                            pattern: {
-                              value: /^\+[1-9]\d{1,14}$/,
-                              message:
-                                "Enter a valid phone number with country code (e.g., +1234567890)",
-                            },
-                          })}
-                        />
-                        {errors.from_number && (
+                        <Label>CLI Phone Numbers</Label>
+                        {fromNumbers.map((number, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              autoComplete="tel"
+                              placeholder="+1234567890"
+                              value={number}
+                              onChange={(e) => updatePhoneNumber(index, e.target.value)}
+                            />
+                            {fromNumbers.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => removePhoneNumber(index)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addPhoneNumber}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Phone Number
+                        </Button>
+                        {fromNumbers.some(n => n.trim() !== "" && !/^\+[1-9]\d{1,14}$/.test(n)) && (
                           <p className="text-sm text-red-500">
-                            {errors.from_number.message}
+                            Enter valid phone numbers with country code (e.g., +1234567890)
                           </p>
                         )}
                       </div>
@@ -497,23 +558,39 @@ export default function ConfigureTelephonyPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="from_number">From Phone Number</Label>
-                        <Input
-                          id="from_number"
-                          autoComplete="tel"
-                          placeholder="14155551234 (no + prefix for Vonage)"
-                          {...register("from_number", {
-                            required: "Phone number is required",
-                            pattern: {
-                              value: /^[1-9]\d{1,14}$/,
-                              message:
-                                "Enter a valid phone number without + prefix (e.g., 14155551234)",
-                            },
-                          })}
-                        />
-                        {errors.from_number && (
+                        <Label>CLI Phone Numbers</Label>
+                        {fromNumbers.map((number, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              autoComplete="tel"
+                              placeholder="14155551234 (no + prefix for Vonage)"
+                              value={number}
+                              onChange={(e) => updatePhoneNumber(index, e.target.value)}
+                            />
+                            {fromNumbers.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => removePhoneNumber(index)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addPhoneNumber}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Phone Number
+                        </Button>
+                        {fromNumbers.some(n => n.trim() !== "" && !/^[1-9]\d{1,14}$/.test(n)) && (
                           <p className="text-sm text-red-500">
-                            {errors.from_number.message}
+                            Enter valid phone numbers without + prefix (e.g., 14155551234)
                           </p>
                         )}
                       </div>
@@ -564,23 +641,39 @@ export default function ConfigureTelephonyPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="from_number">From Phone Number</Label>
-                        <Input
-                          id="from_number"
-                          autoComplete="tel"
-                          placeholder="14155551234 (no + prefix for Vobiz)"
-                          {...register("from_number", {
-                            required: "Phone number is required",
-                            pattern: {
-                              value: /^[1-9]\d{1,14}$/,
-                              message:
-                                "Enter a valid phone number without + prefix (e.g., 14155551234)",
-                            },
-                          })}
-                        />
-                        {errors.from_number && (
+                        <Label>CLI Phone Numbers</Label>
+                        {fromNumbers.map((number, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              autoComplete="tel"
+                              placeholder="14155551234 (no + prefix for Vobiz)"
+                              value={number}
+                              onChange={(e) => updatePhoneNumber(index, e.target.value)}
+                            />
+                            {fromNumbers.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => removePhoneNumber(index)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addPhoneNumber}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Phone Number
+                        </Button>
+                        {fromNumbers.some(n => n.trim() !== "" && !/^[1-9]\d{1,14}$/.test(n)) && (
                           <p className="text-sm text-red-500">
-                            {errors.from_number.message}
+                            Enter valid phone numbers without + prefix (e.g., 14155551234)
                           </p>
                         )}
                       </div>
@@ -635,24 +728,39 @@ export default function ConfigureTelephonyPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="from_number">
-                          From Phone Number (Optional)
-                        </Label>
-                        <Input
-                          id="from_number"
-                          autoComplete="tel"
-                          placeholder="+1234567890"
-                          {...register("from_number", {
-                            pattern: {
-                              value: /^\+?[1-9]\d{1,14}$/,
-                              message:
-                                "Enter a valid phone number (e.g., +1234567890)",
-                            },
-                          })}
-                        />
-                        {errors.from_number && (
+                        <Label>CLI Phone Numbers (Optional)</Label>
+                        {fromNumbers.map((number, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              autoComplete="tel"
+                              placeholder="+1234567890"
+                              value={number}
+                              onChange={(e) => updatePhoneNumber(index, e.target.value)}
+                            />
+                            {fromNumbers.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => removePhoneNumber(index)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addPhoneNumber}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Phone Number
+                        </Button>
+                        {fromNumbers.some(n => n.trim() !== "" && !/^\+?[1-9]\d{1,14}$/.test(n)) && (
                           <p className="text-sm text-red-500">
-                            {errors.from_number.message}
+                            Enter valid phone numbers (e.g., +1234567890)
                           </p>
                         )}
                         <p className="text-xs text-muted-foreground">

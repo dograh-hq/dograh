@@ -1,7 +1,9 @@
 from typing import Union
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
+from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
@@ -210,3 +212,46 @@ def preserve_masked_fields(request, existing_config, config_value):
                 field_value, existing_config.value.get(field_name, "")
             ):
                 config_value[field_name] = existing_config.value[field_name]
+
+
+class RetryConfigResponse(BaseModel):
+    enabled: bool
+    max_retries: int
+    retry_delay_seconds: int
+    retry_on_busy: bool
+    retry_on_no_answer: bool
+    retry_on_voicemail: bool
+
+
+class CampaignLimitsResponse(BaseModel):
+    concurrent_call_limit: int
+    default_retry_config: RetryConfigResponse
+
+
+@router.get("/campaign-limits", response_model=CampaignLimitsResponse)
+async def get_campaign_limits(user: UserModel = Depends(get_user)):
+    """Get campaign limits for the user's organization.
+
+    Returns the organization's concurrent call limit and default retry configuration.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    # Get concurrent call limit
+    concurrent_limit = DEFAULT_ORG_CONCURRENCY_LIMIT
+    try:
+        config = await db_client.get_configuration(
+            user.selected_organization_id,
+            OrganizationConfigurationKey.CONCURRENT_CALL_LIMIT.value,
+        )
+        if config and config.value:
+            concurrent_limit = int(
+                config.value.get("value", DEFAULT_ORG_CONCURRENCY_LIMIT)
+            )
+    except Exception:
+        pass
+
+    return CampaignLimitsResponse(
+        concurrent_call_limit=concurrent_limit,
+        default_retry_config=RetryConfigResponse(**DEFAULT_CAMPAIGN_RETRY_CONFIG),
+    )

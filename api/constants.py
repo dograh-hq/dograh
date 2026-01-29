@@ -92,3 +92,13 @@ COUNTRY_CODES = {
     "LU": "352",  # Luxembourg
     "IE": "353",  # Ireland
 }
+
+DEFAULT_ORG_CONCURRENCY_LIMIT = os.getenv("DEFAULT_ORG_CONCURRENCY_LIMIT", 2)
+DEFAULT_CAMPAIGN_RETRY_CONFIG = {
+    "enabled": True,
+    "max_retries": 1,
+    "retry_delay_seconds": 120,
+    "retry_on_busy": True,
+    "retry_on_no_answer": True,
+    "retry_on_voicemail": False,
+}

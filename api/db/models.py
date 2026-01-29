@@ -22,6 +22,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, relationship
 
+from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG
+
 from ..enums import (
     CallType,
     IntegrationAction,
@@ -537,14 +539,7 @@ class CampaignModel(Base):
     retry_config = Column(
         JSON,
         nullable=False,
-        default={
-            "enabled": True,
-            "max_retries": 2,
-            "retry_delay_seconds": 120,
-            "retry_on_busy": True,
-            "retry_on_no_answer": True,
-            "retry_on_voicemail": True,
-        },
+        default=DEFAULT_CAMPAIGN_RETRY_CONFIG,
         server_default=text(
             '\'{"enabled": true, "max_retries": 2, "retry_on_busy": true, "retry_on_no_answer": true, "retry_on_voicemail": true, "retry_delay_seconds": 120}\'::jsonb'
         ),

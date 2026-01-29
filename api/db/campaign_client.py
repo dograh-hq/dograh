@@ -17,9 +17,16 @@ class CampaignClient(BaseDBClient):
         source_id: str,
         user_id: int,
         organization_id: int,
+        retry_config: Optional[dict] = None,
+        max_concurrency: Optional[int] = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
+            # Build orchestrator_metadata with max_concurrency if provided
+            orchestrator_metadata = {}
+            if max_concurrency is not None:
+                orchestrator_metadata["max_concurrency"] = max_concurrency
+
             campaign = CampaignModel(
                 name=name,
                 workflow_id=workflow_id,
@@ -27,6 +34,10 @@ class CampaignClient(BaseDBClient):
                 source_id=source_id,
                 created_by=user_id,
                 organization_id=organization_id,
+                retry_config=retry_config
+                if retry_config
+                else CampaignModel.retry_config.default.arg,
+                orchestrator_metadata=orchestrator_metadata,
             )
             session.add(campaign)
             try:

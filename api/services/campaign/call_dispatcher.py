@@ -5,6 +5,7 @@ from typing import Optional
 
 from loguru import logger
 
+from api.constants import DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
 from api.enums import OrganizationConfigurationKey, WorkflowRunState
@@ -18,7 +19,7 @@ class CampaignCallDispatcher:
     """Manages rate-limited and concurrent-limited call dispatching"""
 
     def __init__(self):
-        self.default_concurrent_limit = 20
+        self.default_concurrent_limit = int(DEFAULT_ORG_CONCURRENCY_LIMIT)
 
     async def get_telephony_provider(self, organization_id: int) -> TelephonyProvider:
         """Get telephony provider instance for specific organization"""
@@ -132,7 +133,22 @@ class CampaignCallDispatcher:
     ) -> Optional[WorkflowRunModel]:
         """Creates workflow run and initiates call with concurrent limiting"""
         # Get concurrent limit for organization
-        max_concurrent = await self.get_org_concurrent_limit(campaign.organization_id)
+        org_concurrent_limit = await self.get_org_concurrent_limit(
+            campaign.organization_id
+        )
+
+        # Check for campaign-level max_concurrency in orchestrator_metadata
+        campaign_max_concurrency = None
+        if campaign.orchestrator_metadata:
+            campaign_max_concurrency = campaign.orchestrator_metadata.get(
+                "max_concurrency"
+            )
+
+        # Use the lower of campaign limit and org limit
+        if campaign_max_concurrency is not None:
+            max_concurrent = min(campaign_max_concurrency, org_concurrent_limit)
+        else:
+            max_concurrent = org_concurrent_limit
 
         # Track wait time for alerting
         wait_start = time.time()

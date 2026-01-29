@@ -259,7 +259,7 @@ class PipecatEngine:
         self.llm.register_function(
             name,
             transition_func,
-            cancel_on_interruption=True,
+            cancel_on_interruption=False,
         )
 
     async def _register_builtin_functions(self):

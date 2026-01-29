@@ -372,6 +372,11 @@ class WorkflowRunModel(Base):
             unique=True,
             postgresql_where=text("public_access_token IS NOT NULL"),
         ),
+        Index(
+            "idx_workflow_runs_call_id",
+            text("(gathered_context->>'call_id')"),
+            postgresql_where=text("gathered_context->>'call_id' IS NOT NULL"),
+        ),
     )
 
 

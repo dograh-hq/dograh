@@ -1,0 +1,769 @@
+{
+  "audio_file": "billing_department.m4a",
+  "audio_path": "../audio/billing_department.m4a",
+  "provider": "speechmatics",
+  "duration": 3.366893,
+  "created_at": "2026-01-28T14:44:44.848713",
+  "events": [
+    {
+      "timestamp": 1.166015863418579e-06,
+      "event_type": "Info",
+      "data": {
+        "message": "Info",
+        "type": "concurrent_session_usage",
+        "reason": "1 concurrent sessions active out of quota 2",
+        "usage": 1,
+        "quota": 2,
+        "last_updated": "2026-01-28T09:14:35Z"
+      }
+    },
+    {
+      "timestamp": 2.2519701248966157,
+      "event_type": "RecognitionStarted",
+      "data": {
+        "message": "RecognitionStarted",
+        "orchestrator_version": "2026.01.15+504a3b4d7c+14.13.0",
+        "id": "c726bc2a-8545-4fbe-a8e2-1b3bf47bec2b",
+        "language_pack_info": {
+          "adapted": false,
+          "itn": true,
+          "language_description": "English",
+          "word_delimiter": " ",
+          "writing_direction": "left-to-right"
+        }
+      }
+    },
+    {
+      "timestamp": 2.2521586660295725,
+      "event_type": "Info",
+      "data": {
+        "message": "Info",
+        "type": "recognition_quality",
+        "reason": "Running recognition using a broadcast model quality.",
+        "quality": "broadcast"
+      }
+    },
+    {
+      "timestamp": 2.525465582963079,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 1
+      }
+    },
+    {
+      "timestamp": 2.6058010410051793,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 2
+      }
+    },
+    {
+      "timestamp": 2.692795458016917,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 3
+      }
+    },
+    {
+      "timestamp": 2.769717250019312,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 4
+      }
+    },
+    {
+      "timestamp": 2.8562146660406142,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 5
+      }
+    },
+    {
+      "timestamp": 2.9351985829416662,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 6
+      }
+    },
+    {
+      "timestamp": 3.0134935828391463,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 7
+      }
+    },
+    {
+      "timestamp": 3.0981823748443276,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 8
+      }
+    },
+    {
+      "timestamp": 3.178123499965295,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 9
+      }
+    },
+    {
+      "timestamp": 3.2633222909644246,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 10
+      }
+    },
+    {
+      "timestamp": 3.340563707984984,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 11
+      }
+    },
+    {
+      "timestamp": 3.422975125024095,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 12
+      }
+    },
+    {
+      "timestamp": 3.5047679159324616,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 13
+      }
+    },
+    {
+      "timestamp": 3.5847412499133497,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 14
+      }
+    },
+    {
+      "timestamp": 3.6674655829556286,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 15
+      }
+    },
+    {
+      "timestamp": 3.7482279578689486,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 16
+      }
+    },
+    {
+      "timestamp": 3.8288538749329746,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 17
+      }
+    },
+    {
+      "timestamp": 3.914150415919721,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 18
+      }
+    },
+    {
+      "timestamp": 3.995344790862873,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 19
+      }
+    },
+    {
+      "timestamp": 4.074907124973834,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 20
+      }
+    },
+    {
+      "timestamp": 4.155347666004673,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 21
+      }
+    },
+    {
+      "timestamp": 4.242748707998544,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 22
+      }
+    },
+    {
+      "timestamp": 4.320666583022103,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 23
+      }
+    },
+    {
+      "timestamp": 4.399169499985874,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 24
+      }
+    },
+    {
+      "timestamp": 4.479986791033298,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 25
+      }
+    },
+    {
+      "timestamp": 4.561514915898442,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 26
+      }
+    },
+    {
+      "timestamp": 4.643435915932059,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 27
+      }
+    },
+    {
+      "timestamp": 4.723911207867786,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 28
+      }
+    },
+    {
+      "timestamp": 4.805873750010505,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 29
+      }
+    },
+    {
+      "timestamp": 4.887105040950701,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 30
+      }
+    },
+    {
+      "timestamp": 4.967926082899794,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 31
+      }
+    },
+    {
+      "timestamp": 5.05002929084003,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 32
+      }
+    },
+    {
+      "timestamp": 5.135565208038315,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 33
+      }
+    },
+    {
+      "timestamp": 5.212782375048846,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 34
+      }
+    },
+    {
+      "timestamp": 5.293570416048169,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 35
+      }
+    },
+    {
+      "timestamp": 5.374145332956687,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 36
+      }
+    },
+    {
+      "timestamp": 5.4545241659507155,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 37
+      }
+    },
+    {
+      "timestamp": 5.5366969159804285,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 38
+      }
+    },
+    {
+      "timestamp": 5.617715457919985,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 39
+      }
+    },
+    {
+      "timestamp": 5.698430374963209,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 40
+      }
+    },
+    {
+      "timestamp": 5.781335124978796,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 41
+      }
+    },
+    {
+      "timestamp": 5.86323649995029,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 42
+      }
+    },
+    {
+      "timestamp": 5.945636000018567,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 43
+      }
+    },
+    {
+      "timestamp": 6.0369323750492185,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 44
+      }
+    },
+    {
+      "timestamp": 6.106611500028521,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 45
+      }
+    },
+    {
+      "timestamp": 6.188817082904279,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 46
+      }
+    },
+    {
+      "timestamp": 6.270534249953926,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 47
+      }
+    },
+    {
+      "timestamp": 6.352104166056961,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 48
+      }
+    },
+    {
+      "timestamp": 6.435103040887043,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 49
+      }
+    },
+    {
+      "timestamp": 6.513447541045025,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 50
+      }
+    },
+    {
+      "timestamp": 6.5960384998470545,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 51
+      }
+    },
+    {
+      "timestamp": 6.679259999888018,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 52
+      }
+    },
+    {
+      "timestamp": 6.758154207840562,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 53
+      }
+    },
+    {
+      "timestamp": 6.841611708048731,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 54
+      }
+    },
+    {
+      "timestamp": 6.921356082893908,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 55
+      }
+    },
+    {
+      "timestamp": 7.0067201249767095,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 56
+      }
+    },
+    {
+      "timestamp": 7.083883499959484,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 57
+      }
+    },
+    {
+      "timestamp": 7.165489041013643,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 58
+      }
+    },
+    {
+      "timestamp": 7.248983249999583,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 59
+      }
+    },
+    {
+      "timestamp": 7.328776124864817,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 60
+      }
+    },
+    {
+      "timestamp": 7.415970708010718,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 61
+      }
+    },
+    {
+      "timestamp": 7.493241749936715,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 62
+      }
+    },
+    {
+      "timestamp": 7.572302374988794,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 63
+      }
+    },
+    {
+      "timestamp": 7.654820582829416,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 64
+      }
+    },
+    {
+      "timestamp": 7.736952665960416,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 65
+      }
+    },
+    {
+      "timestamp": 7.816302041057497,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 66
+      }
+    },
+    {
+      "timestamp": 7.8992077498696744,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 67
+      }
+    },
+    {
+      "timestamp": 7.980802374891937,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 68
+      }
+    },
+    {
+      "timestamp": 8.061972290975973,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 69
+      }
+    },
+    {
+      "timestamp": 8.141521875048056,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 70
+      }
+    },
+    {
+      "timestamp": 8.225720207905397,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 71
+      }
+    },
+    {
+      "timestamp": 8.239358749939129,
+      "event_type": "AddTranscript",
+      "data": {
+        "message": "AddTranscript",
+        "format": "2.9",
+        "results": [
+          {
+            "alternatives": [
+              {
+                "confidence": 0.61,
+                "content": "Building",
+                "language": "en"
+              }
+            ],
+            "end_time": 1.24,
+            "start_time": 0.84,
+            "type": "word"
+          }
+        ],
+        "metadata": {
+          "end_time": 1.24,
+          "start_time": 0.0,
+          "transcript": "Building "
+        }
+      }
+    },
+    {
+      "timestamp": 8.335481374990195,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 72
+      }
+    },
+    {
+      "timestamp": 8.386238124920055,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 73
+      }
+    },
+    {
+      "timestamp": 8.467259540921077,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 74
+      }
+    },
+    {
+      "timestamp": 8.55006245803088,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 75
+      }
+    },
+    {
+      "timestamp": 8.629941874882206,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 76
+      }
+    },
+    {
+      "timestamp": 8.713717208011076,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 77
+      }
+    },
+    {
+      "timestamp": 8.794668999966234,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 78
+      }
+    },
+    {
+      "timestamp": 8.877457082970068,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 79
+      }
+    },
+    {
+      "timestamp": 8.959119957871735,
+      "event_type": "AudioAdded",
+      "data": {
+        "message": "AudioAdded",
+        "seq_no": 80
+      }
+    },
+    {
+      "timestamp": 9.482231416041031,
+      "event_type": "AddTranscript",
+      "data": {
+        "message": "AddTranscript",
+        "format": "2.9",
+        "results": [
+          {
+            "alternatives": [
+              {
+                "confidence": 0.84,
+                "content": "department",
+                "language": "en"
+              }
+            ],
+            "end_time": 2.2,
+            "start_time": 1.24,
+            "type": "word"
+          },
+          {
+            "alternatives": [
+              {
+                "confidence": 1.0,
+                "content": ".",
+                "language": "en"
+              }
+            ],
+            "attaches_to": "previous",
+            "end_time": 2.2,
+            "is_eos": true,
+            "start_time": 2.2,
+            "type": "punctuation"
+          }
+        ],
+        "metadata": {
+          "end_time": 6.24,
+          "start_time": 1.24,
+          "transcript": "department. "
+        }
+      }
+    },
+    {
+      "timestamp": 9.51494679087773,
+      "event_type": "EndOfTranscript",
+      "data": {
+        "message": "EndOfTranscript"
+      }
+    }
+  ],
+  "transcript": "Building department.",
+  "keyterms": [
+    "billing department",
+    "bacon cheeseburger",
+    "escalation",
+    "technical support"
+  ]
+}

@@ -93,31 +93,45 @@ export default function Home() {
                 href={`/view/${result.id}`}
                 className="block bg-zinc-900 hover:bg-zinc-800 rounded-lg p-4 transition-colors"
               >
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-3">
-                      <span className="font-medium">{result.audio_file}</span>
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded ${
-                          PROVIDER_COLORS[result.provider] ||
-                          "bg-zinc-700 text-zinc-300"
-                        }`}
-                      >
-                        {result.provider}
-                      </span>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-3">
+                        <span className="font-medium">{result.audio_file}</span>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded ${
+                            PROVIDER_COLORS[result.provider] ||
+                            "bg-zinc-700 text-zinc-300"
+                          }`}
+                        >
+                          {result.provider}
+                        </span>
+                      </div>
+                      <div className="text-sm text-zinc-500">
+                        {formatDate(result.created_at)}
+                      </div>
                     </div>
-                    <div className="text-sm text-zinc-500">
-                      {formatDate(result.created_at)}
+                    <div className="text-right space-y-1">
+                      <div className="text-sm text-zinc-400">
+                        {formatDuration(result.duration)}
+                      </div>
+                      <div className="text-xs text-zinc-500">
+                        {result.event_count} events
+                      </div>
                     </div>
                   </div>
-                  <div className="text-right space-y-1">
-                    <div className="text-sm text-zinc-400">
-                      {formatDuration(result.duration)}
+                  {result.keyterms && result.keyterms.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {result.keyterms.map((term, index) => (
+                        <span
+                          key={index}
+                          className="text-xs px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                        >
+                          {term}
+                        </span>
+                      ))}
                     </div>
-                    <div className="text-xs text-zinc-500">
-                      {result.event_count} events
-                    </div>
-                  </div>
+                  )}
                 </div>
               </Link>
             ))}

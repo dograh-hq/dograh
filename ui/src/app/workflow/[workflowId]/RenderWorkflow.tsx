@@ -6,7 +6,7 @@ import {
     Panel,
     ReactFlow,
 } from "@xyflow/react";
-import { BrushCleaning, Maximize2, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
+import { BookA, BrushCleaning, Maximize2, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { listDocumentsApiV1KnowledgeBaseDocumentsGet, listToolsApiV1ToolsGet } from '@/client';
@@ -20,6 +20,7 @@ import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { AgentNode, EndCall, GlobalNode, StartCall, TriggerNode, WebhookNode } from "../../../components/flow/nodes";
 import { ConfigurationsDialog } from './components/ConfigurationsDialog';
+import { DictionaryDialog } from './components/DictionaryDialog';
 import { EmbedDialog } from './components/EmbedDialog';
 import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { TemplateContextVariablesDialog } from './components/TemplateContextVariablesDialog';
@@ -63,6 +64,7 @@ interface RenderWorkflowProps {
 function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, user, getAccessToken }: RenderWorkflowProps) {
     const [isContextVarsDialogOpen, setIsContextVarsDialogOpen] = useState(false);
     const [isConfigurationsDialogOpen, setIsConfigurationsDialogOpen] = useState(false);
+    const [isDictionaryDialogOpen, setIsDictionaryDialogOpen] = useState(false);
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
@@ -88,7 +90,9 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         onNodesChange,
         onRun,
         saveTemplateContextVariables,
-        saveWorkflowConfigurations
+        saveWorkflowConfigurations,
+        dictionary,
+        saveDictionary
     } = useWorkflowState({
         initialWorkflowName,
         workflowId,
@@ -243,6 +247,22 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                                             <Button
                                                 variant="outline"
                                                 size="icon"
+                                                onClick={() => setIsDictionaryDialogOpen(true)}
+                                                className="bg-white shadow-sm hover:shadow-md"
+                                            >
+                                                <BookA className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="left">
+                                            <p>Dictionary</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
                                                 onClick={() => setIsEmbedDialogOpen(true)}
                                                 className="bg-white shadow-sm hover:shadow-md"
                                             >
@@ -354,6 +374,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     onOpenChange={setIsContextVarsDialogOpen}
                     templateContextVariables={templateContextVariables}
                     onSave={saveTemplateContextVariables}
+                />
+
+                <DictionaryDialog
+                    open={isDictionaryDialogOpen}
+                    onOpenChange={setIsDictionaryDialogOpen}
+                    dictionary={dictionary}
+                    onSave={saveDictionary}
                 />
 
                 <EmbedDialog

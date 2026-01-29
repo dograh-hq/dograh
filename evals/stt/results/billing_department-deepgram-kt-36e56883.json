@@ -1,0 +1,411 @@
+{
+  "audio_file": "billing_department.m4a",
+  "audio_path": "../audio/billing_department.m4a",
+  "provider": "deepgram",
+  "duration": 3.366893,
+  "created_at": "2026-01-28T14:44:20.298166",
+  "events": [
+    {
+      "timestamp": 6.249174475669861e-07,
+      "event_type": "SpeechStarted",
+      "data": {
+        "type": "SpeechStarted",
+        "channel": [
+          0,
+          1
+        ],
+        "timestamp": 0.69
+      }
+    },
+    {
+      "timestamp": 0.35415166709572077,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0399375,
+        "start": 0.0,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 1.4038341669365764,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0799375,
+        "start": 0.0,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "Billing department",
+              "confidence": 1.0,
+              "words": [
+                {
+                  "word": "billing",
+                  "start": 0.71999997,
+                  "end": 1.12,
+                  "confidence": 0.5859375,
+                  "punctuated_word": "Billing"
+                },
+                {
+                  "word": "department",
+                  "start": 1.12,
+                  "end": 1.76,
+                  "confidence": 1.0,
+                  "punctuated_word": "department"
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 1.6528216670267284,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.29,
+        "start": 0.0,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "Billing department.",
+              "confidence": 0.92944336,
+              "words": [
+                {
+                  "word": "billing",
+                  "start": 0.71999997,
+                  "end": 1.12,
+                  "confidence": 0.49365234,
+                  "punctuated_word": "Billing"
+                },
+                {
+                  "word": "department",
+                  "start": 1.12,
+                  "end": 1.76,
+                  "confidence": 0.92944336,
+                  "punctuated_word": "department."
+                }
+              ]
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 1.873247167095542,
+      "event_type": "SpeechStarted",
+      "data": {
+        "type": "SpeechStarted",
+        "channel": [
+          0,
+          1
+        ],
+        "timestamp": 2.48
+      }
+    },
+    {
+      "timestamp": 2.0547706249635667,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 0.3800001,
+        "start": 2.29,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 3.1265713339671493,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 1.0168123,
+        "start": 2.67,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 3.126730459043756,
+      "event_type": "UtteranceEnd",
+      "data": {
+        "type": "UtteranceEnd",
+        "channel": [
+          0,
+          1
+        ],
+        "last_word_end": 1.76
+      }
+    },
+    {
+      "timestamp": 4.1764094170648605,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 2.0568123,
+        "start": 2.67,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 5.243699250044301,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 3.0968122,
+        "start": 2.67,
+        "is_final": false,
+        "speech_final": false,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 5.883386292029172,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 3.6568122,
+        "start": 2.67,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 5.885270999977365,
+      "event_type": "Results",
+      "data": {
+        "type": "Results",
+        "channel_index": [
+          0,
+          1
+        ],
+        "duration": 0.0,
+        "start": 6.3268123,
+        "is_final": true,
+        "speech_final": true,
+        "channel": {
+          "alternatives": [
+            {
+              "transcript": "",
+              "confidence": 0.0,
+              "words": []
+            }
+          ]
+        },
+        "metadata": {
+          "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+          "model_info": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          },
+          "model_uuid": "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        },
+        "from_finalize": false
+      }
+    },
+    {
+      "timestamp": 5.885405584005639,
+      "event_type": "Metadata",
+      "data": {
+        "type": "Metadata",
+        "transaction_key": "deprecated",
+        "request_id": "50820bed-7f00-4adc-8ce2-d119720030e4",
+        "sha256": "cfb86929b56f55283684f9b1d1edd3fcbd991d7a0facb35503125692e7ae171f",
+        "created": "2026-01-28T09:14:13.297Z",
+        "duration": 6.3268123,
+        "channels": 1,
+        "models": [
+          "40bd3654-e622-47c4-a111-63a61b23bfe8"
+        ],
+        "model_info": {
+          "40bd3654-e622-47c4-a111-63a61b23bfe8": {
+            "name": "general-nova-3",
+            "version": "2025-04-17.21547",
+            "arch": "nova-3"
+          }
+        }
+      }
+    }
+  ],
+  "transcript": "Billing department.",
+  "keyterms": [
+    "billing department",
+    "bacon cheeseburger",
+    "escalation",
+    "technical support"
+  ]
+}

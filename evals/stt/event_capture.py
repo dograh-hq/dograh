@@ -54,9 +54,10 @@ class EventCaptureResult:
     created_at: str
     events: list[CapturedEvent] = field(default_factory=list)
     transcript: str = ""  # Final transcript for reference
+    keyterms: list[str] = field(default_factory=list)  # Keyterms used for recognition
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "audio_file": self.audio_file,
             "audio_path": self.audio_path,
             "provider": self.provider,
@@ -65,6 +66,9 @@ class EventCaptureResult:
             "events": [e.to_dict() for e in self.events],
             "transcript": self.transcript,
         }
+        if self.keyterms:
+            result["keyterms"] = self.keyterms
+        return result
 
 
 EventCallback = Callable[[str, dict[str, Any]], None]
@@ -86,6 +90,7 @@ async def capture_events(
     provider: STTProvider,
     audio_path: Path,
     sample_rate: int = 8000,
+    keyterms: list[str] | None = None,
     **kwargs: Any,
 ) -> EventCaptureResult:
     """Capture WebSocket events from a provider.
@@ -94,6 +99,7 @@ async def capture_events(
         provider: The STT provider to use
         audio_path: Path to the audio file
         sample_rate: Audio sample rate
+        keyterms: Optional list of keyterms to boost recognition
         **kwargs: Additional provider parameters
 
     Returns:
@@ -120,6 +126,7 @@ async def capture_events(
     result = await provider.transcribe(
         audio_path,
         sample_rate=sample_rate,
+        keyterms=keyterms,
         on_event=on_event,
         **kwargs,
     )
@@ -132,7 +139,24 @@ async def capture_events(
         created_at=datetime.now().isoformat(),
         events=events,
         transcript=result.transcript,
+        keyterms=keyterms or [],
     )
+
+
+def _hash_keyterms(keyterms: list[str]) -> str:
+    """Generate a short hash of keyterms for unique filenames.
+
+    Args:
+        keyterms: List of keyterms to hash
+
+    Returns:
+        8-character hash string
+    """
+    import hashlib
+    # Sort keyterms for consistent hashing regardless of order
+    sorted_terms = sorted(keyterms)
+    content = ",".join(sorted_terms)
+    return hashlib.sha256(content.encode()).hexdigest()[:8]
 
 
 def save_result(result: EventCaptureResult, output_dir: Path) -> Path:
@@ -147,9 +171,10 @@ def save_result(result: EventCaptureResult, output_dir: Path) -> Path:
     """
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Format: {audio_name}-{provider}.json
+    # Format: {audio_name}-{provider}.json or {audio_name}-{provider}-kt-{hash}.json
     audio_name = Path(result.audio_file).stem
-    output_file = output_dir / f"{audio_name}-{result.provider}.json"
+    suffix = f"-kt-{_hash_keyterms(result.keyterms)}" if result.keyterms else ""
+    output_file = output_dir / f"{audio_name}-{result.provider}{suffix}.json"
 
     with open(output_file, "w") as f:
         json.dump(result.to_dict(), f, indent=2)
@@ -190,6 +215,12 @@ Examples:
         help="Enable speaker diarization",
     )
     parser.add_argument(
+        "--keyterms",
+        type=str,
+        default=None,
+        help="Comma-separated list of keyterms to boost recognition (e.g., 'technical support,escalation')",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="results",
@@ -208,10 +239,17 @@ Examples:
         print(f"Error: Audio file not found: {audio_path}")
         return 1
 
+    # Parse keyterms from comma-separated string
+    keyterms = None
+    if args.keyterms:
+        keyterms = [term.strip() for term in args.keyterms.split(",") if term.strip()]
+
     print(f"Audio file: {audio_path}")
     print(f"Provider: {args.provider}")
     print(f"Sample rate: {args.sample_rate} Hz")
     print(f"Diarization: {args.diarize}")
+    if keyterms:
+        print(f"Keyterms: {keyterms}")
 
     try:
         provider = get_provider(args.provider)
@@ -222,6 +260,7 @@ Examples:
             audio_path,
             sample_rate=args.sample_rate,
             diarize=args.diarize,
+            keyterms=keyterms,
         )
 
         output_dir = script_dir / args.output_dir

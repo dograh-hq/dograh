@@ -15,6 +15,7 @@ export interface WorkflowConfigurations {
     ambient_noise_configuration: AmbientNoiseConfiguration;
     max_call_duration: number;  // Maximum call duration in seconds
     max_user_idle_timeout: number;  // Maximum user idle time in seconds
+    dictionary?: string;  // Comma-separated words for voice agent to listen for
     [key: string]: unknown;  // Allow additional properties for future configurations
 }
 
@@ -30,5 +31,6 @@ export const DEFAULT_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
         volume: 0.3
     },
     max_call_duration: 600,  // 10 minutes
-    max_user_idle_timeout: 10  // 10 seconds
+    max_user_idle_timeout: 10,  // 10 seconds
+    dictionary: ''
 };

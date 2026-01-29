@@ -104,7 +104,24 @@ export default function ViewPage() {
             >
               {result.provider}
             </span>
+            {result.keyterms && result.keyterms.length > 0 && (
+              <span className="text-sm px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                {result.keyterms.length} keyterm{result.keyterms.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
+          {result.keyterms && result.keyterms.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {result.keyterms.map((term, index) => (
+                <span
+                  key={index}
+                  className="text-xs px-2 py-1 rounded bg-amber-500/10 text-amber-300 border border-amber-500/30"
+                >
+                  {term}
+                </span>
+              ))}
+            </div>
+          )}
           {result.transcript && (
             <p className="text-zinc-400 mt-2 text-sm line-clamp-2">
               {result.transcript}

@@ -443,12 +443,7 @@ async def _run_pipeline(
     # Get user configuration
     user_config = await db_client.get_user_configurations(user_id)
 
-    # Create services based on user configuration
-    stt = create_stt_service(user_config)
-    tts = create_tts_service(user_config, audio_config)
-    llm = create_llm_service(user_config)
-
-    # Get workflow first so we can create engine before pipeline components
+    # Get workflow first so we can extract configurations before creating services
     workflow = await db_client.get_workflow(workflow_id, user_id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
@@ -456,6 +451,7 @@ async def _run_pipeline(
     # Extract configurations from workflow configurations
     max_call_duration_seconds = 300  # Default 5 minutes
     max_user_idle_timeout = 10.0  # Default 10 seconds
+    keyterms = None  # Dictionary words for STT boosting
 
     if workflow.workflow_configurations:
         # Use workflow-specific max call duration if provided
@@ -469,6 +465,20 @@ async def _run_pipeline(
             max_user_idle_timeout = workflow.workflow_configurations[
                 "max_user_idle_timeout"
             ]
+
+        # Extract dictionary words and convert to keyterms list
+        if "dictionary" in workflow.workflow_configurations:
+            dictionary = workflow.workflow_configurations["dictionary"]
+            if dictionary and isinstance(dictionary, str):
+                # Split by comma and strip whitespace from each term
+                keyterms = [
+                    term.strip() for term in dictionary.split(",") if term.strip()
+                ]
+
+    # Create services based on user configuration
+    stt = create_stt_service(user_config, keyterms=keyterms)
+    tts = create_tts_service(user_config, audio_config)
+    llm = create_llm_service(user_config)
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)

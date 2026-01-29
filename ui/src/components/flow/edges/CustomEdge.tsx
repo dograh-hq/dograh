@@ -227,7 +227,7 @@ export default function CustomEdge(props: CustomEdgeProps) {
                             : isHovered
                                 ? 'drop-shadow(0 0 6px rgba(96, 165, 250, 0.4))'
                                 : 'none',
-                        transition: 'all 0.2s ease',
+                        transition: 'stroke 0.2s ease, stroke-width 0.2s ease, filter 0.2s ease',
                     }}
                     interactionWidth={20}
                 />

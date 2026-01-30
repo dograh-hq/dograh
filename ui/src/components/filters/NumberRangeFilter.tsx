@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,13 +26,23 @@ export const NumberRangeFilter: React.FC<NumberRangeFilterProps> = ({
   step = 1,
   presets = [],
 }) => {
-  const handleMinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value === "" ? null : Number(e.target.value);
+  // Local state for fast typing - only syncs to parent on blur
+  const [localMin, setLocalMin] = useState<string>(value.min?.toString() ?? "");
+  const [localMax, setLocalMax] = useState<string>(value.max?.toString() ?? "");
+
+  // Sync local state when parent value changes (e.g., from URL, clear, or presets)
+  useEffect(() => {
+    setLocalMin(value.min?.toString() ?? "");
+    setLocalMax(value.max?.toString() ?? "");
+  }, [value.min, value.max]);
+
+  const handleMinBlur = () => {
+    const newValue = localMin === "" ? null : Number(localMin);
     onChange({ ...value, min: newValue });
   };
 
-  const handleMaxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const newValue = e.target.value === "" ? null : Number(e.target.value);
+  const handleMaxBlur = () => {
+    const newValue = localMax === "" ? null : Number(localMax);
     onChange({ ...value, max: newValue });
   };
 
@@ -64,8 +76,9 @@ export const NumberRangeFilter: React.FC<NumberRangeFilterProps> = ({
             id="min-value"
             type="number"
             placeholder={`Min ${unit || 'value'}`}
-            value={value.min ?? ""}
-            onChange={handleMinChange}
+            value={localMin}
+            onChange={(e) => setLocalMin(e.target.value)}
+            onBlur={handleMinBlur}
             min={min}
             max={max}
             step={step}
@@ -80,8 +93,9 @@ export const NumberRangeFilter: React.FC<NumberRangeFilterProps> = ({
             id="max-value"
             type="number"
             placeholder={`Max ${unit || 'value'}`}
-            value={value.max ?? ""}
-            onChange={handleMaxChange}
+            value={localMax}
+            onChange={(e) => setLocalMax(e.target.value)}
+            onBlur={handleMaxBlur}
             min={min}
             max={max}
             step={step}

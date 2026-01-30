@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from "react";
@@ -31,7 +31,6 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUserConfig } from '@/context/UserConfigContext';
-import { getDispositionBadgeVariant } from '@/lib/dispositionBadgeVariant';
 import{ superadminFilterAttributes } from "@/lib/filterAttributes";
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import { impersonateAsSuperadmin } from '@/lib/utils';
@@ -81,13 +80,21 @@ export default function RunsPage() {
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(false);
     const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
-    const [currentTime, setCurrentTime] = useState(Date.now());
     const limit = 50;
 
     // Initialize filters from URL
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
         return decodeFiltersFromURL(searchParams, superadminFilterAttributes);
     });
+
+    // Applied filters are the ones actually used for fetching (only updated on Apply click)
+    const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
+        return decodeFiltersFromURL(searchParams, superadminFilterAttributes);
+    });
+
+    // Sort state
+    const [sortBy, setSortBy] = useState<string | null>(null);
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
     // Dialog state for comment editing
     const [isCommentDialogOpen, setIsCommentDialogOpen] = useState(false);
@@ -100,7 +107,13 @@ export default function RunsPage() {
     // Media preview dialog
     const mediaPreview = MediaPreviewDialog({ accessToken });
 
-    const fetchRuns = useCallback(async (page: number, filters?: ActiveFilter[], isAutoRefresh = false) => {
+    const fetchRuns = useCallback(async (
+        page: number,
+        filters?: ActiveFilter[],
+        isAutoRefresh = false,
+        sortByParam?: string | null,
+        sortOrderParam?: 'asc' | 'desc'
+    ) => {
         if (!accessToken) return;
 
         // Don't show loading state for auto-refresh to prevent UI flicker
@@ -126,7 +139,9 @@ export default function RunsPage() {
                 query: {
                     page,
                     limit,
-                    ...(filterParam && { filters: filterParam })
+                    ...(filterParam && { filters: filterParam }),
+                    ...(sortByParam && { sort_by: sortByParam }),
+                    ...(sortOrderParam && { sort_order: sortOrderParam }),
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -169,55 +184,42 @@ export default function RunsPage() {
     }, [router]);
 
     useEffect(() => {
-        // Fetch runs when token is available and when page changes
+        // Fetch runs when token is available and when page/sort changes
         if (accessToken) {
-            fetchRuns(currentPage, activeFilters);
+            fetchRuns(currentPage, appliedFilters, false, sortBy, sortOrder);
         }
-    }, [currentPage, accessToken, activeFilters, fetchRuns]);
+    }, [currentPage, accessToken, appliedFilters, fetchRuns, sortBy, sortOrder]);
 
     // Auto-refresh every 5 seconds when enabled and filters are active
     useEffect(() => {
-        // Only set up interval if auto-refresh is enabled and there are active filters
-        if (!autoRefresh || activeFilters.length === 0) {
+        // Only set up interval if auto-refresh is enabled and there are applied filters
+        if (!autoRefresh || appliedFilters.length === 0) {
             return;
         }
 
         const intervalId = setInterval(() => {
             // Pass true to indicate this is an auto-refresh
-            fetchRuns(currentPage, activeFilters, true);
+            fetchRuns(currentPage, appliedFilters, true, sortBy, sortOrder);
         }, 5000);
 
         // Cleanup interval on unmount or when dependencies change
         return () => clearInterval(intervalId);
-    }, [currentPage, activeFilters, fetchRuns, autoRefresh]);
-
-    // Update current time every second to show live duration for running calls
-    useEffect(() => {
-        const hasRunningCalls = runs.some(run => !run.is_completed);
-        if (!hasRunningCalls) {
-            return;
-        }
-
-        const intervalId = setInterval(() => {
-            setCurrentTime(Date.now());
-        }, 1000);
-
-        return () => clearInterval(intervalId);
-    }, [runs]);
+    }, [currentPage, appliedFilters, fetchRuns, autoRefresh, sortBy, sortOrder]);
 
     const handlePageChange = (page: number) => {
         setCurrentPage(page);
-        updatePageInUrl(page, activeFilters);
-        fetchRuns(page, activeFilters);
+        updatePageInUrl(page, appliedFilters);
+        fetchRuns(page, appliedFilters, false, sortBy, sortOrder);
     };
 
     const handleApplyFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1); // Reset to first page when applying filters
+        setAppliedFilters(activeFilters); // Update applied filters
         updatePageInUrl(1, activeFilters);
-        await fetchRuns(1, activeFilters);
+        await fetchRuns(1, activeFilters, false, sortBy, sortOrder);
         setIsExecutingFilters(false);
-    }, [activeFilters, fetchRuns, updatePageInUrl]);
+    }, [activeFilters, fetchRuns, updatePageInUrl, sortBy, sortOrder]);
 
     const handleFiltersChange = useCallback((filters: ActiveFilter[]) => {
         setActiveFilters(filters);
@@ -226,10 +228,25 @@ export default function RunsPage() {
     const handleClearFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1);
+        setAppliedFilters([]); // Clear applied filters
         updatePageInUrl(1, []); // Clear filters from URL
-        await fetchRuns(1, []); // Fetch all runs without filters
+        await fetchRuns(1, [], false, sortBy, sortOrder); // Fetch all runs without filters
         setIsExecutingFilters(false);
-    }, [fetchRuns, updatePageInUrl]);
+    }, [fetchRuns, updatePageInUrl, sortBy, sortOrder]);
+
+    const handleSort = useCallback((field: string) => {
+        // Reset to first page when sort changes
+        setCurrentPage(1);
+
+        if (sortBy === field) {
+            // Toggle order if same field
+            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            // New field, default to desc
+            setSortBy(field);
+            setSortOrder('desc');
+        }
+    }, [sortBy]);
 
     // Save comment function declared outside JSX (requirement #2)
     const saveAdminComment = useCallback(async () => {
@@ -265,29 +282,10 @@ export default function RunsPage() {
 
     const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
 
-    const calculateDuration = (createdAt: string, isCompleted: boolean, usageInfo?: Record<string, unknown>) => {
+    const calculateDuration = (isCompleted: boolean, usageInfo?: Record<string, unknown>) => {
         if (isCompleted && typeof usageInfo?.call_duration_seconds === 'number') {
             return `${Number(usageInfo.call_duration_seconds).toFixed(2)}s`;
         }
-
-        if (!isCompleted) {
-            const startTime = new Date(createdAt).getTime();
-            const duration = Math.floor((currentTime - startTime) / 1000);
-
-            // If duration exceeds 5 minutes (300 seconds), show "-" as it's likely an error
-            if (duration > 300) {
-                return '-';
-            }
-
-            if (duration < 60) {
-                return `${duration}s`;
-            } else {
-                const minutes = Math.floor(duration / 60);
-                const seconds = duration % 60;
-                return `${minutes}m ${seconds}s`;
-            }
-        }
-
         return '-';
     };
 
@@ -383,9 +381,33 @@ export default function RunsPage() {
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Tags</TableHead>
                                                 <TableHead className="font-semibold">Comment</TableHead>
-                                                <TableHead className="font-semibold">Duration</TableHead>
+                                                <TableHead
+                                                    className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
+                                                    onClick={() => handleSort('duration')}
+                                                >
+                                                    <div className="flex items-center gap-1">
+                                                        Duration
+                                                        {sortBy === 'duration' ? (
+                                                            sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                                                        ) : (
+                                                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                    </div>
+                                                </TableHead>
                                                 <TableHead className="font-semibold">Dograh Token</TableHead>
-                                                <TableHead className="font-semibold">Created At</TableHead>
+                                                <TableHead
+                                                    className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
+                                                    onClick={() => handleSort('created_at')}
+                                                >
+                                                    <div className="flex items-center gap-1">
+                                                        Created At
+                                                        {sortBy === 'created_at' ? (
+                                                            sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                                                        ) : (
+                                                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                    </div>
+                                                </TableHead>
                                                 <TableHead className="font-semibold">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -393,7 +415,7 @@ export default function RunsPage() {
                                             {runs.map((run) => (
                                                 <TableRow
                                                     key={run.id}
-                                                    className={selectedRowId === run.id ? "bg-blue-50" : ""}>
+                                                    className={selectedRowId === run.id ? "bg-primary/20 ring-1 ring-primary/50" : ""}>
                                                     <TableCell className="font-mono text-sm">
                                                         #{run.id}
                                                     </TableCell>
@@ -422,7 +444,7 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell>
                                                         {run.gathered_context?.mapped_call_disposition ? (
-                                                            <Badge variant={getDispositionBadgeVariant(run.gathered_context.mapped_call_disposition as string)}>
+                                                            <Badge variant="default">
                                                                 {run.gathered_context.mapped_call_disposition as string}
                                                             </Badge>
                                                         ) : (
@@ -451,7 +473,7 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell className="text-sm whitespace-pre-wrap break-words">
                                                         <span className={!run.is_completed ? "font-semibold text-blue-600" : ""}>
-                                                            {calculateDuration(run.created_at, run.is_completed, run.usage_info)}
+                                                            {calculateDuration(run.is_completed, run.usage_info)}
                                                         </span>
                                                     </TableCell>
                                                     <TableCell className="text-sm">

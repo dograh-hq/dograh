@@ -23,7 +23,6 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { useUserConfig } from '@/context/UserConfigContext';
-import { getDispositionBadgeVariant } from '@/lib/dispositionBadgeVariant';
 import { usageFilterAttributes } from '@/lib/filterAttributes';
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import { ActiveFilter, DateRangeValue } from '@/types/filters';
@@ -534,7 +533,7 @@ export default function UsagePage() {
                                                     </TableCell>
                                                     <TableCell>
                                                         {run.disposition ? (
-                                                            <Badge variant={getDispositionBadgeVariant(run.disposition)}>
+                                                            <Badge variant="default">
                                                                 {run.disposition}
                                                             </Badge>
                                                         ) : (

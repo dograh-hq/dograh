@@ -3,16 +3,47 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Integer, and_, cast, func
+from sqlalchemy import Float, Integer, and_, cast, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from api.db.models import WorkflowRunModel
+
+
+def get_workflow_run_order_clause(
+    sort_by: Optional[str] = None,
+    sort_order: str = "desc",
+):
+    """
+    Get the order clause for workflow run queries.
+
+    Args:
+        sort_by: Field to sort by ('duration', 'created_at', etc.)
+        sort_order: 'asc' or 'desc'
+
+    Returns:
+        SQLAlchemy order clause
+    """
+    # Determine sort column
+    if sort_by == "duration":
+        sort_column = WorkflowRunModel.cost_info.op("->>")(
+            "call_duration_seconds"
+        ).cast(Float)
+    else:
+        # Default to created_at
+        sort_column = WorkflowRunModel.created_at
+
+    # Apply sort order
+    if sort_order == "asc":
+        return sort_column.asc().nullslast()
+    else:
+        return sort_column.desc().nullslast()
+
 
 # Mapping of attribute names to database fields
 ATTRIBUTE_FIELD_MAPPING = {
     "dateRange": "created_at",
     "dispositionCode": "gathered_context.mapped_call_disposition",
-    "duration": "usage_info.call_duration_seconds",
+    "duration": "cost_info.call_duration_seconds",
     "status": "is_completed",
     "tokenUsage": "cost_info.total_cost_usd",
     "runId": "id",
@@ -153,7 +184,7 @@ def apply_workflow_run_filters(
                 min_val = value.get("min")
                 max_val = value.get("max")
 
-                if field == "usage_info.call_duration_seconds":
+                if field == "cost_info.call_duration_seconds":
                     # Use ->> operator for compatibility with all PostgreSQL versions
                     # (subscript [] only works in PostgreSQL 14+)
                     duration_text = cast(WorkflowRunModel.usage_info, JSONB).op("->>")(

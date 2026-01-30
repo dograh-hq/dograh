@@ -1,5 +1,5 @@
 import { CalendarIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -24,6 +24,19 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
 }) => {
   const [isFromOpen, setIsFromOpen] = useState(false);
   const [isToOpen, setIsToOpen] = useState(false);
+
+  // Local state for time inputs - only syncs to parent on blur
+  const [fromTime, setFromTime] = useState(value.from?.toTimeString().slice(0, 5) ?? "");
+  const [toTime, setToTime] = useState(value.to?.toTimeString().slice(0, 5) ?? "");
+
+  // Sync local time state when parent value changes
+  useEffect(() => {
+    setFromTime(value.from?.toTimeString().slice(0, 5) ?? "");
+  }, [value.from]);
+
+  useEffect(() => {
+    setToTime(value.to?.toTimeString().slice(0, 5) ?? "");
+  }, [value.to]);
 
   const formatDate = (date: Date | null) => {
     if (!date) return "Select date";
@@ -55,10 +68,11 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
     setIsToOpen(false);
   };
 
-  const handleTimeChange = (type: 'from' | 'to', timeString: string) => {
+  const handleTimeBlur = (type: 'from' | 'to') => {
+    const timeString = type === 'from' ? fromTime : toTime;
     const [hours, minutes] = timeString.split(':').map(Number);
     const date = type === 'from' ? value.from : value.to;
-    if (date) {
+    if (date && !isNaN(hours) && !isNaN(minutes)) {
       const newDate = new Date(date);
       newDate.setHours(hours, minutes);
       onChange({ ...value, [type]: newDate });
@@ -112,8 +126,9 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
                     id="from-time"
                     type="time"
                     className="w-full mt-1 px-3 py-2 border rounded-md"
-                    value={value.from.toTimeString().slice(0, 5)}
-                    onChange={(e) => handleTimeChange('from', e.target.value)}
+                    value={fromTime}
+                    onChange={(e) => setFromTime(e.target.value)}
+                    onBlur={() => handleTimeBlur('from')}
                   />
                 </div>
               )}
@@ -151,8 +166,9 @@ export const DateRangeFilter: React.FC<DateRangeFilterProps> = ({
                     id="to-time"
                     type="time"
                     className="w-full mt-1 px-3 py-2 border rounded-md"
-                    value={value.to.toTimeString().slice(0, 5)}
-                    onChange={(e) => handleTimeChange('to', e.target.value)}
+                    value={toTime}
+                    onChange={(e) => setToTime(e.target.value)}
+                    onBlur={() => handleTimeBlur('to')}
                   />
                 </div>
               )}

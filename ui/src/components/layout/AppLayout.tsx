@@ -24,8 +24,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   // Hide sidebar for root (/) and /handler routes (Stack Auth routes)
   const shouldShowSidebar = pathname !== "/" && !pathname.startsWith("/handler");
 
-  // Check if we're in workflow editor mode - collapse sidebar by default
+  // Check if we're in workflow editor mode or superadmin runs - collapse sidebar by default
   const isWorkflowEditor = /^\/workflow\/\d+/.test(pathname);
+  const isSuperadmin = pathname.startsWith("/superadmin");
 
   // If no sidebar needed, just return children
   if (!shouldShowSidebar) {
@@ -33,7 +34,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   }
 
   return (
-    <SidebarProvider defaultOpen={!isWorkflowEditor}>
+    <SidebarProvider defaultOpen={!isWorkflowEditor && !isSuperadmin}>
       <div className="flex min-h-screen w-full">
         <AppSidebar />
         <SidebarInset className="flex-1">

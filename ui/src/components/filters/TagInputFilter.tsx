@@ -1,4 +1,4 @@
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,11 @@ interface TagInputFilterProps {
 
 export const TagInputFilter: React.FC<TagInputFilterProps> = ({ value, onChange, error, placeholder="Enter tags (comma separated)" }) => {
   const [text, setText] = useState(value.codes.join(", "));
+
+  // Sync local state when parent value changes (e.g., from URL or clear)
+  useEffect(() => {
+    setText(value.codes.join(", "));
+  }, [value.codes]);
 
   const handleBlur = (e: ChangeEvent<HTMLInputElement>) => {
     const tags = e.target.value

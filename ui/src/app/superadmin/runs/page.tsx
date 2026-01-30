@@ -81,11 +81,15 @@ export default function RunsPage() {
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(false);
     const [isAutoRefreshing, setIsAutoRefreshing] = useState(false);
-    const [currentTime, setCurrentTime] = useState(Date.now());
     const limit = 50;
 
     // Initialize filters from URL
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
+        return decodeFiltersFromURL(searchParams, superadminFilterAttributes);
+    });
+
+    // Applied filters are the ones actually used for fetching (only updated on Apply click)
+    const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
         return decodeFiltersFromURL(searchParams, superadminFilterAttributes);
     });
 
@@ -171,49 +175,36 @@ export default function RunsPage() {
     useEffect(() => {
         // Fetch runs when token is available and when page changes
         if (accessToken) {
-            fetchRuns(currentPage, activeFilters);
+            fetchRuns(currentPage, appliedFilters);
         }
-    }, [currentPage, accessToken, activeFilters, fetchRuns]);
+    }, [currentPage, accessToken, appliedFilters, fetchRuns]);
 
     // Auto-refresh every 5 seconds when enabled and filters are active
     useEffect(() => {
-        // Only set up interval if auto-refresh is enabled and there are active filters
-        if (!autoRefresh || activeFilters.length === 0) {
+        // Only set up interval if auto-refresh is enabled and there are applied filters
+        if (!autoRefresh || appliedFilters.length === 0) {
             return;
         }
 
         const intervalId = setInterval(() => {
             // Pass true to indicate this is an auto-refresh
-            fetchRuns(currentPage, activeFilters, true);
+            fetchRuns(currentPage, appliedFilters, true);
         }, 5000);
 
         // Cleanup interval on unmount or when dependencies change
         return () => clearInterval(intervalId);
-    }, [currentPage, activeFilters, fetchRuns, autoRefresh]);
-
-    // Update current time every second to show live duration for running calls
-    useEffect(() => {
-        const hasRunningCalls = runs.some(run => !run.is_completed);
-        if (!hasRunningCalls) {
-            return;
-        }
-
-        const intervalId = setInterval(() => {
-            setCurrentTime(Date.now());
-        }, 1000);
-
-        return () => clearInterval(intervalId);
-    }, [runs]);
+    }, [currentPage, appliedFilters, fetchRuns, autoRefresh]);
 
     const handlePageChange = (page: number) => {
         setCurrentPage(page);
-        updatePageInUrl(page, activeFilters);
-        fetchRuns(page, activeFilters);
+        updatePageInUrl(page, appliedFilters);
+        fetchRuns(page, appliedFilters);
     };
 
     const handleApplyFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1); // Reset to first page when applying filters
+        setAppliedFilters(activeFilters); // Update applied filters
         updatePageInUrl(1, activeFilters);
         await fetchRuns(1, activeFilters);
         setIsExecutingFilters(false);
@@ -226,6 +217,7 @@ export default function RunsPage() {
     const handleClearFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1);
+        setAppliedFilters([]); // Clear applied filters
         updatePageInUrl(1, []); // Clear filters from URL
         await fetchRuns(1, []); // Fetch all runs without filters
         setIsExecutingFilters(false);
@@ -265,29 +257,10 @@ export default function RunsPage() {
 
     const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
 
-    const calculateDuration = (createdAt: string, isCompleted: boolean, usageInfo?: Record<string, unknown>) => {
+    const calculateDuration = (isCompleted: boolean, usageInfo?: Record<string, unknown>) => {
         if (isCompleted && typeof usageInfo?.call_duration_seconds === 'number') {
             return `${Number(usageInfo.call_duration_seconds).toFixed(2)}s`;
         }
-
-        if (!isCompleted) {
-            const startTime = new Date(createdAt).getTime();
-            const duration = Math.floor((currentTime - startTime) / 1000);
-
-            // If duration exceeds 5 minutes (300 seconds), show "-" as it's likely an error
-            if (duration > 300) {
-                return '-';
-            }
-
-            if (duration < 60) {
-                return `${duration}s`;
-            } else {
-                const minutes = Math.floor(duration / 60);
-                const seconds = duration % 60;
-                return `${minutes}m ${seconds}s`;
-            }
-        }
-
         return '-';
     };
 
@@ -451,7 +424,7 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell className="text-sm whitespace-pre-wrap break-words">
                                                         <span className={!run.is_completed ? "font-semibold text-blue-600" : ""}>
-                                                            {calculateDuration(run.created_at, run.is_completed, run.usage_info)}
+                                                            {calculateDuration(run.is_completed, run.usage_info)}
                                                         </span>
                                                     </TableCell>
                                                     <TableCell className="text-sm">

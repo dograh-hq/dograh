@@ -2,12 +2,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import Float, func
+from sqlalchemy import func
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
 from api.db.base_client import BaseDBClient
-from api.db.filters import apply_workflow_run_filters
+from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
 from api.db.models import (
     OrganizationModel,
     UserModel,
@@ -134,21 +134,8 @@ class WorkflowRunClient(BaseDBClient):
             count_result = await session.execute(count_query)
             total_count = count_result.scalar()
 
-            # Determine sort column
-            if sort_by == "duration":
-                # Sort by call_duration_seconds from usage_info JSON field
-                sort_column = WorkflowRunModel.usage_info.op("->>")("call_duration_seconds").cast(Float)
-            else:
-                # Default to created_at
-                sort_column = WorkflowRunModel.created_at
-
-            # Apply sort order
-            if sort_order == "asc":
-                order_clause = sort_column.asc().nullslast()
-            else:
-                order_clause = sort_column.desc().nullslast()
-
-            # Get paginated results with filters
+            # Get paginated results with filters and sorting
+            order_clause = get_workflow_run_order_clause(sort_by, sort_order)
             result = await session.execute(
                 base_query.options(
                     joinedload(WorkflowRunModel.workflow).joinedload(
@@ -245,6 +232,8 @@ class WorkflowRunClient(BaseDBClient):
         limit: int = 50,
         offset: int = 0,
         filters: Optional[List[Dict[str, Any]]] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = "desc",
     ) -> tuple[list[WorkflowRunResponseSchema], int]:
         async with self.async_session() as session:
             # Build base query
@@ -271,11 +260,10 @@ class WorkflowRunClient(BaseDBClient):
             count_result = await session.execute(count_query)
             total_count = count_result.scalar()
 
-            # Get paginated results with filters
+            # Get paginated results with filters and sorting
+            order_clause = get_workflow_run_order_clause(sort_by, sort_order)
             result = await session.execute(
-                base_query.order_by(WorkflowRunModel.created_at.desc())
-                .limit(limit)
-                .offset(offset)
+                base_query.order_by(order_clause).limit(limit).offset(offset)
             )
             runs = [
                 WorkflowRunResponseSchema.model_validate(

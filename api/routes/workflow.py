@@ -666,10 +666,16 @@ async def get_workflow_runs(
     page: int = 1,
     limit: int = 50,
     filters: Optional[str] = Query(None, description="JSON-encoded filter criteria"),
+    sort_by: Optional[str] = Query(
+        None, description="Field to sort by (e.g., 'duration', 'created_at')"
+    ),
+    sort_order: Optional[str] = Query(
+        "desc", description="Sort order ('asc' or 'desc')"
+    ),
     user: UserModel = Depends(get_user),
 ) -> WorkflowRunsResponse:
     """
-    Get workflow runs with optional filtering.
+    Get workflow runs with optional filtering and sorting.
 
     Filters should be provided as a JSON-encoded array of filter criteria.
     Example: [{"attribute": "dateRange", "value": {"from": "2024-01-01", "to": "2024-01-31"}}]
@@ -699,23 +705,15 @@ async def get_workflow_runs(
                     status_code=403, detail=f"Invalid attribute '{attribute}'"
                 )
 
-    # Apply filters if any
-    if filter_criteria:
-        runs, total_count = await db_client.get_workflow_runs_by_workflow_id(
-            workflow_id,
-            organization_id=user.selected_organization_id,
-            limit=limit,
-            offset=offset,
-            filters=filter_criteria,
-        )
-    else:
-        # Use existing logic for unfiltered results
-        runs, total_count = await db_client.get_workflow_runs_by_workflow_id(
-            workflow_id,
-            organization_id=user.selected_organization_id,
-            limit=limit,
-            offset=offset,
-        )
+    runs, total_count = await db_client.get_workflow_runs_by_workflow_id(
+        workflow_id,
+        organization_id=user.selected_organization_id,
+        limit=limit,
+        offset=offset,
+        filters=filter_criteria if filter_criteria else None,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
     total_pages = (total_count + limit - 1) // limit
 

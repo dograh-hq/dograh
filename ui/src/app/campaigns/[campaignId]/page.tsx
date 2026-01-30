@@ -1,36 +1,29 @@
 "use client";
 
 import { ArrowLeft, Check, Pause, Play, RefreshCw, X } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
     getCampaignApiV1CampaignCampaignIdGet,
-    getCampaignRunsApiV1CampaignCampaignIdRunsGet,
     getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet,
     pauseCampaignApiV1CampaignCampaignIdPausePost,
     resumeCampaignApiV1CampaignCampaignIdResumePost,
     startCampaignApiV1CampaignCampaignIdStartPost} from '@/client/sdk.gen';
-import type { CampaignResponse, WorkflowRunResponse } from '@/client/types.gen';
+import type { CampaignResponse } from '@/client/types.gen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import {
-    Table,
-    TableBody,
-    TableCell,
-    TableHead,
-    TableHeader,
-    TableRow,
-} from '@/components/ui/table';
+import { CampaignRuns } from '@/components/workflow-runs';
 import { useAuth } from '@/lib/auth';
 
 export default function CampaignDetailPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
     const router = useRouter();
     const params = useParams();
+    const searchParams = useSearchParams();
     const campaignId = parseInt(params.campaignId as string);
 
     // Redirect if not authenticated
@@ -43,10 +36,6 @@ export default function CampaignDetailPage() {
     // Campaign state
     const [campaign, setCampaign] = useState<CampaignResponse | null>(null);
     const [isLoadingCampaign, setIsLoadingCampaign] = useState(true);
-
-    // Runs state
-    const [runs, setRuns] = useState<WorkflowRunResponse[]>([]);
-    const [isLoadingRuns, setIsLoadingRuns] = useState(false);
 
     // Action state
     const [isExecutingAction, setIsExecutingAction] = useState(false);
@@ -77,36 +66,10 @@ export default function CampaignDetailPage() {
         }
     }, [user, getAccessToken, campaignId]);
 
-    // Fetch campaign runs
-    const fetchCampaignRuns = useCallback(async () => {
-        if (!user) return;
-        setIsLoadingRuns(true);
-        try {
-            const accessToken = await getAccessToken();
-            const response = await getCampaignRunsApiV1CampaignCampaignIdRunsGet({
-                path: {
-                    campaign_id: campaignId,
-                },
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                }
-            });
-
-            if (response.data) {
-                setRuns(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch campaign runs:', error);
-        } finally {
-            setIsLoadingRuns(false);
-        }
-    }, [user, getAccessToken, campaignId]);
-
     // Initial load
     useEffect(() => {
         fetchCampaign();
-        fetchCampaignRuns();
-    }, [fetchCampaign, fetchCampaignRuns]);
+    }, [fetchCampaign]);
 
     // Handle back navigation
     const handleBack = () => {
@@ -117,13 +80,6 @@ export default function CampaignDetailPage() {
     const handleWorkflowClick = () => {
         if (campaign) {
             router.push(`/workflow/${campaign.workflow_id}`);
-        }
-    };
-
-    // Handle run click
-    const handleRunClick = (runId: number) => {
-        if (campaign) {
-            router.push(`/workflow/${campaign.workflow_id}/run/${runId}`);
         }
     };
 
@@ -497,71 +453,11 @@ export default function CampaignDetailPage() {
                 </Card>
 
                 {/* Workflow Runs */}
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Workflow Runs</CardTitle>
-                        <CardDescription>
-                            Executions triggered by this campaign
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoadingRuns ? (
-                            <div className="animate-pulse space-y-3">
-                                {[...Array(3)].map((_, i) => (
-                                    <div key={i} className="h-12 bg-muted rounded"></div>
-                                ))}
-                            </div>
-                        ) : runs.length > 0 ? (
-                            <div className="overflow-x-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Run ID</TableHead>
-                                            <TableHead>State</TableHead>
-                                            <TableHead>Created</TableHead>
-                                            <TableHead className="text-right">Action</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {runs.map((run) => (
-                                            <TableRow
-                                                key={run.id}
-                                                className="cursor-pointer hover:bg-muted/50"
-                                                onClick={() => handleRunClick(run.id)}
-                                            >
-                                                <TableCell className="font-mono text-sm">#{run.id}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant={run.state === 'completed' ? 'secondary' : 'default'}>
-                                                        {run.state}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>{formatDateTime(run.created_at)}</TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleRunClick(run.id);
-                                                        }}
-                                                    >
-                                                        View
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            </div>
-                        ) : (
-                            <p className="text-center py-8 text-muted-foreground">
-                                {campaign.state === 'created'
-                                    ? 'No runs yet. Start the campaign to begin execution.'
-                                    : 'No workflow runs found for this campaign.'}
-                            </p>
-                        )}
-                    </CardContent>
-                </Card>
+                <CampaignRuns
+                    campaignId={campaignId}
+                    workflowId={campaign.workflow_id}
+                    searchParams={searchParams}
+                />
         </div>
     );
 }

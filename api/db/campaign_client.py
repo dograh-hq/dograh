@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
+from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
 from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
+from api.schemas.workflow import WorkflowRunResponseSchema
 
 
 class CampaignClient(BaseDBClient):
@@ -164,6 +166,89 @@ class CampaignClient(BaseDBClient):
 
             result = await session.execute(query)
             return list(result.scalars().all())
+
+    async def get_campaign_runs_paginated(
+        self,
+        campaign_id: int,
+        organization_id: int,
+        limit: int = 50,
+        offset: int = 0,
+        filters: Optional[List[Dict[str, Any]]] = None,
+        sort_by: Optional[str] = None,
+        sort_order: Optional[str] = "desc",
+    ) -> tuple[list[WorkflowRunResponseSchema], int]:
+        """Get workflow runs for a campaign with pagination, filters and sorting"""
+        async with self.async_session() as session:
+            # First verify campaign belongs to organization
+            campaign_query = select(CampaignModel).where(
+                CampaignModel.id == campaign_id,
+                CampaignModel.organization_id == organization_id,
+            )
+            campaign_result = await session.execute(campaign_query)
+            campaign = campaign_result.scalar_one_or_none()
+
+            if not campaign:
+                raise ValueError(f"Campaign {campaign_id} not found")
+
+            # Build base query
+            base_query = select(WorkflowRunModel).where(
+                WorkflowRunModel.campaign_id == campaign_id
+            )
+
+            # Apply filters
+            base_query = apply_workflow_run_filters(base_query, filters)
+
+            # Count total with filters
+            count_query = base_query.with_only_columns(func.count(WorkflowRunModel.id))
+            count_result = await session.execute(count_query)
+            total_count = count_result.scalar()
+
+            # Get paginated results with filters and sorting
+            order_clause = get_workflow_run_order_clause(sort_by, sort_order)
+            result = await session.execute(
+                base_query.order_by(order_clause).limit(limit).offset(offset)
+            )
+
+            runs = [
+                WorkflowRunResponseSchema.model_validate(
+                    {
+                        "id": run.id,
+                        "workflow_id": run.workflow_id,
+                        "name": run.name,
+                        "mode": run.mode,
+                        "created_at": run.created_at,
+                        "is_completed": run.is_completed,
+                        "recording_url": run.recording_url,
+                        "transcript_url": run.transcript_url,
+                        "cost_info": {
+                            "dograh_token_usage": (
+                                run.cost_info.get("dograh_token_usage")
+                                if run.cost_info
+                                and "dograh_token_usage" in run.cost_info
+                                else round(
+                                    float(run.cost_info.get("total_cost_usd", 0)) * 100,
+                                    2,
+                                )
+                                if run.cost_info and "total_cost_usd" in run.cost_info
+                                else 0
+                            ),
+                            "call_duration_seconds": int(
+                                round(run.cost_info.get("call_duration_seconds") or 0)
+                            )
+                            if run.cost_info
+                            else None,
+                        }
+                        if run.cost_info
+                        else None,
+                        "definition_id": run.definition_id,
+                        "initial_context": run.initial_context,
+                        "gathered_context": run.gathered_context,
+                        "call_type": run.call_type,
+                    }
+                )
+                for run in result.scalars().all()
+            ]
+            return runs, total_count
 
     async def get_campaign_by_id(self, campaign_id: int) -> Optional[CampaignModel]:
         """Get campaign by ID without organization check (for internal use)"""

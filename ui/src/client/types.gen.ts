@@ -81,6 +81,19 @@ export type CampaignResponse = {
     max_concurrency?: number | null;
 };
 
+/**
+ * Paginated response for campaign workflow runs
+ */
+export type CampaignRunsResponse = {
+    runs: Array<{
+        [key: string]: unknown;
+    }>;
+    total_count: number;
+    page: number;
+    limit: number;
+    total_pages: number;
+};
+
 export type CampaignSourceDownloadResponse = {
     download_url: string;
     expires_in: number;
@@ -1138,14 +1151,6 @@ export type WorkflowRunDetail = {
     created_at: string;
 };
 
-export type WorkflowRunResponse = {
-    id: number;
-    workflow_id: number;
-    state: string;
-    created_at: string;
-    completed_at: string | null;
-};
-
 export type WorkflowRunResponseSchema = {
     id: number;
     workflow_id: number;
@@ -1963,6 +1968,14 @@ export type GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetData = {
          * JSON-encoded filter criteria
          */
         filters?: string | null;
+        /**
+         * Field to sort by (e.g., 'duration', 'created_at')
+         */
+        sort_by?: string | null;
+        /**
+         * Sort order ('asc' or 'desc')
+         */
+        sort_order?: string | null;
     };
     url: '/api/v1/workflow/{workflow_id}/runs';
 };
@@ -2630,7 +2643,22 @@ export type GetCampaignRunsApiV1CampaignCampaignIdRunsGetData = {
     path: {
         campaign_id: number;
     };
-    query?: never;
+    query?: {
+        page?: number;
+        limit?: number;
+        /**
+         * JSON-encoded filter criteria
+         */
+        filters?: string | null;
+        /**
+         * Field to sort by (e.g., 'duration', 'created_at')
+         */
+        sort_by?: string | null;
+        /**
+         * Sort order ('asc' or 'desc')
+         */
+        sort_order?: string | null;
+    };
     url: '/api/v1/campaign/{campaign_id}/runs';
 };
 
@@ -2651,7 +2679,7 @@ export type GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponses = {
     /**
      * Successful Response
      */
-    200: Array<WorkflowRunResponse>;
+    200: CampaignRunsResponse;
 };
 
 export type GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponse = GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponses[keyof GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponses];

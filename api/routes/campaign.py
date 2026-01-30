@@ -1,7 +1,8 @@
+import json
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
@@ -89,6 +90,16 @@ class WorkflowRunResponse(BaseModel):
     state: str
     created_at: datetime
     completed_at: Optional[datetime]
+
+
+class CampaignRunsResponse(BaseModel):
+    """Paginated response for campaign workflow runs"""
+
+    runs: List[dict]  # WorkflowRunResponseSchema from schemas
+    total_count: int
+    page: int
+    limit: int
+    total_pages: int
 
 
 class CampaignProgressResponse(BaseModel):
@@ -296,21 +307,65 @@ async def pause_campaign(
 @router.get("/{campaign_id}/runs")
 async def get_campaign_runs(
     campaign_id: int,
+    page: int = 1,
+    limit: int = 50,
+    filters: Optional[str] = Query(None, description="JSON-encoded filter criteria"),
+    sort_by: Optional[str] = Query(
+        None, description="Field to sort by (e.g., 'duration', 'created_at')"
+    ),
+    sort_order: Optional[str] = Query(
+        "desc", description="Sort order ('asc' or 'desc')"
+    ),
     user: UserModel = Depends(get_user),
-) -> List[WorkflowRunResponse]:
-    """Get campaign workflow runs"""
-    runs = await db_client.get_campaign_runs(campaign_id, user.selected_organization_id)
+) -> CampaignRunsResponse:
+    """Get campaign workflow runs with pagination, filters and sorting"""
+    offset = (page - 1) * limit
 
-    return [
-        WorkflowRunResponse(
-            id=run.id,
-            workflow_id=run.workflow_id,
-            state="completed" if run.is_completed else "running",
-            created_at=run.created_at,
-            completed_at=run.created_at if run.is_completed else None,
+    # Parse filters if provided
+    filter_criteria = []
+    if filters:
+        try:
+            filter_criteria = json.loads(filters)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid filter format")
+
+        # Restrict allowed filter attributes for regular users
+        allowed_attributes = {
+            "dateRange",
+            "dispositionCode",
+            "duration",
+            "status",
+            "tokenUsage",
+        }
+        for filter_item in filter_criteria:
+            attribute = filter_item.get("attribute")
+            if attribute and attribute not in allowed_attributes:
+                raise HTTPException(
+                    status_code=403, detail=f"Invalid attribute '{attribute}'"
+                )
+
+    try:
+        runs, total_count = await db_client.get_campaign_runs_paginated(
+            campaign_id,
+            user.selected_organization_id,
+            limit=limit,
+            offset=offset,
+            filters=filter_criteria if filter_criteria else None,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
-        for run in runs
-    ]
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    total_pages = (total_count + limit - 1) // limit
+
+    return CampaignRunsResponse(
+        runs=[run.model_dump() for run in runs],
+        total_count=total_count,
+        page=page,
+        limit=limit,
+        total_pages=total_pages,
+    )
 
 
 @router.post("/{campaign_id}/resume")

@@ -3,23 +3,13 @@
  * Update this array when adding new disposition codes
  */
 export const DISPOSITION_CODES = [
-  'CALLBK',
+  'end_call_tool',
+  'user_hangup',
   'call_duration_exceeded',
-  'DAIR',
-  'DNC',
-  'HU',
-  'LB',
-  'ND',
-  'NIBP',
-  'NQ',
+  'user_idle_max_duration_exceeded',
   'system_connect_error',
   'unknown',
-  'user_disqualified',
-  'user_idle_max_duration_exceeded',
-  'VM',
-  'voicemail_detected',
-  'WN',
-  'XFER',
+  'voicemail_detected'
 ] as const;
 
 export type DispositionCode = typeof DISPOSITION_CODES[number];

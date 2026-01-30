@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from "react";
@@ -31,7 +31,6 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUserConfig } from '@/context/UserConfigContext';
-import { getDispositionBadgeVariant } from '@/lib/dispositionBadgeVariant';
 import{ superadminFilterAttributes } from "@/lib/filterAttributes";
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import { impersonateAsSuperadmin } from '@/lib/utils';
@@ -93,6 +92,10 @@ export default function RunsPage() {
         return decodeFiltersFromURL(searchParams, superadminFilterAttributes);
     });
 
+    // Sort state
+    const [sortBy, setSortBy] = useState<string | null>(null);
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
     // Dialog state for comment editing
     const [isCommentDialogOpen, setIsCommentDialogOpen] = useState(false);
     const [commentRunId, setCommentRunId] = useState<number | null>(null);
@@ -104,7 +107,13 @@ export default function RunsPage() {
     // Media preview dialog
     const mediaPreview = MediaPreviewDialog({ accessToken });
 
-    const fetchRuns = useCallback(async (page: number, filters?: ActiveFilter[], isAutoRefresh = false) => {
+    const fetchRuns = useCallback(async (
+        page: number,
+        filters?: ActiveFilter[],
+        isAutoRefresh = false,
+        sortByParam?: string | null,
+        sortOrderParam?: 'asc' | 'desc'
+    ) => {
         if (!accessToken) return;
 
         // Don't show loading state for auto-refresh to prevent UI flicker
@@ -130,7 +139,9 @@ export default function RunsPage() {
                 query: {
                     page,
                     limit,
-                    ...(filterParam && { filters: filterParam })
+                    ...(filterParam && { filters: filterParam }),
+                    ...(sortByParam && { sort_by: sortByParam }),
+                    ...(sortOrderParam && { sort_order: sortOrderParam }),
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -173,11 +184,11 @@ export default function RunsPage() {
     }, [router]);
 
     useEffect(() => {
-        // Fetch runs when token is available and when page changes
+        // Fetch runs when token is available and when page/sort changes
         if (accessToken) {
-            fetchRuns(currentPage, appliedFilters);
+            fetchRuns(currentPage, appliedFilters, false, sortBy, sortOrder);
         }
-    }, [currentPage, accessToken, appliedFilters, fetchRuns]);
+    }, [currentPage, accessToken, appliedFilters, fetchRuns, sortBy, sortOrder]);
 
     // Auto-refresh every 5 seconds when enabled and filters are active
     useEffect(() => {
@@ -188,17 +199,17 @@ export default function RunsPage() {
 
         const intervalId = setInterval(() => {
             // Pass true to indicate this is an auto-refresh
-            fetchRuns(currentPage, appliedFilters, true);
+            fetchRuns(currentPage, appliedFilters, true, sortBy, sortOrder);
         }, 5000);
 
         // Cleanup interval on unmount or when dependencies change
         return () => clearInterval(intervalId);
-    }, [currentPage, appliedFilters, fetchRuns, autoRefresh]);
+    }, [currentPage, appliedFilters, fetchRuns, autoRefresh, sortBy, sortOrder]);
 
     const handlePageChange = (page: number) => {
         setCurrentPage(page);
         updatePageInUrl(page, appliedFilters);
-        fetchRuns(page, appliedFilters);
+        fetchRuns(page, appliedFilters, false, sortBy, sortOrder);
     };
 
     const handleApplyFilters = useCallback(async () => {
@@ -206,9 +217,9 @@ export default function RunsPage() {
         setCurrentPage(1); // Reset to first page when applying filters
         setAppliedFilters(activeFilters); // Update applied filters
         updatePageInUrl(1, activeFilters);
-        await fetchRuns(1, activeFilters);
+        await fetchRuns(1, activeFilters, false, sortBy, sortOrder);
         setIsExecutingFilters(false);
-    }, [activeFilters, fetchRuns, updatePageInUrl]);
+    }, [activeFilters, fetchRuns, updatePageInUrl, sortBy, sortOrder]);
 
     const handleFiltersChange = useCallback((filters: ActiveFilter[]) => {
         setActiveFilters(filters);
@@ -219,9 +230,23 @@ export default function RunsPage() {
         setCurrentPage(1);
         setAppliedFilters([]); // Clear applied filters
         updatePageInUrl(1, []); // Clear filters from URL
-        await fetchRuns(1, []); // Fetch all runs without filters
+        await fetchRuns(1, [], false, sortBy, sortOrder); // Fetch all runs without filters
         setIsExecutingFilters(false);
-    }, [fetchRuns, updatePageInUrl]);
+    }, [fetchRuns, updatePageInUrl, sortBy, sortOrder]);
+
+    const handleSort = useCallback((field: string) => {
+        // Reset to first page when sort changes
+        setCurrentPage(1);
+
+        if (sortBy === field) {
+            // Toggle order if same field
+            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+        } else {
+            // New field, default to desc
+            setSortBy(field);
+            setSortOrder('desc');
+        }
+    }, [sortBy]);
 
     // Save comment function declared outside JSX (requirement #2)
     const saveAdminComment = useCallback(async () => {
@@ -356,9 +381,33 @@ export default function RunsPage() {
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Tags</TableHead>
                                                 <TableHead className="font-semibold">Comment</TableHead>
-                                                <TableHead className="font-semibold">Duration</TableHead>
+                                                <TableHead
+                                                    className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
+                                                    onClick={() => handleSort('duration')}
+                                                >
+                                                    <div className="flex items-center gap-1">
+                                                        Duration
+                                                        {sortBy === 'duration' ? (
+                                                            sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                                                        ) : (
+                                                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                    </div>
+                                                </TableHead>
                                                 <TableHead className="font-semibold">Dograh Token</TableHead>
-                                                <TableHead className="font-semibold">Created At</TableHead>
+                                                <TableHead
+                                                    className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
+                                                    onClick={() => handleSort('created_at')}
+                                                >
+                                                    <div className="flex items-center gap-1">
+                                                        Created At
+                                                        {sortBy === 'created_at' ? (
+                                                            sortOrder === 'asc' ? <ArrowUp className="h-4 w-4" /> : <ArrowDown className="h-4 w-4" />
+                                                        ) : (
+                                                            <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                                                        )}
+                                                    </div>
+                                                </TableHead>
                                                 <TableHead className="font-semibold">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -366,7 +415,7 @@ export default function RunsPage() {
                                             {runs.map((run) => (
                                                 <TableRow
                                                     key={run.id}
-                                                    className={selectedRowId === run.id ? "bg-blue-50" : ""}>
+                                                    className={selectedRowId === run.id ? "bg-primary/20 ring-1 ring-primary/50" : ""}>
                                                     <TableCell className="font-mono text-sm">
                                                         #{run.id}
                                                     </TableCell>
@@ -395,7 +444,7 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell>
                                                         {run.gathered_context?.mapped_call_disposition ? (
-                                                            <Badge variant={getDispositionBadgeVariant(run.gathered_context.mapped_call_disposition as string)}>
+                                                            <Badge variant="default">
                                                                 {run.gathered_context.mapped_call_disposition as string}
                                                             </Badge>
                                                         ) : (

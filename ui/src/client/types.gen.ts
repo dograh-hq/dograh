@@ -1494,6 +1494,27 @@ export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses = {
     200: unknown;
 };
 
+export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/cloudonix/cdr';
+};
+
+export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type ImpersonateApiV1SuperuserImpersonatePostData = {
     body: ImpersonateRequest;
     headers?: {
@@ -1547,6 +1568,14 @@ export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetData = {
          * JSON-encoded filter criteria
          */
         filters?: string | null;
+        /**
+         * Field to sort by (e.g., 'duration', 'created_at')
+         */
+        sort_by?: string | null;
+        /**
+         * Sort order ('asc' or 'desc')
+         */
+        sort_order?: string | null;
     };
     url: '/api/v1/superuser/workflow-runs';
 };

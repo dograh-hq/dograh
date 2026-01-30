@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import func
+from sqlalchemy import Float, func
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload, selectinload
 
@@ -103,10 +103,16 @@ class WorkflowRunClient(BaseDBClient):
         limit: int = 50,
         offset: int = 0,
         filters: Optional[List[Dict[str, Any]]] = None,
+        sort_by: Optional[str] = None,
+        sort_order: str = "desc",
     ) -> tuple[list[dict], int]:
         """
         Get paginated workflow runs for superadmin with organization information.
         Returns tuple of (workflow_runs, total_count).
+
+        Args:
+            sort_by: Field to sort by ('duration', 'created_at', etc.)
+            sort_order: 'asc' or 'desc'
         """
         async with self.async_session() as session:
             # Build base query with joins
@@ -128,6 +134,20 @@ class WorkflowRunClient(BaseDBClient):
             count_result = await session.execute(count_query)
             total_count = count_result.scalar()
 
+            # Determine sort column
+            if sort_by == "duration":
+                # Sort by call_duration_seconds from usage_info JSON field
+                sort_column = WorkflowRunModel.usage_info.op("->>")("call_duration_seconds").cast(Float)
+            else:
+                # Default to created_at
+                sort_column = WorkflowRunModel.created_at
+
+            # Apply sort order
+            if sort_order == "asc":
+                order_clause = sort_column.asc().nullslast()
+            else:
+                order_clause = sort_column.desc().nullslast()
+
             # Get paginated results with filters
             result = await session.execute(
                 base_query.options(
@@ -138,7 +158,7 @@ class WorkflowRunClient(BaseDBClient):
                     .joinedload(WorkflowModel.user)
                     .joinedload(UserModel.selected_organization),
                 )
-                .order_by(WorkflowRunModel.created_at.desc())
+                .order_by(order_clause)
                 .limit(limit)
                 .offset(offset)
             )

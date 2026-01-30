@@ -105,6 +105,8 @@ async def get_workflow_runs(
     page: int = Query(1, ge=1, description="Page number (starts from 1)"),
     limit: int = Query(50, ge=1, le=100, description="Number of items per page"),
     filters: Optional[str] = Query(None, description="JSON-encoded filter criteria"),
+    sort_by: Optional[str] = Query(None, description="Field to sort by (e.g., 'duration', 'created_at')"),
+    sort_order: Optional[str] = Query("desc", description="Sort order ('asc' or 'desc')"),
     user: UserModel = Depends(get_superuser),
 ) -> SuperuserWorkflowRunsListResponse:
     """
@@ -124,8 +126,12 @@ async def get_workflow_runs(
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="Invalid filter format")
 
+    # Validate sort_order
+    if sort_order not in ("asc", "desc"):
+        sort_order = "desc"
+
     workflow_runs, total_count = await db_client.get_workflow_runs_for_superadmin(
-        limit=limit, offset=offset, filters=filter_criteria
+        limit=limit, offset=offset, filters=filter_criteria, sort_by=sort_by, sort_order=sort_order
     )
 
     total_pages = (total_count + limit - 1) // limit  # Ceiling division

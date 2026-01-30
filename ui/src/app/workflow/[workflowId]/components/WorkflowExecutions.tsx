@@ -20,7 +20,6 @@ import {
 } from "@/components/ui/table";
 import { DISPOSITION_CODES } from "@/constants/dispositionCodes";
 import { useUserConfig } from '@/context/UserConfigContext';
-import { getDispositionBadgeVariant } from '@/lib/dispositionBadgeVariant';
 import { downloadFile } from "@/lib/files";
 import { decodeFiltersFromURL, encodeFiltersToURL } from "@/lib/filters";
 import { ActiveFilter, availableAttributes, FilterAttribute } from "@/types/filters";
@@ -249,7 +248,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                                             </TableCell>
                                             <TableCell>
                                                 {run.gathered_context?.mapped_call_disposition ? (
-                                                    <Badge variant={getDispositionBadgeVariant(run.gathered_context.mapped_call_disposition as string)}>
+                                                    <Badge variant="default">
                                                         {run.gathered_context.mapped_call_disposition as string}
                                                     </Badge>
                                                 ) : (

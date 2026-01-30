@@ -122,6 +122,21 @@ class CampaignOrchestrator:
                     f"campaign_id: {campaign_id} - Batch completed, cleared in-progress flag"
                 )
 
+            # Check campaign state before scheduling next batch
+            campaign = await db_client.get_campaign_by_id(campaign_id)
+            if not campaign:
+                logger.error(f"campaign_id: {campaign_id} - Campaign not found")
+                self._clear_campaign_state(campaign_id)
+                return
+
+            if campaign.state != "running":
+                logger.info(
+                    f"campaign_id: {campaign_id} - Campaign not in running state ({campaign.state}), "
+                    f"not scheduling next batch"
+                )
+                self._clear_campaign_state(campaign_id)
+                return
+
             # Immediately schedule next batch
             await self._schedule_next_batch(campaign_id)
             self._last_activity[campaign_id] = datetime.now(UTC)
@@ -327,6 +342,16 @@ class CampaignOrchestrator:
             del self._processing_locks[campaign_id]
             logger.debug(f"campaign_id: {campaign_id} - Released processing lock")
 
+    def _clear_campaign_state(self, campaign_id: int):
+        """Clear all in-memory state for a campaign."""
+        if campaign_id in self._last_activity:
+            del self._last_activity[campaign_id]
+        if campaign_id in self._processing_locks:
+            del self._processing_locks[campaign_id]
+        if campaign_id in self._batch_in_progress:
+            del self._batch_in_progress[campaign_id]
+        logger.debug(f"campaign_id: {campaign_id} - Cleared all in-memory state")
+
     async def _monitor_completion(self):
         """Periodically check for campaigns that should be marked complete."""
         while self._running:
@@ -490,12 +515,7 @@ class CampaignOrchestrator:
             )
 
             # Clean up in-memory state
-            if campaign_id in self._last_activity:
-                del self._last_activity[campaign_id]
-            if campaign_id in self._processing_locks:
-                del self._processing_locks[campaign_id]
-            if campaign_id in self._batch_in_progress:
-                del self._batch_in_progress[campaign_id]
+            self._clear_campaign_state(campaign_id)
 
         except Exception as e:
             logger.error(

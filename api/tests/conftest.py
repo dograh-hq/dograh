@@ -3,7 +3,9 @@ from typing import Any, Dict, Optional
 from unittest.mock import Mock
 
 import pytest
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from api.constants import DATABASE_URL
 from api.services.workflow.dto import (
     EdgeDataDTO,
     ExtractionVariableDTO,
@@ -549,3 +551,22 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
         ],
     )
     return WorkflowGraph(dto)
+
+
+# =============================================================================
+# Database fixtures for integration tests
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+async def db_engine():
+    """Create database engine for tests."""
+    engine = create_async_engine(DATABASE_URL, echo=False)
+    yield engine
+    await engine.dispose()
+
+
+@pytest.fixture(scope="session")
+async def db_session_factory(db_engine):
+    """Create session factory for tests."""
+    return async_sessionmaker(bind=db_engine, expire_on_commit=False)

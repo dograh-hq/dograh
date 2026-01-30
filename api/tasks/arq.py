@@ -42,7 +42,6 @@ REDIS_SETTINGS = RedisSettings(
 )
 
 from api.tasks.campaign_tasks import (
-    monitor_campaign_progress,
     process_campaign_batch,
     sync_campaign_source,
 )
@@ -62,7 +61,6 @@ class WorkerSettings:
         process_workflow_completion,
         sync_campaign_source,
         process_campaign_batch,
-        monitor_campaign_progress,
         process_knowledge_base_document,
     ]
     cron_jobs = []

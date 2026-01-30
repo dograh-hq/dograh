@@ -23,11 +23,13 @@ from api.db import db_client
 from api.db.models import CampaignModel, QueuedRunModel
 from api.enums import RedisChannel
 from api.services.campaign.campaign_event_protocol import (
-    CampaignCompletedEvent,
-    CampaignEventType,
+    BatchCompletedEvent,
+    BatchFailedEvent,
     RetryNeededEvent,
+    SyncCompletedEvent,
     parse_campaign_event,
 )
+from api.services.campaign.campaign_event_publisher import CampaignEventPublisher
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 
@@ -37,6 +39,7 @@ class CampaignOrchestrator:
 
     def __init__(self, redis_client: aioredis.Redis):
         self.redis = redis_client
+        self.publisher = CampaignEventPublisher(redis_client)
         self.completion_check_interval = 60  # 1 minute
         self.completion_timeout = 3600  # 1 hour
         self._processing_locks: Dict[int, datetime] = {}  # prevent duplicate scheduling
@@ -97,22 +100,21 @@ class CampaignOrchestrator:
 
     async def _handle_event(self, event):
         """Handle campaign events including retry events."""
-        # Handle RetryNeededEvent
-        if isinstance(event, RetryNeededEvent):
-            await self._handle_retry_event(event)
-            return
-
         # All events should have campaign_id
         if not hasattr(event, "campaign_id") or not event.campaign_id:
             logger.warning(f"Event missing campaign_id: {type(event).__name__}")
             return
 
         campaign_id = event.campaign_id
-        event_type = event.type
 
-        logger.debug(f"campaign_id: {campaign_id} - Received event: {event_type}")
+        logger.debug(
+            f"campaign_id: {campaign_id} - Received event: {type(event).__name__}"
+        )
 
-        if event_type == CampaignEventType.BATCH_COMPLETED:
+        if isinstance(event, RetryNeededEvent):
+            await self._handle_retry_event(event)
+
+        elif isinstance(event, BatchCompletedEvent):
             # Clear the batch in progress flag
             if campaign_id in self._batch_in_progress:
                 del self._batch_in_progress[campaign_id]
@@ -124,7 +126,23 @@ class CampaignOrchestrator:
             await self._schedule_next_batch(campaign_id)
             self._last_activity[campaign_id] = datetime.now(UTC)
 
-        elif event_type == CampaignEventType.SYNC_COMPLETED:
+        elif isinstance(event, BatchFailedEvent):
+            # Clear the batch in progress flag
+            if campaign_id in self._batch_in_progress:
+                del self._batch_in_progress[campaign_id]
+
+            logger.warning(
+                f"campaign_id: {campaign_id} - Batch failed: {event.error}, "
+                f"scheduling next batch to continue processing"
+            )
+
+            # Lets not schedule another batch, since we mark the campaign
+            # as failed just to be on the safe side from process_campaign_batch
+            # if a batch fails
+
+            self._last_activity[campaign_id] = datetime.now(UTC)
+
+        elif isinstance(event, SyncCompletedEvent):
             # Start processing after sync
             logger.info(
                 f"campaign_id: {campaign_id} - Sync completed, starting processing"
@@ -457,21 +475,18 @@ class CampaignOrchestrator:
 
             logger.info(f"campaign_id: {campaign_id} - Campaign marked as completed")
 
-            # Publish completion event using typed event
-            completion_event = CampaignCompletedEvent(
+            # Calculate duration if started_at is available
+            duration = None
+            if campaign.started_at:
+                duration = (datetime.now(UTC) - campaign.started_at).total_seconds()
+
+            # Publish completion event
+            await self.publisher.publish_campaign_completed(
                 campaign_id=campaign_id,
                 total_rows=campaign.total_rows or 0,
                 processed_rows=campaign.processed_rows,
                 failed_rows=campaign.failed_rows,
-            )
-
-            # Calculate duration if started_at is available
-            if campaign.started_at:
-                duration = (datetime.now(UTC) - campaign.started_at).total_seconds()
-                completion_event.duration_seconds = duration
-
-            await self.redis.publish(
-                RedisChannel.CAMPAIGN_EVENTS.value, completion_event.to_json()
+                duration_seconds=duration,
             )
 
             # Clean up in-memory state

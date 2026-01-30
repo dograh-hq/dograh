@@ -23,7 +23,7 @@ from api.db.workflow_run_client import WorkflowRunClient
 from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.services.auth.depends import get_user
-from api.services.campaign.call_dispatcher import campaign_call_dispatcher
+from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
 from api.services.quota_service import check_dograh_quota, check_dograh_quota_by_user_id
 from api.services.telephony.factory import (

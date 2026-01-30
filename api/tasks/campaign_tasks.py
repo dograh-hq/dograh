@@ -4,12 +4,11 @@ from typing import Dict
 from loguru import logger
 
 from api.db import db_client
-from api.enums import RedisChannel
-from api.services.campaign.call_dispatcher import campaign_call_dispatcher
-from api.services.campaign.campaign_event_protocol import BatchFailedEvent
+from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_publisher import (
     get_campaign_event_publisher,
 )
+from api.services.campaign.errors import ConcurrentSlotAcquisitionError
 from api.services.campaign.source_sync_factory import get_sync_service
 
 
@@ -95,6 +94,10 @@ async def process_campaign_batch(
     - Updates queued_run state to 'processed'
     - Updates campaign.processed_rows counter
     - Publishes batch_completed event for orchestrator
+
+    # TODO: May be not fail the campaign immediately on a single batch failure
+    # and propagate the error to campaign orchestrator which can fail the campaign
+    # on some consecutive batch failures.
     """
     logger.info(f"Processing batch for campaign {campaign_id}, batch_size={batch_size}")
 
@@ -119,81 +122,34 @@ async def process_campaign_batch(
             f"failed={failed_count}"
         )
 
-    except Exception as e:
-        logger.error(f"Error processing batch for campaign {campaign_id}: {e}")
-
-        # Publish batch failed event
-        publisher = await get_campaign_event_publisher()
-        event = BatchFailedEvent(
-            campaign_id=campaign_id,
-            error=str(e),
-            processed_count=0,
+    except ConcurrentSlotAcquisitionError as e:
+        logger.warning(
+            f"Failed to acquire concurrent slot for campaign {campaign_id}: {e}"
         )
-        await publisher.redis.publish(
-            RedisChannel.CAMPAIGN_EVENTS.value, event.to_json()
+
+        # Publish batch failed event with specific error
+        publisher = await get_campaign_event_publisher()
+        await publisher.publish_batch_failed(
+            campaign_id=campaign_id,
+            error=f"Concurrent slot acquisition timeout: {e}",
+            processed_count=0,
         )
 
         # Update campaign state to failed
         await db_client.update_campaign(campaign_id=campaign_id, state="failed")
         raise
 
-
-async def monitor_campaign_progress(ctx: Dict, campaign_id: int) -> None:
-    """
-    Phase 3: Monitors campaign completion
-    - Checks if all queued runs are in 'processed' state
-    - Queries workflow_runs for final call statistics
-    - Updates campaign state to 'completed'
-    - Calculates total calls made, successful, failed
-    - Triggers post-campaign integrations
-    """
-    logger.info(f"Monitoring progress for campaign {campaign_id}")
-
-    try:
-        # Get campaign
-        campaign = await db_client.get_campaign_by_id(campaign_id)
-        if not campaign:
-            raise ValueError(f"Campaign {campaign_id} not found")
-
-        # Check if all runs are processed
-        pending_runs = await db_client.count_queued_runs(
-            campaign_id=campaign_id, state="queued"
-        )
-
-        if pending_runs > 0:
-            logger.info(f"Campaign {campaign_id} still has {pending_runs} pending runs")
-            return
-
-        # All runs processed, mark campaign as completed
-        await db_client.update_campaign(
-            campaign_id=campaign_id, state="completed", completed_at=datetime.now(UTC)
-        )
-
-        # Calculate statistics
-        workflow_runs = await db_client.get_workflow_runs_by_campaign(campaign_id)
-
-        total_calls = len(workflow_runs)
-        successful_calls = 0
-        failed_calls = 0
-
-        for run in workflow_runs:
-            callbacks = run.logs.get("telephony_status_callbacks", [])
-            if callbacks:
-                final_status = callbacks[-1].get("status", "").lower()
-                if final_status == "completed":
-                    successful_calls += 1
-                elif final_status in ["failed", "busy", "no-answer"]:
-                    failed_calls += 1
-
-        logger.info(
-            f"Campaign {campaign_id} completed: "
-            f"Total calls: {total_calls}, "
-            f"Successful: {successful_calls}, "
-            f"Failed: {failed_calls}"
-        )
-
-        # TODO: Trigger post-campaign integrations if configured
-
     except Exception as e:
-        logger.error(f"Error monitoring campaign {campaign_id}: {e}")
+        logger.error(f"Error processing batch for campaign {campaign_id}: {e}")
+
+        # Publish batch failed event
+        publisher = await get_campaign_event_publisher()
+        await publisher.publish_batch_failed(
+            campaign_id=campaign_id,
+            error=str(e),
+            processed_count=0,
+        )
+
+        # Update campaign state to failed
+        await db_client.update_campaign(campaign_id=campaign_id, state="failed")
         raise

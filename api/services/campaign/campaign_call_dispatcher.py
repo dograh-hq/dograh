@@ -9,6 +9,7 @@ from api.constants import DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
 from api.enums import OrganizationConfigurationKey, WorkflowRunState
+from api.services.campaign.errors import ConcurrentSlotAcquisitionError
 from api.services.campaign.rate_limiter import rate_limiter
 from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.factory import get_telephony_provider
@@ -85,13 +86,19 @@ class CampaignCallDispatcher:
         processed_count = 0
         for queued_run in queued_runs:
             try:
-                # Apply rate limiting
+                # Apply rate limiting, i.e lets not initiate more than rate_limit_per_second
+                # calls per second. It is different than concurrency limit.
                 await self.apply_rate_limit(
                     campaign.organization_id, campaign.rate_limit_per_second
                 )
 
+                # Acquire concurrent slot - waits until a slot is available
+                slot_id = await self.acquire_concurrent_slot(
+                    campaign.organization_id, campaign
+                )
+
                 # Dispatch the call
-                workflow_run = await self.dispatch_call(queued_run, campaign)
+                workflow_run = await self.dispatch_call(queued_run, campaign, slot_id)
 
                 # Update queued run as processed
                 await db_client.update_queued_run(
@@ -107,6 +114,10 @@ class CampaignCallDispatcher:
                 await db_client.update_campaign(
                     campaign_id=campaign_id, processed_rows=campaign.processed_rows + 1
                 )
+
+            except ConcurrentSlotAcquisitionError:
+                # Re-raise to propagate to process_campaign_batch
+                raise
 
             except Exception as e:
                 logger.warning(f"Error processing queued run {queued_run.id}: {e}")
@@ -129,54 +140,9 @@ class CampaignCallDispatcher:
         return processed_count
 
     async def dispatch_call(
-        self, queued_run: QueuedRunModel, campaign: any
+        self, queued_run: QueuedRunModel, campaign: any, slot_id: str
     ) -> Optional[WorkflowRunModel]:
-        """Creates workflow run and initiates call with concurrent limiting"""
-        # Get concurrent limit for organization
-        org_concurrent_limit = await self.get_org_concurrent_limit(
-            campaign.organization_id
-        )
-
-        # Check for campaign-level max_concurrency in orchestrator_metadata
-        campaign_max_concurrency = None
-        if campaign.orchestrator_metadata:
-            campaign_max_concurrency = campaign.orchestrator_metadata.get(
-                "max_concurrency"
-            )
-
-        # Use the lower of campaign limit and org limit
-        if campaign_max_concurrency is not None:
-            max_concurrent = min(campaign_max_concurrency, org_concurrent_limit)
-        else:
-            max_concurrent = org_concurrent_limit
-
-        # Track wait time for alerting
-        wait_start = time.time()
-        slot_id = None
-
-        # Wait until we can acquire a concurrent slot
-        while True:
-            slot_id = await rate_limiter.try_acquire_concurrent_slot(
-                campaign.organization_id, max_concurrent
-            )
-            if slot_id:
-                break
-
-            # Check if we've been waiting too long
-            wait_time = time.time() - wait_start
-            if wait_time > 600:  # 10 minutes
-                logger.error(
-                    f"Waiting for concurrent slot for {wait_time:.1f}s, "
-                    f"org: {campaign.organization_id}, campaign: {campaign.id}"
-                )
-
-            logger.debug(
-                f"Attempting to get a slot for {campaign.organization_id} {campaign.id}"
-            )
-
-            # Wait before retrying
-            await asyncio.sleep(1)
-
+        """Creates workflow run and initiates call. Requires a pre-acquired slot_id."""
         # Get workflow details
         workflow = await db_client.get_workflow_by_id(campaign.workflow_id)
         if not workflow:
@@ -350,6 +316,66 @@ class CampaignCallDispatcher:
 
             # Wait for next available slot
             await asyncio.sleep(wait_time)
+
+    async def acquire_concurrent_slot(
+        self, organization_id: int, campaign: any, timeout: float = 600
+    ) -> str:
+        """
+        Acquires a concurrent call slot - waits if necessary until a slot is available.
+
+        Args:
+            organization_id: The organization ID
+            campaign: The campaign object
+            timeout: Maximum time to wait for a slot (default 10 minutes)
+
+        Returns the slot_id which must be released when the call completes.
+
+        Raises:
+            ConcurrentSlotAcquisitionError: If slot cannot be acquired within timeout
+        """
+        # Get concurrent limit for organization
+        org_concurrent_limit = await self.get_org_concurrent_limit(organization_id)
+
+        # Check for campaign-level max_concurrency in orchestrator_metadata
+        campaign_max_concurrency = None
+        if campaign.orchestrator_metadata:
+            campaign_max_concurrency = campaign.orchestrator_metadata.get(
+                "max_concurrency"
+            )
+
+        # Use the lower of campaign limit and org limit
+        if campaign_max_concurrency is not None:
+            max_concurrent = min(campaign_max_concurrency, org_concurrent_limit)
+        else:
+            max_concurrent = org_concurrent_limit
+
+        # Track wait time for alerting
+        wait_start = time.time()
+
+        # Wait until we can acquire a concurrent slot
+        while True:
+            slot_id = await rate_limiter.try_acquire_concurrent_slot(
+                organization_id, max_concurrent
+            )
+            if slot_id:
+                return slot_id
+
+            # Check if we've been waiting too long
+            wait_time = time.time() - wait_start
+            if wait_time > timeout:
+                raise ConcurrentSlotAcquisitionError(
+                    organization_id=organization_id,
+                    campaign_id=campaign.id,
+                    wait_time=wait_time,
+                )
+
+            logger.debug(
+                f"Attempting to get a slot for {organization_id} {campaign.id}, "
+                f"waited {wait_time:.1f}s"
+            )
+
+            # Wait before retrying
+            await asyncio.sleep(1)
 
     async def release_call_slot(self, workflow_run_id: int) -> bool:
         """

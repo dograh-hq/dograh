@@ -5,5 +5,4 @@ class FunctionNames:
     UPLOAD_VOICEMAIL_AUDIO_TO_S3 = "upload_voicemail_audio_to_s3"
     SYNC_CAMPAIGN_SOURCE = "sync_campaign_source"
     PROCESS_CAMPAIGN_BATCH = "process_campaign_batch"
-    MONITOR_CAMPAIGN_PROGRESS = "monitor_campaign_progress"
     PROCESS_KNOWLEDGE_BASE_DOCUMENT = "process_knowledge_base_document"

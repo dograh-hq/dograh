@@ -2,7 +2,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunState
-from api.services.campaign.call_dispatcher import campaign_call_dispatcher
+from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.in_memory_buffers import (
     InMemoryAudioBuffer,

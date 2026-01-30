@@ -12,6 +12,7 @@ from api.constants import REDIS_URL
 from api.enums import RedisChannel
 from api.services.campaign.campaign_event_protocol import (
     BatchCompletedEvent,
+    BatchFailedEvent,
     CampaignCompletedEvent,
     RetryNeededEvent,
     SyncCompletedEvent,
@@ -38,6 +39,23 @@ class CampaignEventPublisher:
             processed_count=processed_count,
             failed_count=failed_count,
             batch_size=batch_size,
+            metadata=metadata,
+        )
+
+        await self.redis.publish(RedisChannel.CAMPAIGN_EVENTS.value, event.to_json())
+
+    async def publish_batch_failed(
+        self,
+        campaign_id: int,
+        error: str,
+        processed_count: int = 0,
+        metadata: Optional[Dict] = None,
+    ):
+        """Publish batch failed event."""
+        event = BatchFailedEvent(
+            campaign_id=campaign_id,
+            error=error,
+            processed_count=processed_count,
             metadata=metadata,
         )
 

@@ -598,7 +598,7 @@ class QueuedRunModel(Base):
     source_uuid = Column(String, nullable=False)
     context_variables = Column(JSON, nullable=False, default=dict)
     state = Column(
-        Enum("queued", "processed", "failed", name="queued_run_state"),
+        Enum("queued", "processed", "processing", "failed", name="queued_run_state"),
         nullable=False,
         default="queued",
     )

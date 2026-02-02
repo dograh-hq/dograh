@@ -33,6 +33,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.tests import MockLLMService, MockTTSService
 from pipecat.tests.mock_transport import MockTransport
+from pipecat.transports.base_transport import TransportParams
 
 
 class TestVariableExtractionDuringTransitions:
@@ -80,10 +81,17 @@ class TestVariableExtractionDuringTransitions:
         llm = MockLLMService(mock_steps=mock_steps, chunk_delay=0.001)
 
         # Create MockTTSService
-        tts = MockTTSService(mock_audio_duration_ms=10, frame_delay=0)
+        tts = MockTTSService(mock_audio_duration_ms=40, frame_delay=0)
 
         # Create MockTransport for simulating transport behavior
-        mock_transport = MockTransport(emit_bot_speaking=False)
+        mock_transport = MockTransport(
+            params=TransportParams(
+                audio_in_enabled=True,
+                audio_out_enabled=True,
+                audio_in_sample_rate=16000,
+                audio_out_sample_rate=16000,
+            ),
+        )
 
         # Create LLM context
         context = LLMContext()

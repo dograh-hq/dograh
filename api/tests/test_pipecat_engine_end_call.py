@@ -53,6 +53,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.tests import MockLLMService, MockTTSService
 from pipecat.tests.mock_transport import MockTransport
+from pipecat.transports.base_transport import TransportParams
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
@@ -125,15 +126,17 @@ async def create_engine_with_tracking(
         Tuple of (engine, tts, transport, task)
     """
     # Create MockTTSService
-    tts = MockTTSService(mock_audio_duration_ms=10, frame_delay=0)
+    tts = MockTTSService(mock_audio_duration_ms=40, frame_delay=0)
 
     # Create MockTransport with audio generation to simulate real pipeline
     mock_transport = MockTransport(
         generate_audio=generate_audio,
-        audio_interval_ms=20,
-        audio_sample_rate=16000,
-        audio_num_channels=1,
-        emit_bot_speaking=True,
+        params=TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=16000,
+            audio_out_sample_rate=16000,
+        ),
     )
 
     # Create LLM context

@@ -7,12 +7,11 @@ in the PipecatEngine. The key scenario being tested:
 2. At the same time, user starts and stops speaking (triggered by FunctionCallResultFrame)
 3. The pipeline should handle both events correctly
 
-The tests use a custom input transport that injects UserStartedSpeakingFrame and
-UserStoppedSpeakingFrame when triggered by a FunctionCallResultFrame observer.
+The tests use a UserSpeechInjector processor that injects UserStartedSpeakingFrame and
+UserStoppedSpeakingFrame when triggered by a FunctionCallResultFrame.
 """
 
 import asyncio
-from typing import Optional
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -20,13 +19,9 @@ import pytest
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from pipecat.frames.frames import (
-    CancelFrame,
-    EndFrame,
     Frame,
     FunctionCallResultFrame,
-    InputAudioRawFrame,
     LLMContextFrame,
-    StartFrame,
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
@@ -42,8 +37,8 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.tests import MockLLMService, MockTTSService
-from pipecat.tests.mock_transport import MockOutputTransport
-from pipecat.transports.base_transport import BaseTransport, TransportParams
+from pipecat.tests.mock_transport import MockTransport
+from pipecat.transports.base_transport import TransportParams
 from pipecat.turns.user_mute import (
     CallbackUserMuteStrategy,
     MuteUntilFirstBotCompleteUserMuteStrategy,
@@ -58,76 +53,35 @@ from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
 
-class UserSpeechInjectingInputTransport(FrameProcessor):
-    """Mock input transport that injects user speaking frames on FunctionCallResultFrame.
+class UserSpeechInjector(FrameProcessor):
+    """Processor that injects user speaking frames on FunctionCallResultFrame.
 
-    This transport generates audio frames and automatically injects UserStartedSpeakingFrame
-    and UserStoppedSpeakingFrame when it sees the first FunctionCallResultFrame flowing
-    upstream through the pipeline.
+    When this processor sees the first FunctionCallResultFrame flowing upstream,
+    it injects UserStartedSpeakingFrame, TranscriptionFrame, and UserStoppedSpeakingFrame
+    downstream to simulate user speech during a function call.
     """
 
     def __init__(
         self,
-        params: Optional[TransportParams] = None,
         *,
-        generate_audio: bool = False,
-        audio_interval_ms: int = 20,
-        sample_rate: int = 16000,
-        num_channels: int = 1,
         user_speech_initial_delay: float = 0.01,
         **kwargs,
     ):
+        """Initialize the user speech injector.
+
+        Args:
+            user_speech_initial_delay: Delay in seconds before injecting
+                UserStartedSpeakingFrame after seeing FunctionCallResultFrame.
+            **kwargs: Additional arguments passed to parent class.
+        """
         super().__init__(**kwargs)
-        self._params = params or TransportParams()
-        self._generate_audio = generate_audio
-        self._audio_interval_ms = audio_interval_ms
-        self._sample_rate = sample_rate
-        self._num_channels = num_channels
         self._user_speech_initial_delay = user_speech_initial_delay
-        self._audio_task: Optional[asyncio.Task] = None
-        self._running = False
         self._function_call_result_count = 0
-
-    async def _generate_audio_frames(self):
-        """Generate audio frames at regular intervals."""
-        samples_per_frame = int(self._sample_rate * self._audio_interval_ms / 1000)
-        bytes_per_frame = samples_per_frame * self._num_channels * 2
-        silence_audio = bytes(bytes_per_frame)
-
-        while self._running:
-            try:
-                frame = InputAudioRawFrame(
-                    audio=silence_audio,
-                    sample_rate=self._sample_rate,
-                    num_channels=self._num_channels,
-                )
-                await self.push_frame(frame)
-                await asyncio.sleep(self._audio_interval_ms / 1000)
-            except asyncio.CancelledError:
-                break
-
-    def _start_tasks(self):
-        """Start audio generation task."""
-        if not self._running:
-            self._running = True
-            if self._generate_audio:
-                self._audio_task = asyncio.create_task(self._generate_audio_frames())
-
-    def _stop_tasks(self):
-        """Stop all background tasks."""
-        self._running = False
-        if self._audio_task and not self._audio_task.done():
-            self._audio_task.cancel()
-            self._audio_task = None
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
 
-        if isinstance(frame, StartFrame):
-            self._start_tasks()
-        elif isinstance(frame, (EndFrame, CancelFrame)):
-            self._stop_tasks()
-        elif isinstance(frame, FunctionCallResultFrame):
+        if isinstance(frame, FunctionCallResultFrame):
             # When we see FunctionCallResultFrame #1 flowing upstream,
             # inject user speaking frames downstream
             self._function_call_result_count += 1
@@ -160,68 +114,21 @@ class UserSpeechInjectingInputTransport(FrameProcessor):
 
         await self.push_frame(frame, direction)
 
-    async def cleanup(self):
-        self._stop_tasks()
-        await super().cleanup()
-
-
-class UserSpeechInjectingTransport(BaseTransport):
-    """Transport that injects user speaking frames on first FunctionCallResultFrame."""
-
-    def __init__(
-        self,
-        params: Optional[TransportParams] = None,
-        *,
-        input_name: Optional[str] = None,
-        output_name: Optional[str] = None,
-        emit_bot_speaking: bool = True,
-        generate_audio: bool = False,
-        audio_interval_ms: int = 20,
-        audio_sample_rate: int = 16000,
-        audio_num_channels: int = 1,
-        user_speech_initial_delay: float = 0.01,
-    ):
-        super().__init__(input_name=input_name, output_name=output_name)
-        self._params = params or TransportParams()
-        self._input = UserSpeechInjectingInputTransport(
-            self._params,
-            name=self._input_name,
-            generate_audio=generate_audio,
-            audio_interval_ms=audio_interval_ms,
-            sample_rate=audio_sample_rate,
-            num_channels=audio_num_channels,
-            user_speech_initial_delay=user_speech_initial_delay,
-        )
-        self._output = MockOutputTransport(
-            self._params,
-            emit_bot_speaking=emit_bot_speaking,
-            name=self._output_name,
-        )
-
-    def input(self) -> UserSpeechInjectingInputTransport:
-        return self._input
-
-    def output(self) -> FrameProcessor:
-        return self._output
-
 
 async def create_test_pipeline(
     workflow: WorkflowGraph,
     mock_llm: MockLLMService,
-    generate_audio: bool = True,
     user_speech_initial_delay: float = 0.01,
-) -> tuple[PipecatEngine, UserSpeechInjectingTransport, PipelineTask]:
+) -> tuple[PipecatEngine, MockTransport, PipelineTask]:
     """Create a PipecatEngine with full pipeline for testing node switch scenarios.
 
-    The transport's input automatically injects UserStartedSpeakingFrame and
-    UserStoppedSpeakingFrame when it sees the first FunctionCallResultFrame
-    flowing upstream through the pipeline.
+    The pipeline includes a UserSpeechInjector processor that injects
+    UserStartedSpeakingFrame and UserStoppedSpeakingFrame when it sees
+    the first FunctionCallResultFrame flowing upstream.
 
     Args:
         workflow: The workflow graph to use.
         mock_llm: The mock LLM service.
-        generate_audio: If True, the mock transport generates InputAudioRawFrame
-            every 20ms to simulate real audio input.
         user_speech_initial_delay: Delay in seconds before injecting
             UserStartedSpeakingFrame after seeing FunctionCallResultFrame.
 
@@ -229,15 +136,20 @@ async def create_test_pipeline(
         Tuple of (engine, transport, task)
     """
     # Create MockTTSService
-    tts = MockTTSService(mock_audio_duration_ms=10, frame_delay=0)
+    tts = MockTTSService(mock_audio_duration_ms=40, frame_delay=0)
 
-    # Create custom transport that injects user speaking frames on FunctionCallResultFrame #1
-    transport = UserSpeechInjectingTransport(
-        generate_audio=generate_audio,
-        audio_interval_ms=20,
-        audio_sample_rate=16000,
-        audio_num_channels=1,
-        emit_bot_speaking=True,
+    # Create MockTransport
+    transport = MockTransport(
+        params=TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=16000,
+            audio_out_sample_rate=16000,
+        ),
+    )
+
+    # Create user speech injector processor
+    user_speech_injector = UserSpeechInjector(
         user_speech_initial_delay=user_speech_initial_delay,
     )
 
@@ -280,12 +192,13 @@ async def create_test_pipeline(
     assistant_context_aggregator = context_aggregator.assistant()
 
     # Create the pipeline:
-    # transport.input() -> user_aggregator -> LLM -> TTS -> transport.output() -> assistant_aggregator
-    # The transport input watches for FunctionCallResultFrame flowing upstream
+    # transport.input() -> user_speech_injector -> user_aggregator -> LLM -> TTS -> transport.output() -> assistant_aggregator
+    # The user_speech_injector watches for FunctionCallResultFrame flowing upstream
     # and injects user speaking frames when it sees the first one
     pipeline = Pipeline(
         [
             transport.input(),
+            user_speech_injector,
             user_context_aggregator,
             mock_llm,
             tts,
@@ -325,17 +238,15 @@ class TestNodeSwitchWithUserSpeech:
         This test creates the scenario where:
         1. LLM generates text and calls collect_info to transition from start to agent
         2. When FunctionCallResultFrame #1 is seen, UserStartedSpeakingFrame and
-           UserStoppedSpeakingFrame are automatically injected from the pipeline source
+           UserStoppedSpeakingFrame are automatically injected by UserSpeechInjector
         3. The pipeline processes both events concurrently
 
-        The FunctionCallResultObserver in the pipeline detects the first function call
-        result and triggers the transport to inject user speaking frames.
+        The UserSpeechInjector processor in the pipeline detects the first function call
+        result and injects user speaking frames.
 
         This test is parameterized with two scenarios:
         - delayed_user_speech: 10ms delay before UserStartedSpeakingFrame (user_speech_initial_delay=0.01)
         - immediate_user_speech: No delay before UserStartedSpeakingFrame (user_speech_initial_delay=0)
-
-        This is a scenario creation test - no specific assertions yet.
         """
         # Step 0 (Start node): greet user then call collect_info to transition to agent
         step_0_chunks = MockLLMService.create_mixed_chunks(

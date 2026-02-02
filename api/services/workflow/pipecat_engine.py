@@ -6,6 +6,8 @@ from api.services.workflow.disposition_mapper import (
 )
 from api.services.workflow.workflow import Node, WorkflowGraph
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
@@ -98,6 +100,9 @@ class PipecatEngine:
 
         # Controls whether user input should be muted
         self._mute_pipeline: bool = False
+
+        # Tracks whether the bot is currently speaking (for allow_interrupt logic)
+        self._bot_is_speaking: bool = False
 
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
@@ -614,10 +619,30 @@ class PipecatEngine:
         """
         Callback for CallbackUserMuteStrategy to determine if the user should be muted.
 
+        This method tracks bot speaking state from frames and mutes the user when:
+        - The pipeline is being shut down (_mute_pipeline is True), OR
+        - The bot is speaking AND the current node has allow_interrupt=False
+
         Returns:
             True if the user should be muted, False otherwise.
         """
-        return self._mute_pipeline
+        # Track bot speaking state from frames
+        if isinstance(frame, BotStartedSpeakingFrame):
+            self._bot_is_speaking = True
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            self._bot_is_speaking = False
+
+        # Always mute if pipeline is shutting down
+        if self._mute_pipeline:
+            return True
+
+        # Mute if bot is speaking and current node doesn't allow interruption
+        if self._bot_is_speaking and self._current_node:
+            # If we should not allow interruption, mute the pipeline
+            if not self._current_node.allow_interrupt:
+                return True
+
+        return False
 
     def create_user_idle_handler(self):
         """

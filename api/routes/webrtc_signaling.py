@@ -7,12 +7,17 @@ Uses the SmallWebRTC API contract:
 - SmallWebRTCConnection for peer connection management
 - candidate_from_sdp() for parsing ICE candidates
 - add_ice_candidate() for trickling support
+
+TURN Authentication:
+- Uses time-limited credentials (TURN REST API) when TURN_SECRET is configured
+- Credentials are generated per-connection using HMAC-SHA1
+- Falls back to static credentials if TURN_SECRET is not set (legacy mode)
 """
 
 import asyncio
 import os
 from datetime import UTC, datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
@@ -22,6 +27,12 @@ from starlette.websockets import WebSocketState
 
 from api.db import db_client
 from api.db.models import UserModel
+from api.routes.turn_credentials import (
+    TURN_HOST,
+    TURN_PORT,
+    TURN_SECRET,
+    generate_turn_credentials,
+)
 from api.services.auth.depends import get_user_ws
 from api.services.pipecat.run_pipeline import run_pipeline_smallwebrtc
 from api.services.pipecat.ws_sender_registry import (
@@ -35,33 +46,60 @@ from pipecat.utils.context import set_current_run_id
 router = APIRouter(prefix="/ws")
 
 
-def get_ice_servers() -> List[RTCIceServer]:
-    """Build ICE servers configuration including TURN if configured."""
+def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
+    """Build ICE servers configuration including TURN if configured.
+
+    Args:
+        user_id: Optional user ID for generating time-limited TURN credentials.
+                 If provided and TURN_SECRET is configured, uses TURN REST API.
+
+    Returns:
+        List of RTCIceServer configurations for WebRTC peer connection.
+    """
     servers: List[RTCIceServer] = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 
-    # Add TURN server if configured
-    turn_host = os.getenv("TURN_HOST")
+    # Check if TURN is configured
+    if not TURN_HOST:
+        return servers
+
+    # Use time-limited credentials if TURN_SECRET is configured (recommended)
+    if TURN_SECRET and user_id:
+        try:
+            credentials = generate_turn_credentials(user_id)
+            servers.append(
+                RTCIceServer(
+                    urls=credentials["uris"],
+                    username=credentials["username"],
+                    credential=credentials["password"],
+                )
+            )
+            logger.info(
+                f"TURN server configured with time-limited credentials, TTL: {credentials['ttl']}s"
+            )
+            return servers
+        except Exception as e:
+            logger.error(f"Failed to generate TURN credentials: {e}")
+
+    # Fallback to static credentials (legacy mode - not recommended for production)
     turn_username = os.getenv("TURN_USERNAME")
     turn_password = os.getenv("TURN_PASSWORD")
 
-    if turn_host and turn_username and turn_password:
+    if turn_username and turn_password:
         servers.append(
             RTCIceServer(
                 urls=[
-                    f"turn:{turn_host}:3478",
-                    f"turn:{turn_host}:3478?transport=tcp",
+                    f"turn:{TURN_HOST}:{TURN_PORT}",
+                    f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",
                 ],
                 username=turn_username,
                 credential=turn_password,
             )
         )
-        logger.info(f"TURN server configured: {turn_host}:3478")
+        logger.warning(
+            f"TURN server configured with static credentials (consider using TURN_SECRET for time-limited auth)"
+        )
 
     return servers
-
-
-# ICE servers configuration
-ice_servers = get_ice_servers()
 
 
 class SignalingManager:
@@ -178,8 +216,10 @@ class SignalingManager:
             )
         else:
             # Create new connection using correct SmallWebRTC API
+            # Generate ICE servers with time-limited TURN credentials for this user
+            user_ice_servers = get_ice_servers(user_id=str(user.id))
             pc = SmallWebRTCConnection(
-                ice_servers=ice_servers, connection_timeout_secs=60
+                ice_servers=user_ice_servers, connection_timeout_secs=60
             )
             # Set the pc_id before initialization so it's available in get_answer()
             pc._pc_id = pc_id

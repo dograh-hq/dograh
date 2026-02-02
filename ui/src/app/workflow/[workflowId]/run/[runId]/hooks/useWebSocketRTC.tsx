@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { client } from "@/client/client.gen";
-import { validateUserConfigurationsApiV1UserConfigurationsUserValidateGet, validateWorkflowApiV1WorkflowWorkflowIdValidatePost } from "@/client/sdk.gen";
+import { getTurnCredentialsApiV1TurnCredentialsGet, validateUserConfigurationsApiV1UserConfigurationsUserValidateGet, validateWorkflowApiV1WorkflowWorkflowIdValidatePost } from "@/client/sdk.gen";
+import { TurnCredentialsResponse } from "@/client/types.gen";
 import { WorkflowValidationError } from "@/components/flow/types";
 import logger from '@/lib/logger';
 
@@ -57,13 +58,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const useAudio = true;
     const audioCodec = 'default';
 
-    // TURN server configuration fetched at runtime from /api/config/turn
-    const turnConfigRef = useRef<{
-        enabled: boolean;
-        host: string;
-        username: string;
-        password: string;
-    } | null>(null);
+    // TURN server credentials fetched at runtime from backend API
+    // Uses time-limited credentials (TURN REST API) for security
+    const turnCredentialsRef = useRef<TurnCredentialsResponse | null>(null);
 
     const audioRef = useRef<HTMLAudioElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
@@ -100,19 +97,16 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             iceServers.push({ urls: ['stun:stun.l.google.com:19302'] });
         }
 
-        // Add TURN server if configured (fetched from /api/config/turn)
-        const turnConfig = turnConfigRef.current;
-        if (turnConfig?.enabled) {
+        // Add TURN server if credentials are available (time-limited credentials from backend)
+        const turnCredentials = turnCredentialsRef.current;
+        if (turnCredentials?.uris && turnCredentials.uris.length > 0) {
             iceServers.push({
-                urls: [
-                    `turn:${turnConfig.host}:3478`,           // TURN over UDP
-                    `turn:${turnConfig.host}:3478?transport=tcp`, // TURN over TCP
-                ],
-                username: turnConfig.username,
-                credential: turnConfig.password
+                urls: turnCredentials.uris,
+                username: turnCredentials.username,
+                credential: turnCredentials.password
             });
 
-            logger.info(`TURN server configured: ${turnConfig.host}:3478`);
+            logger.info(`TURN server configured with ${turnCredentials.uris.length} URIs, TTL: ${turnCredentials.ttl}s`);
         }
 
         const config: RTCConfiguration = {
@@ -467,17 +461,24 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         setConnectionStatus('connecting');
 
         try {
-            // Fetch TURN configuration at runtime
+            // Fetch time-limited TURN credentials from backend API
             try {
-                const turnResponse = await fetch('/api/config/turn');
-                if (turnResponse.ok) {
-                    turnConfigRef.current = await turnResponse.json();
-                    if (turnConfigRef.current?.enabled) {
-                        logger.info('TURN server enabled via runtime config');
-                    }
+                const turnResponse = await getTurnCredentialsApiV1TurnCredentialsGet({
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                    },
+                });
+                if (turnResponse.data) {
+                    turnCredentialsRef.current = turnResponse.data;
+                    logger.info(`TURN credentials obtained, TTL: ${turnCredentialsRef.current.ttl}s`);
+                } else if (turnResponse.response.status === 503) {
+                    // TURN not configured on server - this is OK, we'll use STUN only
+                    logger.info('TURN server not configured, using STUN only');
+                } else {
+                    logger.warn(`Failed to fetch TURN credentials: ${turnResponse.response.status}`);
                 }
             } catch (e) {
-                logger.warn('Failed to fetch TURN config, continuing without TURN:', e);
+                logger.warn('Failed to fetch TURN credentials, continuing without TURN:', e);
             }
 
             // Validate API keys

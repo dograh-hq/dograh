@@ -58,6 +58,17 @@ services:
     networks:
       - app-network
 
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - "-c"
+      - "/etc/coturn/turnserver.conf"
+
 volumes:
   postgres_data:
   redis_data:

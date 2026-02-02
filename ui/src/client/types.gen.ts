@@ -880,6 +880,16 @@ export type TriggerCallResponse = {
 };
 
 /**
+ * Response model for TURN credentials.
+ */
+export type TurnCredentialsResponse = {
+    username: string;
+    password: string;
+    ttl: number;
+    uris: Array<string>;
+};
+
+/**
  * Request schema for Twilio configuration.
  */
 export type TwilioConfigurationRequest = {
@@ -4200,6 +4210,39 @@ export type GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses = {
 };
 
 export type GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponse = GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses[keyof GetDailyRunsDetailApiV1OrganizationsReportsDailyRunsGetResponses];
+
+export type GetTurnCredentialsApiV1TurnCredentialsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/turn/credentials';
+};
+
+export type GetTurnCredentialsApiV1TurnCredentialsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetTurnCredentialsApiV1TurnCredentialsGetError = GetTurnCredentialsApiV1TurnCredentialsGetErrors[keyof GetTurnCredentialsApiV1TurnCredentialsGetErrors];
+
+export type GetTurnCredentialsApiV1TurnCredentialsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TurnCredentialsResponse;
+};
+
+export type GetTurnCredentialsApiV1TurnCredentialsGetResponse = GetTurnCredentialsApiV1TurnCredentialsGetResponses[keyof GetTurnCredentialsApiV1TurnCredentialsGetResponses];
 
 export type OptionsInitApiV1PublicEmbedInitOptionsData = {
     body?: never;

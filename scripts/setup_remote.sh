@@ -30,20 +30,20 @@ if ! [[ "$SERVER_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
-# Get the TURN password
-echo -e "${YELLOW}Enter a password for the TURN server (press Enter for default 'dograh-turn-secret'):${NC}"
-read -sp "> " TURN_PASSWORD
+# Get the TURN secret
+echo -e "${YELLOW}Enter a shared secret for the TURN server (press Enter to generate a random one):${NC}"
+read -sp "> " TURN_SECRET
 echo ""
 
-if [[ -z "$TURN_PASSWORD" ]]; then
-    TURN_PASSWORD="dograh-turn-secret"
-    echo -e "${BLUE}Using default TURN password${NC}"
+if [[ -z "$TURN_SECRET" ]]; then
+    TURN_SECRET=$(openssl rand -hex 32)
+    echo -e "${BLUE}Generated random TURN secret${NC}"
 fi
 
 echo ""
 echo -e "${GREEN}Configuration:${NC}"
 echo -e "  Server IP:     ${BLUE}$SERVER_IP${NC}"
-echo -e "  TURN Password: ${BLUE}********${NC}"
+echo -e "  TURN Secret:   ${BLUE}********${NC}"
 echo ""
 
 # Create project directory if it doesn't exist
@@ -135,10 +135,9 @@ echo -e "${GREEN}✓ SSL certificates generated${NC}"
 
 echo -e "${BLUE}[5/5] Creating environment file...${NC}"
 cat > .env << ENV_EOF
-# TURN Server Configuration
+# TURN Server Configuration (time-limited credentials via TURN REST API)
 TURN_HOST=$SERVER_IP
-TURN_USERNAME=dograh
-TURN_PASSWORD=$TURN_PASSWORD
+TURN_SECRET=$TURN_SECRET
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=true

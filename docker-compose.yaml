@@ -114,9 +114,9 @@ services:
       SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
+      # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
       TURN_HOST: "${TURN_HOST:-}"
-      TURN_USERNAME: "${TURN_USERNAME:-}"
-      TURN_PASSWORD: "${TURN_PASSWORD:-}"
+      TURN_SECRET: "${TURN_SECRET:-}"
 
     ports:
       - "8000:8000"
@@ -158,12 +158,6 @@ services:
 
       # Sentry
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
-
-      # TURN server configuration (for WebRTC NAT traversal in remote server)
-      # Fetched at runtime via /api/config/turn endpoint
-      TURN_HOST: "${TURN_HOST:-}"
-      TURN_USERNAME: "${TURN_USERNAME:-}"
-      TURN_PASSWORD: "${TURN_PASSWORD:-}"
     ports:
       - "3010:3010"
     depends_on:
@@ -196,10 +190,15 @@ services:
     container_name: coturn
     restart: unless-stopped
     profiles: ["remote"]
-    network_mode: host
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
     environment:
-      TURN_USERNAME: ${TURN_USERNAME}
-      TURN_PASSWORD: ${TURN_PASSWORD}
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_HOST: ${TURN_HOST}
     command: >
       -n
       --listening-port=3478
@@ -207,8 +206,8 @@ services:
       --min-port=49152
       --max-port=49200
       --realm=${TURN_REALM:-dograh.com}
-      --user=${TURN_USERNAME}:${TURN_PASSWORD}
-      --lt-cred-mech
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET}
       --fingerprint
       --no-cli
       --log-file=stdout
@@ -216,6 +215,8 @@ services:
       --no-tlsv1
       --no-tlsv1_1
       ${TURN_HOST:+--external-ip=$TURN_HOST}
+    networks:
+      - app-network
 
 volumes:
   postgres_data:

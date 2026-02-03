@@ -15,6 +15,7 @@ TURN Authentication:
 """
 
 import asyncio
+import ipaddress
 import os
 from datetime import UTC, datetime
 from typing import Dict, List, Optional
@@ -25,8 +26,10 @@ from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from loguru import logger
 from starlette.websockets import WebSocketState
 
+from api.constants import ENVIRONMENT
 from api.db import db_client
 from api.db.models import UserModel
+from api.enums import Environment
 from api.routes.turn_credentials import (
     TURN_HOST,
     TURN_PORT,
@@ -44,6 +47,33 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.context import set_current_run_id
 
 router = APIRouter(prefix="/ws")
+
+
+def is_private_ip_candidate(candidate_str: str) -> bool:
+    """Check if ICE candidate contains a private IP address.
+
+    Parses the candidate string to extract the IP address and checks if it's private.
+    This is used to filter out host candidates with private IPs in non-local environments,
+    preventing TURN relay errors when coturn blocks private IP ranges.
+
+    Args:
+        candidate_str: ICE candidate string, e.g.,
+            "candidate:123 1 udp 2122260223 192.168.50.24 63603 typ host ..."
+
+    Returns:
+        True if the candidate contains a private IP, False otherwise.
+    """
+    try:
+        parts = candidate_str.split()
+        # Find "typ" and get the IP which is 2 positions before it
+        if "typ" in parts:
+            typ_index = parts.index("typ")
+            ip_str = parts[typ_index - 2]
+            ip = ipaddress.ip_address(ip_str)
+            return ip.is_private
+    except (ValueError, IndexError):
+        pass
+    return False
 
 
 def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
@@ -273,6 +303,9 @@ class SignalingManager:
         Uses SmallWebRTC's native ICE trickling support via add_ice_candidate().
         Candidates are parsed using aiortc's candidate_from_sdp() for proper formatting,
         consistent with SmallWebRTCRequestHandler.handle_patch_request().
+
+        In non-local environments, private IP candidates are filtered out to prevent
+        TURN relay errors when coturn blocks private IP ranges (denied-peer-ip).
         """
         pc_id = payload.get("pc_id")
         candidate_data = payload.get("candidate")
@@ -287,9 +320,21 @@ class SignalingManager:
             return
 
         if candidate_data:
+            candidate_str = candidate_data.get("candidate", "")
+
+            # Filter out private IP candidates in non-local environments
+            # This prevents TURN relay errors when coturn blocks private IP ranges
+            if ENVIRONMENT != Environment.LOCAL.value and is_private_ip_candidate(
+                candidate_str
+            ):
+                logger.debug(
+                    f"Skipping private IP candidate in {ENVIRONMENT}: {candidate_str[:50]}..."
+                )
+                return
+
             try:
                 # Parse the ICE candidate using aiortc's parser (same as SmallWebRTCRequestHandler)
-                candidate = candidate_from_sdp(candidate_data["candidate"])
+                candidate = candidate_from_sdp(candidate_str)
                 candidate.sdpMid = candidate_data.get("sdpMid")
                 candidate.sdpMLineIndex = candidate_data.get("sdpMLineIndex")
 

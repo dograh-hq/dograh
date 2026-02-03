@@ -24,6 +24,7 @@ from loguru import logger
 from pydantic import BaseModel
 
 from api.constants import (
+    ENVIRONMENT,
     TURN_CREDENTIAL_TTL,
     TURN_HOST,
     TURN_PORT,
@@ -31,6 +32,7 @@ from api.constants import (
     TURN_TLS_PORT,
 )
 from api.db.models import UserModel
+from api.enums import Environment
 from api.services.auth.depends import get_user
 
 router = APIRouter(prefix="/turn", tags=["turn"])
@@ -88,10 +90,28 @@ def generate_turn_credentials(user_id: str, ttl: int = TURN_CREDENTIAL_TTL) -> d
     ).decode("utf-8")
 
     # Build TURN URIs
-    uris = [
-        f"turn:{TURN_HOST}:{TURN_PORT}",  # TURN over UDP
-        f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",  # TURN over TCP
-    ]
+    # Note: aiortc only uses the FIRST valid TURN URI, so ordering matters.
+    # Priority:
+    #   1. TURNS (TLS) if configured - most secure
+    #   2. TURN TCP for LOCAL env (macOS Docker compatibility)
+    #   3. TURN UDP for production (more efficient)
+    uris = []
+
+    # Add non-TLS TURN as fallback, ordered by environment
+    if ENVIRONMENT == Environment.LOCAL.value:
+        uris.extend(
+            [
+                f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",  # TCP for macOS Docker
+                f"turn:{TURN_HOST}:{TURN_PORT}",  # UDP fallback
+            ]
+        )
+    else:
+        uris.extend(
+            [
+                f"turn:{TURN_HOST}:{TURN_PORT}",  # UDP preferred for other environments
+                f"turn:{TURN_HOST}:{TURN_PORT}?transport=tcp",  # TCP fallback
+            ]
+        )
 
     # Add TLS URIs if TLS port is configured
     if TURN_TLS_PORT:

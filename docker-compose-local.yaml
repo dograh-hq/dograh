@@ -58,6 +58,23 @@ services:
     networks:
       - app-network
 
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    restart: unless-stopped
+    ports:
+      - "3478:3478/udp"      # TURN/STUN UDP
+      - "3478:3478/tcp"      # TURN/STUN TCP
+      - "5349:5349/tcp"      # TURNS (TLS)
+      - "49152-49200:49152-49200/udp"  # Relay ports
+    volumes:
+      - ./config/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - "-c"
+      - "/etc/coturn/turnserver.conf"
+    networks:
+      - app-network
+
 volumes:
   postgres_data:
   redis_data:

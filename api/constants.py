@@ -102,3 +102,10 @@ DEFAULT_CAMPAIGN_RETRY_CONFIG = {
     "retry_on_no_answer": True,
     "retry_on_voicemail": False,
 }
+
+
+TURN_SECRET = os.getenv("TURN_SECRET")
+TURN_HOST = os.getenv("TURN_HOST", "localhost")
+TURN_PORT = int(os.getenv("TURN_PORT", "3478"))
+TURN_TLS_PORT = int(os.getenv("TURN_TLS_PORT", "5349"))
+TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))

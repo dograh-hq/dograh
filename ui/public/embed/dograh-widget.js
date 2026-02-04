@@ -28,6 +28,7 @@
     workflowRunId: null,
     connectionStatus: 'idle', // idle, connecting, connected, failed
     audioElement: null,
+    turnCredentials: null, // TURN server credentials
     callbacks: {
       onReady: null,
       onCallStart: null,
@@ -680,14 +681,62 @@
     state.sessionToken = data.session_token;
     state.workflowRunId = data.workflow_run_id;
     state.workflowId = data.config.workflow_id;
+
+    // Fetch TURN credentials after session initialization
+    await fetchTurnCredentials();
+  }
+
+  /**
+   * Fetch TURN credentials for WebRTC connection
+   */
+  async function fetchTurnCredentials() {
+    if (!state.sessionToken) {
+      console.warn('Dograh Widget: No session token available for TURN credentials');
+      return;
+    }
+
+    try {
+      const response = await fetch(`${state.config.apiBaseUrl}/api/v1/public/embed/turn-credentials/${state.sessionToken}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Origin': window.location.origin
+        }
+      });
+
+      if (response.ok) {
+        state.turnCredentials = await response.json();
+        console.log(`TURN credentials obtained, TTL: ${state.turnCredentials.ttl}s`);
+      } else if (response.status === 503) {
+        // TURN not configured on server - this is OK, we'll use STUN only
+        console.log('TURN server not configured, using STUN only');
+      } else {
+        console.warn(`Failed to fetch TURN credentials: ${response.status}`);
+      }
+    } catch (error) {
+      console.warn('Failed to fetch TURN credentials, continuing without TURN:', error);
+    }
   }
 
   /**
    * Create WebRTC peer connection
    */
   function createWebRTCConnection() {
+    // Build ICE servers list
+    const iceServers = [{ urls: ['stun:stun.l.google.com:19302'] }];
+
+    // Add TURN server if credentials are available
+    if (state.turnCredentials && state.turnCredentials.uris && state.turnCredentials.uris.length > 0) {
+      iceServers.push({
+        urls: state.turnCredentials.uris,
+        username: state.turnCredentials.username,
+        credential: state.turnCredentials.password
+      });
+      console.log(`TURN server configured with ${state.turnCredentials.uris.length} URIs`);
+    }
+
     const config = {
-      iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+      iceServers: iceServers
     };
 
     state.pc = new RTCPeerConnection(config);

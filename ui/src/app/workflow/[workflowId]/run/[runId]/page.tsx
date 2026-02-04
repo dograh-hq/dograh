@@ -150,7 +150,7 @@ export default function WorkflowRunPage() {
     }
     else if (workflowRun?.is_completed) {
         returnValue = (
-            <div className="flex h-full w-full">
+            <div className="flex h-screen w-full overflow-hidden">
                 {/* Main content - 2/3 width */}
                 <div className="w-2/3 h-full flex items-center justify-center overflow-y-auto">
                     <div className="w-full max-w-4xl space-y-6 p-6">
@@ -254,7 +254,7 @@ export default function WorkflowRunPage() {
                 </div>
 
                 {/* Transcript panel - 1/3 width */}
-                <div className="w-1/3 h-full shrink-0">
+                <div className="w-1/3 h-full shrink-0 overflow-hidden">
                     <RealtimeFeedback mode="historical" logs={workflowRun?.logs} />
                 </div>
             </div>

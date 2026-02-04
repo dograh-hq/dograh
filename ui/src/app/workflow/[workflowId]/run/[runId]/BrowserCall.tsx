@@ -95,9 +95,9 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
 
     return (
         <>
-            <div className="flex h-full w-full">
+            <div className="flex h-screen w-full overflow-hidden">
                 {/* Main content - 2/3 width when panel visible, full width otherwise */}
-                <div className="w-2/3 h-full">
+                <div className="w-2/3 h-full overflow-y-auto">
                     <div className="flex justify-center items-center h-full px-8">
                         <Card className="w-full max-w-xl">
                             <CardHeader>
@@ -141,7 +141,7 @@ const BrowserCall = ({ workflowId, workflowRunId, accessToken, initialContextVar
                 </div>
 
                 {/* Show transcript panel */}
-                <div className="w-1/3 h-full shrink-0">
+                <div className="w-1/3 h-full shrink-0 overflow-hidden">
                     <RealtimeFeedback
                         mode="live"
                         messages={feedbackMessages}

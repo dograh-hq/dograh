@@ -19,6 +19,11 @@ from pydantic import BaseModel
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
+from api.routes.turn_credentials import (
+    TURN_SECRET,
+    TurnCredentialsResponse,
+    generate_turn_credentials,
+)
 
 router = APIRouter(prefix="/public/embed")
 
@@ -108,6 +113,14 @@ def generate_session_token() -> str:
     return f"emb_session_{secrets.token_urlsafe(32)}"
 
 
+def get_request_origin(request: Request) -> str:
+    """Extract origin from request headers, falling back to referer if not present."""
+    origin = request.headers.get("origin", "")
+    if not origin:
+        origin = request.headers.get("referer", "")
+    return origin
+
+
 @router.post("/init", response_model=InitEmbedResponse)
 async def initialize_embed_session(request: Request, init_request: InitEmbedRequest):
     """Initialize an embed session with token validation and domain checking.
@@ -119,10 +132,7 @@ async def initialize_embed_session(request: Request, init_request: InitEmbedRequ
     4. Generates a temporary session token
     5. Returns configuration for the widget
     """
-    # Get origin header for domain validation
-    origin = request.headers.get("origin", "")
-    if not origin:
-        origin = request.headers.get("referer", "")
+    origin = get_request_origin(request)
 
     # Validate embed token
     embed_token = await db_client.get_embed_token_by_token(init_request.token)
@@ -201,10 +211,7 @@ async def get_embed_config(token: str, request: Request):
     This endpoint is used to fetch widget configuration for display purposes
     without actually starting a call session.
     """
-    # Get origin header for domain validation
-    origin = request.headers.get("origin", "")
-    if not origin:
-        origin = request.headers.get("referer", "")
+    origin = get_request_origin(request)
 
     # Validate embed token
     embed_token = await db_client.get_embed_token_by_token(token)
@@ -247,6 +254,94 @@ async def options_init(request: Request):
             "Access-Control-Allow-Origin": origin,
             "Access-Control-Allow-Methods": "POST, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type, Origin",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
+
+
+@router.get("/turn-credentials/{session_token}", response_model=TurnCredentialsResponse)
+async def get_public_turn_credentials(session_token: str, request: Request):
+    """Get TURN credentials for an embed session.
+
+    This endpoint allows embedded widgets to obtain TURN server credentials
+    for WebRTC connections without requiring authentication.
+
+    Args:
+        session_token: The session token from embed initialization
+
+    Returns:
+        TurnCredentialsResponse with username, password, ttl, and TURN URIs
+    """
+    origin = get_request_origin(request)
+
+    # Validate session token
+    embed_session = await db_client.get_embed_session_by_token(session_token)
+    if not embed_session:
+        raise HTTPException(status_code=404, detail="Invalid session token")
+
+    # Check if session is expired
+    if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
+        raise HTTPException(status_code=403, detail="Session expired")
+
+    # Get the embed token to check allowed domains
+    embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
+    if not embed_token:
+        raise HTTPException(status_code=404, detail="Invalid embed token")
+
+    # Validate domain (empty allowed_domains means allow all)
+    if not validate_origin(origin, embed_token.allowed_domains or []):
+        logger.warning(
+            f"Domain validation failed for TURN credentials: {origin} not in {embed_token.allowed_domains}"
+        )
+        raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
+
+    # Check if TURN is configured
+    if not TURN_SECRET:
+        raise HTTPException(
+            status_code=503,
+            detail="TURN server not configured",
+        )
+
+    try:
+        # Use session token as identifier for TURN credentials
+        credentials = generate_turn_credentials(f"embed:{session_token[:16]}")
+        return TurnCredentialsResponse(**credentials)
+    except Exception as e:
+        logger.error(f"Failed to generate TURN credentials for embed session: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate TURN credentials",
+        )
+
+
+@router.options("/turn-credentials/{session_token}")
+async def options_turn_credentials(request: Request, session_token: str):
+    """Handle CORS preflight for TURN credentials endpoint"""
+    origin = request.headers.get("origin", "*")
+
+    # Try to validate the session token and get allowed domains
+    allowed_origin = origin
+    try:
+        embed_session = await db_client.get_embed_session_by_token(session_token)
+        if embed_session:
+            embed_token = await db_client.get_embed_token_by_id(
+                embed_session.embed_token_id
+            )
+            if embed_token:
+                # Check if origin is in allowed domains (empty means allow all)
+                if validate_origin(origin, embed_token.allowed_domains or []):
+                    allowed_origin = origin
+                else:
+                    allowed_origin = ""
+    except Exception:
+        # On error, be permissive for OPTIONS
+        pass
+
+    return Response(
+        headers={
+            "Access-Control-Allow-Origin": allowed_origin,
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
             "Access-Control-Max-Age": "86400",
         }
     )

@@ -186,7 +186,7 @@ services:
       - app-network
 
   coturn:
-    image: coturn/coturn:4.6.3
+    image: coturn/coturn:4.8.0
     container_name: coturn
     restart: unless-stopped
     profiles: ["remote"]
@@ -196,25 +196,11 @@ services:
       - "5349:5349/udp"
       - "5349:5349/tcp"
       - "49152-49200:49152-49200/udp"
-    environment:
-      TURN_SECRET: ${TURN_SECRET}
-      TURN_HOST: ${TURN_HOST}
-    command: >
-      -n
-      --listening-port=3478
-      --tls-listening-port=5349
-      --min-port=49152
-      --max-port=49200
-      --realm=${TURN_REALM:-dograh.com}
-      --use-auth-secret
-      --static-auth-secret=${TURN_SECRET}
-      --fingerprint
-      --no-cli
-      --log-file=stdout
-      --no-multicast-peers
-      --no-tlsv1
-      --no-tlsv1_1
-      ${TURN_HOST:+--external-ip=$TURN_HOST}
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
     networks:
       - app-network
 

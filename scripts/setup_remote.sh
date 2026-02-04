@@ -135,6 +135,9 @@ echo -e "${GREEN}✓ SSL certificates generated${NC}"
 
 echo -e "${BLUE}[5/5] Creating environment file...${NC}"
 cat > .env << ENV_EOF
+# Backend API endpoint (for remote deployment)
+BACKEND_API_ENDPOINT=https://$SERVER_IP
+
 # TURN Server Configuration (time-limited credentials via TURN REST API)
 TURN_HOST=$SERVER_IP
 TURN_SECRET=$TURN_SECRET

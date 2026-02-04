@@ -85,7 +85,7 @@ services:
 
       # Replace this environment variable if you are using a custom
       # domain to host the stack
-      BACKEND_API_ENDPOINT: "http://localhost:8000"
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"

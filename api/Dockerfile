@@ -58,8 +58,11 @@ COPY ./scripts/start_services.sh ./scripts/start_services.sh
 
 ENV PYTHONPATH=/app
 
+# Disable file logging in Docker - logs go to stdout for docker logs
+ENV LOG_TO_FILE=false
+
 # Expose the port FastAPI will run on
 EXPOSE 8000
 
 # Run the FastAPI app with uvicorn
-CMD ["bash", "-c", "./scripts/start_services.sh && tail -f ./logs/latest/*.log"]
+CMD ["./scripts/start_services.sh"]

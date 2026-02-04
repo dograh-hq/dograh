@@ -60,6 +60,8 @@ ENV PYTHONPATH=/app
 
 # Disable file logging in Docker - logs go to stdout for docker logs
 ENV LOG_TO_FILE=false
+# Keep container alive by waiting for background processes
+ENV WAIT_FOR_PROCESSES=true
 
 # Expose the port FastAPI will run on
 EXPOSE 8000

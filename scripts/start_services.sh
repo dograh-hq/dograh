@@ -54,7 +54,8 @@ LATEST_LINK="$BASE_LOG_DIR/latest"      # Symlink to latest logs
 VENV_PATH="$BASE_DIR/venv"
 
 ARQ_WORKERS=${ARQ_WORKERS:-1}
-LOG_TO_FILE=${LOG_TO_FILE:-true}  # Set to false in Docker to use stdout
+LOG_TO_FILE=${LOG_TO_FILE:-true}    # Set to false in Docker to use stdout
+WAIT_FOR_PROCESSES=${WAIT_FOR_PROCESSES:-false}  # Set to true in Docker to keep container alive
 
 # Log startup
 cd "$BASE_DIR"
@@ -282,3 +283,8 @@ echo "Logs: tail -f $LOG_DIR/*.log"
 echo "Rotated logs: ls $LOG_DIR/*.log.*"
 echo "To stop: ./scripts/stop_services.sh"
 echo "──────────────────────────────────────────────────"
+
+# In Docker mode, wait for all background processes to keep container alive
+if [[ "$WAIT_FOR_PROCESSES" == "true" ]]; then
+  wait
+fi

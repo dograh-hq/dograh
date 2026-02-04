@@ -50,11 +50,11 @@ router = APIRouter(prefix="/ws")
 
 
 def is_private_ip_candidate(candidate_str: str) -> bool:
-    """Check if ICE candidate contains a private IP address.
+    """Check if ICE candidate contains a private IP address or CGNAT IP Address.
 
     Parses the candidate string to extract the IP address and checks if it's private.
     This is used to filter out host candidates with private IPs in non-local environments,
-    preventing TURN relay errors when coturn blocks private IP ranges.
+    preventing TURN relay errors when coturn blocks private IP ranges or CGNAT IP Addresses.
 
     Args:
         candidate_str: ICE candidate string, e.g.,
@@ -70,7 +70,8 @@ def is_private_ip_candidate(candidate_str: str) -> bool:
             typ_index = parts.index("typ")
             ip_str = parts[typ_index - 2]
             ip = ipaddress.ip_address(ip_str)
-            return ip.is_private
+            is_cgnat = ip in ipaddress.ip_network("100.64.0.0/10")
+            return ip.is_private or is_cgnat
     except (ValueError, IndexError):
         pass
     return False

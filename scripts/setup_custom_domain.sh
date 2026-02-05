@@ -245,8 +245,21 @@ server {
 NGINX_EOF
 echo -e "${GREEN}✓ nginx.conf updated${NC}"
 
+# Update .env file with domain name
+echo -e "${BLUE}[6/8] Updating environment variables...${NC}"
+if [[ -f ".env" ]]; then
+    # Update BACKEND_API_ENDPOINT to use domain
+    sed -i.bak "s|^BACKEND_API_ENDPOINT=.*|BACKEND_API_ENDPOINT=https://$DOMAIN_NAME|" .env
+    # Update TURN_HOST to use domain
+    sed -i.bak "s|^TURN_HOST=.*|TURN_HOST=$DOMAIN_NAME|" .env
+    rm -f .env.bak
+    echo -e "${GREEN}✓ .env updated with domain name${NC}"
+else
+    echo -e "${YELLOW}⚠ .env file not found - skipping environment update${NC}"
+fi
+
 # Setup auto-renewal
-echo -e "${BLUE}[6/7] Setting up automatic certificate renewal...${NC}"
+echo -e "${BLUE}[7/8] Setting up automatic certificate renewal...${NC}"
 DOGRAH_PATH=$(pwd)
 
 # Create renewal hook script that copies new certificates and restarts nginx
@@ -268,7 +281,7 @@ certbot renew --dry-run --quiet && echo -e "${GREEN}✓ Auto-renewal configured 
 
 # Start Dograh services
 echo ""
-echo -e "${BLUE}[7/7] Starting Dograh services...${NC}"
+echo -e "${BLUE}[8/8] Starting Dograh services...${NC}"
 docker compose --profile remote up -d --pull always
 
 echo ""
@@ -287,6 +300,7 @@ echo -e "  Auto-renewal: Enabled (certificates renew automatically)"
 echo ""
 echo -e "${YELLOW}Files modified:${NC}"
 echo "  - dograh/nginx.conf (updated with domain name)"
+echo "  - dograh/.env (BACKEND_API_ENDPOINT and TURN_HOST updated)"
 echo "  - dograh/certs/local.crt (SSL certificate)"
 echo "  - dograh/certs/local.key (SSL private key)"
 echo "  - /etc/letsencrypt/renewal-hooks/deploy/dograh-reload.sh (renewal hook)"

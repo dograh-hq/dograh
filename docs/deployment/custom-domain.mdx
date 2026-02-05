@@ -54,7 +54,14 @@ You should see your server's IP address in the response.
 
 ## Step 2: Quick Setup (Recommended)
 
-Once your DNS is configured, run the automated setup script that handles the rest:
+Once your DNS is configured, run the automated setup script that handles the rest.
+
+<Note>
+You must be at the same place where you had run `setup_remote.sh` from. The directory should contain `dograh/` with the artifacts that got created when `setup_remote.sh` was run.
+</Note>
+<Note>
+You must not move the `dograh/` directory to a different location after running `setup_custom_domain.sh`, since we set up auto certificate renewal script as certbot renewal hook pointing to the `dograh/` directory.
+</Note>
 
 ```bash
 curl -o setup_custom_domain.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_custom_domain.sh && chmod +x setup_custom_domain.sh && sudo ./setup_custom_domain.sh

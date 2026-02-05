@@ -9,6 +9,19 @@ function generateOSSToken(): string {
 }
 
 export function middleware(request: NextRequest) {
+  // Check for maintenance mode
+  const maintenanceMode = process.env.MAINTENANCE_MODE === 'true';
+
+  if (maintenanceMode) {
+    // Allow access to the maintenance page itself to avoid redirect loop
+    if (request.nextUrl.pathname === '/maintenance') {
+      return NextResponse.next();
+    }
+
+    // Redirect all other requests to maintenance page
+    return NextResponse.redirect(new URL('/maintenance', request.url));
+  }
+
   const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
 
   // Only handle OSS mode

@@ -35,7 +35,6 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  const isMaintenanceMode = process.env.MAINTENANCE_MODE === 'true';
 
   return (
     <html lang="en" suppressHydrationWarning>
@@ -60,26 +59,22 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        {isMaintenanceMode ? (
-          children
-        ) : (
-          <AuthProvider>
-            <AppConfigProvider>
-              <Suspense fallback={<SpinLoader />}>
-                <UserConfigProvider>
-                  <OnboardingProvider>
-                    <PostHogIdentify />
-                    <AppLayout>
-                      {children}
-                    </AppLayout>
-                    <Toaster />
-                    <ChatwootWidget />
-                  </OnboardingProvider>
-                </UserConfigProvider>
-              </Suspense>
-            </AppConfigProvider>
-          </AuthProvider>
-        )}
+        <AuthProvider>
+          <AppConfigProvider>
+            <Suspense fallback={<SpinLoader />}>
+              <UserConfigProvider>
+                <OnboardingProvider>
+                  <PostHogIdentify />
+                  <AppLayout>
+                    {children}
+                  </AppLayout>
+                  <Toaster />
+                  <ChatwootWidget />
+                </OnboardingProvider>
+              </UserConfigProvider>
+            </Suspense>
+          </AppConfigProvider>
+        </AuthProvider>
       </body>
     </html>
   );

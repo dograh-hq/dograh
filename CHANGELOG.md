@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.12.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.2...dograh-v1.12.0) (2026-02-05)
+
+
+### Features
+
+* add coturn configurations ([#143](https://github.com/dograh-hq/dograh/issues/143)) ([bf972fc](https://github.com/dograh-hq/dograh/commit/bf972fcfecc790045daa70c52b7d76dd7b4a5ca5))
+* add dictionary support for STT boosting in voice agents ([#136](https://github.com/dograh-hq/dograh/issues/136)) ([db75d90](https://github.com/dograh-hq/dograh/commit/db75d905358dfe42f06b6deaf1327bec3980a87d))
+* add retry config during campaign creation ([6f41e91](https://github.com/dograh-hq/dograh/commit/6f41e91f67cbd79ab106936dccb42074c21910ce))
+* allow turn credentials fetching from embed agent ([6ccc649](https://github.com/dograh-hq/dograh/commit/6ccc6492eece6f6f3114b6065dab4f00281ae6ab))
+* check for duplicate phone number in campaign ([814271e](https://github.com/dograh-hq/dograh/commit/814271e7b1452f7674e9ab1d5b79dc381b71708f))
+* mute on function call ([#138](https://github.com/dograh-hq/dograh/issues/138)) ([9191176](https://github.com/dograh-hq/dograh/commit/91911769b0f5b2a308d71d052f44efa9839bcb2a))
+
+
+### Bug Fixes
+
+* add cloudonix CDR handling ([#140](https://github.com/dograh-hq/dograh/issues/140)) ([b1c982a](https://github.com/dograh-hq/dograh/commit/b1c982a52e27c95bf13718181bf5e4c946edf5b7))
+* add error in cloudonix cdr report ([e9c5da1](https://github.com/dograh-hq/dograh/commit/e9c5da16c5873b1f078cd608afd2036a1d9abdc5))
+* allow interruption on start_node ([7e438ad](https://github.com/dograh-hq/dograh/commit/7e438ad049348fcfcab0e4af748c7881858a97ec))
+* BACKEND_API_ENDPOINT resolution from env and cloudflared tunnel ([#135](https://github.com/dograh-hq/dograh/issues/135)) ([4a8e4fe](https://github.com/dograh-hq/dograh/commit/4a8e4fe7a1cb783d79a9b50d52f35045f13431ec))
+* better error handling for telephony ([8c42866](https://github.com/dograh-hq/dograh/commit/8c42866f80f72625a368bd135e54317e68509502))
+* fix remote deployment method  ([#145](https://github.com/dograh-hq/dograh/issues/145)) ([87fc64d](https://github.com/dograh-hq/dograh/commit/87fc64d55caa290aa4b6c6605161a74abc0cb66b))
+* make campaign process batch thread safe ([#141](https://github.com/dograh-hq/dograh/issues/141)) ([6827744](https://github.com/dograh-hq/dograh/commit/682774432778ecd72601d6993fb26cc3b179e1b3))
+
 ## [1.11.2](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.1...dograh-v1.11.2) (2026-01-27)
 
 

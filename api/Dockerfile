@@ -13,6 +13,11 @@ RUN apt-get update && apt-get install -y \
 # Copy and install requirements
 COPY api/requirements.txt .
 
+# Install CPU-only PyTorch FIRST to prevent CUDA/NVIDIA dependencies
+# This satisfies torch dependency before other packages try to pull GPU version
+RUN pip install --user --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    rm -rf /root/.cache/pip
+
 # Install dependencies to user directory for easy copying
 RUN pip install --user --no-cache-dir -r requirements.txt && \
     # Clean up pip cache after installation
@@ -58,8 +63,13 @@ COPY ./scripts/start_services.sh ./scripts/start_services.sh
 
 ENV PYTHONPATH=/app
 
+# Disable file logging in Docker - logs go to stdout for docker logs
+ENV LOG_TO_FILE=false
+# Keep container alive by waiting for background processes
+ENV WAIT_FOR_PROCESSES=true
+
 # Expose the port FastAPI will run on
 EXPOSE 8000
 
 # Run the FastAPI app with uvicorn
-CMD ["bash", "-c", "./scripts/start_services.sh && tail -f ./logs/latest/*.log"]
+CMD ["./scripts/start_services.sh"]

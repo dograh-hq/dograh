@@ -103,9 +103,8 @@ async def process_document(
 
     The document status will be updated from 'pending' -> 'processing' -> 'completed' or 'failed'.
 
-    Embedding Services:
-    * openai (default): High-quality 1536-dimensional embeddings (requires OPENAI_API_KEY)
-    * sentence_transformer: Free, offline-capable, 384-dimensional embeddings
+    Embedding:
+    Uses OpenAI text-embedding-3-small (1536-dimensional embeddings, requires API key configured in Model Configurations).
 
     Access Control:
     * Users can only process documents in their organization.
@@ -134,12 +133,11 @@ async def process_document(
             request.s3_key,
             user.selected_organization_id,
             128,  # max_tokens (default)
-            request.embedding_service,
         )
 
         logger.info(
             f"Created document {request.document_uuid} (id={document.id}) and enqueued processing "
-            f"with {request.embedding_service} embeddings, org {user.selected_organization_id}"
+            f"with OpenAI embeddings, org {user.selected_organization_id}"
         )
 
         return DocumentResponseSchema(

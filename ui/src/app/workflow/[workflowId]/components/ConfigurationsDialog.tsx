@@ -4,8 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { AmbientNoiseConfiguration, VADConfiguration, WorkflowConfigurations } from "@/types/workflow-configurations";
+import { AmbientNoiseConfiguration, TurnStopStrategy, WorkflowConfigurations } from "@/types/workflow-configurations";
 
 interface ConfigurationsDialogProps {
     open: boolean;
@@ -14,13 +15,6 @@ interface ConfigurationsDialogProps {
     workflowName: string;
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
 }
-
-const DEFAULT_VAD_CONFIG: VADConfiguration = {
-    confidence: 0.7,
-    start_seconds: 0.4,
-    stop_seconds: 0.8,
-    minimum_volume: 0.6,
-};
 
 const DEFAULT_AMBIENT_NOISE_CONFIG: AmbientNoiseConfiguration = {
     enabled: false,
@@ -35,9 +29,6 @@ export const ConfigurationsDialog = ({
     onSave
 }: ConfigurationsDialogProps) => {
     const [name, setName] = useState<string>(workflowName);
-    const [vadConfig, setVadConfig] = useState<VADConfiguration>(
-        workflowConfigurations?.vad_configuration || DEFAULT_VAD_CONFIG
-    );
     const [ambientNoiseConfig, setAmbientNoiseConfig] = useState<AmbientNoiseConfiguration>(
         workflowConfigurations?.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG
     );
@@ -47,16 +38,23 @@ export const ConfigurationsDialog = ({
     const [maxUserIdleTimeout, setMaxUserIdleTimeout] = useState<number>(
         workflowConfigurations?.max_user_idle_timeout || 10  // Default 10 seconds
     );
+    const [smartTurnStopSecs, setSmartTurnStopSecs] = useState<number>(
+        workflowConfigurations?.smart_turn_stop_secs || 2  // Default 2 seconds
+    );
+    const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
+        workflowConfigurations?.turn_stop_strategy || 'transcription'
+    );
     const [isSaving, setIsSaving] = useState(false);
 
     const handleSave = async () => {
         setIsSaving(true);
         try {
             await onSave({
-                vad_configuration: vadConfig,
                 ambient_noise_configuration: ambientNoiseConfig,
                 max_call_duration: maxCallDuration,
-                max_user_idle_timeout: maxUserIdleTimeout
+                max_user_idle_timeout: maxUserIdleTimeout,
+                smart_turn_stop_secs: smartTurnStopSecs,
+                turn_stop_strategy: turnStopStrategy
             }, name);
             onOpenChange(false);
         } catch (error) {
@@ -70,22 +68,13 @@ export const ConfigurationsDialog = ({
     useEffect(() => {
         if (open) {
             setName(workflowName);
-            setVadConfig(workflowConfigurations?.vad_configuration || DEFAULT_VAD_CONFIG);
             setAmbientNoiseConfig(workflowConfigurations?.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG);
             setMaxCallDuration(workflowConfigurations?.max_call_duration || 600);
             setMaxUserIdleTimeout(workflowConfigurations?.max_user_idle_timeout || 10);
+            setSmartTurnStopSecs(workflowConfigurations?.smart_turn_stop_secs || 2);
+            setTurnStopStrategy(workflowConfigurations?.turn_stop_strategy || 'transcription');
         }
     }, [open, workflowName, workflowConfigurations]);
-
-    const handleVadChange = (field: keyof VADConfiguration, value: string) => {
-        const numValue = parseFloat(value);
-        if (!isNaN(numValue)) {
-            setVadConfig(prev => ({
-                ...prev,
-                [field]: numValue
-            }));
-        }
-    };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -114,76 +103,6 @@ export const ConfigurationsDialog = ({
                                 onChange={(e) => setName(e.target.value)}
                                 placeholder="Enter Agent name"
                             />
-                        </div>
-                    </div>
-
-                    {/* Voice Activity Detection Section */}
-                    <div className="space-y-4">
-                        <div>
-                            <h3 className="text-sm font-semibold mb-1">Voice Activity Detection</h3>
-                            <p className="text-xs text-muted-foreground">
-                                Hyperparameters to set for voice activity detection. Already configured with defaults.
-                            </p>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="confidence" className="text-xs">
-                                    Confidence
-                                </Label>
-                                <Input
-                                    id="confidence"
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    max="1"
-                                    value={vadConfig.confidence}
-                                    onChange={(e) => handleVadChange('confidence', e.target.value)}
-                                />
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="start_seconds" className="text-xs">
-                                    Start Seconds
-                                </Label>
-                                <Input
-                                    id="start_seconds"
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={vadConfig.start_seconds}
-                                    onChange={(e) => handleVadChange('start_seconds', e.target.value)}
-                                />
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="stop_seconds" className="text-xs">
-                                    Stop Seconds
-                                </Label>
-                                <Input
-                                    id="stop_seconds"
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    value={vadConfig.stop_seconds}
-                                    onChange={(e) => handleVadChange('stop_seconds', e.target.value)}
-                                />
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="minimum_volume" className="text-xs">
-                                    Minimum Volume
-                                </Label>
-                                <Input
-                                    id="minimum_volume"
-                                    type="number"
-                                    step="0.1"
-                                    min="0"
-                                    max="1"
-                                    value={vadConfig.minimum_volume}
-                                    onChange={(e) => handleVadChange('minimum_volume', e.target.value)}
-                                />
-                            </div>
                         </div>
                     </div>
 
@@ -232,6 +151,68 @@ export const ConfigurationsDialog = ({
                                 </div>
                             )}
                         </div>
+                    </div>
+
+                    {/* Turn Detection Section */}
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-sm font-semibold mb-1">Turn Detection</h3>
+                            <p className="text-xs text-muted-foreground">
+                                Configure how the agent detects when the user has finished speaking.
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="turn_stop_strategy" className="text-xs">
+                                Detection Strategy
+                            </Label>
+                            <Select
+                                value={turnStopStrategy}
+                                onValueChange={(value: TurnStopStrategy) => setTurnStopStrategy(value)}
+                            >
+                                <SelectTrigger id="turn_stop_strategy">
+                                    <SelectValue placeholder="Select strategy" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="transcription">
+                                        Transcription-based
+                                    </SelectItem>
+                                    <SelectItem value="turn_analyzer">
+                                        Smart Turn Analyzer
+                                    </SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                                {turnStopStrategy === 'transcription'
+                                    ? "Best for short responses (1-2 word statements). Ends turn when transcription indicates completion."
+                                    : "Best for longer responses with natural pauses. Uses ML model to detect end of turn."}
+                            </p>
+                        </div>
+
+                        {turnStopStrategy === 'turn_analyzer' && (
+                            <div className="space-y-2">
+                                <Label htmlFor="smart_turn_stop_secs" className="text-xs">
+                                    Incomplete Turn Timeout (seconds)
+                                </Label>
+                                <Input
+                                    id="smart_turn_stop_secs"
+                                    type="number"
+                                    step="0.5"
+                                    min="0.5"
+                                    max="10"
+                                    value={smartTurnStopSecs}
+                                    onChange={(e) => {
+                                        const value = parseFloat(e.target.value);
+                                        if (!isNaN(value) && value >= 0.5) {
+                                            setSmartTurnStopSecs(value);
+                                        }
+                                    }}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Max silence duration before ending an incomplete turn. Default: 2 seconds
+                                </p>
+                            </div>
+                        )}
                     </div>
 
                     {/* Call Management Section */}

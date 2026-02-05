@@ -2,7 +2,6 @@
 
 import os
 import tempfile
-from typing import Literal
 
 from docling.chunking import HybridChunker
 from docling.document_converter import DocumentConverter
@@ -12,13 +11,10 @@ from transformers import AutoTokenizer
 
 from api.db import db_client
 from api.db.models import KnowledgeBaseChunkModel
-from api.services.gen_ai import (
-    OpenAIEmbeddingService,
-    SentenceTransformerEmbeddingService,
-)
+from api.services.gen_ai import OpenAIEmbeddingService
 from api.services.storage import storage_fs
 
-# For tokenization/chunking - use SentenceTransformer tokenizer as baseline
+# For tokenization/chunking
 TOKENIZER_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -28,7 +24,6 @@ async def process_knowledge_base_document(
     s3_key: str,
     organization_id: int,
     max_tokens: int = 128,
-    embedding_service: Literal["sentence_transformer", "openai"] = "openai",
 ):
     """Process a knowledge base document: download, chunk, embed, and store.
 
@@ -38,9 +33,6 @@ async def process_knowledge_base_document(
         s3_key: S3 key where the file is stored
         organization_id: Organization ID
         max_tokens: Maximum number of tokens per chunk (default: 128)
-        embedding_service: Embedding service to use (default: "openai")
-            - "openai": Use OpenAI text-embedding-3-small (1536-dim, requires API key)
-            - "sentence_transformer": Use SentenceTransformer (all-MiniLM-L6-v2, 384-dim, free)
     """
     logger.info(
         f"Starting knowledge base document processing for document_id={document_id}, "
@@ -125,56 +117,38 @@ async def process_knowledge_base_document(
             mime_type=mime_type,
         )
 
-        # Initialize the embedding service based on the parameter
-        if embedding_service == "openai":
-            logger.info(
-                f"Initializing OpenAI embedding service with max_tokens={max_tokens}"
-            )
-            # Try to get user's embeddings configuration
-            embeddings_api_key = None
-            embeddings_model = None
-            if document.created_by:
-                user_config = await db_client.get_user_configurations(
-                    document.created_by
-                )
-                if user_config.embeddings:
-                    embeddings_api_key = user_config.embeddings.api_key
-                    embeddings_model = user_config.embeddings.model
-                    logger.info(
-                        f"Using user embeddings config: model={embeddings_model}"
-                    )
+        # Initialize the OpenAI embedding service
+        logger.info(
+            f"Initializing OpenAI embedding service with max_tokens={max_tokens}"
+        )
+        # Try to get user's embeddings configuration
+        embeddings_api_key = None
+        embeddings_model = None
+        if document.created_by:
+            user_config = await db_client.get_user_configurations(document.created_by)
+            if user_config.embeddings:
+                embeddings_api_key = user_config.embeddings.api_key
+                embeddings_model = user_config.embeddings.model
+                logger.info(f"Using user embeddings config: model={embeddings_model}")
 
-            # Check if API key is configured
-            if not embeddings_api_key:
-                error_message = (
-                    "OpenAI API key not configured. Please set your API key in "
-                    "Model Configurations > Embedding to process documents."
-                )
-                logger.warning(f"Document {document_id}: {error_message}")
-                await db_client.update_document_status(
-                    document_id, "failed", error_message=error_message
-                )
-                return
+        # Check if API key is configured
+        if not embeddings_api_key:
+            error_message = (
+                "OpenAI API key not configured. Please set your API key in "
+                "Model Configurations > Embedding to process documents."
+            )
+            logger.warning(f"Document {document_id}: {error_message}")
+            await db_client.update_document_status(
+                document_id, "failed", error_message=error_message
+            )
+            return
 
-            service = OpenAIEmbeddingService(
-                db_client=db_client,
-                max_tokens=max_tokens,
-                api_key=embeddings_api_key,
-                model_id=embeddings_model or "text-embedding-3-small",
-            )
-        elif embedding_service == "sentence_transformer":
-            logger.info(
-                f"Initializing SentenceTransformer embedding service with max_tokens={max_tokens}"
-            )
-            service = SentenceTransformerEmbeddingService(
-                db_client=db_client,
-                max_tokens=max_tokens,
-            )
-        else:
-            raise ValueError(
-                f"Invalid embedding_service: {embedding_service}. "
-                f"Must be 'sentence_transformer' or 'openai'"
-            )
+        service = OpenAIEmbeddingService(
+            db_client=db_client,
+            max_tokens=max_tokens,
+            api_key=embeddings_api_key,
+            model_id=embeddings_model or "text-embedding-3-small",
+        )
 
         # Step 1: Convert document with docling
         logger.info("Converting document with docling")
@@ -265,8 +239,8 @@ async def process_knowledge_base_document(
             logger.info(f"  - Min: {min_tokens} tokens")
             logger.info(f"  - Max: {max_tokens_actual} tokens")
 
-        # Step 6: Generate embeddings using the embedding service
-        logger.info(f"Generating embeddings using {embedding_service}")
+        # Step 6: Generate embeddings using OpenAI
+        logger.info(f"Generating embeddings using {service.get_model_id()}")
         embeddings = await service.embed_texts(chunk_texts)
 
         # Step 7: Attach embeddings to chunk records

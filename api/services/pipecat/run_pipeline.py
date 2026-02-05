@@ -548,6 +548,7 @@ async def _run_pipeline(
         node_transition_callback=node_transition_callback,
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
+        audio_out_sample_rate=audio_config.transport_out_sample_rate,
     )
 
     # Create pipeline components with audio configuration

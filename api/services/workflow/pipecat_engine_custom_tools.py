@@ -6,6 +6,7 @@ during workflow execution.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
@@ -24,8 +25,13 @@ from api.services.workflow.transfer_event_protocol import (
     TransferEventType,
     wait_for_transfer_signal,
 )
+from api.utils.hold_audio import get_hold_audio_duration_ms, load_hold_audio
 from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.frames.frames import FunctionCallResultProperties, TTSSpeakFrame
+from pipecat.frames.frames import (
+    FunctionCallResultProperties,
+    OutputAudioRawFrame,
+    TTSSpeakFrame,
+)
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.enums import EndTaskReason
 
@@ -249,10 +255,47 @@ class CustomToolManager:
             Async handler function for the transfer call tool
         """
 
+        async def play_hold_music_loop(stop_event: asyncio.Event) -> None:
+            """Play hold music in a loop until stop_event is set."""
+            sample_rate = self._engine._audio_out_sample_rate
+            try:
+                hold_audio = load_hold_audio(sample_rate)
+                duration_ms = get_hold_audio_duration_ms(sample_rate)
+                duration_secs = duration_ms / 1000.0
+
+                logger.info(
+                    f"Starting hold music loop at {sample_rate}Hz, "
+                    f"duration={duration_secs:.2f}s per loop"
+                )
+
+                while not stop_event.is_set():
+                    # Queue the hold audio frame
+                    frame = OutputAudioRawFrame(
+                        audio=hold_audio,
+                        sample_rate=sample_rate,
+                        num_channels=1,
+                    )
+                    await self._engine.task.queue_frame(frame)
+
+                    # Wait for the audio to play or until stopped
+                    try:
+                        await asyncio.wait_for(stop_event.wait(), timeout=duration_secs)
+                        break  # Stop event was set
+                    except asyncio.TimeoutError:
+                        pass  # Continue looping
+
+                logger.info("Hold music loop stopped")
+
+            except Exception as e:
+                logger.error(f"Error playing hold music: {e}")
+
         async def transfer_call_handler(
             function_call_params: FunctionCallParams,
         ) -> None:
             logger.info(f"Transfer Call Tool EXECUTED: {function_name}")
+
+            stop_hold_music = asyncio.Event()
+            hold_music_task: Optional[asyncio.Task] = None
 
             try:
                 # Get the transfer call configuration
@@ -269,6 +312,9 @@ class CustomToolManager:
 
                 logger.info(f"Initiating transfer to: {transfer_number}")
 
+                # Mute pipeline before playing transfer message
+                self._engine.mute_pipeline()
+
                 # Play transfer message if configured
                 if transfer_message:
                     logger.info(f"Playing transfer message: {transfer_message}")
@@ -278,6 +324,11 @@ class CustomToolManager:
                 self._engine._gathered_context["transfer_requested"] = True
                 self._engine._gathered_context["transfer_number"] = transfer_number
 
+                # Start playing hold music in the background
+                hold_music_task = asyncio.create_task(
+                    play_hold_music_loop(stop_hold_music)
+                )
+
                 # Wait for external signal to proceed with transfer (30s timeout)
                 workflow_run_id = self._engine._workflow_run_id
                 logger.info(
@@ -286,8 +337,11 @@ class CustomToolManager:
 
                 transfer_event = await wait_for_transfer_signal(
                     workflow_run_id=workflow_run_id,
-                    timeout_seconds=30.0,
+                    timeout_seconds=8.0,
                 )
+
+                # Stop hold music
+                stop_hold_music.set()
 
                 if transfer_event is None:
                     # Timeout - transfer failed
@@ -329,8 +383,16 @@ class CustomToolManager:
                     f"Transfer call tool '{function_name}' execution failed: {e}"
                 )
                 await function_call_params.result_callback(
-                    {"status": "error", "error": str(e)},
-                    properties=properties,
+                    {"status": "error", "error": str(e)}
                 )
+            finally:
+                # Ensure hold music is stopped
+                stop_hold_music.set()
+                if hold_music_task and not hold_music_task.done():
+                    hold_music_task.cancel()
+                    try:
+                        await hold_music_task
+                    except asyncio.CancelledError:
+                        pass
 
         return transfer_call_handler

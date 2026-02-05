@@ -70,6 +70,7 @@ class PipecatEngine:
         ] = None,
         embeddings_api_key: Optional[str] = None,
         embeddings_model: Optional[str] = None,
+        audio_out_sample_rate: int = 16000,
     ):
         self.task = task
         self.llm = llm
@@ -110,6 +111,9 @@ class PipecatEngine:
         # Embeddings configuration (passed from run_pipeline.py)
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
+
+        # Output audio sample rate for playback (8000 or 16000)
+        self._audio_out_sample_rate: int = audio_out_sample_rate
 
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -697,10 +701,14 @@ class PipecatEngine:
             connection: The StasisRTPConnection instance, or None for non-Stasis transports
         """
         self._stasis_connection = connection
-        if connection:
-            logger.debug(
-                f"Stasis connection set for immediate transfers: {connection.channel_id}"
-            )
+
+    def mute_pipeline(self) -> None:
+        """Mute the pipeline to prevent further LLM generations.
+
+        Call this before playing final messages (like transfer announcements)
+        to ensure the pipeline doesn't process any more user input.
+        """
+        self._mute_pipeline = True
 
     async def handle_llm_text_frame(self, text: str):
         """Accumulate LLM text frames to build reference text."""

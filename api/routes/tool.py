@@ -72,9 +72,26 @@ class EndCallToolDefinition(BaseModel):
     config: EndCallConfig = Field(description="End Call configuration")
 
 
+class TransferCallConfig(BaseModel):
+    """Configuration for Transfer Call tools."""
+
+    transfer_number: str = Field(description="Number to transfer the call to")
+    transfer_message: Optional[str] = Field(
+        default=None, description="Message to play before transferring the call"
+    )
+
+
+class TransferCallToolDefinition(BaseModel):
+    """Tool definition for Transfer Call tools."""
+
+    schema_version: int = Field(default=1, description="Schema version")
+    type: Literal["transfer_call"] = Field(description="Tool type")
+    config: TransferCallConfig = Field(description="Transfer Call configuration")
+
+
 # Union type for tool definitions - Pydantic will discriminate based on 'type' field
 ToolDefinition = Annotated[
-    Union[HttpApiToolDefinition, EndCallToolDefinition],
+    Union[HttpApiToolDefinition, EndCallToolDefinition, TransferCallToolDefinition],
     Field(discriminator="type"),
 ]
 

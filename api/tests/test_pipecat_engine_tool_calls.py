@@ -102,6 +102,7 @@ async def run_pipeline_with_tool_calls(
         workflow=workflow,
         call_context_vars={"customer_name": "Test User"},
         workflow_run_id=1,
+        audio_out_sample_rate=16000,
     )
 
     # Create the pipeline with the mock LLM and TTS
@@ -371,6 +372,8 @@ class TestPipecatEngineToolCalls:
 
         # Callback to send transfer signal while handler is waiting
         async def send_signal(engine: PipecatEngine):
+            # Wait a bit to allow hold music to play
+            await asyncio.sleep(0.5)
             # Send the transfer signal to unblock the waiting handler
             await send_transfer_signal(
                 workflow_run_id=engine._workflow_run_id,

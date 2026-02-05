@@ -18,8 +18,26 @@ export function middleware(request: NextRequest) {
       return NextResponse.next();
     }
 
+    // Return 503 for API routes during maintenance
+    if (request.nextUrl.pathname.startsWith('/api')) {
+      return NextResponse.json(
+        {
+          error: 'Service Unavailable',
+          message:
+            process.env.MAINTENANCE_MESSAGE ||
+            'We are currently performing scheduled maintenance. Please try again later.',
+        },
+        { status: 503 }
+      );
+    }
+
     // Redirect all other requests to maintenance page
     return NextResponse.redirect(new URL('/maintenance', request.url));
+  }
+
+  // Skip OSS token handling for API routes
+  if (request.nextUrl.pathname.startsWith('/api')) {
+    return NextResponse.next();
   }
 
   const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
@@ -68,12 +86,11 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except:
-     * - api routes
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - public files (public folder)
      */
-    '/((?!api|_next/static|_next/image|favicon.ico|public).*)',
+    '/((?!_next/static|_next/image|favicon.ico|public).*)',
   ],
 };

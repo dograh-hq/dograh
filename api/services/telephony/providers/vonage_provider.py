@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
 import jwt
-from fastapi import Response
+from fastapi import HTTPException, Response
 from loguru import logger
 
 from api.enums import WorkflowRunMode
@@ -127,7 +127,10 @@ class VonageProvider(TelephonyProvider):
                 response_data = await response.json()
 
                 if response.status != 201:
-                    raise Exception(f"Failed to initiate call: {response_data}")
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Failed to initiate Vonage call: {response_data}",
+                    )
 
                 return CallInitiationResult(
                     call_id=response_data["uuid"],

@@ -7,6 +7,7 @@ import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
+from fastapi import HTTPException
 from loguru import logger
 
 from api.enums import WorkflowRunMode
@@ -116,7 +117,10 @@ class VobizProvider(TelephonyProvider):
                 if response.status != 201:
                     error_data = await response.text()
                     logger.error(f"Vobiz API error: {error_data}")
-                    raise Exception(f"Failed to initiate Vobiz call: {error_data}")
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Failed to initiate Vobiz call: {error_data}",
+                    )
 
                 response_data = await response.json()
                 logger.info(f"Vobiz API response: {response_data}")
@@ -133,8 +137,10 @@ class VobizProvider(TelephonyProvider):
                     logger.error(
                         f"No call ID found in Vobiz response. Available keys: {list(response_data.keys())}"
                     )
-                    raise Exception(
-                        f"Vobiz API response missing call identifier. Response: {response_data}"
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Vobiz API response missing call identifier. Response: {response_data}"
+                        f"Vobiz API response missing call identifier. Response: {response_data}",
                     )
 
                 logger.info(f"Vobiz call initiated successfully. Call ID: {call_id}")

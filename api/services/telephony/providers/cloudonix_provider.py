@@ -7,6 +7,7 @@ import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
+from fastapi import HTTPException
 from loguru import logger
 
 from api.enums import WorkflowRunMode
@@ -104,10 +105,12 @@ class CloudonixProvider(TelephonyProvider):
             "caller-id": from_number,  # Required field
         }
 
+        # TODO: Cloudonix status callbacks are spammy, so commenting it out. Can send it to
+        # some persistent logging system instead of transcational database.
         # Add status callback if workflow_run_id provided
-        if workflow_run_id:
-            callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}"
-            data["callback"] = callback_url
+        # if workflow_run_id:
+        #     callback_url = f"{backend_endpoint}/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}"
+        #     data["callback"] = callback_url
 
         # Merge any additional kwargs
         data.update(kwargs)
@@ -153,8 +156,9 @@ class CloudonixProvider(TelephonyProvider):
                         f"  Request: POST {endpoint}\n"
                         f"  Payload: {json.dumps(data, indent=2)}"
                     )
-                    raise Exception(
-                        f"Failed to initiate call via Cloudonix (HTTP {response_status}): {response_text}"
+                    raise HTTPException(
+                        status_code=response_status,
+                        detail=f"Failed to initiate call via Cloudonix (HTTP {response_status}): {response_text}",
                     )
 
                 response_data = await response.json()

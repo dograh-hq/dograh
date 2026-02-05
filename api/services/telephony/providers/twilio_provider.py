@@ -7,6 +7,7 @@ import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
+from fastapi import HTTPException
 from loguru import logger
 from twilio.request_validator import RequestValidator
 
@@ -98,7 +99,9 @@ class TwilioProvider(TelephonyProvider):
             async with session.post(endpoint, data=data, auth=auth) as response:
                 if response.status != 201:
                     error_data = await response.json()
-                    raise Exception(f"Failed to initiate call: {error_data}")
+                    raise HTTPException(
+                        status_code=response.status, detail=json.dumps(error_data)
+                    )
 
                 response_data = await response.json()
 

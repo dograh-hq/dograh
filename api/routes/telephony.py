@@ -30,6 +30,10 @@ from api.services.telephony.factory import (
     get_all_telephony_providers,
     get_telephony_provider,
 )
+from api.services.workflow.transfer_event_protocol import (
+    TransferEventType,
+    send_transfer_signal,
+)
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_helper import (
     generic_hangup_response,
@@ -1480,3 +1484,52 @@ async def handle_cloudonix_cdr(request: Request):
     )
 
     return {"status": "success"}
+
+
+class TransferSignalRequest(BaseModel):
+    """Request to send a transfer signal."""
+
+    action: str = "proceed"  # "proceed" or "cancel"
+    message: Optional[str] = None
+
+
+@router.post("/transfer-signal/{workflow_run_id}")
+async def send_transfer_signal_endpoint(
+    workflow_run_id: int,
+    request: TransferSignalRequest,
+):
+    """Send a transfer signal to unblock a waiting transfer call handler.
+
+    This is a POC endpoint to test the transfer call flow.
+    Call this endpoint to signal that the transfer is ready to proceed.
+
+    Args:
+        workflow_run_id: The workflow run ID waiting for the signal
+        request: The signal action (proceed or cancel) and optional message
+    """
+    logger.info(
+        f"[run {workflow_run_id}] Received transfer signal request: action={request.action}"
+    )
+
+    event_type = (
+        TransferEventType.TRANSFER_PROCEED
+        if request.action == "proceed"
+        else TransferEventType.TRANSFER_CANCEL
+    )
+
+    success = await send_transfer_signal(
+        workflow_run_id=workflow_run_id,
+        event_type=event_type,
+        message=request.message,
+    )
+
+    if success:
+        return {
+            "status": "success",
+            "message": f"Transfer signal sent: {request.action}",
+        }
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to send transfer signal",
+        )

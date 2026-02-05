@@ -20,6 +20,10 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from api.services.workflow.transfer_event_protocol import (
+    TransferEventType,
+    wait_for_transfer_signal,
+)
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import FunctionCallResultProperties, TTSSpeakFrame
 from pipecat.services.llm_service import FunctionCallParams
@@ -139,6 +143,9 @@ class CustomToolManager:
         if tool.category == ToolCategory.END_CALL.value:
             return self._create_end_call_handler(tool, function_name)
 
+        if tool.category == ToolCategory.TRANSFER_CALL.value:
+            return self._create_transfer_call_handler(tool, function_name)
+
         return self._create_http_tool_handler(tool, function_name)
 
     def _create_http_tool_handler(self, tool: Any, function_name: str):
@@ -230,3 +237,100 @@ class CustomToolManager:
                 )
 
         return end_call_handler
+
+    def _create_transfer_call_handler(self, tool: Any, function_name: str):
+        """Create a handler function for a transfer call tool.
+
+        Args:
+            tool: The ToolModel instance
+            function_name: The function name used by the LLM
+
+        Returns:
+            Async handler function for the transfer call tool
+        """
+
+        async def transfer_call_handler(
+            function_call_params: FunctionCallParams,
+        ) -> None:
+            logger.info(f"Transfer Call Tool EXECUTED: {function_name}")
+
+            try:
+                # Get the transfer call configuration
+                config = tool.definition.get("config", {})
+                transfer_number = config.get("transferNumber", "")
+                transfer_message = config.get("transferMessage", "")
+
+                if not transfer_number:
+                    logger.error("Transfer number not configured")
+                    await function_call_params.result_callback(
+                        {"status": "error", "error": "Transfer number not configured"}
+                    )
+                    return
+
+                logger.info(f"Initiating transfer to: {transfer_number}")
+
+                # Play transfer message if configured
+                if transfer_message:
+                    logger.info(f"Playing transfer message: {transfer_message}")
+                    await self._engine.task.queue_frame(TTSSpeakFrame(transfer_message))
+
+                # Store transfer intent in gathered context
+                self._engine._gathered_context["transfer_requested"] = True
+                self._engine._gathered_context["transfer_number"] = transfer_number
+
+                # Wait for external signal to proceed with transfer (30s timeout)
+                workflow_run_id = self._engine._workflow_run_id
+                logger.info(
+                    f"Waiting for transfer signal for workflow_run_id: {workflow_run_id}"
+                )
+
+                transfer_event = await wait_for_transfer_signal(
+                    workflow_run_id=workflow_run_id,
+                    timeout_seconds=30.0,
+                )
+
+                if transfer_event is None:
+                    # Timeout - transfer failed
+                    logger.warning("Transfer signal timed out")
+                    self._engine._gathered_context["transfer_status"] = "timed_out"
+                    await function_call_params.result_callback(
+                        {"status": "error", "error": "Transfer signal timed out"}
+                    )
+                    return
+
+                if transfer_event.type == TransferEventType.TRANSFER_CANCEL.value:
+                    # Cancelled - transfer failed
+                    logger.info("Transfer was cancelled")
+                    self._engine._gathered_context["transfer_status"] = "cancelled"
+                    await function_call_params.result_callback(
+                        {"status": "error", "error": "Transfer was cancelled"}
+                    )
+                    return
+
+                # Success - proceed with transfer
+                logger.info("Transfer signal received - proceeding with transfer")
+                self._engine._gathered_context["transfer_status"] = "success"
+
+                # Lets send result callback so that timeout task is cancelled. Lets not
+                # run llm
+                await function_call_params.result_callback(
+                    {"status": "error", "error": "Transfer was cancelled"},
+                    properties=FunctionCallResultProperties(run_llm=False),
+                )
+
+                # Terminate the call after the call is added to the conference
+                await self._engine.end_call_with_reason(
+                    EndTaskReason.CALL_TRANSFERRED.value,
+                    abort_immediately=True,
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Transfer call tool '{function_name}' execution failed: {e}"
+                )
+                await function_call_params.result_callback(
+                    {"status": "error", "error": str(e)},
+                    properties=properties,
+                )
+
+        return transfer_call_handler

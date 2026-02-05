@@ -227,6 +227,8 @@ export default function ToolsPage() {
                 return <Badge variant="default">HTTP API</Badge>;
             case "end_call":
                 return <Badge variant="destructive">End Call</Badge>;
+            case "transfer_call":
+                return <Badge className="bg-emerald-500">Transfer Call</Badge>;
             case "native":
                 return <Badge variant="secondary">Native</Badge>;
             case "integration":

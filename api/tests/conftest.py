@@ -113,6 +113,7 @@ class MockToolModel:
     name: str
     description: str
     definition: Dict[str, Any]
+    category: str = "http_api"
 
 
 @pytest.fixture
@@ -142,6 +143,25 @@ def mock_workflow_run():
 def mock_user_config():
     """Create a mock user configuration for testing."""
     return MockUserConfig()
+
+
+@pytest.fixture
+def transfer_call_tool():
+    """Create a mock transfer call tool for testing."""
+    return MockToolModel(
+        tool_uuid="transfer-uuid-001",
+        name="Transfer to Support",
+        description="Transfer the call to a support representative",
+        category="transfer_call",
+        definition={
+            "schema_version": 1,
+            "type": "transfer_call",
+            "config": {
+                "transferNumber": "+15551234567",
+                "transferMessage": "Please hold while I transfer you to a support representative.",
+            },
+        },
+    )
 
 
 @pytest.fixture

@@ -125,15 +125,11 @@ async def process_knowledge_base_document(
         embeddings_api_key = None
         embeddings_model = None
         if document.created_by:
-            user_config = await db_client.get_user_configurations(
-                document.created_by
-            )
+            user_config = await db_client.get_user_configurations(document.created_by)
             if user_config.embeddings:
                 embeddings_api_key = user_config.embeddings.api_key
                 embeddings_model = user_config.embeddings.model
-                logger.info(
-                    f"Using user embeddings config: model={embeddings_model}"
-                )
+                logger.info(f"Using user embeddings config: model={embeddings_model}")
 
         # Check if API key is configured
         if not embeddings_api_key:

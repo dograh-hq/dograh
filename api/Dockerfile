@@ -13,6 +13,11 @@ RUN apt-get update && apt-get install -y \
 # Copy and install requirements
 COPY api/requirements.txt .
 
+# Install CPU-only PyTorch FIRST to prevent CUDA/NVIDIA dependencies
+# This satisfies torch dependency before other packages try to pull GPU version
+RUN pip install --user --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    rm -rf /root/.cache/pip
+
 # Install dependencies to user directory for easy copying
 RUN pip install --user --no-cache-dir -r requirements.txt && \
     # Clean up pip cache after installation

@@ -44,6 +44,7 @@ from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
+from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
@@ -66,6 +67,7 @@ from pipecat.turns.user_start.vad_user_turn_start_strategy import (
 )
 from pipecat.turns.user_stop import (
     ExternalUserTurnStopStrategy,
+    TranscriptionUserTurnStopStrategy,
     TurnAnalyzerUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
@@ -453,6 +455,8 @@ async def _run_pipeline(
     # Extract configurations from workflow configurations
     max_call_duration_seconds = 300  # Default 5 minutes
     max_user_idle_timeout = 10.0  # Default 10 seconds
+    smart_turn_stop_secs = 2.0  # Default 2 seconds for incomplete turn timeout
+    turn_stop_strategy = "transcription"  # Default to transcription-based detection
     keyterms = None  # Dictionary words for STT boosting
 
     if workflow.workflow_configurations:
@@ -467,6 +471,16 @@ async def _run_pipeline(
             max_user_idle_timeout = workflow.workflow_configurations[
                 "max_user_idle_timeout"
             ]
+
+        # Use workflow-specific smart turn stop timeout if provided
+        if "smart_turn_stop_secs" in workflow.workflow_configurations:
+            smart_turn_stop_secs = workflow.workflow_configurations[
+                "smart_turn_stop_secs"
+            ]
+
+        # Use workflow-specific turn stop strategy if provided
+        if "turn_stop_strategy" in workflow.workflow_configurations:
+            turn_stop_strategy = workflow.workflow_configurations["turn_stop_strategy"]
 
         # Extract dictionary words and convert to keyterms list
         if "dictionary" in workflow.workflow_configurations:
@@ -551,9 +565,9 @@ async def _run_pipeline(
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
-    # Configure turn strategies based on STT provider and model
+    # Configure turn strategies based on STT provider, model, and workflow configuration
     # Deepgram Flux uses external turn detection (VAD + External start/stop)
-    # Other models use transcription-based turn detection with smart turn analyzer
+    # Other models use configurable turn detection strategy
     is_deepgram_flux = (
         user_config.stt.provider == ServiceProviders.DEEPGRAM.value
         and user_config.stt.model == "flux-general-en"
@@ -564,14 +578,22 @@ async def _run_pipeline(
             start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
             stop=[ExternalUserTurnStopStrategy()],
         )
-    else:
+    elif turn_stop_strategy == "turn_analyzer":
+        # Smart Turn Analyzer: best for longer responses with natural pauses
+        smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
         user_turn_strategies = UserTurnStrategies(
             start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
             stop=[
                 TurnAnalyzerUserTurnStopStrategy(
-                    turn_analyzer=LocalSmartTurnAnalyzerV3()
+                    turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
                 )
             ],
+        )
+    else:
+        # Transcription-based (default): best for short 1-2 word responses
+        user_turn_strategies = UserTurnStrategies(
+            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
+            stop=[TranscriptionUserTurnStopStrategy()],
         )
 
     # Create user mute strategies

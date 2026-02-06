@@ -75,8 +75,8 @@ class EndCallToolDefinition(BaseModel):
 class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
-    transfer_number: str = Field(description="Number to transfer the call to")
-    transfer_message: Optional[str] = Field(
+    transferNumber: str = Field(description="Number to transfer the call to")
+    transferMessage: Optional[str] = Field(
         default=None, description="Message to play before transferring the call"
     )
 

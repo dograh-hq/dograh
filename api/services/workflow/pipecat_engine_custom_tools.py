@@ -279,7 +279,9 @@ class CustomToolManager:
 
                     # Wait for the audio to play or until stopped
                     try:
-                        await asyncio.wait_for(stop_event.wait(), timeout=duration_secs)
+                        await asyncio.wait_for(
+                            stop_event.wait(), timeout=duration_secs + 1.5
+                        )
                         break  # Stop event was set
                     except asyncio.TimeoutError:
                         pass  # Continue looping

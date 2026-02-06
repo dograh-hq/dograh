@@ -28,8 +28,9 @@ import {
     getToolTypeLabel,
     renderToolIcon,
     type ToolCategory,
+    type TransferCallConfig,
 } from "../config";
-import { EndCallToolConfig, HttpApiToolConfig } from "./components";
+import { EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 
 // Extended HttpApiConfig with parameters (until client types are regenerated)
 interface HttpApiConfigWithParams {
@@ -68,6 +69,10 @@ export default function ToolDetailPage() {
     // End Call form state
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
     const [endCallCustomMessage, setEndCallCustomMessage] = useState("");
+
+    // Transfer Call form state
+    const [transferNumber, setTransferNumber] = useState("");
+    const [transferMessage, setTransferMessage] = useState("");
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -117,6 +122,16 @@ export default function ToolDetailPage() {
                 setEndCallMessageType("none");
                 setEndCallCustomMessage("");
             }
+        } else if (tool.category === "transfer_call") {
+            // Populate transfer call specific fields
+            const config = tool.definition?.config as TransferCallConfig | undefined;
+            if (config) {
+                setTransferNumber(config.transferNumber || "");
+                setTransferMessage(config.transferMessage || "");
+            } else {
+                setTransferNumber("");
+                setTransferMessage("");
+            }
         } else {
             // Populate HTTP API specific fields
             const config = tool.definition?.config as HttpApiConfigWithParams | undefined;
@@ -163,7 +178,7 @@ export default function ToolDetailPage() {
         if (!tool) return;
 
         // Validation based on tool type
-        if (tool.category !== "end_call") {
+        if (tool.category === "http_api") {
             // Validate URL for HTTP API tools
             const urlValidation = validateUrl(url);
             if (!urlValidation.valid) {
@@ -198,6 +213,20 @@ export default function ToolDetailPage() {
                         config: {
                             messageType: endCallMessageType,
                             customMessage: endCallMessageType === "custom" ? endCallCustomMessage : undefined,
+                        },
+                    },
+                };
+            } else if (tool.category === "transfer_call") {
+                // Build transfer call request body
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        schema_version: 1,
+                        type: "transfer_call",
+                        config: {
+                            transferNumber,
+                            transferMessage: transferMessage || undefined,
                         },
                     },
                 };
@@ -331,6 +360,7 @@ const data = await response.json();`;
     }
 
     const isEndCallTool = tool.category === "end_call";
+    const isTransferCallTool = tool.category === "transfer_call";
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
     return (
@@ -365,30 +395,6 @@ const data = await response.json();`;
                                 </div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            {!isEndCallTool && (
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setShowCodeDialog(true)}
-                                >
-                                    <Code className="w-4 h-4 mr-2" />
-                                    View Code
-                                </Button>
-                            )}
-                            <Button onClick={handleSave} disabled={isSaving}>
-                                {isSaving ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        Saving...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save className="w-4 h-4 mr-2" />
-                                        Save
-                                    </>
-                                )}
-                            </Button>
-                        </div>
                     </div>
 
                     {error && (
@@ -414,6 +420,17 @@ const data = await response.json();`;
                             customMessage={endCallCustomMessage}
                             onCustomMessageChange={setEndCallCustomMessage}
                         />
+                    ) : isTransferCallTool ? (
+                        <TransferCallToolConfig
+                            name={name}
+                            onNameChange={setName}
+                            description={description}
+                            onDescriptionChange={setDescription}
+                            transferNumber={transferNumber}
+                            onTransferNumberChange={setTransferNumber}
+                            transferMessage={transferMessage}
+                            onTransferMessageChange={setTransferMessage}
+                        />
                     ) : (
                         <HttpApiToolConfig
                             name={name}
@@ -434,6 +451,31 @@ const data = await response.json();`;
                             onTimeoutMsChange={setTimeoutMs}
                         />
                     )}
+
+                    <div className="flex items-center justify-end gap-2 mt-6">
+                        {!isEndCallTool && !isTransferCallTool && (
+                            <Button
+                                variant="outline"
+                                onClick={() => setShowCodeDialog(true)}
+                            >
+                                <Code className="w-4 h-4 mr-2" />
+                                View Code
+                            </Button>
+                        )}
+                        <Button onClick={handleSave} disabled={isSaving}>
+                            {isSaving ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <Save className="w-4 h-4 mr-2" />
+                                    Save
+                                </>
+                            )}
+                        </Button>
+                    </div>
                 </div>
             </div>
 

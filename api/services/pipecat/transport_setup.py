@@ -14,7 +14,6 @@ from api.services.telephony.stasis_rtp_transport import (
 )
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
-from pipecat.audio.vad.silero import SileroVADAnalyzer, VADParams
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.serializers.vobiz import VobizFrameSerializer
 from pipecat.serializers.vonage import VonageFrameSerializer
@@ -75,18 +74,6 @@ async def create_twilio_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            vad_analyzer=(
-                SileroVADAnalyzer(
-                    params=VADParams(
-                        confidence=vad_config.get("confidence", 0.7),
-                        start_secs=vad_config.get("start_seconds", 0.4),
-                        stop_secs=vad_config.get("stop_seconds", 0.8),
-                        min_volume=vad_config.get("minimum_volume", 0.6),
-                    )
-                )
-                if vad_config
-                else SileroVADAnalyzer()
-            ),  # Sample rate will be set by transport
             audio_out_mixer=(
                 SoundfileMixer(
                     sound_files={
@@ -152,18 +139,6 @@ async def create_cloudonix_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            vad_analyzer=(
-                SileroVADAnalyzer(
-                    params=VADParams(
-                        confidence=vad_config.get("confidence", 0.7),
-                        start_secs=vad_config.get("start_seconds", 0.4),
-                        stop_secs=vad_config.get("stop_seconds", 0.8),
-                        min_volume=vad_config.get("minimum_volume", 0.6),
-                    )
-                )
-                if vad_config
-                else SileroVADAnalyzer()
-            ),  # Sample rate will be set by transport
             audio_out_mixer=(
                 SoundfileMixer(
                     sound_files={
@@ -227,18 +202,6 @@ async def create_vonage_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            vad_analyzer=(
-                SileroVADAnalyzer(
-                    params=VADParams(
-                        confidence=vad_config.get("confidence", 0.7),
-                        start_secs=vad_config.get("start_seconds", 0.4),
-                        stop_secs=vad_config.get("stop_seconds", 0.8),
-                        min_volume=vad_config.get("minimum_volume", 0.6),
-                    )
-                )
-                if vad_config
-                else SileroVADAnalyzer()
-            ),
             audio_out_mixer=(
                 SoundfileMixer(
                     sound_files={
@@ -327,18 +290,6 @@ async def create_vobiz_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            vad_analyzer=(
-                SileroVADAnalyzer(
-                    params=VADParams(
-                        confidence=vad_config.get("confidence", 0.7),
-                        start_secs=vad_config.get("start_seconds", 0.4),
-                        stop_secs=vad_config.get("stop_seconds", 0.8),
-                        min_volume=vad_config.get("minimum_volume", 0.6),
-                    )
-                )
-                if vad_config
-                else SileroVADAnalyzer()
-            ),
             audio_out_mixer=(
                 SoundfileMixer(
                     sound_files={
@@ -378,18 +329,6 @@ def create_webrtc_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            vad_analyzer=(
-                SileroVADAnalyzer(
-                    params=VADParams(
-                        confidence=vad_config.get("confidence", 0.7),
-                        start_secs=vad_config.get("start_seconds", 0.4),
-                        stop_secs=vad_config.get("stop_seconds", 0.8),
-                        min_volume=vad_config.get("minimum_volume", 0.6),
-                    )
-                )
-                if vad_config
-                else SileroVADAnalyzer()
-            ),  # Sample rate will be set by transport
             audio_out_mixer=(
                 SoundfileMixer(
                     sound_files={
@@ -430,18 +369,6 @@ def create_stasis_transport(
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_10ms_chunks=2,  # Send 20ms packets
-            vad_analyzer=(
-                SileroVADAnalyzer(
-                    params=VADParams(
-                        confidence=vad_config.get("confidence", 0.7),
-                        start_secs=vad_config.get("start_seconds", 0.4),
-                        stop_secs=vad_config.get("stop_seconds", 0.8),
-                        min_volume=vad_config.get("minimum_volume", 0.6),
-                    )
-                )
-                if vad_config
-                else SileroVADAnalyzer()
-            ),  # Sample rate will be set by transport
             audio_out_mixer=(
                 SoundfileMixer(
                     sound_files={
@@ -490,18 +417,6 @@ def create_internal_transport(
     #         audio_in_enabled=True,
     #         audio_in_sample_rate=audio_config.transport_in_sample_rate,
     #         audio_in_channels=1,
-    #         vad_analyzer=(
-    #             SileroVADAnalyzer(
-    #                 params=VADParams(
-    #                     confidence=vad_config.get("confidence", 0.7),
-    #                     start_secs=vad_config.get("start_seconds", 0.4),
-    #                     stop_secs=vad_config.get("stop_seconds", 0.8),
-    #                     min_volume=vad_config.get("minimum_volume", 0.6),
-    #                 )
-    #             )
-    #             if vad_config
-    #             else SileroVADAnalyzer()
-    #         ),
     #         audio_out_mixer=(
     #             SoundfileMixer(
     #                 sound_files={

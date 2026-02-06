@@ -13,7 +13,7 @@ class RateLimiter:
 
     def __init__(self):
         self.redis_client: Optional[aioredis.Redis] = None
-        self.stale_call_timeout = 1800  # 30 minutes in seconds
+        self.stale_call_timeout = 300  # 5 minutes in seconds
 
     async def _get_redis(self) -> aioredis.Redis:
         """Get or create Redis connection"""

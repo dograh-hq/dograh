@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "lucide-react";
 import { useState } from "react";
 
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
@@ -38,6 +38,7 @@ export interface WorkflowRunsTableProps {
     onApplyFilters: () => void;
     onClearFilters: () => void;
     isExecutingFilters: boolean;
+    hasAppliedFilters?: boolean;
 
     // Sorting
     sortBy?: string | null;
@@ -47,6 +48,9 @@ export interface WorkflowRunsTableProps {
     // Navigation & Actions
     workflowId: number;
     accessToken: string | null;
+
+    // Reload
+    onReload?: () => void;
 
     // Optional customization
     title?: string;
@@ -69,11 +73,13 @@ export function WorkflowRunsTable({
     onApplyFilters,
     onClearFilters,
     isExecutingFilters,
+    hasAppliedFilters = false,
     sortBy,
     sortOrder = 'desc',
     onSort,
     workflowId,
     accessToken,
+    onReload,
     title = "Workflow Run History",
     subtitle,
     showFilters = true,
@@ -103,6 +109,7 @@ export function WorkflowRunsTable({
                         onApplyFilters={onApplyFilters}
                         onClearFilters={onClearFilters}
                         isExecuting={isExecutingFilters}
+                        hasAppliedFilters={hasAppliedFilters}
                     />
                 </div>
             )}
@@ -123,10 +130,25 @@ export function WorkflowRunsTable({
             ) : (
                 <Card>
                     <CardHeader>
-                        <CardTitle>Workflow Runs</CardTitle>
-                        <CardDescription>
-                            {subtitle || `Showing ${runs.length} of ${totalCount} total runs`}
-                        </CardDescription>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <CardTitle>Workflow Runs</CardTitle>
+                                <CardDescription>
+                                    {subtitle || `Showing ${runs.length} of ${totalCount} total runs`}
+                                </CardDescription>
+                            </div>
+                            {onReload && (
+                                <Button
+                                    variant="outline"
+                                    size="icon"
+                                    onClick={onReload}
+                                    disabled={loading}
+                                    title="Reload"
+                                >
+                                    <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                                </Button>
+                            )}
+                        </div>
                     </CardHeader>
                     <CardContent>
                         <div className="bg-card border border-border rounded-lg overflow-hidden shadow-sm">

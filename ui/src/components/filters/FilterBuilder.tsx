@@ -38,6 +38,7 @@ interface FilterBuilderProps {
   isExecuting?: boolean;
   autoRefresh?: boolean;
   onAutoRefreshChange?: (enabled: boolean) => void;
+  hasAppliedFilters?: boolean;
 }
 
 export const FilterBuilder: React.FC<FilterBuilderProps> = ({
@@ -49,6 +50,7 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
   isExecuting = false,
   autoRefresh = false,
   onAutoRefreshChange,
+  hasAppliedFilters = false,
 }) => {
   const [selectedAttribute, setSelectedAttribute] = useState<string>("");
   const [expandedFilters, setExpandedFilters] = useState<Set<number>>(new Set());
@@ -69,7 +71,8 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
       if (isModifierPressed && event.key === 'Enter') {
         event.preventDefault();
         const allFiltersValid = activeFilters.every(f => f.isValid);
-        if (activeFilters.length > 0 && allFiltersValid && !isExecuting) {
+        const canApply = (activeFilters.length > 0 && allFiltersValid) || (activeFilters.length === 0 && hasAppliedFilters);
+        if (canApply && !isExecuting) {
           onApplyFilters();
         }
       }
@@ -79,7 +82,7 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [activeFilters, isExecuting, onApplyFilters]);
+  }, [activeFilters, isExecuting, onApplyFilters, hasAppliedFilters]);
 
   const addFilter = useCallback((attributeId: string) => {
     const attribute = availableAttributes.find(attr => attr.id === attributeId);
@@ -411,7 +414,7 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
           )}
 
           {/* Apply Filters Button */}
-          {activeFilters.length > 0 && (
+          {(activeFilters.length > 0 || hasAppliedFilters) && (
             <div className="flex justify-between items-center gap-2 pt-2">
               {/* Auto-refresh toggle on the left */}
               {onAutoRefreshChange && (
@@ -440,7 +443,7 @@ export const FilterBuilder: React.FC<FilterBuilderProps> = ({
                 </Button>
                 <Button
                   onClick={onApplyFilters}
-                  disabled={!allFiltersValid || isExecuting}
+                  disabled={(activeFilters.length > 0 && !allFiltersValid) || isExecuting}
                   title={"Apply filters"}
                 >
                   {isExecuting ? "Applying..." : `Apply (${navigator.userAgent.toUpperCase().indexOf('MAC') >= 0 ? '⌘' : 'Ctrl'}+Enter)`}

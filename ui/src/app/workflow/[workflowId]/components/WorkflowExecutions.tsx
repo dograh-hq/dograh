@@ -30,14 +30,24 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
     const [configuredAttributes, setConfiguredAttributes] = useState<FilterAttribute[]>(availableAttributes);
 
-    // Sort state
-    const [sortBy, setSortBy] = useState<string | null>(null);
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    // Sort state (initialized from URL)
+    const [sortBy, setSortBy] = useState<string | null>(() => {
+        return searchParams.get('sort_by') || null;
+    });
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => {
+        const order = searchParams.get('sort_order');
+        return order === 'asc' ? 'asc' : 'desc';
+    });
 
     const { accessToken } = useUserConfig();
 
     // Initialize filters from URL
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
+        return decodeFiltersFromURL(searchParams, availableAttributes);
+    });
+
+    // Applied filters are the ones actually used for fetching (only updated on Apply click)
+    const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
         return decodeFiltersFromURL(searchParams, availableAttributes);
     });
 
@@ -130,7 +140,7 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
         }
     }, [workflowId, accessToken]);
 
-    const updatePageInUrl = useCallback((page: number, filters?: ActiveFilter[]) => {
+    const updatePageInUrl = useCallback((page: number, filters?: ActiveFilter[], sortByParam?: string | null, sortOrderParam?: 'asc' | 'desc') => {
         const params = new URLSearchParams();
         params.set('page', page.toString());
 
@@ -143,17 +153,24 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
             }
         }
 
+        // Add sort to URL if present
+        if (sortByParam) {
+            params.set('sort_by', sortByParam);
+            params.set('sort_order', sortOrderParam || 'desc');
+        }
+
         router.push(`/workflow/${workflowId}/runs?${params.toString()}`, { scroll: false });
     }, [router, workflowId]);
 
     useEffect(() => {
-        fetchWorkflowRuns(currentPage, activeFilters, sortBy, sortOrder);
-    }, [currentPage, activeFilters, fetchWorkflowRuns, sortBy, sortOrder]);
+        fetchWorkflowRuns(currentPage, appliedFilters, sortBy, sortOrder);
+    }, [currentPage, appliedFilters, fetchWorkflowRuns, sortBy, sortOrder]);
 
     const handleApplyFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1); // Reset to first page when applying filters
-        updatePageInUrl(1, activeFilters);
+        setAppliedFilters(activeFilters);
+        updatePageInUrl(1, activeFilters, sortBy, sortOrder);
         await fetchWorkflowRuns(1, activeFilters, sortBy, sortOrder);
         setIsExecutingFilters(false);
     }, [activeFilters, fetchWorkflowRuns, updatePageInUrl, sortBy, sortOrder]);
@@ -165,29 +182,36 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
     const handleClearFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1);
-        updatePageInUrl(1, []); // Clear filters from URL
+        setActiveFilters([]);
+        setAppliedFilters([]);
+        updatePageInUrl(1, [], sortBy, sortOrder); // Clear filters from URL
         await fetchWorkflowRuns(1, [], sortBy, sortOrder); // Fetch all workflows without filters
         setIsExecutingFilters(false);
     }, [fetchWorkflowRuns, updatePageInUrl, sortBy, sortOrder]);
 
     const handlePageChange = useCallback((page: number) => {
         setCurrentPage(page);
-        updatePageInUrl(page, activeFilters);
-    }, [updatePageInUrl, activeFilters]);
+        updatePageInUrl(page, appliedFilters, sortBy, sortOrder);
+    }, [updatePageInUrl, appliedFilters, sortBy, sortOrder]);
 
     const handleSort = useCallback((field: string) => {
         // Reset to first page when sort changes
         setCurrentPage(1);
 
+        const newSortBy = field;
+        let newSortOrder: 'asc' | 'desc' = 'desc';
         if (sortBy === field) {
-            // Toggle order if same field
-            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-        } else {
-            // New field, default to desc
-            setSortBy(field);
-            setSortOrder('desc');
+            newSortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
         }
-    }, [sortBy]);
+
+        setSortBy(newSortBy);
+        setSortOrder(newSortOrder);
+        updatePageInUrl(1, appliedFilters, newSortBy, newSortOrder);
+    }, [sortBy, sortOrder, updatePageInUrl, appliedFilters]);
+
+    const handleReload = useCallback(() => {
+        fetchWorkflowRuns(currentPage, appliedFilters, sortBy, sortOrder);
+    }, [fetchWorkflowRuns, currentPage, appliedFilters, sortBy, sortOrder]);
 
     return (
         <div className="container mx-auto py-8">
@@ -205,11 +229,13 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
                 onApplyFilters={handleApplyFilters}
                 onClearFilters={handleClearFilters}
                 isExecutingFilters={isExecutingFilters}
+                hasAppliedFilters={appliedFilters.length > 0}
                 sortBy={sortBy}
                 sortOrder={sortOrder}
                 onSort={handleSort}
                 workflowId={workflowId}
                 accessToken={accessToken}
+                onReload={handleReload}
             />
         </div>
     );

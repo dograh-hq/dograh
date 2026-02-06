@@ -31,12 +31,22 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
     const [accessToken, setAccessToken] = useState<string | null>(null);
 
-    // Sort state
-    const [sortBy, setSortBy] = useState<string | null>(null);
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    // Sort state (initialized from URL)
+    const [sortBy, setSortBy] = useState<string | null>(() => {
+        return searchParams?.get('sort_by') || null;
+    });
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => {
+        const order = searchParams?.get('sort_order');
+        return order === 'asc' ? 'asc' : 'desc';
+    });
 
     // Initialize filters from URL
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
+        return searchParams ? decodeFiltersFromURL(searchParams, availableAttributes) : [];
+    });
+
+    // Applied filters are the ones actually used for fetching (only updated on Apply click)
+    const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
         return searchParams ? decodeFiltersFromURL(searchParams, availableAttributes) : [];
     });
 
@@ -103,7 +113,7 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
         }
     }, [campaignId, accessToken]);
 
-    const updatePageInUrl = useCallback((page: number, filters?: ActiveFilter[]) => {
+    const updatePageInUrl = useCallback((page: number, filters?: ActiveFilter[], sortByParam?: string | null, sortOrderParam?: 'asc' | 'desc') => {
         const params = new URLSearchParams();
         params.set('page', page.toString());
 
@@ -116,19 +126,26 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
             }
         }
 
+        // Add sort to URL if present
+        if (sortByParam) {
+            params.set('sort_by', sortByParam);
+            params.set('sort_order', sortOrderParam || 'desc');
+        }
+
         router.push(`/campaigns/${campaignId}?${params.toString()}`, { scroll: false });
     }, [router, campaignId]);
 
     useEffect(() => {
         if (accessToken) {
-            fetchCampaignRuns(currentPage, activeFilters, sortBy, sortOrder);
+            fetchCampaignRuns(currentPage, appliedFilters, sortBy, sortOrder);
         }
-    }, [currentPage, activeFilters, fetchCampaignRuns, accessToken, sortBy, sortOrder]);
+    }, [currentPage, appliedFilters, fetchCampaignRuns, accessToken, sortBy, sortOrder]);
 
     const handleApplyFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1);
-        updatePageInUrl(1, activeFilters);
+        setAppliedFilters(activeFilters);
+        updatePageInUrl(1, activeFilters, sortBy, sortOrder);
         await fetchCampaignRuns(1, activeFilters, sortBy, sortOrder);
         setIsExecutingFilters(false);
     }, [activeFilters, fetchCampaignRuns, updatePageInUrl, sortBy, sortOrder]);
@@ -141,29 +158,35 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
         setIsExecutingFilters(true);
         setCurrentPage(1);
         setActiveFilters([]);
-        updatePageInUrl(1, []);
+        setAppliedFilters([]);
+        updatePageInUrl(1, [], sortBy, sortOrder);
         await fetchCampaignRuns(1, [], sortBy, sortOrder);
         setIsExecutingFilters(false);
     }, [fetchCampaignRuns, updatePageInUrl, sortBy, sortOrder]);
 
     const handlePageChange = useCallback((page: number) => {
         setCurrentPage(page);
-        updatePageInUrl(page, activeFilters);
-    }, [updatePageInUrl, activeFilters]);
+        updatePageInUrl(page, appliedFilters, sortBy, sortOrder);
+    }, [updatePageInUrl, appliedFilters, sortBy, sortOrder]);
 
     const handleSort = useCallback((field: string) => {
         // Reset to first page when sort changes
         setCurrentPage(1);
 
+        const newSortBy = field;
+        let newSortOrder: 'asc' | 'desc' = 'desc';
         if (sortBy === field) {
-            // Toggle order if same field
-            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-        } else {
-            // New field, default to desc
-            setSortBy(field);
-            setSortOrder('desc');
+            newSortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
         }
-    }, [sortBy]);
+
+        setSortBy(newSortBy);
+        setSortOrder(newSortOrder);
+        updatePageInUrl(1, appliedFilters, newSortBy, newSortOrder);
+    }, [sortBy, sortOrder, updatePageInUrl, appliedFilters]);
+
+    const handleReload = useCallback(() => {
+        fetchCampaignRuns(currentPage, appliedFilters, sortBy, sortOrder);
+    }, [fetchCampaignRuns, currentPage, appliedFilters, sortBy, sortOrder]);
 
     // Use a subset of filter attributes relevant for campaigns
     const campaignFilterAttributes: FilterAttribute[] = availableAttributes.filter(
@@ -185,11 +208,13 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
             onApplyFilters={handleApplyFilters}
             onClearFilters={handleClearFilters}
             isExecutingFilters={isExecutingFilters}
+            hasAppliedFilters={appliedFilters.length > 0}
             sortBy={sortBy}
             sortOrder={sortOrder}
             onSort={handleSort}
             workflowId={workflowId}
             accessToken={accessToken}
+            onReload={handleReload}
             title="Campaign Workflow Runs"
             emptyMessage="No workflow runs found for this campaign"
         />

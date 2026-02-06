@@ -92,9 +92,14 @@ export default function RunsPage() {
         return decodeFiltersFromURL(searchParams, superadminFilterAttributes);
     });
 
-    // Sort state
-    const [sortBy, setSortBy] = useState<string | null>(null);
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    // Sort state (initialized from URL)
+    const [sortBy, setSortBy] = useState<string | null>(() => {
+        return searchParams.get('sort_by') || null;
+    });
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(() => {
+        const order = searchParams.get('sort_order');
+        return order === 'asc' ? 'asc' : 'desc';
+    });
 
     // Dialog state for comment editing
     const [isCommentDialogOpen, setIsCommentDialogOpen] = useState(false);
@@ -167,7 +172,7 @@ export default function RunsPage() {
         }
     }, [limit, accessToken]);
 
-    const updatePageInUrl = useCallback((page: number, filters?: ActiveFilter[]) => {
+    const updatePageInUrl = useCallback((page: number, filters?: ActiveFilter[], sortByParam?: string | null, sortOrderParam?: 'asc' | 'desc') => {
         const params = new URLSearchParams();
         params.set('page', page.toString());
 
@@ -178,6 +183,12 @@ export default function RunsPage() {
                 const filterParams = new URLSearchParams(filterString);
                 filterParams.forEach((value, key) => params.set(key, value));
             }
+        }
+
+        // Add sort to URL if present
+        if (sortByParam) {
+            params.set('sort_by', sortByParam);
+            params.set('sort_order', sortOrderParam || 'desc');
         }
 
         router.push(`/superadmin/runs?${params.toString()}`);
@@ -208,7 +219,7 @@ export default function RunsPage() {
 
     const handlePageChange = (page: number) => {
         setCurrentPage(page);
-        updatePageInUrl(page, appliedFilters);
+        updatePageInUrl(page, appliedFilters, sortBy, sortOrder);
         fetchRuns(page, appliedFilters, false, sortBy, sortOrder);
     };
 
@@ -216,7 +227,7 @@ export default function RunsPage() {
         setIsExecutingFilters(true);
         setCurrentPage(1); // Reset to first page when applying filters
         setAppliedFilters(activeFilters); // Update applied filters
-        updatePageInUrl(1, activeFilters);
+        updatePageInUrl(1, activeFilters, sortBy, sortOrder);
         await fetchRuns(1, activeFilters, false, sortBy, sortOrder);
         setIsExecutingFilters(false);
     }, [activeFilters, fetchRuns, updatePageInUrl, sortBy, sortOrder]);
@@ -229,7 +240,7 @@ export default function RunsPage() {
         setIsExecutingFilters(true);
         setCurrentPage(1);
         setAppliedFilters([]); // Clear applied filters
-        updatePageInUrl(1, []); // Clear filters from URL
+        updatePageInUrl(1, [], sortBy, sortOrder); // Clear filters from URL
         await fetchRuns(1, [], false, sortBy, sortOrder); // Fetch all runs without filters
         setIsExecutingFilters(false);
     }, [fetchRuns, updatePageInUrl, sortBy, sortOrder]);
@@ -238,15 +249,16 @@ export default function RunsPage() {
         // Reset to first page when sort changes
         setCurrentPage(1);
 
+        const newSortBy = field;
+        let newSortOrder: 'asc' | 'desc' = 'desc';
         if (sortBy === field) {
-            // Toggle order if same field
-            setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
-        } else {
-            // New field, default to desc
-            setSortBy(field);
-            setSortOrder('desc');
+            newSortOrder = sortOrder === 'asc' ? 'desc' : 'asc';
         }
-    }, [sortBy]);
+
+        setSortBy(newSortBy);
+        setSortOrder(newSortOrder);
+        updatePageInUrl(1, appliedFilters, newSortBy, newSortOrder);
+    }, [sortBy, sortOrder, updatePageInUrl, appliedFilters]);
 
     // Save comment function declared outside JSX (requirement #2)
     const saveAdminComment = useCallback(async () => {
@@ -345,6 +357,7 @@ export default function RunsPage() {
                     isExecuting={isExecutingFilters}
                     autoRefresh={autoRefresh}
                     onAutoRefreshChange={setAutoRefresh}
+                    hasAppliedFilters={appliedFilters.length > 0}
                 />
 
                 <Card>

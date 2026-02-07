@@ -46,6 +46,8 @@ from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
 from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -608,6 +610,7 @@ async def _run_pipeline(
         user_turn_strategies=user_turn_strategies,
         user_mute_strategies=user_mute_strategies,
         user_idle_timeout=max_user_idle_timeout,
+        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.3)),
     )
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params

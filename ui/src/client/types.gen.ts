@@ -45,6 +45,7 @@ export type CallType = 'inbound' | 'outbound';
 
 export type CampaignLimitsResponse = {
     concurrent_call_limit: number;
+    from_numbers_count: number;
     default_retry_config: RetryConfigResponse;
 };
 
@@ -705,10 +706,6 @@ export type ProcessDocumentRequestSchema = {
      * S3 key of the uploaded file
      */
     s3_key: string;
-    /**
-     * Embedding service to use for processing. Options: 'openai' (default, 1536-dim, requires API key) or 'sentence_transformer' (free, 384-dim)
-     */
-    embedding_service?: 'sentence_transformer' | 'openai';
 };
 
 export type RetryConfigRequest = {
@@ -4348,6 +4345,66 @@ export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsErrors = {
 export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsError = OptionsConfigApiV1PublicEmbedConfigTokenOptionsErrors[keyof OptionsConfigApiV1PublicEmbedConfigTokenOptionsErrors];
 
 export type OptionsConfigApiV1PublicEmbedConfigTokenOptionsResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetData = {
+    body?: never;
+    path: {
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/turn-credentials/{session_token}';
+};
+
+export type GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetError = GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetErrors[keyof GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetErrors];
+
+export type GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TurnCredentialsResponse;
+};
+
+export type GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetResponse = GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetResponses[keyof GetPublicTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenGetResponses];
+
+export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsData = {
+    body?: never;
+    path: {
+        session_token: string;
+    };
+    query?: never;
+    url: '/api/v1/public/embed/turn-credentials/{session_token}';
+};
+
+export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsError = OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsErrors[keyof OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsErrors];
+
+export type OptionsTurnCredentialsApiV1PublicEmbedTurnCredentialsSessionTokenOptionsResponses = {
     /**
      * Successful Response
      */

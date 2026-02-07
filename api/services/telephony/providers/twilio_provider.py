@@ -57,6 +57,7 @@ class TwilioProvider(TelephonyProvider):
         to_number: str,
         webhook_url: str,
         workflow_run_id: Optional[int] = None,
+        from_number: Optional[str] = None,
         **kwargs: Any,
     ) -> CallInitiationResult:
         """
@@ -67,8 +68,9 @@ class TwilioProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/Calls.json"
 
-        # Select a random phone number
-        from_number = random.choice(self.from_numbers)
+        # Use provided from_number or select a random one
+        if from_number is None:
+            from_number = random.choice(self.from_numbers)
         logger.info(f"Selected phone number {from_number} for outbound call")
 
         # Prepare call data

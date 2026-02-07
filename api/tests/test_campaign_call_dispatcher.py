@@ -195,6 +195,24 @@ def mock_rate_limiter():
     async def mock_delete_mapping(*args, **kwargs):
         pass
 
+    async def mock_initialize_from_number_pool(*args, **kwargs):
+        return True
+
+    async def mock_acquire_from_number(*args, **kwargs):
+        return "+15551234567"
+
+    async def mock_release_from_number(*args, **kwargs):
+        return True
+
+    async def mock_store_from_number_mapping(*args, **kwargs):
+        return True
+
+    async def mock_get_from_number_mapping(*args, **kwargs):
+        return None
+
+    async def mock_delete_from_number_mapping(*args, **kwargs):
+        return True
+
     return {
         "acquire_token": mock_acquire_token,
         "try_acquire_concurrent_slot": mock_try_acquire_slot,
@@ -202,6 +220,12 @@ def mock_rate_limiter():
         "store_workflow_slot_mapping": mock_store_mapping,
         "get_workflow_slot_mapping": mock_get_mapping,
         "delete_workflow_slot_mapping": mock_delete_mapping,
+        "initialize_from_number_pool": mock_initialize_from_number_pool,
+        "acquire_from_number": mock_acquire_from_number,
+        "release_from_number": mock_release_from_number,
+        "store_workflow_from_number_mapping": mock_store_from_number_mapping,
+        "get_workflow_from_number_mapping": mock_get_from_number_mapping,
+        "delete_workflow_from_number_mapping": mock_delete_from_number_mapping,
     }
 
 
@@ -241,6 +265,24 @@ class TestProcessBatchBasic:
             )
             mock_rl.delete_workflow_slot_mapping = AsyncMock(
                 side_effect=mock_rate_limiter["delete_workflow_slot_mapping"]
+            )
+            mock_rl.initialize_from_number_pool = AsyncMock(
+                side_effect=mock_rate_limiter["initialize_from_number_pool"]
+            )
+            mock_rl.acquire_from_number = AsyncMock(
+                side_effect=mock_rate_limiter["acquire_from_number"]
+            )
+            mock_rl.release_from_number = AsyncMock(
+                side_effect=mock_rate_limiter["release_from_number"]
+            )
+            mock_rl.store_workflow_from_number_mapping = AsyncMock(
+                side_effect=mock_rate_limiter["store_workflow_from_number_mapping"]
+            )
+            mock_rl.get_workflow_from_number_mapping = AsyncMock(
+                side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
+            )
+            mock_rl.delete_workflow_from_number_mapping = AsyncMock(
+                side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
             )
 
             dispatcher = CampaignCallDispatcher()
@@ -306,6 +348,24 @@ class TestProcessBatchConcurrency:
                 )
                 mock_rl.delete_workflow_slot_mapping = AsyncMock(
                     side_effect=mock_rate_limiter["delete_workflow_slot_mapping"]
+                )
+                mock_rl.initialize_from_number_pool = AsyncMock(
+                    side_effect=mock_rate_limiter["initialize_from_number_pool"]
+                )
+                mock_rl.acquire_from_number = AsyncMock(
+                    side_effect=mock_rate_limiter["acquire_from_number"]
+                )
+                mock_rl.release_from_number = AsyncMock(
+                    side_effect=mock_rate_limiter["release_from_number"]
+                )
+                mock_rl.store_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["store_workflow_from_number_mapping"]
+                )
+                mock_rl.get_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
+                )
+                mock_rl.delete_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
                 )
 
                 dispatcher = CampaignCallDispatcher()
@@ -379,6 +439,24 @@ class TestProcessBatchConcurrency:
                 mock_rl.delete_workflow_slot_mapping = AsyncMock(
                     side_effect=mock_rate_limiter["delete_workflow_slot_mapping"]
                 )
+                mock_rl.initialize_from_number_pool = AsyncMock(
+                    side_effect=mock_rate_limiter["initialize_from_number_pool"]
+                )
+                mock_rl.acquire_from_number = AsyncMock(
+                    side_effect=mock_rate_limiter["acquire_from_number"]
+                )
+                mock_rl.release_from_number = AsyncMock(
+                    side_effect=mock_rate_limiter["release_from_number"]
+                )
+                mock_rl.store_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["store_workflow_from_number_mapping"]
+                )
+                mock_rl.get_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
+                )
+                mock_rl.delete_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
+                )
 
                 dispatcher = CampaignCallDispatcher()
 
@@ -450,6 +528,24 @@ class TestProcessBatchConcurrency:
                 mock_rl.delete_workflow_slot_mapping = AsyncMock(
                     side_effect=mock_rate_limiter["delete_workflow_slot_mapping"]
                 )
+                mock_rl.initialize_from_number_pool = AsyncMock(
+                    side_effect=mock_rate_limiter["initialize_from_number_pool"]
+                )
+                mock_rl.acquire_from_number = AsyncMock(
+                    side_effect=mock_rate_limiter["acquire_from_number"]
+                )
+                mock_rl.release_from_number = AsyncMock(
+                    side_effect=mock_rate_limiter["release_from_number"]
+                )
+                mock_rl.store_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["store_workflow_from_number_mapping"]
+                )
+                mock_rl.get_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
+                )
+                mock_rl.delete_workflow_from_number_mapping = AsyncMock(
+                    side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
+                )
 
                 dispatcher = CampaignCallDispatcher()
 
@@ -512,6 +608,24 @@ class TestProcessBatchConcurrency:
             )
             mock_rl.delete_workflow_slot_mapping = AsyncMock(
                 side_effect=mock_rate_limiter["delete_workflow_slot_mapping"]
+            )
+            mock_rl.initialize_from_number_pool = AsyncMock(
+                side_effect=mock_rate_limiter["initialize_from_number_pool"]
+            )
+            mock_rl.acquire_from_number = AsyncMock(
+                side_effect=mock_rate_limiter["acquire_from_number"]
+            )
+            mock_rl.release_from_number = AsyncMock(
+                side_effect=mock_rate_limiter["release_from_number"]
+            )
+            mock_rl.store_workflow_from_number_mapping = AsyncMock(
+                side_effect=mock_rate_limiter["store_workflow_from_number_mapping"]
+            )
+            mock_rl.get_workflow_from_number_mapping = AsyncMock(
+                side_effect=mock_rate_limiter["get_workflow_from_number_mapping"]
+            )
+            mock_rl.delete_workflow_from_number_mapping = AsyncMock(
+                side_effect=mock_rate_limiter["delete_workflow_from_number_mapping"]
             )
 
             dispatcher = CampaignCallDispatcher()

@@ -11,10 +11,7 @@ from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
 from api.services.auth.depends import get_user
 from api.services.campaign.runner import campaign_runner_service
-from api.services.campaign.source_validator import (
-    validate_csv_source,
-    validate_google_sheet_source,
-)
+from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import check_dograh_quota
 from api.services.storage import storage_fs
 
@@ -33,6 +30,20 @@ async def _get_org_concurrent_limit(organization_id: int) -> int:
     except Exception:
         pass
     return DEFAULT_ORG_CONCURRENCY_LIMIT
+
+
+async def _get_from_numbers_count(organization_id: int) -> int:
+    """Get the number of configured from_numbers for an organization."""
+    try:
+        config = await db_client.get_configuration(
+            organization_id,
+            OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        )
+        if config and config.value:
+            return len(config.value.get("from_numbers", []))
+    except Exception:
+        pass
+    return 0
 
 
 class RetryConfigRequest(BaseModel):
@@ -163,24 +174,31 @@ async def create_campaign(
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     # Validate source data (phone_number column and format)
-    if request.source_type == "csv":
-        validation_result = await validate_csv_source(request.source_id)
-        if not validation_result.is_valid:
-            raise HTTPException(status_code=400, detail=validation_result.error.message)
-    elif request.source_type == "google-sheet":
-        validation_result = await validate_google_sheet_source(
-            request.source_id, user.selected_organization_id
-        )
-        if not validation_result.is_valid:
-            raise HTTPException(status_code=400, detail=validation_result.error.message)
+    sync_service = get_sync_service(request.source_type)
+    validation_result = await sync_service.validate_source(
+        request.source_id, user.selected_organization_id
+    )
+    if not validation_result.is_valid:
+        raise HTTPException(status_code=400, detail=validation_result.error.message)
 
-    # Validate max_concurrency against org limit if provided
+    # Validate max_concurrency against effective limit (min of org limit and from_numbers count)
     if request.max_concurrency is not None:
         org_limit = await _get_org_concurrent_limit(user.selected_organization_id)
-        if request.max_concurrency > org_limit:
+        from_numbers_count = await _get_from_numbers_count(
+            user.selected_organization_id
+        )
+        effective_limit = (
+            min(org_limit, from_numbers_count) if from_numbers_count > 0 else org_limit
+        )
+        if request.max_concurrency > effective_limit:
+            if from_numbers_count > 0 and from_numbers_count < org_limit:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"max_concurrency ({request.max_concurrency}) cannot exceed {effective_limit}. You have {from_numbers_count} phone number(s) configured. Add more CLIs in telephony configuration to increase concurrency.",
+                )
             raise HTTPException(
                 status_code=400,
-                detail=f"max_concurrency ({request.max_concurrency}) cannot exceed organization limit ({org_limit})",
+                detail=f"max_concurrency ({request.max_concurrency}) cannot exceed organization limit ({effective_limit})",
             )
 
     # Build retry_config dict if provided

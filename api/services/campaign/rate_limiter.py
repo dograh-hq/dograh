@@ -245,6 +245,166 @@ class RateLimiter:
             logger.error(f"Error deleting workflow slot mapping: {e}")
             return False
 
+    # ======== FROM NUMBER POOL METHODS ========
+
+    async def initialize_from_number_pool(
+        self, organization_id: int, from_numbers: list[str]
+    ) -> bool:
+        """
+        Initialize the from_number pool for an organization.
+        Uses ZADD NX so it won't overwrite numbers that are already in use.
+
+        Args:
+            organization_id: The organization ID
+            from_numbers: List of phone numbers to add to the pool
+        """
+        if not from_numbers:
+            return False
+
+        redis_client = await self._get_redis()
+        key = f"from_number_pool:{organization_id}"
+
+        try:
+            # ZADD NX: only add members that don't already exist (preserves in-use scores)
+            members = {number: 0 for number in from_numbers}
+            await redis_client.zadd(key, members, nx=True)
+            await redis_client.expire(key, 3600)  # 1 hour TTL
+            return True
+        except Exception as e:
+            logger.error(f"Error initializing from_number pool: {e}")
+            return False
+
+    async def acquire_from_number(self, organization_id: int) -> Optional[str]:
+        """
+        Atomically acquire an available from_number from the pool.
+        Cleans stale entries (score > 0 and older than 30 min) before acquiring.
+
+        Returns the phone number if available, None if all numbers are in use.
+        """
+        redis_client = await self._get_redis()
+        key = f"from_number_pool:{organization_id}"
+        now = time.time()
+        stale_cutoff = now - self.stale_call_timeout
+
+        lua_script = """
+        local key = KEYS[1]
+        local now = tonumber(ARGV[1])
+        local stale_cutoff = tonumber(ARGV[2])
+
+        -- Clean stale entries: members with score > 0 and score < stale_cutoff
+        local stale = redis.call('ZRANGEBYSCORE', key, 1, stale_cutoff)
+        for i, member in ipairs(stale) do
+            redis.call('ZADD', key, 0, member)
+        end
+
+        -- Find an available number (score == 0)
+        local available = redis.call('ZRANGEBYSCORE', key, 0, 0, 'LIMIT', 0, 1)
+        if #available == 0 then
+            return nil
+        end
+
+        -- Mark as in-use with current timestamp
+        redis.call('ZADD', key, now, available[1])
+        return available[1]
+        """
+
+        try:
+            result = await redis_client.eval(lua_script, 1, key, now, stale_cutoff)
+            if result:
+                logger.debug(f"Acquired from_number {result} for org {organization_id}")
+            return result
+        except Exception as e:
+            logger.error(f"Error acquiring from_number: {e}")
+            return None
+
+    async def release_from_number(self, organization_id: int, from_number: str) -> bool:
+        """
+        Release a from_number back to the pool by setting its score to 0.
+        Harmless if already released (score already 0).
+        """
+        if not from_number:
+            return False
+
+        redis_client = await self._get_redis()
+        key = f"from_number_pool:{organization_id}"
+
+        lua_script = """
+        local key = KEYS[1]
+        local from_number = ARGV[1]
+
+        local score = redis.call('ZSCORE', key, from_number)
+        if score then
+            redis.call('ZADD', key, 0, from_number)
+            return 1
+        end
+        return 0
+        """
+
+        try:
+            result = await redis_client.eval(lua_script, 1, key, from_number)
+            if result:
+                logger.debug(
+                    f"Released from_number {from_number} for org {organization_id}"
+                )
+            return bool(result)
+        except Exception as e:
+            logger.error(f"Error releasing from_number: {e}")
+            return False
+
+    async def store_workflow_from_number_mapping(
+        self, workflow_run_id: int, organization_id: int, from_number: str
+    ) -> bool:
+        """
+        Store the mapping between workflow_run_id and its from_number.
+        Used for cleanup when calls complete.
+        """
+        redis_client = await self._get_redis()
+        mapping_key = f"workflow_from_number:{workflow_run_id}"
+
+        try:
+            await redis_client.hset(
+                mapping_key,
+                mapping={"org_id": organization_id, "from_number": from_number},
+            )
+            await redis_client.expire(mapping_key, 1800)  # 30 min TTL
+            return True
+        except Exception as e:
+            logger.error(f"Error storing workflow from_number mapping: {e}")
+            return False
+
+    async def get_workflow_from_number_mapping(
+        self, workflow_run_id: int
+    ) -> Optional[tuple[int, str]]:
+        """
+        Get the from_number mapping for a workflow run.
+        Returns (organization_id, from_number) tuple or None if not found.
+        """
+        redis_client = await self._get_redis()
+        mapping_key = f"workflow_from_number:{workflow_run_id}"
+
+        try:
+            mapping = await redis_client.hgetall(mapping_key)
+            if mapping and "org_id" in mapping and "from_number" in mapping:
+                return (int(mapping["org_id"]), mapping["from_number"])
+            return None
+        except Exception as e:
+            logger.error(f"Error getting workflow from_number mapping: {e}")
+            return None
+
+    async def delete_workflow_from_number_mapping(self, workflow_run_id: int) -> bool:
+        """
+        Delete the workflow from_number mapping after releasing the number.
+        """
+        redis_client = await self._get_redis()
+        mapping_key = f"workflow_from_number:{workflow_run_id}"
+
+        try:
+            deleted = await redis_client.delete(mapping_key)
+            return bool(deleted)
+        except Exception as e:
+            logger.error(f"Error deleting workflow from_number mapping: {e}")
+            return False
+
     async def close(self):
         """Close Redis connection"""
         if self.redis_client:

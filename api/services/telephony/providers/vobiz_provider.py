@@ -56,6 +56,7 @@ class VobizProvider(TelephonyProvider):
         to_number: str,
         webhook_url: str,
         workflow_run_id: Optional[int] = None,
+        from_number: Optional[str] = None,
         **kwargs: Any,
     ) -> CallInitiationResult:
         """
@@ -72,8 +73,9 @@ class VobizProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/v1/Account/{self.auth_id}/Call/"
 
-        # Select a random phone number
-        from_number = random.choice(self.from_numbers)
+        # Use provided from_number or select a random one
+        if from_number is None:
+            from_number = random.choice(self.from_numbers)
         logger.info(f"Selected Vobiz phone number {from_number} for outbound call")
 
         # Remove + prefix if present (Vobiz expects E.164 without +)

@@ -50,6 +50,7 @@ export default function NewCampaignPage() {
     // Advanced settings state
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
     const [orgConcurrentLimit, setOrgConcurrentLimit] = useState<number>(2);
+    const [fromNumbersCount, setFromNumbersCount] = useState<number>(0);
     const [maxConcurrency, setMaxConcurrency] = useState<string>('');
     // Retry config state
     const [retryEnabled, setRetryEnabled] = useState(true);
@@ -102,6 +103,7 @@ export default function NewCampaignPage() {
 
             if (response.data) {
                 setOrgConcurrentLimit(response.data.concurrent_call_limit);
+                setFromNumbersCount(response.data.from_numbers_count);
                 // Initialize retry config from defaults
                 const retryConfig = response.data.default_retry_config;
                 setRetryEnabled(retryConfig.enabled);
@@ -124,6 +126,11 @@ export default function NewCampaignPage() {
         }
     }, [fetchWorkflows, fetchCampaignLimits, user]);
 
+    // Effective concurrency limit considering both org limit and available CLIs
+    const effectiveLimit = fromNumbersCount > 0
+        ? Math.min(orgConcurrentLimit, fromNumbersCount)
+        : orgConcurrentLimit;
+
     // Handle form submission
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -141,8 +148,12 @@ export default function NewCampaignPage() {
                 toast.error('Max concurrent calls must be between 1 and 100');
                 return;
             }
-            if (maxConcurrencyValue > orgConcurrentLimit) {
-                toast.error(`Max concurrent calls cannot exceed organization limit (${orgConcurrentLimit})`);
+            if (maxConcurrencyValue > effectiveLimit) {
+                if (fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit) {
+                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. You have ${fromNumbersCount} phone number(s) configured — add more CLIs to increase concurrency.`);
+                } else {
+                    toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
+                }
                 return;
             }
         }
@@ -349,15 +360,26 @@ export default function NewCampaignPage() {
                                         <Input
                                             id="max-concurrency"
                                             type="number"
-                                            placeholder={`Organization limit: ${orgConcurrentLimit}`}
+                                            placeholder={`Default: ${effectiveLimit}`}
                                             value={maxConcurrency}
                                             onChange={(e) => setMaxConcurrency(e.target.value)}
                                             min={1}
-                                            max={orgConcurrentLimit}
+                                            max={effectiveLimit}
                                         />
                                         <p className="text-sm text-muted-foreground">
-                                            Maximum number of simultaneous calls. Leave empty to use organization limit ({orgConcurrentLimit}).
+                                            Maximum number of simultaneous calls. Leave empty to use {effectiveLimit}.
+                                            {fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
                                         </p>
+                                        {fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit && (
+                                            <p className="text-sm text-amber-600 dark:text-amber-400">
+                                                Concurrency is limited to {fromNumbersCount} by your configured phone numbers. To use the full org limit of {orgConcurrentLimit}, add more CLIs in <a href="/telephony-configurations" className="underline font-medium">Telephony Configuration</a>.
+                                            </p>
+                                        )}
+                                        {fromNumbersCount === 0 && (
+                                            <p className="text-sm text-amber-600 dark:text-amber-400">
+                                                No phone numbers configured. Add CLIs in <a href="/telephony-configurations" className="underline font-medium">Telephony Configuration</a> before running the campaign.
+                                            </p>
+                                        )}
                                     </div>
 
                                     {/* Retry Configuration */}

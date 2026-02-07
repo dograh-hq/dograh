@@ -63,6 +63,7 @@ class CloudonixProvider(TelephonyProvider):
         to_number: str,
         webhook_url: str,
         workflow_run_id: Optional[int] = None,
+        from_number: Optional[str] = None,
         **kwargs: Any,
     ) -> CallInitiationResult:
         """
@@ -76,15 +77,15 @@ class CloudonixProvider(TelephonyProvider):
 
         endpoint = f"{self.base_url}/calls/{self.domain_id}/application"
 
-        # Select a random phone number for caller-id (REQUIRED by Cloudonix)
-        if not self.from_numbers:
-            raise ValueError(
-                "No phone numbers configured for Cloudonix provider. "
-                "At least one phone number is required as 'caller-id' for outbound calls. "
-                "Please configure phone numbers in the telephony settings."
-            )
-
-        from_number = random.choice(self.from_numbers)
+        # Use provided from_number or select a random one (REQUIRED by Cloudonix)
+        if from_number is None:
+            if not self.from_numbers:
+                raise ValueError(
+                    "No phone numbers configured for Cloudonix provider. "
+                    "At least one phone number is required as 'caller-id' for outbound calls. "
+                    "Please configure phone numbers in the telephony settings."
+                )
+            from_number = random.choice(self.from_numbers)
         logger.info(
             f"Selected phone number {from_number} for outbound call to {to_number}"
         )

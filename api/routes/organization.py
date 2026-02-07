@@ -225,6 +225,7 @@ class RetryConfigResponse(BaseModel):
 
 class CampaignLimitsResponse(BaseModel):
     concurrent_call_limit: int
+    from_numbers_count: int
     default_retry_config: RetryConfigResponse
 
 
@@ -251,7 +252,21 @@ async def get_campaign_limits(user: UserModel = Depends(get_user)):
     except Exception:
         pass
 
+    # Get from_numbers count from telephony configuration
+    from_numbers_count = 0
+    try:
+        telephony_config = await db_client.get_configuration(
+            user.selected_organization_id,
+            OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        )
+        if telephony_config and telephony_config.value:
+            from_numbers = telephony_config.value.get("from_numbers", [])
+            from_numbers_count = len(from_numbers)
+    except Exception:
+        pass
+
     return CampaignLimitsResponse(
         concurrent_call_limit=concurrent_limit,
+        from_numbers_count=from_numbers_count,
         default_retry_config=RetryConfigResponse(**DEFAULT_CAMPAIGN_RETRY_CONFIG),
     )

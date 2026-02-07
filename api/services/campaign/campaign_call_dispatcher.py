@@ -9,7 +9,10 @@ from api.constants import DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
 from api.enums import OrganizationConfigurationKey, WorkflowRunState
-from api.services.campaign.errors import ConcurrentSlotAcquisitionError
+from api.services.campaign.errors import (
+    ConcurrentSlotAcquisitionError,
+    PhoneNumberPoolExhaustedError,
+)
 from api.services.campaign.rate_limiter import rate_limiter
 from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.factory import get_telephony_provider
@@ -71,6 +74,16 @@ class CampaignCallDispatcher:
             logger.info(f"No more queued runs for campaign {campaign_id}")
             return 0
 
+        # Initialize from_number pool for this org's provider
+        try:
+            provider = await self.get_telephony_provider(campaign.organization_id)
+            if provider.from_numbers:
+                await rate_limiter.initialize_from_number_pool(
+                    campaign.organization_id, provider.from_numbers
+                )
+        except Exception as e:
+            logger.warning(f"Failed to initialize from_number pool: {e}")
+
         processed_count = 0
         for i, queued_run in enumerate(queued_runs):
             try:
@@ -103,7 +116,7 @@ class CampaignCallDispatcher:
                     campaign_id=campaign_id, processed_rows=campaign.processed_rows + 1
                 )
 
-            except ConcurrentSlotAcquisitionError:
+            except (ConcurrentSlotAcquisitionError, PhoneNumberPoolExhaustedError):
                 # Revert all unprocessed runs (current and remaining) back to queued
                 # so they can be picked up again when campaign is resumed
                 for unprocessed_run in queued_runs[i:]:
@@ -146,6 +159,8 @@ class CampaignCallDispatcher:
         self, queued_run: QueuedRunModel, campaign: any, slot_id: str
     ) -> Optional[WorkflowRunModel]:
         """Creates workflow run and initiates call. Requires a pre-acquired slot_id."""
+        from_number = None
+
         # Get workflow details
         workflow = await db_client.get_workflow_by_id(campaign.workflow_id)
         if not workflow:
@@ -168,6 +183,17 @@ class CampaignCallDispatcher:
         provider = await self.get_telephony_provider(campaign.organization_id)
         workflow_run_mode = provider.PROVIDER_NAME
 
+        # Acquire a unique from_number from the pool
+        from_number = await self.acquire_from_number(campaign.organization_id)
+        if from_number is None:
+            # Release concurrent slot before raising
+            await rate_limiter.release_concurrent_slot(
+                campaign.organization_id, slot_id
+            )
+            raise PhoneNumberPoolExhaustedError(
+                organization_id=campaign.organization_id
+            )
+
         logger.info(f"Provider name: {provider.PROVIDER_NAME}")
         logger.info(f"Queued run context: {queued_run.context_variables}")
 
@@ -177,6 +203,7 @@ class CampaignCallDispatcher:
             **queued_run.context_variables,
             "campaign_id": campaign.id,
             "provider": provider.PROVIDER_NAME,
+            "source_uuid": queued_run.source_uuid,
         }
 
         logger.info(f"Final initial_context: {initial_context}")
@@ -198,11 +225,20 @@ class CampaignCallDispatcher:
             await rate_limiter.store_workflow_slot_mapping(
                 workflow_run.id, campaign.organization_id, slot_id
             )
+
+            # Store from_number mapping for cleanup on call completion
+            await rate_limiter.store_workflow_from_number_mapping(
+                workflow_run.id, campaign.organization_id, from_number
+            )
         except Exception as e:
-            # Release slot on error
+            # Release slot and from_number on error
             await rate_limiter.release_concurrent_slot(
                 campaign.organization_id, slot_id
             )
+            if from_number:
+                await rate_limiter.release_from_number(
+                    campaign.organization_id, from_number
+                )
             raise
 
         # Add "retry" tag if this is a retry call
@@ -233,6 +269,7 @@ class CampaignCallDispatcher:
                 to_number=phone_number,
                 webhook_url=webhook_url,
                 workflow_run_id=workflow_run.id,
+                from_number=from_number,
                 workflow_id=campaign.workflow_id,
                 user_id=campaign.created_by,
             )
@@ -284,6 +321,15 @@ class CampaignCallDispatcher:
                 org_id, slot_id = mapping
                 await rate_limiter.release_concurrent_slot(org_id, slot_id)
                 await rate_limiter.delete_workflow_slot_mapping(workflow_run.id)
+
+            # Release from_number on failure
+            from_number_mapping = await rate_limiter.get_workflow_from_number_mapping(
+                workflow_run.id
+            )
+            if from_number_mapping:
+                fn_org_id, fn_number = from_number_mapping
+                await rate_limiter.release_from_number(fn_org_id, fn_number)
+                await rate_limiter.delete_workflow_from_number_mapping(workflow_run.id)
 
             raise
 
@@ -380,11 +426,42 @@ class CampaignCallDispatcher:
             # Wait before retrying
             await asyncio.sleep(1)
 
+    async def acquire_from_number(
+        self, organization_id: int, timeout: float = 60
+    ) -> Optional[str]:
+        """
+        Acquire a from_number from the pool with retry.
+        Waits up to timeout seconds, polling every 1s.
+
+        Returns the phone number or None if timeout is exceeded.
+        """
+        wait_start = time.time()
+
+        while True:
+            from_number = await rate_limiter.acquire_from_number(organization_id)
+            if from_number:
+                return from_number
+
+            wait_time = time.time() - wait_start
+            if wait_time > timeout:
+                logger.warning(
+                    f"From number pool exhausted for org {organization_id} "
+                    f"after waiting {wait_time:.1f}s"
+                )
+                return None
+
+            logger.debug(
+                f"All from_numbers in use for org {organization_id}, "
+                f"waited {wait_time:.1f}s, retrying..."
+            )
+            await asyncio.sleep(1)
+
     async def release_call_slot(self, workflow_run_id: int) -> bool:
         """
-        Release concurrent slot when a call completes.
+        Release concurrent slot and from_number when a call completes.
         Called by Twilio webhooks or workflow completion handlers.
         """
+        slot_released = False
         mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run_id)
         if mapping:
             org_id, slot_id = mapping
@@ -394,8 +471,22 @@ class CampaignCallDispatcher:
                 logger.info(
                     f"Released concurrent slot for workflow run {workflow_run_id}"
                 )
-            return success
-        return False
+                slot_released = True
+
+        # Release from_number back to pool
+        from_number_mapping = await rate_limiter.get_workflow_from_number_mapping(
+            workflow_run_id
+        )
+        if from_number_mapping:
+            fn_org_id, fn_number = from_number_mapping
+            fn_success = await rate_limiter.release_from_number(fn_org_id, fn_number)
+            if fn_success:
+                await rate_limiter.delete_workflow_from_number_mapping(workflow_run_id)
+                logger.info(
+                    f"Released from_number {fn_number} for workflow run {workflow_run_id}"
+                )
+
+        return slot_released
 
 
 # Global instance

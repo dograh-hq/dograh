@@ -57,6 +57,7 @@ class TelephonyProvider(ABC):
         to_number: str,
         webhook_url: str,
         workflow_run_id: Optional[int] = None,
+        from_number: Optional[str] = None,
         **kwargs: Any,
     ) -> CallInitiationResult:
         """
@@ -66,6 +67,7 @@ class TelephonyProvider(ABC):
             to_number: The destination phone number
             webhook_url: The URL to receive call events
             workflow_run_id: Optional workflow run ID for tracking
+            from_number: Optional caller ID to use. If None, provider selects randomly.
             **kwargs: Provider-specific additional parameters
 
         Returns:

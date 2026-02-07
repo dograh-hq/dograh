@@ -1,18 +1,67 @@
 import csv
 import hashlib
 from io import StringIO
-from typing import Any, Dict, List
+from typing import List, Optional
 
 import httpx
 from loguru import logger
 
 from api.db import db_client
-from api.services.campaign.source_sync import CampaignSourceSyncService
+from api.services.campaign.source_sync import (
+    CampaignSourceSyncService,
+    ValidationError,
+    ValidationResult,
+)
 from api.services.storage import storage_fs
 
 
 class CSVSyncService(CampaignSourceSyncService):
     """Implementation for CSV file synchronization"""
+
+    async def _fetch_csv_data(self, file_key: str) -> List[List[str]]:
+        """Download and parse CSV file from storage. Returns all rows including header."""
+        signed_url = await storage_fs.aget_signed_url(
+            file_key, expiration=3600, use_internal_endpoint=True
+        )
+
+        if not signed_url:
+            raise ValueError(f"Failed to access CSV file: {file_key}")
+
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(signed_url)
+                response.raise_for_status()
+                csv_content = response.text
+            except httpx.HTTPError as e:
+                logger.error(f"Failed to download CSV file: {e} for url: {signed_url}")
+                raise ValueError(f"Failed to download CSV file from storage: {str(e)}")
+
+        return self._parse_csv(csv_content)
+
+    async def validate_source(
+        self, source_id: str, organization_id: Optional[int] = None
+    ) -> ValidationResult:
+        """Validate a CSV source file for campaign creation."""
+        try:
+            csv_data = await self._fetch_csv_data(source_id)
+        except ValueError as e:
+            return ValidationResult(
+                is_valid=False,
+                error=ValidationError(message=str(e)),
+            )
+
+        if not csv_data or len(csv_data) < 2:
+            return ValidationResult(
+                is_valid=False,
+                error=ValidationError(
+                    message="CSV file must have a header row and at least one data row"
+                ),
+            )
+
+        headers = csv_data[0]
+        data_rows = csv_data[1:]
+
+        return self.validate_source_data(headers, data_rows)
 
     async def sync_source_data(self, campaign_id: int) -> int:
         """
@@ -23,39 +72,20 @@ class CSVSyncService(CampaignSourceSyncService):
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
 
-        # 1. Get download URL using internal endpoint (for container-to-container access)
         file_key = campaign.source_id
-        signed_url = await storage_fs.aget_signed_url(
-            file_key, expiration=3600, use_internal_endpoint=True
-        )
-
-        if not signed_url:
-            raise ValueError(f"Failed to generate download URL for file: {file_key}")
-
-        # 2. Download CSV file
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(signed_url)
-                response.raise_for_status()
-                csv_content = response.text
-            except httpx.HTTPError as e:
-                logger.error(f"Failed to download CSV file: {e} for url: {signed_url}")
-                raise ValueError(f"Failed to download CSV file from storage: {str(e)}")
-
-        # 3. Parse CSV
-        csv_data = self._parse_csv(csv_content)
+        csv_data = await self._fetch_csv_data(file_key)
 
         if not csv_data or len(csv_data) < 2:
             logger.warning(f"No data found in CSV for campaign {campaign_id}")
             return 0
 
-        headers = csv_data[0]  # First row is headers
-        rows = csv_data[1:]  # Rest is data
+        headers = self.normalize_headers(csv_data[0])
+        rows = csv_data[1:]
 
-        # 4. Create hash of file_key for consistent source_uuid prefix
+        # Create hash of file_key for consistent source_uuid prefix
         file_hash = hashlib.md5(file_key.encode()).hexdigest()[:8]
 
-        # 5. Convert to queued_runs
+        # Convert to queued_runs
         queued_runs = []
         for idx, row_values in enumerate(rows, 1):
             # Pad row to match headers length
@@ -81,14 +111,14 @@ class CSVSyncService(CampaignSourceSyncService):
                 }
             )
 
-        # 6. Bulk insert
+        # Bulk insert
         if queued_runs:
             await db_client.bulk_create_queued_runs(queued_runs)
             logger.info(
                 f"Created {len(queued_runs)} queued runs for campaign {campaign_id}"
             )
 
-        # 7. Update campaign total_rows
+        # Update campaign total_rows
         await db_client.update_campaign(
             campaign_id=campaign_id,
             total_rows=len(queued_runs),
@@ -106,35 +136,3 @@ class CSVSyncService(CampaignSourceSyncService):
         except Exception as e:
             logger.error(f"Failed to parse CSV: {e}")
             raise ValueError(f"Invalid CSV format: {str(e)}")
-
-    async def validate_source_schema(self, source_config: Dict[str, Any]) -> bool:
-        """Validate that required columns exist in CSV"""
-        required_columns = ["phone_number", "first_name", "last_name"]
-
-        file_key = source_config.get("source_id")
-        if not file_key:
-            return False
-
-        # Get download URL using internal endpoint
-        signed_url = await storage_fs.aget_signed_url(
-            file_key, expiration=3600, use_internal_endpoint=True
-        )
-        if not signed_url:
-            return False
-
-        # Download just enough to get headers
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.get(signed_url)
-                response.raise_for_status()
-
-                # Get just the first line for headers
-                first_line = response.text.split("\n")[0]
-                csv_file = StringIO(first_line)
-                reader = csv.reader(csv_file)
-                headers = next(reader, [])
-
-                return all(col in headers for col in required_columns)
-            except Exception as e:
-                logger.error(f"Failed to validate CSV schema: {e}")
-                return False

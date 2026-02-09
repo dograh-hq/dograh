@@ -368,7 +368,7 @@ def create_stasis_transport(
             audio_out_enabled=True,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
-            audio_out_10ms_chunks=2,  # Send 20ms packets
+            # audio_out_10ms_chunks=2,  # ToDo: Check if we cant support 40 ms packets?
             audio_out_mixer=(
                 SoundfileMixer(
                     sound_files={

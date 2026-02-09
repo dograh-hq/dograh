@@ -494,7 +494,7 @@ async def _run_pipeline(
                 ]
 
     # Create services based on user configuration
-    stt = create_stt_service(user_config, keyterms=keyterms)
+    stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
     tts = create_tts_service(user_config, audio_config)
     llm = create_llm_service(user_config)
 

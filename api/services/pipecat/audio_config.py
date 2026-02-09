@@ -104,7 +104,7 @@ def create_audio_config(transport_type: str) -> AudioConfig:
             transport_out_sample_rate=8000,
             vad_sample_rate=8000,  # Use matching VAD rate
             pipeline_sample_rate=8000,  # Keep at 8kHz to avoid resampling
-            buffer_size_seconds=1.0,
+            buffer_size_seconds=5.0,
         )
     elif transport_type == WorkflowRunMode.VONAGE.value:
         # Vonage uses 16kHz Linear PCM
@@ -113,7 +113,7 @@ def create_audio_config(transport_type: str) -> AudioConfig:
             transport_out_sample_rate=16000,
             vad_sample_rate=16000,  # Use matching VAD rate
             pipeline_sample_rate=16000,  # Keep at 16kHz to avoid resampling
-            buffer_size_seconds=1.0,
+            buffer_size_seconds=5.0,
         )
     elif transport_type in [
         WorkflowRunMode.WEBRTC.value,
@@ -126,7 +126,7 @@ def create_audio_config(transport_type: str) -> AudioConfig:
             transport_out_sample_rate=16000,  # Transport will resample to 24kHz
             vad_sample_rate=16000,  # VAD native rate
             pipeline_sample_rate=16000,  # Keep pipeline at 16kHz
-            buffer_size_seconds=1.0,
+            buffer_size_seconds=5.0,
         )
     else:
         # Default configuration
@@ -138,5 +138,5 @@ def create_audio_config(transport_type: str) -> AudioConfig:
             transport_out_sample_rate=16000,
             vad_sample_rate=16000,
             pipeline_sample_rate=16000,
-            buffer_size_seconds=1.0,
+            buffer_size_seconds=5.0,
         )

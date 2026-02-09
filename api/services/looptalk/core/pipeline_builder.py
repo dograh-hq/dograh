@@ -91,7 +91,7 @@ class LoopTalkPipelineBuilder:
                     logger.info(f"Using {len(keyterms)} keyterms for STT: {keyterms}")
 
         # Create services
-        stt = create_stt_service(user_config, keyterms=keyterms)
+        stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
         llm = create_llm_service(user_config)
         tts = create_tts_service(user_config, audio_config)
 

@@ -33,6 +33,7 @@ class UserConfigurationValidator:
             ServiceProviders.OPENAI.value: self._check_openai_api_key,
             ServiceProviders.DEEPGRAM.value: self._check_deepgram_api_key,
             ServiceProviders.GROQ.value: self._check_groq_api_key,
+            ServiceProviders.OPENROUTER.value: self._check_openrouter_api_key,
             ServiceProviders.ELEVENLABS.value: self._validate_elevenlabs_api_key,
             ServiceProviders.GOOGLE.value: self._check_google_api_key,
             ServiceProviders.AZURE.value: self._check_azure_api_key,
@@ -148,6 +149,9 @@ class UserConfigurationValidator:
         return True
 
     def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
+    def _check_openrouter_api_key(self, model: str, api_key: str) -> bool:
         return True
 
     def _check_speechmatics_api_key(self, model: str, api_key: str) -> bool:

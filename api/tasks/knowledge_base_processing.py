@@ -124,11 +124,13 @@ async def process_knowledge_base_document(
         # Try to get user's embeddings configuration
         embeddings_api_key = None
         embeddings_model = None
+        embeddings_base_url = None
         if document.created_by:
             user_config = await db_client.get_user_configurations(document.created_by)
             if user_config.embeddings:
                 embeddings_api_key = user_config.embeddings.api_key
                 embeddings_model = user_config.embeddings.model
+                embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
                 logger.info(f"Using user embeddings config: model={embeddings_model}")
 
         # Check if API key is configured
@@ -148,6 +150,7 @@ async def process_knowledge_base_document(
             max_tokens=max_tokens,
             api_key=embeddings_api_key,
             model_id=embeddings_model or "text-embedding-3-small",
+            base_url=embeddings_base_url,
         )
 
         # Step 1: Convert document with docling

@@ -50,6 +50,7 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
         api_key: Optional[str] = None,
         model_id: str = DEFAULT_MODEL_ID,
         max_tokens: int = 512,
+        base_url: Optional[str] = None,
     ):
         """Initialize the OpenAI embedding service.
 
@@ -59,6 +60,7 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
                     initialized and operations will fail with a clear error.
             model_id: OpenAI embedding model ID (default: text-embedding-3-small)
             max_tokens: Maximum number of tokens per chunk (default: 512)
+            base_url: Optional base URL for the API (e.g. for OpenRouter)
         """
         self.db = db_client
         self.model_id = model_id
@@ -67,7 +69,10 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
         # Only initialize OpenAI client if API key is provided
         self._api_key_configured = bool(api_key)
         if self._api_key_configured:
-            self.client = AsyncOpenAI(api_key=api_key)
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            self.client = AsyncOpenAI(**client_kwargs)
             logger.info(f"OpenAI embedding service initialized with model: {model_id}")
         else:
             self.client = None

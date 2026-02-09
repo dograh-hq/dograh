@@ -538,9 +538,11 @@ async def _run_pipeline(
     # Extract embeddings configuration from user config
     embeddings_api_key = None
     embeddings_model = None
+    embeddings_base_url = None
     if user_config and user_config.embeddings:
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
+        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
 
     engine = PipecatEngine(
         llm=llm,
@@ -550,6 +552,7 @@ async def _run_pipeline(
         node_transition_callback=node_transition_callback,
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
+        embeddings_base_url=embeddings_base_url,
     )
 
     # Create pipeline components with audio configuration

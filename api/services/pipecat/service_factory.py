@@ -19,6 +19,7 @@ from pipecat.services.groq.llm import GroqLLMService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
+from pipecat.services.openrouter.llm import OpenRouterLLMService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
 from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
@@ -251,6 +252,13 @@ def create_llm_service(user_config):
         return GroqLLMService(
             api_key=user_config.llm.api_key,
             model=model,
+            params=OpenAILLMService.InputParams(temperature=0.1),
+        )
+    elif user_config.llm.provider == ServiceProviders.OPENROUTER.value:
+        return OpenRouterLLMService(
+            api_key=user_config.llm.api_key,
+            model=model,
+            base_url=user_config.llm.base_url,
             params=OpenAILLMService.InputParams(temperature=0.1),
         )
     elif user_config.llm.provider == ServiceProviders.GOOGLE.value:

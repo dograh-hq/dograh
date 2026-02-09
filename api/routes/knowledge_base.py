@@ -360,6 +360,9 @@ async def search_chunks(
             db_client=db_client,
             api_key=embeddings_api_key,
             model_id=embeddings_model or "text-embedding-3-small",
+            base_url=getattr(user_config.embeddings, "base_url", None)
+            if user_config.embeddings
+            else None,
         )
 
         # Perform search

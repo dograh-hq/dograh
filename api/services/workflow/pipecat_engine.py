@@ -70,6 +70,7 @@ class PipecatEngine:
         ] = None,
         embeddings_api_key: Optional[str] = None,
         embeddings_model: Optional[str] = None,
+        embeddings_base_url: Optional[str] = None,
     ):
         self.task = task
         self.llm = llm
@@ -110,6 +111,7 @@ class PipecatEngine:
         # Embeddings configuration (passed from run_pipeline.py)
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
+        self._embeddings_base_url: Optional[str] = embeddings_base_url
 
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -352,6 +354,7 @@ class PipecatEngine:
                     limit=3,  # Return top 3 most relevant chunks
                     embeddings_api_key=self._embeddings_api_key,
                     embeddings_model=self._embeddings_model,
+                    embeddings_base_url=self._embeddings_base_url,
                 )
 
                 await function_call_params.result_callback(result)

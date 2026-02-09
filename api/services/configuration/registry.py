@@ -15,6 +15,7 @@ class ServiceProviders(str, Enum):
     OPENAI = "openai"
     DEEPGRAM = "deepgram"
     GROQ = "groq"
+    OPENROUTER = "openrouter"
     CARTESIA = "cartesia"
     # NEUPHONIC = "neuphonic"
     ELEVENLABS = "elevenlabs"
@@ -30,6 +31,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.OPENAI,
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
+        ServiceProviders.OPENROUTER,
         ServiceProviders.ELEVENLABS,
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
@@ -131,6 +133,15 @@ GROQ_MODELS = [
     "llama-3.1-8b-instant",
     "openai/gpt-oss-120b",
 ]
+OPENROUTER_MODELS = [
+    "openai/gpt-4.1",
+    "openai/gpt-4.1-mini",
+    "anthropic/claude-sonnet-4",
+    "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash",
+    "meta-llama/llama-3.3-70b-instruct",
+    "deepseek/deepseek-chat-v3-0324",
+]
 AZURE_MODELS = ["gpt-4.1-mini"]
 DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen"]
 
@@ -161,6 +172,16 @@ class GroqLLMService(BaseLLMConfiguration):
 
 
 @register_llm
+class OpenRouterLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
+    model: str = Field(
+        default="openai/gpt-4.1", json_schema_extra={"examples": OPENROUTER_MODELS}
+    )
+    api_key: str
+    base_url: str = Field(default="https://openrouter.ai/api/v1")
+
+
+@register_llm
 class AzureLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
     model: str = Field(
@@ -183,6 +204,7 @@ LLMConfig = Annotated[
     Union[
         OpenAILLMService,
         GroqLLMService,
+        OpenRouterLLMConfiguration,
         GoogleLLMService,
         AzureLLMService,
         DograhLLMService,
@@ -497,8 +519,22 @@ class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     api_key: str
 
 
+OPENROUTER_EMBEDDING_MODELS = ["openai/text-embedding-3-small"]
+
+
+@register_embeddings
+class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
+    model: str = Field(
+        default="openai/text-embedding-3-small",
+        json_schema_extra={"examples": OPENROUTER_EMBEDDING_MODELS},
+    )
+    api_key: str
+    base_url: str = Field(default="https://openrouter.ai/api/v1")
+
+
 EmbeddingsConfig = Annotated[
-    Union[OpenAIEmbeddingsConfiguration],
+    Union[OpenAIEmbeddingsConfiguration, OpenRouterEmbeddingsConfiguration],
     Field(discriminator="provider"),
 ]
 

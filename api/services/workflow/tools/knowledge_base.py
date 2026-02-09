@@ -28,6 +28,7 @@ async def retrieve_from_knowledge_base(
     limit: int = 3,
     embeddings_api_key: Optional[str] = None,
     embeddings_model: Optional[str] = None,
+    embeddings_base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retrieve relevant information from the knowledge base using vector similarity search.
 
@@ -43,6 +44,7 @@ async def retrieve_from_knowledge_base(
         limit: Maximum number of chunks to return (default: 3)
         embeddings_api_key: Optional API key for embedding service
         embeddings_model: Optional model ID for embedding service
+        embeddings_base_url: Optional base URL for embedding service
 
     Returns:
         Dictionary containing:
@@ -70,6 +72,7 @@ async def retrieve_from_knowledge_base(
                 limit,
                 embeddings_api_key,
                 embeddings_model,
+                embeddings_base_url,
             )
 
         # Create span with parent context
@@ -106,6 +109,7 @@ async def retrieve_from_knowledge_base(
                         limit,
                         embeddings_api_key,
                         embeddings_model,
+                        embeddings_base_url,
                     )
 
                     # Add result metadata to span
@@ -179,6 +183,7 @@ async def retrieve_from_knowledge_base(
                 limit,
                 embeddings_api_key,
                 embeddings_model,
+                embeddings_base_url,
             )
     else:
         # Tracing is disabled - perform retrieval without tracing
@@ -199,6 +204,7 @@ async def _perform_retrieval(
     limit: int,
     embeddings_api_key: Optional[str] = None,
     embeddings_model: Optional[str] = None,
+    embeddings_base_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Internal function to perform the actual retrieval operation.
 
@@ -213,6 +219,7 @@ async def _perform_retrieval(
             max_tokens=128,  # This is only used for chunking, not for retrieval
             api_key=embeddings_api_key,
             model_id=embeddings_model or "text-embedding-3-small",
+            base_url=embeddings_base_url,
         )
 
         # Perform vector similarity search

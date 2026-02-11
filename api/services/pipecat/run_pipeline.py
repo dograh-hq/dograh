@@ -62,6 +62,7 @@ from pipecat.turns.user_mute import (
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.turns.user_start import (
+    ExternalUserTurnStartStrategy,
     TranscriptionUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
@@ -580,7 +581,10 @@ async def _run_pipeline(
 
     if is_deepgram_flux:
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
+            start=[
+                VADUserTurnStartStrategy(),
+                ExternalUserTurnStartStrategy(enable_interruptions=True),
+            ],
             stop=[ExternalUserTurnStopStrategy()],
         )
     elif turn_stop_strategy == "turn_analyzer":

@@ -30,7 +30,9 @@ if TYPE_CHECKING:
     from api.services.pipecat.audio_config import AudioConfig
 
 
-def create_stt_service(user_config, audio_config: "AudioConfig", keyterms: list[str] | None = None):
+def create_stt_service(
+    user_config, audio_config: "AudioConfig", keyterms: list[str] | None = None
+):
     """Create and return appropriate STT service based on user configuration
 
     Args:
@@ -53,7 +55,7 @@ def create_stt_service(user_config, audio_config: "AudioConfig", keyterms: list[
                     keyterm=keyterms or [],
                 ),
                 should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
-                sample_rate=audio_config.transport_in_sample_rate
+                sample_rate=audio_config.transport_in_sample_rate,
             )
 
         # Other models than flux
@@ -64,21 +66,24 @@ def create_stt_service(user_config, audio_config: "AudioConfig", keyterms: list[
             profanity_filter=False,
             endpointing=100,
             model=user_config.stt.model,
-            keyterm=keyterms or []
+            keyterm=keyterms or [],
         )
         logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
             live_options=live_options,
             api_key=user_config.stt.api_key,
             should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
-            sample_rate=audio_config.transport_in_sample_rate
+            sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         return OpenAISTTService(
             api_key=user_config.stt.api_key, model=user_config.stt.model
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
-        return CartesiaSTTService(api_key=user_config.stt.api_key, sample_rate=audio_config.transport_in_sample_rate)
+        return CartesiaSTTService(
+            api_key=user_config.stt.api_key,
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:
         base_url = MPS_API_URL.replace("http://", "ws://").replace("https://", "wss://")
         language = getattr(user_config.stt, "language", None) or "multi"
@@ -88,7 +93,7 @@ def create_stt_service(user_config, audio_config: "AudioConfig", keyterms: list[
             model=user_config.stt.model,
             language=language,
             keyterms=keyterms,
-            sample_rate=audio_config.transport_in_sample_rate
+            sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum
@@ -112,7 +117,7 @@ def create_stt_service(user_config, audio_config: "AudioConfig", keyterms: list[
             api_key=user_config.stt.api_key,
             model=user_config.stt.model,
             params=SarvamSTTService.InputParams(language=pipecat_language),
-            sample_rate=audio_config.transport_in_sample_rate
+            sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
         from pipecat.services.speechmatics.stt import (
@@ -138,7 +143,7 @@ def create_stt_service(user_config, audio_config: "AudioConfig", keyterms: list[
                 operating_point=operating_point,
                 additional_vocab=additional_vocab,
             ),
-            sample_rate=audio_config.transport_in_sample_rate
+            sample_rate=audio_config.transport_in_sample_rate,
         )
     else:
         raise HTTPException(

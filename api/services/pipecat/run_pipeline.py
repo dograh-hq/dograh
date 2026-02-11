@@ -70,12 +70,12 @@ from pipecat.turns.user_start.vad_user_turn_start_strategy import (
 )
 from pipecat.turns.user_stop import (
     ExternalUserTurnStopStrategy,
-    TranscriptionUserTurnStopStrategy,
+    SpeechTimeoutUserTurnStopStrategy,
     TurnAnalyzerUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pipecat.utils.context import set_current_run_id
 from pipecat.utils.enums import EndTaskReason
+from pipecat.utils.run_context import set_current_run_id
 from pipecat.utils.tracing.context_registry import ContextProviderRegistry
 
 # Setup tracing if enabled
@@ -602,7 +602,7 @@ async def _run_pipeline(
         # Transcription-based (default): best for short 1-2 word responses
         user_turn_strategies = UserTurnStrategies(
             start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
-            stop=[TranscriptionUserTurnStopStrategy()],
+            stop=[SpeechTimeoutUserTurnStopStrategy()],
         )
 
     # Create user mute strategies

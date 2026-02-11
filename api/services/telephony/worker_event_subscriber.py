@@ -23,7 +23,7 @@ from api.services.telephony.stasis_event_protocol import (
     parse_event,
 )
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
-from pipecat.utils.context import set_current_run_id
+from pipecat.utils.run_context import set_current_run_id
 
 
 class WorkerEventSubscriber:

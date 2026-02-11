@@ -1,12 +1,12 @@
 import random
 
 from loguru import logger
-from pipecat.utils.context import set_current_run_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.services.pipecat.run_pipeline import run_pipeline_ari_stasis
 from api.services.telephony.stasis_rtp_connection import StasisRTPConnection
+from pipecat.utils.run_context import set_current_run_id
 
 
 async def on_stasis_call(call: StasisRTPConnection, call_context_vars: dict):

@@ -14,7 +14,7 @@ from api.services.looptalk.internal_transport import (
 )
 from api.services.pipecat.transport_setup import create_internal_transport
 from pipecat.pipeline.task import PipelineTask
-from pipecat.utils.context import set_current_run_id
+from pipecat.utils.run_context import set_current_run_id
 
 from .core.pipeline_builder import LoopTalkPipelineBuilder
 from .core.recording_manager import RecordingManager

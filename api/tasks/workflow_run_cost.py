@@ -4,7 +4,7 @@ from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.services.pricing.cost_calculator import cost_calculator
 from api.services.telephony.factory import get_telephony_provider
-from pipecat.utils.context import set_current_run_id
+from pipecat.utils.run_context import set_current_run_id
 
 
 async def calculate_workflow_run_cost(ctx, workflow_run_id: int):

@@ -6,7 +6,7 @@ from loguru import logger
 from api.db import db_client
 from api.services.storage import get_current_storage_backend, storage_fs
 from api.tasks.run_integrations import run_integrations_post_workflow_run
-from pipecat.utils.context import set_current_run_id
+from pipecat.utils.run_context import set_current_run_id
 
 
 async def upload_voicemail_audio_to_s3(

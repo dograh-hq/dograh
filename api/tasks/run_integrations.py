@@ -10,7 +10,7 @@ from api.db import db_client
 from api.db.models import WorkflowRunModel
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
-from pipecat.utils.context import set_current_run_id
+from pipecat.utils.run_context import set_current_run_id
 
 
 async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):

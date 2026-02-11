@@ -44,7 +44,7 @@ from api.services.pipecat.ws_sender_registry import (
 )
 from api.services.quota_service import check_dograh_quota
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.utils.context import set_current_run_id
+from pipecat.utils.run_context import set_current_run_id
 
 router = APIRouter(prefix="/ws")
 

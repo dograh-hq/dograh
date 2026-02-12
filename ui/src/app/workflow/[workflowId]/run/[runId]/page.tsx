@@ -9,7 +9,7 @@ import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
 import { RealtimeFeedback, WorkflowRunLogs } from '@/app/workflow/[workflowId]/run/[runId]/components/RealtimeFeedback';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
-import { MediaPreviewButtons, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
+import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -92,7 +92,7 @@ export default function WorkflowRunPage() {
         }
     }, [auth]);
 
-    const { openAudioModal, openTranscriptModal, dialog } = MediaPreviewDialog({ accessToken });
+    const { openPreview, dialog } = MediaPreviewDialog({ accessToken });
 
     useEffect(() => {
         const fetchWorkflowRun = async () => {
@@ -187,12 +187,11 @@ export default function WorkflowRunPage() {
                             <div className="flex flex-wrap gap-4">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm text-muted-foreground">Preview:</span>
-                                    <MediaPreviewButtons
+                                    <MediaPreviewButton
                                         recordingUrl={workflowRun?.recording_url}
                                         transcriptUrl={workflowRun?.transcript_url}
                                         runId={Number(params.runId)}
-                                        onOpenAudio={openAudioModal}
-                                        onOpenTranscript={openTranscriptModal}
+                                        onOpenPreview={openPreview}
                                     />
                                 </div>
                                 <div className="flex items-center gap-2 border-l border-border pl-4">

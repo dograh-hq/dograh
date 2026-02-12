@@ -116,6 +116,10 @@ def create_aggregation_correction_callback(engine: "PipecatEngine"):
         if corrupted in ref or len(alnum_ref) < len(alnum_corr) or len(alnum_corr) < 10:
             return corrupted
 
+        logger.debug(
+            f"In correct_corrupted_aggregation: ref: {ref} corrupted: {corrupted}"
+        )
+
         # 2) Find where in `ref` we should start aligning.
         #    We take the first N (N=10) characters of `corrupted`
         #    and look for all their occurrences in `ref`.

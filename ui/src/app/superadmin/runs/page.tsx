@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { getWorkflowRunsApiV1SuperuserWorkflowRunsGet, setAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPost } from '@/client/sdk.gen';
 import { FilterBuilder } from "@/components/filters/FilterBuilder";
-import { MediaPreviewButtons, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
+import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -515,12 +515,11 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell>
                                                         <div className="flex space-x-2">
-                                                            <MediaPreviewButtons
+                                                            <MediaPreviewButton
                                                                 recordingUrl={run.recording_url}
                                                                 transcriptUrl={run.transcript_url}
                                                                 runId={run.id}
-                                                                onOpenAudio={mediaPreview.openAudioModal}
-                                                                onOpenTranscript={mediaPreview.openTranscriptModal}
+                                                                onOpenPreview={mediaPreview.openPreview}
                                                                 onSelect={setSelectedRowId}
                                                             />
                                                             <Button

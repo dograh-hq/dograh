@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
 import { FilterBuilder } from "@/components/filters/FilterBuilder";
-import { MediaPreviewButtons, MediaPreviewDialog } from "@/components/MediaPreviewDialog";
+import { MediaPreviewButton, MediaPreviewDialog } from "@/components/MediaPreviewDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -211,12 +211,11 @@ export function WorkflowRunsTable({
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
-                                                    <MediaPreviewButtons
+                                                    <MediaPreviewButton
                                                         recordingUrl={run.recording_url}
                                                         transcriptUrl={run.transcript_url}
                                                         runId={run.id}
-                                                        onOpenAudio={mediaPreview.openAudioModal}
-                                                        onOpenTranscript={mediaPreview.openTranscriptModal}
+                                                        onOpenPreview={mediaPreview.openPreview}
                                                         onSelect={setSelectedRowId}
                                                     />
                                                     <Button

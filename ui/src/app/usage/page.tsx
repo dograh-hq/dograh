@@ -9,7 +9,7 @@ import { getCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGet, getDailyU
 import type { CurrentUsageResponse, DailyUsageBreakdownResponse,UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
-import { MediaPreviewButtons, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
+import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -551,12 +551,11 @@ export default function UsagePage() {
                                                         }
                                                     </TableCell>
                                                     <TableCell>
-                                                        <MediaPreviewButtons
+                                                        <MediaPreviewButton
                                                             recordingUrl={run.recording_url}
                                                             transcriptUrl={run.transcript_url}
                                                             runId={run.id}
-                                                            onOpenAudio={mediaPreview.openAudioModal}
-                                                            onOpenTranscript={mediaPreview.openTranscriptModal}
+                                                            onOpenPreview={mediaPreview.openPreview}
                                                         />
                                                     </TableCell>
                                                 </TableRow>

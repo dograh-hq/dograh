@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.13.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.12.0...dograh-v1.13.0) (2026-02-13)
+
+
+### Features
+
+* add languages for deepgram and dograh ([5256010](https://github.com/dograh-hq/dograh/commit/525601088accb763aa710ff6e0fb2a6fdf5acec2))
+* add openrouter support ([4c936ae](https://github.com/dograh-hq/dograh/commit/4c936ae57d14ea3aa40ea427b20b341776a9be9f))
+* add sarvam v3 voices ([a75bc72](https://github.com/dograh-hq/dograh/commit/a75bc72cb59537098b3b605a012a2ef8a3f0fe6a))
+* limit campaign concurrency to number of CLIs ([3cdede0](https://github.com/dograh-hq/dograh/commit/3cdede0f45de5d719c17797635464742ad2eac86))
+
+
+### Bug Fixes
+
+* add vad_analyzer in user aggregator ([6711dcb](https://github.com/dograh-hq/dograh/commit/6711dcb3ea7b7f78d7db5794fefc87380b8b751b))
+* fix cloudonix call hangup ([#154](https://github.com/dograh-hq/dograh/issues/154)) ([b9ddd30](https://github.com/dograh-hq/dograh/commit/b9ddd308134056db4d24a37702d151c9ee45e72d))
+* fixes aggregation in elevenlabs TTS ([#153](https://github.com/dograh-hq/dograh/issues/153)) ([e156524](https://github.com/dograh-hq/dograh/commit/e1565246fa6ecc5b73a663e9251a92d0796d19d3))
+* send sample rate to STT services ([7a10202](https://github.com/dograh-hq/dograh/commit/7a102026fbe90bed89455919ed1f9912cbab634b))
+
 ## [1.12.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.11.2...dograh-v1.12.0) (2026-02-05)
 
 

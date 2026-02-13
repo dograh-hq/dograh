@@ -110,7 +110,7 @@ class TwilioProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=response_data["sid"],
                     status=response_data.get("status", "queued"),
-                    provider_metadata={},  # Twilio doesn't need to persist extra data
+                    provider_metadata={"call_id": response_data["sid"]},
                     raw_response=response_data,
                 )
 

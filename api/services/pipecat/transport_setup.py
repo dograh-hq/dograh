@@ -94,14 +94,13 @@ async def create_twilio_transport(
 
 async def create_cloudonix_transport(
     websocket_client: WebSocket,
+    call_id: str,
     stream_sid: str,
-    call_sid: str,
     workflow_run_id: int,
     audio_config: AudioConfig,
     organization_id: int,
     vad_config: dict | None = None,
     ambient_noise_config: dict | None = None,
-    session_token: str | None = None,
 ):
     """Create a transport for Cloudonix connections"""
 
@@ -125,11 +124,10 @@ async def create_cloudonix_transport(
     from pipecat.serializers.cloudonix import CloudonixFrameSerializer
 
     serializer = CloudonixFrameSerializer(
+        call_id=call_id,
         stream_sid=stream_sid,
-        call_sid=call_sid,
         domain_id=domain_id,
         bearer_token=bearer_token,
-        session_token=session_token,
     )
 
     return FastAPIWebsocketTransport(

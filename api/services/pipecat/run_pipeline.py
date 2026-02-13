@@ -266,7 +266,6 @@ async def run_pipeline_vobiz(
 async def run_pipeline_cloudonix(
     websocket_client: WebSocket,
     stream_sid: str,
-    call_sid: str,
     workflow_id: int,
     workflow_run_id: int,
     user_id: int,
@@ -275,10 +274,15 @@ async def run_pipeline_cloudonix(
     logger.debug(
         f"Running pipeline for Cloudonix connection with workflow_id: {workflow_id} and workflow_run_id: {workflow_run_id}"
     )
-    set_current_run_id(workflow_run_id)
+
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    call_id = workflow_run.gathered_context.get("call_id")
+    if not call_id:
+        logger.warning("call_id not found in gathered_context")
+        raise Exception()
 
     # Store call ID in cost_info for later cost calculation (provider-agnostic)
-    cost_info = {"call_id": call_sid}
+    cost_info = {"call_id": call_id}
     await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
 
     # Get workflow to extract all pipeline configurations
@@ -293,26 +297,18 @@ async def run_pipeline_cloudonix(
                 "ambient_noise_configuration"
             ]
 
-    # Retrieve session_token from workflow_run gathered_context
-    workflow_run = await db_client.get_workflow_run(workflow_run_id)
-    session_token = None
-    if workflow_run and workflow_run.gathered_context:
-        session_token = workflow_run.gathered_context.get("session_token")
-        logger.debug(f"Retrieved session_token from workflow_run: {session_token}")
-
     # Create audio configuration for Cloudonix
     audio_config = create_audio_config(WorkflowRunMode.CLOUDONIX.value)
 
     transport = await create_cloudonix_transport(
         websocket_client,
+        call_id,
         stream_sid,
-        call_sid,
         workflow_run_id,
         audio_config,
         workflow.organization_id,
         vad_config,
         ambient_noise_config,
-        session_token,
     )
     await _run_pipeline(
         transport,

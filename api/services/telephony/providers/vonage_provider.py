@@ -138,10 +138,8 @@ class VonageProvider(TelephonyProvider):
                     call_id=response_data["uuid"],
                     status=response_data.get("status", "started"),
                     provider_metadata={
-                        "call_uuid": response_data[
-                            "uuid"
-                        ]  # Vonage needs UUID persisted for WebSocket
-                    },
+                        "call_uuid": response_data["uuid"]
+                    },  # Vonage needs UUID persisted for WebSocket
                     raw_response=response_data,
                 )
 

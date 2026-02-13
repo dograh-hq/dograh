@@ -395,10 +395,6 @@ class CloudonixProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Expected connected event")
                 return
 
-            logger.debug(
-                f"Cloudonix WebSocket connected for workflow_run {workflow_run_id}"
-            )
-
             # Wait for "start" event with stream details
             start_msg = await websocket.receive_text()
             logger.debug(f"Received start message: {start_msg}")
@@ -418,9 +414,14 @@ class CloudonixProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Missing stream identifiers")
                 return
 
+            logger.debug(
+                f"Cloudonix WebSocket connected for workflow_run {workflow_run_id} "
+                f"stream_sid: {stream_sid} call_sid: {call_sid}"
+            )
+
             # Run the Cloudonix pipeline
             await run_pipeline_cloudonix(
-                websocket, stream_sid, call_sid, workflow_id, workflow_run_id, user_id
+                websocket, stream_sid, workflow_id, workflow_run_id, user_id
             )
 
         except Exception as e:

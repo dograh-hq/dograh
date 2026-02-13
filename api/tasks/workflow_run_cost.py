@@ -7,6 +7,61 @@ from api.services.telephony.factory import get_telephony_provider
 from pipecat.utils.run_context import set_current_run_id
 
 
+async def _fetch_telephony_cost(workflow_run) -> dict | None:
+    """Fetch telephony call cost. Returns a dict with cost_usd and provider_name, or None."""
+    if (
+        workflow_run.mode
+        not in [WorkflowRunMode.TWILIO.value, WorkflowRunMode.VONAGE.value]
+        or not workflow_run.cost_info
+    ):
+        return None
+
+    call_id = workflow_run.cost_info.get("call_id")
+    if not call_id:
+        logger.warning(f"call_id not found in cost_info")
+        return None
+
+    provider_name = workflow_run.mode.lower() if workflow_run.mode else ""
+
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    if not workflow:
+        logger.warning("Workflow not found for workflow run")
+        raise Exception("Workflow not found")
+
+    provider = await get_telephony_provider(workflow.organization_id)
+    call_cost_info = await provider.get_call_cost(call_id)
+
+    if call_cost_info.get("status") == "error":
+        logger.error(
+            f"Failed to fetch {provider_name} call cost: {call_cost_info.get('error')}"
+        )
+        return None
+
+    cost_usd = call_cost_info.get("cost_usd", 0.0)
+    logger.info(
+        f"{provider_name.title()} call cost: ${cost_usd:.6f} USD for call {call_id}"
+    )
+    return {"cost_usd": cost_usd, "provider_name": provider_name}
+
+
+async def _update_organization_usage(
+    org, dograh_tokens: float, duration_seconds: float, charge_usd: float | None
+) -> None:
+    """Update organization usage after a workflow run."""
+    org_id = org.id
+    await db_client.update_usage_after_run(
+        org_id, dograh_tokens, duration_seconds, charge_usd
+    )
+    if charge_usd is not None:
+        logger.info(
+            f"Updated organization usage with ${charge_usd:.2f} USD ({dograh_tokens} Dograh Tokens) and {duration_seconds}s duration for org {org_id}"
+        )
+    else:
+        logger.info(
+            f"Updated organization usage with {dograh_tokens} Dograh Tokens and {duration_seconds}s duration for org {org_id}"
+        )
+
+
 async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
     # Set the run_id in context variable for consistent logging format
     set_current_run_id(workflow_run_id)
@@ -26,62 +81,20 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
         # Calculate cost breakdown
         cost_breakdown = cost_calculator.calculate_total_cost(workflow_usage_info)
 
-        # Fetch telephony call cost for both Twilio and Vonage
-        telephony_cost_usd = 0.0
-        if (
-            workflow_run.mode
-            in [WorkflowRunMode.TWILIO.value, WorkflowRunMode.VONAGE.value]
-            and workflow_run.cost_info
-        ):
-            # Get the call ID (provider-agnostic approach with backward compatibility)
-            call_id = workflow_run.cost_info.get("call_id")
-
-            # Fallback to legacy provider-specific fields if needed
-            if not call_id:
-                if workflow_run.mode == WorkflowRunMode.TWILIO.value:
-                    call_id = workflow_run.cost_info.get("twilio_call_sid")
-                elif workflow_run.mode == WorkflowRunMode.VONAGE.value:
-                    call_id = workflow_run.cost_info.get("vonage_call_uuid")
-
-            # Provider name is derived from workflow run mode
-            provider_name = workflow_run.mode.lower() if workflow_run.mode else ""
-
-            if call_id:
-                try:
-                    # Get workflow to access organization_id
-                    workflow = await db_client.get_workflow_by_id(
-                        workflow_run.workflow_id
-                    )
-                    if not workflow:
-                        logger.warning("Workflow not found for workflow run")
-                        raise Exception("Workflow not found")
-
-                    # Use telephony provider abstraction
-                    provider = await get_telephony_provider(workflow.organization_id)
-                    call_cost_info = await provider.get_call_cost(call_id)
-
-                    if call_cost_info.get("status") != "error":
-                        telephony_cost_usd = call_cost_info.get("cost_usd", 0.0)
-                        cost_breakdown["telephony_call"] = telephony_cost_usd
-                        cost_breakdown[f"{provider_name}_call"] = (
-                            telephony_cost_usd  # Keep backward compatibility
-                        )
-
-                        # Add telephony cost to the total
-                        cost_breakdown["total"] = (
-                            float(cost_breakdown["total"]) + telephony_cost_usd
-                        )
-                        logger.info(
-                            f"{provider_name.title()} call cost: ${telephony_cost_usd:.6f} USD for call {call_id}"
-                        )
-                    else:
-                        logger.error(
-                            f"Failed to fetch {provider_name} call cost: {call_cost_info.get('error')}"
-                        )
-
-                except Exception as e:
-                    logger.error(f"Failed to fetch telephony call cost: {e}")
-                    # Don't fail the whole cost calculation if telephony API fails
+        # Fetch telephony call cost
+        try:
+            telephony_cost = await _fetch_telephony_cost(workflow_run)
+            if telephony_cost:
+                telephony_cost_usd = telephony_cost["cost_usd"]
+                provider_name = telephony_cost["provider_name"]
+                cost_breakdown["telephony_call"] = telephony_cost_usd
+                cost_breakdown[f"{provider_name}_call"] = telephony_cost_usd
+                cost_breakdown["total"] = (
+                    float(cost_breakdown["total"]) + telephony_cost_usd
+                )
+        except Exception as e:
+            logger.error(f"Failed to fetch telephony call cost: {e}")
+            # Don't fail the whole cost calculation if telephony API fails
 
         # Store cost information back to the workflow run
         # We'll add the cost breakdown to the workflow run
@@ -106,6 +119,7 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
             charge_usd = duration_seconds * org.price_per_second_usd
 
         cost_info = {
+            **workflow_run.cost_info,
             "cost_breakdown": cost_breakdown,
             "total_cost_usd": float(cost_breakdown["total"]),
             "dograh_token_usage": dograh_tokens,
@@ -118,42 +132,19 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
             cost_info["charge_usd"] = charge_usd
             cost_info["price_per_second_usd"] = org.price_per_second_usd
 
-        # Preserve call ID (provider-agnostic with backward compatibility)
-        if workflow_run.cost_info:
-            # Preserve generic call_id if it exists
-            if "call_id" in workflow_run.cost_info:
-                cost_info["call_id"] = workflow_run.cost_info["call_id"]
-            # Also preserve legacy fields for backward compatibility
-            elif "twilio_call_sid" in workflow_run.cost_info:
-                cost_info["twilio_call_sid"] = workflow_run.cost_info["twilio_call_sid"]
-            elif "vonage_call_uuid" in workflow_run.cost_info:
-                cost_info["vonage_call_uuid"] = workflow_run.cost_info[
-                    "vonage_call_uuid"
-                ]
-
         # Update workflow run with cost information
         await db_client.update_workflow_run(run_id=workflow_run_id, cost_info=cost_info)
 
         # Update organization usage if applicable
         if org:
-            org_id = org.id
             try:
                 duration_seconds = workflow_usage_info.get("call_duration_seconds", 0)
-                # Pass USD amount if organization has pricing
-                await db_client.update_usage_after_run(
-                    org_id, dograh_tokens, duration_seconds, charge_usd
+                await _update_organization_usage(
+                    org, dograh_tokens, duration_seconds, charge_usd
                 )
-                if charge_usd is not None:
-                    logger.info(
-                        f"Updated organization usage with ${charge_usd:.2f} USD ({dograh_tokens} Dograh Tokens) and {duration_seconds}s duration for org {org_id}"
-                    )
-                else:
-                    logger.info(
-                        f"Updated organization usage with {dograh_tokens} Dograh Tokens and {duration_seconds}s duration for org {org_id}"
-                    )
             except Exception as e:
                 logger.error(
-                    f"Failed to update organization usage for org {org_id}: {e}"
+                    f"Failed to update organization usage for org {org.id}: {e}"
                 )
                 # Don't fail the whole task if usage update fails
 

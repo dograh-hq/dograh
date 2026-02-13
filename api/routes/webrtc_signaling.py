@@ -22,7 +22,7 @@ from typing import Dict, List, Optional
 
 from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from loguru import logger
 from starlette.websockets import WebSocketState
 
@@ -390,6 +390,11 @@ async def signaling_websocket(
     user: UserModel = Depends(get_user_ws),
 ):
     """WebSocket endpoint for WebRTC signaling with ICE trickling."""
+    workflow_run = await db_client.get_workflow_run(workflow_run_id, user.id)
+    if not workflow_run:
+        logger.warning(f"workflow run {workflow_run_id} not found for user {user.id}")
+        raise HTTPException(status_code=400, detail="Bad workflow_run_id")
+
     await signaling_manager.handle_websocket(
         websocket, workflow_id, workflow_run_id, user
     )

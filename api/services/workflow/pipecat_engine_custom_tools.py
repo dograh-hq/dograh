@@ -11,6 +11,7 @@ import re
 from typing import TYPE_CHECKING, Any, Optional
 
 import aiohttp
+import httpx
 from loguru import logger
 
 from api.db import db_client
@@ -319,7 +320,7 @@ class CustomToolManager:
                     await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
 
                 # Get original call information from Pipecat context
-                from pipecat.utils.context import get_current_call_sid
+                from pipecat.utils.run_context import get_current_call_sid
 
                 original_call_sid = get_current_call_sid()
                 caller_number = None  # Skip caller number for now as requested
@@ -352,7 +353,6 @@ class CustomToolManager:
                 }
 
                 # Initialize Redis-based transfer coordination
-                import httpx
                 import time
 
                 # Get backend endpoint URL

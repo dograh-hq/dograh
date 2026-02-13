@@ -1742,12 +1742,11 @@ async def complete_transfer_function_call(tool_call_id: str, request: Request):
     
     # Note: All transfer coordination now handled via Redis events
     
-    # If this is a "completed" status but we already handled the success case via answer webhook,
-    # we should still publish the COMPLETED event but not override previous results
+    # Skip "completed" status to avoid overriding successful transfer results
+    # The "answered" status already handled the success case
     if call_status == "completed":
-        # Check if we already published an ANSWERED event
-        logger.info(f"Processing 'completed' status for {tool_call_id}")
-        # We'll still publish COMPLETED event but with different handling
+        logger.info(f"Ignoring 'completed' status for {tool_call_id} to avoid overriding previous results")
+        return {"status": "ignored", "reason": "completed_status_filtered"}
     
     # Import required event classes
     from api.services.telephony.transfer_event_protocol import TransferEvent, TransferEventType
@@ -1802,15 +1801,6 @@ async def complete_transfer_function_call(tool_call_id: str, request: Request):
             "action": "transfer_failed", 
             "call_sid": call_sid,
             "end_call": True
-        }
-    elif call_status == "completed":
-        # Call completed successfully
-        result = {
-            "status": "completed",
-            "message": "Your call has been completed successfully.",
-            "action": "transfer_completed",
-            "call_sid": call_sid,
-            "end_call": True  # End call normally
         }
     else:
         # Intermediate status (ringing, in-progress, etc.), don't complete yet

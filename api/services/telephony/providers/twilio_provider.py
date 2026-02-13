@@ -10,7 +10,7 @@ import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 from twilio.request_validator import RequestValidator
-from pipecat.utils.context import set_current_call_sid
+from pipecat.utils.run_context import set_current_call_sid
 
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (

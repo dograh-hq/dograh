@@ -675,27 +675,6 @@ export type LoadTestStatsResponse = {
     }>;
 };
 
-/**
- * Request schema for order status lookup.
- */
-export type OrderRequest = {
-    order_id: string;
-};
-
-/**
- * Response schema for order status.
- */
-export type OrderResponse = {
-    order_id: string;
-    status: string;
-    refund_status: string;
-    amount: number;
-    currency: string;
-    created_at: string;
-    refunded_at: string | null;
-    refund_amount: number | null;
-};
-
 export type PresignedUploadUrlRequest = {
     /**
      * CSV filename
@@ -907,9 +886,12 @@ export type TransferCallConfig = {
  */
 export type TransferCallRequest = {
     destination: string;
+    organization_id: number;
     timeout?: number | null;
     tool_call_id?: string | null;
     tool_uuid?: string | null;
+    original_call_sid?: string | null;
+    caller_number?: string | null;
 };
 
 /**
@@ -1596,6 +1578,112 @@ export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostErrors = {
 };
 
 export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostData = {
+    body: TransferCallRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/call-transfer';
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostError = InitiateCallTransferApiV1TelephonyCallTransferPostErrors[keyof InitiateCallTransferApiV1TelephonyCallTransferPostErrors];
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostData = {
+    body?: never;
+    path: {
+        tool_call_id: string;
+    };
+    query?: never;
+    url: '/api/v1/telephony/transfer-call-handler/{tool_call_id}';
+};
+
+export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostError = HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostErrors[keyof HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostErrors];
+
+export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostData = {
+    body?: never;
+    path: {
+        tool_call_id: string;
+    };
+    query?: never;
+    url: '/api/v1/telephony/transfer-result/{tool_call_id}';
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostErrors];
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type RegisterTransferToolCallApiV1TelephonyRegisterTransferToolCallPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/register-transfer-tool-call';
+};
+
+export type RegisterTransferToolCallApiV1TelephonyRegisterTransferToolCallPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type RegisterTransferToolCallApiV1TelephonyRegisterTransferToolCallPostResponses = {
     /**
      * Successful Response
      */
@@ -4868,35 +4956,6 @@ export type SearchChunksApiV1KnowledgeBaseSearchPostResponses = {
 };
 
 export type SearchChunksApiV1KnowledgeBaseSearchPostResponse = SearchChunksApiV1KnowledgeBaseSearchPostResponses[keyof SearchChunksApiV1KnowledgeBaseSearchPostResponses];
-
-export type GetOrderStatusApiV1OrderStatusPostData = {
-    body: OrderRequest;
-    path?: never;
-    query?: never;
-    url: '/api/v1/order/status';
-};
-
-export type GetOrderStatusApiV1OrderStatusPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetOrderStatusApiV1OrderStatusPostError = GetOrderStatusApiV1OrderStatusPostErrors[keyof GetOrderStatusApiV1OrderStatusPostErrors];
-
-export type GetOrderStatusApiV1OrderStatusPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: OrderResponse;
-};
-
-export type GetOrderStatusApiV1OrderStatusPostResponse = GetOrderStatusApiV1OrderStatusPostResponses[keyof GetOrderStatusApiV1OrderStatusPostResponses];
 
 export type HealthApiV1HealthGetData = {
     body?: never;

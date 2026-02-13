@@ -21,6 +21,7 @@ interface SchemaProperty {
     default?: string | number | boolean;
     enum?: string[];
     examples?: string[];
+    model_options?: Record<string, string[]>;
     $ref?: string;
     description?: string;
     format?: string;
@@ -211,6 +212,20 @@ export default function ServiceConfiguration() {
             setHasCheckedManualMode(true);
         }
     }, [schemas, serviceProviders.llm, userConfig?.llm?.model, hasCheckedManualMode]);
+
+    // Reset voice when TTS model changes if the provider has model-dependent voice options
+    const ttsModel = watch("tts_model");
+    useEffect(() => {
+        const voiceSchema = schemas?.tts?.[serviceProviders.tts]?.properties?.voice;
+        const modelOptions = voiceSchema?.model_options;
+        if (!modelOptions || !ttsModel) return;
+
+        const validVoices = modelOptions[ttsModel as string];
+        const currentVoice = getValues("tts_voice") as string;
+        if (validVoices && currentVoice && !validVoices.includes(currentVoice)) {
+            setValue("tts_voice", validVoices[0], { shouldDirty: true });
+        }
+    }, [ttsModel, serviceProviders.tts, setValue, getValues, schemas]);
 
     const handleProviderChange = (service: ServiceSegment, providerName: string) => {
         if (!providerName) {
@@ -516,7 +531,16 @@ export default function ServiceConfiguration() {
         }
 
         // Handle fields with enum or examples (dropdown options)
-        const dropdownOptions = actualSchema?.enum || actualSchema?.examples;
+        let dropdownOptions = actualSchema?.enum || actualSchema?.examples;
+
+        // Use model-dependent options when available (e.g., Sarvam voices per model)
+        if (actualSchema?.model_options) {
+            const modelValue = watch(`${service}_model`) as string;
+            if (modelValue && actualSchema.model_options[modelValue]) {
+                dropdownOptions = actualSchema.model_options[modelValue];
+            }
+        }
+
         if (dropdownOptions && dropdownOptions.length > 0) {
             // Use friendly display names for language and voice fields
             const getDisplayName = (value: string) => {
@@ -524,7 +548,7 @@ export default function ServiceConfiguration() {
                     return LANGUAGE_DISPLAY_NAMES[value] || value;
                 }
                 if (field === "voice") {
-                    return VOICE_DISPLAY_NAMES[value] || value;
+                    return VOICE_DISPLAY_NAMES[value] || value.charAt(0).toUpperCase() + value.slice(1);
                 }
                 return value;
             };

@@ -278,7 +278,48 @@ class DograhTTSService(BaseTTSConfiguration):
 
 
 SARVAM_TTS_MODELS = ["bulbul:v2", "bulbul:v3"]
-SARVAM_VOICES = ["anushka", "manisha", "vidya", "arya", "abhilash", "karun", "hitesh"]
+SARVAM_V2_VOICES = ["anushka", "manisha", "vidya", "arya", "abhilash", "karun", "hitesh"]
+SARVAM_V3_VOICES = [
+    "shubh",
+    "aditya",
+    "ritu",
+    "priya",
+    "neha",
+    "rahul",
+    "pooja",
+    "rohan",
+    "simran",
+    "kavya",
+    "amit",
+    "dev",
+    "ishita",
+    "shreya",
+    "ratan",
+    "varun",
+    "manan",
+    "sumit",
+    "roopa",
+    "kabir",
+    "aayan",
+    "ashutosh",
+    "advait",
+    "amelia",
+    "sophia",
+    "anand",
+    "tanya",
+    "tarun",
+    "sunny",
+    "mani",
+    "gokul",
+    "vijay",
+    "shruti",
+    "suhani",
+    "mohit",
+    "kavitha",
+    "rehan",
+    "soham",
+    "rupali",
+]
 SARVAM_LANGUAGES = [
     "bn-IN",
     "en-IN",
@@ -301,7 +342,16 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
     model: str = Field(
         default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS}
     )
-    voice: str = Field(default="anushka", json_schema_extra={"examples": SARVAM_VOICES})
+    voice: str = Field(
+        default="anushka",
+        json_schema_extra={
+            "examples": SARVAM_V2_VOICES,
+            "model_options": {
+                "bulbul:v2": SARVAM_V2_VOICES,
+                "bulbul:v3": SARVAM_V3_VOICES,
+            },
+        },
+    )
     language: str = Field(
         default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
     )

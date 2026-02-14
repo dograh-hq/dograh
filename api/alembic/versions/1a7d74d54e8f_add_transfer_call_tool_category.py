@@ -5,15 +5,15 @@ Revises: 02ffd7f23d1d
 Create Date: 2026-02-03 11:18:11.417837
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
 from alembic_postgresql_enum import TableReference
 
-
 # revision identifiers, used by Alembic.
-revision: str = '1a7d74d54e8f'
-down_revision: Union[str, None] = '02ffd7f23d1d'
+revision: str = "1a7d74d54e8f"
+down_revision: Union[str, None] = "02ffd7f23d1d"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

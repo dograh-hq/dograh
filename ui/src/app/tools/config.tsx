@@ -1,6 +1,6 @@
 "use client";
 
-import { Cog, Globe, type LucideIcon, PhoneOff, PhoneForwarded, Puzzle } from "lucide-react";
+import { Cog, Globe, type LucideIcon, PhoneForwarded, PhoneOff, Puzzle } from "lucide-react";
 import { type ReactNode } from "react";
 
 export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "native" | "integration";

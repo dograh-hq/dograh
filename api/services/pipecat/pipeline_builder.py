@@ -73,8 +73,7 @@ def build_pipeline(
             pipeline_engine_callback_processor,
         ]
     )
-    
-    
+
     processors.extend(
         [
             tts,  # TTS

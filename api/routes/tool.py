@@ -1,8 +1,8 @@
 """API routes for managing tools."""
 
+import re
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
-import re
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -70,10 +70,10 @@ class TransferCallConfig(BaseModel):
         default=None, description="Custom message to play before transferring the call"
     )
     timeout: int = Field(
-        default=30, 
-        ge=5, 
-        le=120, 
-        description="Maximum time in seconds to wait for destination to answer (5-120 seconds)"
+        default=30,
+        ge=5,
+        le=120,
+        description="Maximum time in seconds to wait for destination to answer (5-120 seconds)",
     )
 
     @field_validator("destination")
@@ -83,7 +83,7 @@ class TransferCallConfig(BaseModel):
         # Allow empty string for initial creation (like HTTP API tools with empty URL)
         if not v.strip():
             return v
-        
+
         # E.164 format: +[1-9]\d{1,14}
         e164_pattern = r"^\+[1-9]\d{1,14}$"
         if not re.match(e164_pattern, v):
@@ -140,7 +140,9 @@ class CreateToolRequest(BaseModel):
         """Validate that category is a valid ToolCategory value."""
         valid_categories = [c.value for c in ToolCategory]
         if v not in valid_categories:
-            raise ValueError(f"Invalid category '{v}'. Must be one of: {', '.join(valid_categories)}")
+            raise ValueError(
+                f"Invalid category '{v}'. Must be one of: {', '.join(valid_categories)}"
+            )
         return v
 
 

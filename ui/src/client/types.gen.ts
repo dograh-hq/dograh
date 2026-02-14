@@ -882,16 +882,14 @@ export type TransferCallConfig = {
 };
 
 /**
- * Request model for initiating call transfer using webhook-driven completion
+ * Request model for initiating a call transfer.
  */
 export type TransferCallRequest = {
     destination: string;
     organization_id: number;
+    transfer_id: string;
+    conference_name: string;
     timeout?: number | null;
-    tool_call_id?: string | null;
-    tool_uuid?: string | null;
-    original_call_sid?: string | null;
-    caller_number?: string | null;
 };
 
 /**
@@ -1611,16 +1609,16 @@ export type InitiateCallTransferApiV1TelephonyCallTransferPostResponses = {
     200: unknown;
 };
 
-export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostData = {
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostData = {
     body?: never;
     path: {
-        tool_call_id: string;
+        transfer_id: string;
     };
     query?: never;
-    url: '/api/v1/telephony/transfer-call-handler/{tool_call_id}';
+    url: '/api/v1/telephony/transfer-result/{transfer_id}';
 };
 
-export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostErrors = {
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors = {
     /**
      * Not found
      */
@@ -1631,59 +1629,9 @@ export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallI
     422: HttpValidationError;
 };
 
-export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostError = HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostErrors[keyof HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostErrors];
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors];
 
-export type HandleTransferCallAnsweredApiV1TelephonyTransferCallHandlerToolCallIdPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostData = {
-    body?: never;
-    path: {
-        tool_call_id: string;
-    };
-    query?: never;
-    url: '/api/v1/telephony/transfer-result/{tool_call_id}';
-};
-
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostErrors];
-
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultToolCallIdPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type RegisterTransferToolCallApiV1TelephonyRegisterTransferToolCallPostData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/v1/telephony/register-transfer-tool-call';
-};
-
-export type RegisterTransferToolCallApiV1TelephonyRegisterTransferToolCallPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-};
-
-export type RegisterTransferToolCallApiV1TelephonyRegisterTransferToolCallPostResponses = {
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostResponses = {
     /**
      * Successful Response
      */

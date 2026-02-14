@@ -539,9 +539,10 @@ class VobizProvider(TelephonyProvider):
     async def transfer_call(
         self,
         destination: str,
-        tool_call_id: str,
+        transfer_id: str,
+        conference_name: str,
         timeout: int = 30,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Vobiz provider does not support call transfers.

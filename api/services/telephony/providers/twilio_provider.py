@@ -10,7 +10,6 @@ import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 from twilio.request_validator import RequestValidator
-from pipecat.utils.run_context import set_current_call_sid
 
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
@@ -283,11 +282,6 @@ class TwilioProvider(TelephonyProvider):
             try:
                 stream_sid = start_msg["start"]["streamSid"]
                 call_sid = start_msg["start"]["callSid"]
-                
-                # Set call SID in Pipecat context for use throughout the pipeline
-                set_current_call_sid(call_sid)
-                logger.info(f"Set call SID context: {call_sid}")
-                
             except KeyError:
                 logger.error("Missing streamSid or callSid in start message")
                 await websocket.close(code=4400, reason="Missing stream identifiers")
@@ -473,16 +467,21 @@ class TwilioProvider(TelephonyProvider):
     async def transfer_call(
         self,
         destination: str,
-        tool_call_id: str,
+        transfer_id: str,
+        conference_name: str,
         timeout: int = 30,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Initiate a call transfer via Twilio.
 
+        Uses inline TwiML to put the destination into a conference when they answer,
+        and a status callback to track the transfer outcome.
+
         Args:
             destination: The destination phone number (E.164 format)
-            tool_call_id: Unique identifier for tracking this transfer
+            transfer_id: Unique identifier for tracking this transfer
+            conference_name: Name of the conference to join the destination into
             timeout: Transfer timeout in seconds
             **kwargs: Additional Twilio-specific parameters
 
@@ -502,11 +501,18 @@ class TwilioProvider(TelephonyProvider):
 
         backend_endpoint, _ = await get_backend_endpoints()
 
-        # Generate webhook URLs for the transfer call
-        call_url = f"{backend_endpoint}/api/v1/telephony/transfer-call-handler/{tool_call_id}"
-        status_callback_url = f"{backend_endpoint}/api/v1/telephony/transfer-result/{tool_call_id}"
+        status_callback_url = (
+            f"{backend_endpoint}/api/v1/telephony/transfer-result/{transfer_id}"
+        )
 
-        logger.debug(f"Transfer webhook URLs - Answer: {call_url}, Status: {status_callback_url}")
+        # Inline TwiML: when the destination answers, put them into the conference
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>You have answered a transfer call. Connecting you now.</Say>
+    <Dial>
+        <Conference endConferenceOnExit="true">{conference_name}</Conference>
+    </Dial>
+</Response>"""
 
         # Prepare Twilio API call data
         endpoint = f"{self.base_url}/Calls.json"
@@ -514,49 +520,55 @@ class TwilioProvider(TelephonyProvider):
             "To": destination,
             "From": from_number,
             "Timeout": timeout,
-            "Url": call_url,
+            "Twiml": twiml,
             "StatusCallback": status_callback_url,
-            "StatusCallbackEvent": ["answered", "no-answer", "busy", "failed", "completed"],
-            "StatusCallbackMethod": "POST"
+            "StatusCallbackEvent": [
+                "answered",
+                "no-answer",
+                "busy",
+                "failed",
+                "completed",
+            ],
+            "StatusCallbackMethod": "POST",
         }
 
         # Add any additional kwargs
         data.update(kwargs)
 
         try:
-            # Make Twilio API call
-            logger.info(f"Making Twilio transfer API call to: {endpoint}")
-            logger.info(f"Transfer call data: {data}")
+            logger.debug(f"Transfer call data: {data}")
 
             async with aiohttp.ClientSession() as session:
                 auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
                 async with session.post(endpoint, data=data, auth=auth) as response:
                     response_status = response.status
                     response_text = await response.text()
-                    
-                    logger.info(f"Twilio transfer API response status: {response_status}")
-                    logger.info(f"Twilio transfer API response body: {response_text}")
+
+                    logger.info(
+                        f"Twilio transfer API response status: {response_status}"
+                    )
+                    logger.debug(f"Twilio transfer API response body: {response_text}")
 
                     if response_status in [200, 201]:
                         try:
                             response_data = await response.json()
                             call_sid = response_data.get("sid")
-                            logger.info(f"Transfer call initiated successfully: {call_sid}")
+                            logger.info(
+                                f"Transfer call initiated successfully: {call_sid}"
+                            )
 
                             return {
                                 "call_sid": call_sid,
                                 "status": response_data.get("status", "queued"),
                                 "provider": self.PROVIDER_NAME,
-                                "webhook_urls": {
-                                    "answer": call_url,
-                                    "status": status_callback_url
-                                },
                                 "from_number": from_number,
                                 "to_number": destination,
-                                "raw_response": response_data
+                                "raw_response": response_data,
                             }
                         except Exception as e:
-                            logger.error(f"Failed to parse Twilio transfer response JSON: {e}")
+                            logger.error(
+                                f"Failed to parse Twilio transfer response JSON: {e}"
+                            )
                             raise Exception(f"Failed to parse transfer response: {e}")
                     else:
                         error_msg = f"Twilio API call failed with status {response_status}: {response_text}"

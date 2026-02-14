@@ -124,7 +124,7 @@ async def run_pipeline_twilio(
         workflow.organization_id,
         vad_config,
         ambient_noise_config,
-    )    
+    )
     await _run_pipeline(
         transport,
         workflow_id,
@@ -556,8 +556,9 @@ async def _run_pipeline(
     # Create pipeline components
     audio_buffer, context = create_pipeline_components(audio_config)
 
-    # Set the context and audio_buffer after creation
+    # Set the context, audio_config, and audio_buffer after creation
     engine.set_context(context)
+    engine.set_audio_config(audio_config)
 
     # Set Stasis connection for immediate transfers (if available)
     if stasis_connection:
@@ -638,6 +639,9 @@ async def _run_pipeline(
 
     @user_context_aggregator.event_handler("on_user_turn_idle")
     async def on_user_turn_idle(aggregator):
+        if engine._transferring_call:
+            logger.debug("Not calling user idle since we are transferring call.")
+            return
         await user_idle_handler.handle_idle(aggregator)
 
     @user_context_aggregator.event_handler("on_user_turn_started")

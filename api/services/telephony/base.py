@@ -316,16 +316,18 @@ class TelephonyProvider(ABC):
     async def transfer_call(
         self,
         destination: str,
-        tool_call_id: str,
+        transfer_id: str,
+        conference_name: str,
         timeout: int = 30,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> Dict[str, Any]:
         """
         Initiate a call transfer to a destination number.
 
         Args:
             destination: The destination phone number (E.164 format)
-            tool_call_id: Unique identifier for tracking this transfer
+            transfer_id: Unique identifier for tracking this transfer
+            conference_name: Name of the conference to join the destination into
             timeout: Transfer timeout in seconds
             **kwargs: Provider-specific additional parameters
 
@@ -334,7 +336,6 @@ class TelephonyProvider(ABC):
                 - call_sid: Provider's call identifier
                 - status: Transfer initiation status
                 - provider: Provider name
-                - webhook_urls: Dict with answer and status callback URLs
 
         Raises:
             NotImplementedError: If provider doesn't support transfers

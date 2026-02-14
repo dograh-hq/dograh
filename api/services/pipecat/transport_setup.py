@@ -24,7 +24,6 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
-from loguru import logger
 
 librnnoise_path = os.path.normpath(
     str(APP_ROOT_DIR / "native" / "rnnoise" / "librnnoise.so")

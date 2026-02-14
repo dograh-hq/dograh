@@ -410,7 +410,7 @@ const data = await response.json();`;
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {!isEndCallTool && (
+                            {!isEndCallTool && !isTransferCallTool && (
                                 <Button
                                     variant="outline"
                                     onClick={() => setShowCodeDialog(true)}
@@ -419,33 +419,8 @@ const data = await response.json();`;
                                     View Code
                                 </Button>
                             )}
-                            <Button onClick={handleSave} disabled={isSaving}>
-                                {isSaving ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                                        Saving...
-                                    </>
-                                ) : (
-                                    <>
-                                        <Save className="w-4 h-4 mr-2" />
-                                        Save
-                                    </>
-                                )}
-                            </Button>
                         </div>
                     </div>
-
-                    {error && (
-                        <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
-                            {error}
-                        </div>
-                    )}
-
-                    {saveSuccess && (
-                        <div className="mb-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg text-green-600">
-                            Tool saved successfully!
-                        </div>
-                    )}
 
                     {isEndCallTool ? (
                         <EndCallToolConfig
@@ -493,6 +468,34 @@ const data = await response.json();`;
                             onTimeoutMsChange={setTimeoutMs}
                         />
                     )}
+
+                    {error && (
+                        <div className="mt-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
+                            {error}
+                        </div>
+                    )}
+
+                    {saveSuccess && (
+                        <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg text-green-600">
+                            Tool saved successfully!
+                        </div>
+                    )}
+
+                    <div className="flex justify-end mt-6">
+                        <Button onClick={handleSave} disabled={isSaving}>
+                            {isSaving ? (
+                                <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <Save className="w-4 h-4 mr-2" />
+                                    Save
+                                </>
+                            )}
+                        </Button>
+                    </div>
                 </div>
             </div>
 

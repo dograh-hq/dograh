@@ -498,7 +498,7 @@ class VonageProvider(TelephonyProvider):
         Vonage provider does not support call transfers.
 
         Raises:
-            NotImplementedError: Always, as Vonage doesn't support transfers
+            NotImplementedError: call transfers are yet to be implemented
         """
         raise NotImplementedError("Vonage provider does not support call transfers")
 

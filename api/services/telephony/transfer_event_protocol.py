@@ -1,4 +1,4 @@
-"""Redis communication protocol for transfer coordination.
+"""Redis communication protocol for call transfer coordination.
 
 Defines event formats and Redis channels for coordinating call transfers
 across multiple API server instances.

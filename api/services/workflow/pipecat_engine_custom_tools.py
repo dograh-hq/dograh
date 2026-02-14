@@ -262,7 +262,7 @@ class CustomToolManager:
         Returns:
             Async handler function for the transfer call tool
         """
-        # Don't run LLM after starting transfer - we're handling async response
+
         properties = FunctionCallResultProperties(run_llm=False)
 
         async def transfer_call_handler(
@@ -296,8 +296,8 @@ class CustomToolManager:
                     return
 
                 # Validate E.164 format
-                e164_pattern = r"^\+[1-9]\d{1,14}$"
-                if not re.match(e164_pattern, destination):
+                E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
+                if not re.match(E164_PHONE_REGEX, destination):
                     validation_error_result = {
                         "status": "failed",
                         "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
@@ -310,11 +310,6 @@ class CustomToolManager:
                     )
                     return
 
-                # Provider validation handled by telephony endpoint
-
-                # Note: User muting and hold music are handled automatically by
-
-                # Play pre-transfer message if configured
                 if message_type == "custom" and custom_message:
                     logger.info(f"Playing pre-transfer message: {custom_message}")
                     await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
@@ -323,7 +318,7 @@ class CustomToolManager:
                 from pipecat.utils.run_context import get_current_call_sid
 
                 original_call_sid = get_current_call_sid()
-                caller_number = None  # Skip caller number for now as requested
+                caller_number = None  # TODO: check if this is redundant now
 
                 logger.info(f"Found original call context: call_id={original_call_sid}")
 
@@ -332,7 +327,7 @@ class CustomToolManager:
                 if not organization_id:
                     validation_error_result = {
                         "status": "failed",
-                        "message": "I'm sorry, but I can't determine which organization this call belongs to. Please contact support.",
+                        "message": "I'm sorry, there's an issue with this call transfer. Please contact support.",
                         "action": "transfer_failed",
                         "reason": "no_organization_id",
                         "end_call": False,
@@ -341,7 +336,7 @@ class CustomToolManager:
                         validation_error_result, function_call_params, properties
                     )
                     return
-
+                #TODO: check if everything in transfer_data is still needed
                 # Prepare transfer request data
                 transfer_data = {
                     "destination": destination,
@@ -352,7 +347,7 @@ class CustomToolManager:
                     "caller_number": caller_number,  # Original caller's phone number
                 }
 
-                # Initialize Redis-based transfer coordination
+
                 import time
 
                 # Get backend endpoint URL
@@ -500,8 +495,6 @@ class CustomToolManager:
                             f"Transfer initiation failed: {response.status_code} - {error_data}"
                         )
 
-                        # No cleanup needed for Redis-based coordination
-
                         # Handle initiation failure with user-friendly message
                         initiation_failure_result = {
                             "status": "failed",
@@ -517,8 +510,6 @@ class CustomToolManager:
 
             except httpx.TimeoutException:
                 logger.error(f"Transfer call '{function_name}' HTTP request timed out")
-
-                # No cleanup needed for Redis-based coordination
 
                 # Handle HTTP timeout with user-friendly message
                 http_timeout_result = {
@@ -537,8 +528,6 @@ class CustomToolManager:
                 logger.error(
                     f"Transfer call tool '{function_name}' execution failed: {e}"
                 )
-
-                # No cleanup needed for Redis-based coordination
 
                 # Handle generic exception with user-friendly message
                 exception_result = {
@@ -576,10 +565,10 @@ class CustomToolManager:
                 f"Transfer successful! Conference: {conference_id}, Original: {original_call_sid}, Transfer: {transfer_call_sid}"
             )
 
-            # First inform LLM of success (but don't continue call)
+            # Inform LLM of success and end the call with Transfer call reason
             response_properties = FunctionCallResultProperties(
                 run_llm=False
-            )  # We'll handle the transfer ourselves
+            )
             await function_call_params.result_callback(
                 {
                     "status": "transfer_success",
@@ -598,8 +587,6 @@ class CustomToolManager:
             reason = result.get("reason", "unknown")
             logger.info(f"Transfer failed ({reason}), informing user and ending call")
 
-            # Use system message pattern to direct LLM response for transfer failure
-            # This is more reliable than function call results
             from pipecat.frames.frames import LLMMessagesAppendFrame
 
             # Create system message with clear instructions for transfer failure
@@ -644,13 +631,11 @@ class CustomToolManager:
             # We'll schedule the end call after a brief delay to allow TTS
             logger.info("Scheduling call end after LLM delivers failure message")
 
-            # Import here to avoid circular dependencies
             import asyncio
 
             # Schedule call end after 3 seconds to allow LLM to speak
             async def delayed_end_call():
                 import asyncio
-
                 await asyncio.sleep(3)
                 await self._engine.end_call_with_reason(
                     f"transfer_failed_{reason}",  # Include specific reason in end reason

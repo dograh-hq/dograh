@@ -81,14 +81,7 @@ def register_event_handlers(
     async def on_client_disconnected(_transport, _participant):
         call_disposed = engine.is_call_disposed()
         transfer_in_progress = getattr(engine, '_transfer_in_progress', False)
-        
-        logger.info(f"[TRANSFER-DEBUG] on_client_disconnected triggered")
-        logger.info(f"[TRANSFER-DEBUG] Engine instance ID in event_handler: {id(engine)}")
-        logger.info(f"[TRANSFER-DEBUG] Engine type in event_handler: {type(engine)}")
-        logger.info(f"[TRANSFER-DEBUG] transfer_in_progress attribute exists: {hasattr(engine, '_transfer_in_progress')}")
-        logger.info(f"[TRANSFER-DEBUG] transfer_in_progress value: {transfer_in_progress}")
-        logger.info(f"[TRANSFER-DEBUG] Call disposed: {call_disposed}")
-        
+                
         logger.debug(
             f"In on_client_disconnected callback handler. Call disposed: {call_disposed}, "
             f"Transfer in progress: {transfer_in_progress}"
@@ -102,7 +95,7 @@ def register_event_handlers(
             logger.info("Transfer in progress - skipping auto hang-up, letting redirect handle call")
             return
         logger.info("Transfer in progress - False, proceeding with hang up")
-        # Normal hang-up logic for non-transfer disconnections
+
         await engine.end_call_with_reason(
             EndTaskReason.USER_HANGUP.value, abort_immediately=True
         )

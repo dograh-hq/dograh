@@ -1,7 +1,6 @@
-"""Redis-based transfer coordination service for multi-instance scaling.
+"""Redis-based transfer event coordination service
 
 Handles transfer event publishing, subscription, and context storage
-across multiple API server instances.
 """
 
 import asyncio

@@ -694,7 +694,7 @@ class CloudonixProvider(TelephonyProvider):
         Cloudonix provider does not support call transfers.
 
         Raises:
-            NotImplementedError: Always, as Cloudonix doesn't support transfers
+            NotImplementedError: Cloudonix call transfers are yet to be implemented
         """
         raise NotImplementedError("Cloudonix provider does not support call transfers")
 

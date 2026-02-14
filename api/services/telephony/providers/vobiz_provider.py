@@ -547,7 +547,7 @@ class VobizProvider(TelephonyProvider):
         Vobiz provider does not support call transfers.
 
         Raises:
-            NotImplementedError: Always, as Vobiz doesn't support transfers
+            NotImplementedError: Vobiz call transfers are yet to be implemented
         """
         raise NotImplementedError("Vobiz provider does not support call transfers")
 

@@ -61,7 +61,6 @@ class PipecatEngine:
         task: Optional[PipelineTask] = None,
         llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
-        transport: Optional[BaseTransport] = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
         workflow_run_id: Optional[int] = None,
@@ -75,7 +74,6 @@ class PipecatEngine:
         self.task = task
         self.llm = llm
         self.context = context
-        self.transport = transport
         self.workflow = workflow
         self._call_context_vars = call_context_vars
         self._workflow_run_id = workflow_run_id

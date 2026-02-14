@@ -71,11 +71,6 @@ def build_pipeline(
             user_context_aggregator,
             llm,  # LLM
             pipeline_engine_callback_processor,
-        ]
-    )
-
-    processors.extend(
-        [
             tts,  # TTS
             transport.output(),  # Transport bot output
             audio_buffer,  # AudioBufferProcessor - records both input and output audio

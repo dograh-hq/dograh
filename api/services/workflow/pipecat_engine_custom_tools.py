@@ -35,7 +35,7 @@ from pipecat.utils.enums import EndTaskReason
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketClient
 
 from api.utils.hold_audio import load_hold_audio
-from api.services.telephony.transfer_coordination import get_transfer_coordinator
+from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferContext,
@@ -359,7 +359,7 @@ class CustomToolManager:
                 backend_url, _ = await get_backend_endpoints()
 
                 # Get transfer coordinator for Redis-based coordination
-                transfer_coordinator = await get_transfer_coordinator()
+                call_transfer_manager = await get_call_transfer_manager()
 
                 # Now initiate the transfer call
                 transfer_url = f"{backend_url}/api/v1/telephony/call-transfer"
@@ -415,7 +415,7 @@ class CustomToolManager:
                                 "Waiting for transfer completion via Redis pub/sub..."
                             )
                             transfer_event = (
-                                await transfer_coordinator.wait_for_transfer_completion(
+                                await call_transfer_manager.wait_for_transfer_completion(
                                     transfer_data["tool_call_id"], timeout_seconds
                                 )
                             )
@@ -435,7 +435,7 @@ class CustomToolManager:
 
                                 # Get transfer context for caller number
                                 transfer_context = (
-                                    await transfer_coordinator.get_transfer_context(
+                                    await call_transfer_manager.get_transfer_context(
                                         transfer_data["tool_call_id"]
                                     )
                                 )

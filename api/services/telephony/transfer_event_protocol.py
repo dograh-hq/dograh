@@ -27,7 +27,6 @@ class TransferEvent:
     
     type: TransferEventType
     tool_call_id: str
-    workflow_run_id: int
     original_call_sid: str
     transfer_call_sid: Optional[str] = None
     target_number: Optional[str] = None
@@ -75,7 +74,6 @@ class TransferContext:
     original_call_sid: str
     caller_number: Optional[str]
     initiated_at: float
-    workflow_run_id: int
     
     def to_json(self) -> str:
         """Convert context to JSON string."""

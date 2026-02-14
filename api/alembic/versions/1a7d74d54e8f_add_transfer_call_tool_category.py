@@ -1,7 +1,7 @@
 """add transfer_call tool category
 
 Revision ID: 1a7d74d54e8f
-Revises: 02ffd7f23d1d
+Revises: 34c8537dfde5
 Create Date: 2026-02-03 11:18:11.417837
 
 """
@@ -13,7 +13,7 @@ from alembic_postgresql_enum import TableReference
 
 # revision identifiers, used by Alembic.
 revision: str = "1a7d74d54e8f"
-down_revision: Union[str, None] = "02ffd7f23d1d"
+down_revision: Union[str, None] = "34c8537dfde5"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -365,8 +365,7 @@ class CustomToolManager:
                 # Compute conference name from original call SID
                 conference_name = f"transfer-{original_call_sid}"
 
-                # Mark transfer in progress and mute the pipeline
-                self._engine.set_transferring_call(True)
+                # Mute the pipeline
                 self._engine.set_mute_pipeline(True)
 
                 # Initiate transfer via provider with inline TwiML
@@ -443,7 +442,6 @@ class CustomToolManager:
                     hold_music_stop_event.set()
                     if hold_music_task:
                         await hold_music_task
-                    self._engine.set_transferring_call(False)
                     self._engine.set_mute_pipeline(False)
                     await call_transfer_manager.remove_transfer_context(transfer_id)
 
@@ -472,7 +470,6 @@ class CustomToolManager:
                 logger.error(
                     f"Transfer call tool '{function_name}' execution failed: {e}"
                 )
-                self._engine.set_transferring_call(False)
                 self._engine.set_mute_pipeline(False)
 
                 # Handle generic exception with user-friendly message

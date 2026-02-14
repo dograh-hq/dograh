@@ -638,9 +638,6 @@ async def _run_pipeline(
 
     @user_context_aggregator.event_handler("on_user_turn_idle")
     async def on_user_turn_idle(aggregator):
-        if engine._transferring_call:
-            logger.debug("Not calling user idle since we are transferring call.")
-            return
         await user_idle_handler.handle_idle(aggregator)
 
     @user_context_aggregator.event_handler("on_user_turn_started")

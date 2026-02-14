@@ -15,7 +15,6 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat.transports.base_transport import BaseTransport
 from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
@@ -105,9 +104,6 @@ class PipecatEngine:
 
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
-
-        # Tracks whether a call transfer is in progress
-        self._transferring_call: bool = False
 
         # Embeddings configuration (passed from run_pipeline.py)
         self._embeddings_api_key: Optional[str] = embeddings_api_key
@@ -731,15 +727,6 @@ class PipecatEngine:
         """
         logger.debug(f"Setting pipeline mute state to: {mute}")
         self._mute_pipeline = mute
-
-    def set_transferring_call(self, transferring: bool) -> None:
-        """Set the call transfer state.
-
-        Args:
-            transferring: True when a call transfer is in progress, False otherwise
-        """
-        logger.debug(f"Setting transferring call state to: {transferring}")
-        self._transferring_call = transferring
 
     async def handle_llm_text_frame(self, text: str):
         """Accumulate LLM text frames to build reference text."""

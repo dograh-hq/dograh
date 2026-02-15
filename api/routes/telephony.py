@@ -1643,7 +1643,7 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
     conference_name = transfer_context.conference_name if transfer_context else None
 
     # Determine the result based on call status with user-friendly messaging
-    if call_status in ("answered", "completed"):
+    if call_status in ("in-progress", "answered"):
         result = {
             "status": "success",
             "message": "Great! The destination number answered. Let me transfer you now.",

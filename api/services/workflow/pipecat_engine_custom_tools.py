@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from loguru import logger
 
+from api.constants import APP_ROOT_DIR
 from api.db import db_client
 from api.enums import ToolCategory
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
@@ -548,65 +549,31 @@ class CustomToolManager:
             sample_rate: Sample rate for the hold music (default 8000Hz for Twilio)
         """
         try:
-            import os
-
             # Path to hold music file based on sample rate
-            assets_dir = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "assets"
+            hold_music_file = (
+                APP_ROOT_DIR / "assets" / f"transfer_hold_ring_{sample_rate}.wav"
             )
-
-            # Select appropriate hold music file
-            if sample_rate == 16000:
-                hold_music_file = os.path.join(
-                    assets_dir, "transfer_hold_ring_16000.wav"
-                )
-            else:  # Default to 8000Hz for Twilio
-                hold_music_file = os.path.join(
-                    assets_dir, "transfer_hold_ring_8000.wav"
-                )
+            hold_audio_data = load_hold_audio(hold_music_file, sample_rate)
+            num_samples = len(hold_audio_data) // 2
+            duration = int(num_samples / sample_rate)
 
             logger.info(f"Starting hold music loop with file: {hold_music_file}")
 
-            # Load hold music audio data
-            hold_audio_data = load_hold_audio(hold_music_file, sample_rate)
-            if not hold_audio_data:
-                logger.error("Failed to load hold music data")
-                return
-
-            # Convert bytes to audio frames - each frame should be about 20ms worth of audio
-            # For 8000Hz: 20ms = 160 samples = 320 bytes (16-bit)
-            # For 16000Hz: 20ms = 320 samples = 640 bytes (16-bit)
-            frame_size = 320 if sample_rate == 8000 else 640
-
-            audio_data = hold_audio_data
-            total_length = len(audio_data)
-            position = 0
-
-            logger.info(
-                f"Hold music loaded: {total_length} bytes, frame size: {frame_size}"
-            )
-
             while not stop_event.is_set():
-                # Extract audio chunk
-                if position + frame_size > total_length:
-                    # Reached end of audio, loop back to beginning
-                    position = 0
-
-                audio_chunk = audio_data[position : position + frame_size]
-                position += frame_size
-
-                # Create audio frame
-                audio_frame = OutputAudioRawFrame(
-                    audio=audio_chunk,
+                # Queue the hold audio frame
+                frame = OutputAudioRawFrame(
+                    audio=hold_audio_data,
                     sample_rate=sample_rate,
                     num_channels=1,
                 )
+                await self._engine.task.queue_frame(frame)
 
-                # Queue the frame
-                await self._engine.task.queue_frame(audio_frame)
-
-                # Sleep for frame duration (20ms)
-                await asyncio.sleep(0.02)
+                # Wait for the audio to play or until stopped
+                try:
+                    await asyncio.wait_for(stop_event.wait(), timeout=duration + 1.5)
+                    break  # Stop event was set
+                except asyncio.TimeoutError:
+                    pass  # Continue looping
 
             logger.info("Hold music loop stopped")
 

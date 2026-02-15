@@ -15,7 +15,6 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat.transports.base_transport import BaseTransport
 from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
@@ -61,7 +60,6 @@ class PipecatEngine:
         task: Optional[PipelineTask] = None,
         llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
-        transport: Optional[BaseTransport] = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
         workflow_run_id: Optional[int] = None,
@@ -75,7 +73,6 @@ class PipecatEngine:
         self.task = task
         self.llm = llm
         self.context = context
-        self.transport = transport
         self.workflow = workflow
         self._call_context_vars = call_context_vars
         self._workflow_run_id = workflow_run_id
@@ -112,6 +109,9 @@ class PipecatEngine:
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
         self._embeddings_base_url: Optional[str] = embeddings_base_url
+
+        # Audio configuration (set via set_audio_config from _run_pipeline)
+        self._audio_config = None
 
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -207,14 +207,14 @@ class PipecatEngine:
             )
             logger.info(f"Arguments: {function_call_params.arguments}")
 
-            # Perform variable extraction before transitioning to new node
-            await self._perform_variable_extraction_if_needed(self._current_node)
-
-            # Set context for the new node, so that when the function call result
-            # frame is received by LLMContextAggregator and an LLM generation
-            # is done, we have updated context and functions
-            await self.set_node(transition_to_node)
             try:
+                # Perform variable extraction before transitioning to new node
+                await self._perform_variable_extraction_if_needed(self._current_node)
+
+                # Set context for the new node, so that when the function call result
+                # frame is received by LLMContextAggregator and an LLM generation
+                # is done, we have updated context and functions
+                await self.set_node(transition_to_node)
 
                 async def on_context_updated() -> None:
                     """
@@ -245,6 +245,7 @@ class PipecatEngine:
                 await function_call_params.result_callback(
                     result, properties=properties
                 )
+
             except Exception as e:
                 logger.error(f"Error in transition function {name}: {str(e)}")
                 error_result = {"status": "error", "error": str(e)}
@@ -277,6 +278,7 @@ class PipecatEngine:
         async def calculate_func(function_call_params: FunctionCallParams) -> None:
             logger.info(f"LLM Function Call EXECUTED: safe_calculator")
             logger.info(f"Arguments: {function_call_params.arguments}")
+
             try:
                 expr = function_call_params.arguments.get("expression", "")
                 result = safe_calculator(expr)
@@ -292,6 +294,7 @@ class PipecatEngine:
         ) -> None:
             logger.info(f"LLM Function Call EXECUTED: get_current_time")
             logger.info(f"Arguments: {function_call_params.arguments}")
+
             try:
                 timezone = function_call_params.arguments.get("timezone", "UTC")
                 result = get_current_time(timezone)
@@ -302,6 +305,7 @@ class PipecatEngine:
         async def convert_time_func(function_call_params: FunctionCallParams) -> None:
             logger.info(f"LLM Function Call EXECUTED: convert_time")
             logger.info(f"Arguments: {function_call_params.arguments}")
+
             try:
                 result = convert_time(
                     function_call_params.arguments.get("source_timezone"),
@@ -332,6 +336,7 @@ class PipecatEngine:
         async def retrieve_kb_func(function_call_params: FunctionCallParams) -> None:
             logger.info("LLM Function Call EXECUTED: retrieve_from_knowledge_base")
             logger.info(f"Arguments: {function_call_params.arguments}")
+
             try:
                 query = function_call_params.arguments.get("query", "")
                 organization_id = await self._get_organization_id()
@@ -532,7 +537,9 @@ class PipecatEngine:
             self._current_node, run_in_background=False
         )
 
-        frame_to_push = CancelFrame() if abort_immediately else EndFrame()
+        frame_to_push = (
+            CancelFrame(reason=reason) if abort_immediately else EndFrame(reason=reason)
+        )
 
         # Apply disposition mapping - first try call_disposition if it is,
         # extracted from the call conversation then fall back to reason
@@ -704,6 +711,22 @@ class PipecatEngine:
             logger.debug(
                 f"Stasis connection set for immediate transfers: {connection.channel_id}"
             )
+
+    def set_audio_config(self, audio_config) -> None:
+        """Set the audio configuration for the pipeline."""
+        self._audio_config = audio_config
+
+    def set_mute_pipeline(self, mute: bool) -> None:
+        """Set the pipeline mute state.
+
+        This controls whether user input should be muted via the CallbackUserMuteStrategy.
+        When muted, the user's audio input will be blocked.
+
+        Args:
+            mute: True to mute user input, False to allow input
+        """
+        logger.debug(f"Setting pipeline mute state to: {mute}")
+        self._mute_pipeline = mute
 
     async def handle_llm_text_frame(self, text: str):
         """Accumulate LLM text frames to build reference text."""

@@ -1,10 +1,11 @@
 """API routes for managing tools."""
 
+import re
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.db import db_client
 from api.db.models import UserModel
@@ -56,6 +57,42 @@ class EndCallConfig(BaseModel):
     )
 
 
+class TransferCallConfig(BaseModel):
+    """Configuration for Transfer Call tools."""
+
+    destination: str = Field(
+        description="Phone number to transfer the call to (E.164 format, e.g., +1234567890)"
+    )
+    messageType: Literal["none", "custom"] = Field(
+        default="none", description="Type of message to play before transfer"
+    )
+    customMessage: Optional[str] = Field(
+        default=None, description="Custom message to play before transferring the call"
+    )
+    timeout: int = Field(
+        default=30,
+        ge=5,
+        le=120,
+        description="Maximum time in seconds to wait for destination to answer (5-120 seconds)",
+    )
+
+    @field_validator("destination")
+    @classmethod
+    def validate_destination(cls, v: str) -> str:
+        """Validate that destination is a valid E.164 phone number."""
+        # Allow empty string for initial creation (like HTTP API tools with empty URL)
+        if not v.strip():
+            return v
+
+        # E.164 format: +[1-9]\d{1,14}
+        e164_pattern = r"^\+[1-9]\d{1,14}$"
+        if not re.match(e164_pattern, v):
+            raise ValueError(
+                "Destination must be a valid E.164 phone number (e.g., +1234567890)"
+            )
+        return v
+
+
 class HttpApiToolDefinition(BaseModel):
     """Tool definition for HTTP API tools."""
 
@@ -72,9 +109,17 @@ class EndCallToolDefinition(BaseModel):
     config: EndCallConfig = Field(description="End Call configuration")
 
 
+class TransferCallToolDefinition(BaseModel):
+    """Tool definition for Transfer Call tools."""
+
+    schema_version: int = Field(default=1, description="Schema version")
+    type: Literal["transfer_call"] = Field(description="Tool type")
+    config: TransferCallConfig = Field(description="Transfer Call configuration")
+
+
 # Union type for tool definitions - Pydantic will discriminate based on 'type' field
 ToolDefinition = Annotated[
-    Union[HttpApiToolDefinition, EndCallToolDefinition],
+    Union[HttpApiToolDefinition, EndCallToolDefinition, TransferCallToolDefinition],
     Field(discriminator="type"),
 ]
 
@@ -88,6 +133,17 @@ class CreateToolRequest(BaseModel):
     icon: Optional[str] = Field(default="globe", max_length=50)
     icon_color: Optional[str] = Field(default="#3B82F6", max_length=7)
     definition: ToolDefinition
+
+    @field_validator("category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        """Validate that category is a valid ToolCategory value."""
+        valid_categories = [c.value for c in ToolCategory]
+        if v not in valid_categories:
+            raise ValueError(
+                f"Invalid category '{v}'. Must be one of: {', '.join(valid_categories)}"
+            )
+        return v
 
 
 class UpdateToolRequest(BaseModel):

@@ -72,6 +72,7 @@ class TwilioProvider(TelephonyProvider):
         if from_number is None:
             from_number = random.choice(self.from_numbers)
         logger.info(f"Selected phone number {from_number} for outbound call")
+        logger.info(f"Webhook url received - {webhook_url}")
 
         # Prepare call data
         data = {"To": to_number, "From": from_number, "Url": webhook_url}
@@ -172,6 +173,7 @@ class TwilioProvider(TelephonyProvider):
     </Connect>
     <Pause length="40"/>
 </Response>"""
+        logger.info(f"Twiml content generated - {twiml_content}")
         return twiml_content
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
@@ -459,3 +461,129 @@ class TwilioProvider(TelephonyProvider):
 </Response>"""
 
         return Response(content=twiml_content, media_type="application/xml")
+
+    # ======== CALL TRANSFER METHODS ========
+
+    async def transfer_call(
+        self,
+        destination: str,
+        transfer_id: str,
+        conference_name: str,
+        timeout: int = 30,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """
+        Initiate a call transfer via Twilio.
+
+        Uses inline TwiML to put the destination into a conference when they answer,
+        and a status callback to track the transfer outcome.
+
+        Args:
+            destination: The destination phone number (E.164 format)
+            transfer_id: Unique identifier for tracking this transfer
+            conference_name: Name of the conference to join the destination into
+            timeout: Transfer timeout in seconds
+            **kwargs: Additional Twilio-specific parameters
+
+        Returns:
+            Dict containing transfer result information
+
+        Raises:
+            ValueError: If provider configuration is invalid
+            Exception: If Twilio API call fails
+        """
+        if not self.validate_config():
+            raise ValueError("Twilio provider not properly configured")
+
+        # Select a random phone number for the transfer
+        from_number = random.choice(self.from_numbers)
+        logger.info(f"Selected phone number {from_number} for transfer call")
+
+        backend_endpoint, _ = await get_backend_endpoints()
+
+        status_callback_url = (
+            f"{backend_endpoint}/api/v1/telephony/transfer-result/{transfer_id}"
+        )
+
+        # Inline TwiML: when the destination answers, put them into the conference
+        twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>You have answered a transfer call. Connecting you now.</Say>
+    <Dial>
+        <Conference endConferenceOnExit="true">{conference_name}</Conference>
+    </Dial>
+</Response>"""
+
+        # Prepare Twilio API call data
+        endpoint = f"{self.base_url}/Calls.json"
+        data = {
+            "To": destination,
+            "From": from_number,
+            "Timeout": timeout,
+            "Twiml": twiml,
+            "StatusCallback": status_callback_url,
+            "StatusCallbackEvent": [
+                "answered",
+                "no-answer",
+                "busy",
+                "failed",
+                "completed",
+            ],
+            "StatusCallbackMethod": "POST",
+        }
+
+        # Add any additional kwargs
+        data.update(kwargs)
+
+        try:
+            logger.debug(f"Transfer call data: {data}")
+
+            async with aiohttp.ClientSession() as session:
+                auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
+                async with session.post(endpoint, data=data, auth=auth) as response:
+                    response_status = response.status
+                    response_text = await response.text()
+
+                    logger.info(
+                        f"Twilio transfer API response status: {response_status}"
+                    )
+                    logger.debug(f"Twilio transfer API response body: {response_text}")
+
+                    if response_status in [200, 201]:
+                        try:
+                            response_data = await response.json()
+                            call_sid = response_data.get("sid")
+                            logger.info(
+                                f"Transfer call initiated successfully: {call_sid}"
+                            )
+
+                            return {
+                                "call_sid": call_sid,
+                                "status": response_data.get("status", "queued"),
+                                "provider": self.PROVIDER_NAME,
+                                "from_number": from_number,
+                                "to_number": destination,
+                                "raw_response": response_data,
+                            }
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to parse Twilio transfer response JSON: {e}"
+                            )
+                            raise Exception(f"Failed to parse transfer response: {e}")
+                    else:
+                        error_msg = f"Twilio API call failed with status {response_status}: {response_text}"
+                        logger.error(error_msg)
+                        raise Exception(error_msg)
+
+        except Exception as e:
+            logger.error(f"Exception during Twilio transfer call: {e}")
+            raise
+
+    def supports_transfers(self) -> bool:
+        """
+        Twilio supports call transfers.
+
+        Returns:
+            True - Twilio provider supports call transfers
+        """
+        return True

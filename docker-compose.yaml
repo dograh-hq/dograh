@@ -74,87 +74,87 @@ services:
     networks:
       - app-network
 
-  api:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest
-    volumes:
-      - shared-tmp:/tmp
-    environment:
-      # Core application config
-      ENVIRONMENT: "local"
-      LOG_LEVEL: "INFO"
+  # api:
+  #   image: ${REGISTRY:-dograhai}/dograh-api:latest
+  #   volumes:
+  #     - shared-tmp:/tmp
+  #   environment:
+  #     # Core application config
+  #     ENVIRONMENT: "local"
+  #     LOG_LEVEL: "INFO"
 
       # Replace this environment variable if you are using a custom
       # domain to host the stack
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
 
-      # Database configuration (using containerized postgres)
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
+  #     # Database configuration (using containerized postgres)
+  #     DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
 
-      # Redis configuration (using containerized redis)
-      REDIS_URL: "redis://:redissecret@redis:6379"
+  #     # Redis configuration (using containerized redis)
+  #     REDIS_URL: "redis://:redissecret@redis:6379"
 
-      # Storage configuration - using local MinIO
-      ENABLE_AWS_S3: "false"
+  #     # Storage configuration - using local MinIO
+  #     ENABLE_AWS_S3: "false"
 
-      # MinIO
-      MINIO_ENDPOINT: "minio:9000"
-      MINIO_ACCESS_KEY: "minioadmin"
-      MINIO_SECRET_KEY: "minioadmin"
-      MINIO_BUCKET: "voice-audio"
-      MINIO_SECURE: "false"
+  #     # MinIO
+  #     MINIO_ENDPOINT: "minio:9000"
+  #     MINIO_ACCESS_KEY: "minioadmin"
+  #     MINIO_SECRET_KEY: "minioadmin"
+  #     MINIO_BUCKET: "voice-audio"
+  #     MINIO_SECURE: "false"
 
-      # Langfuse
-      ENABLE_TRACING: "false"
-      # LANGFUSE_SECRET_KEY: ""
-      # LANGFUSE_PUBLIC_KEY: ""
-      # LANGFUSE_HOST: "https://langfuse.dograh.com"
+  #     # Langfuse
+  #     ENABLE_TRACING: "false"
+  #     # LANGFUSE_SECRET_KEY: ""
+  #     # LANGFUSE_PUBLIC_KEY: ""
+  #     # LANGFUSE_HOST: "https://langfuse.dograh.com"
 
-      # Sentry
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
-      SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
+  #     # Sentry
+  #     ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+  #     SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
 
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      cloudflared:
-        condition: service_started
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - app-network
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #     cloudflared:
+  #       condition: service_started
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+  #       ]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 60s
+  #   networks:
+  #     - app-network
 
-  ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:latest
-    environment:
-      # Server-side URL (SSR, internal Docker network)
-      BACKEND_URL: "http://api:8000"
-      NODE_ENV: "oss"
+  # ui:
+  #   image: ${REGISTRY:-dograhai}/dograh-ui:latest
+  #   environment:
+  #     # Server-side URL (SSR, internal Docker network)
+  #     BACKEND_URL: "http://api:8000"
+  #     NODE_ENV: "oss"
 
-      # Flag to enable/ disable posthog and sentry
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+  #     # Flag to enable/ disable posthog and sentry
+  #     ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
 
-      # Posthog
-      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
-      POSTHOG_HOST: "https://us.posthog.com"
+  #     # Posthog
+  #     POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+  #     POSTHOG_HOST: "https://us.posthog.com"
 
       # Sentry
       SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
@@ -209,8 +209,8 @@ volumes:
   redis_data:
   minio-data:
     driver: local
-  shared-tmp:
-    driver: local
+  # shared-tmp:
+  #   driver: local
 
 networks:
   app-network:

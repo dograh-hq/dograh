@@ -122,7 +122,8 @@ class ToolCategory(Enum):
 
     HTTP_API = "http_api"  # Custom HTTP API calls (implemented)
     END_CALL = "end_call"  # End call tool
-    NATIVE = "native"  # Built-in integrations (future: call_transfer, dtmf_input)
+    TRANSFER_CALL = "transfer_call"  # Transfer call to phone number (Twilio only)
+    NATIVE = "native"  # Built-in integrations (future: dtmf_input)
     INTEGRATION = "integration"  # Third-party integrations (future: Google Calendar, Salesforce, etc.)
 
 

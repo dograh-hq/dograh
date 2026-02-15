@@ -259,7 +259,9 @@ export type CreateToolRequest = {
         type?: 'http_api';
     } & HttpApiToolDefinition) | ({
         type?: 'end_call';
-    } & EndCallToolDefinition);
+    } & EndCallToolDefinition) | ({
+        type?: 'transfer_call';
+    } & TransferCallToolDefinition);
 };
 
 export type CreateWorkflowRequest = {
@@ -858,6 +860,57 @@ export type ToolResponse = {
 };
 
 /**
+ * Configuration for Transfer Call tools.
+ */
+export type TransferCallConfig = {
+    /**
+     * Phone number to transfer the call to (E.164 format, e.g., +1234567890)
+     */
+    destination: string;
+    /**
+     * Type of message to play before transfer
+     */
+    messageType?: 'none' | 'custom';
+    /**
+     * Custom message to play before transferring the call
+     */
+    customMessage?: string | null;
+    /**
+     * Maximum time in seconds to wait for destination to answer (5-120 seconds)
+     */
+    timeout?: number;
+};
+
+/**
+ * Request model for initiating a call transfer.
+ */
+export type TransferCallRequest = {
+    destination: string;
+    organization_id: number;
+    transfer_id: string;
+    conference_name: string;
+    timeout?: number | null;
+};
+
+/**
+ * Tool definition for Transfer Call tools.
+ */
+export type TransferCallToolDefinition = {
+    /**
+     * Schema version
+     */
+    schema_version?: number;
+    /**
+     * Tool type
+     */
+    type: 'transfer_call';
+    /**
+     * Transfer Call configuration
+     */
+    config: TransferCallConfig;
+};
+
+/**
  * Request model for triggering a call via API
  */
 export type TriggerCallRequest = {
@@ -945,7 +998,9 @@ export type UpdateToolRequest = {
         type?: 'http_api';
     } & HttpApiToolDefinition) | ({
         type?: 'end_call';
-    } & EndCallToolDefinition)) | null;
+    } & EndCallToolDefinition) | ({
+        type?: 'transfer_call';
+    } & TransferCallToolDefinition)) | null;
     status?: string | null;
 };
 
@@ -1521,6 +1576,62 @@ export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostErrors = {
 };
 
 export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostData = {
+    body: TransferCallRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/call-transfer';
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostError = InitiateCallTransferApiV1TelephonyCallTransferPostErrors[keyof InitiateCallTransferApiV1TelephonyCallTransferPostErrors];
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostData = {
+    body?: never;
+    path: {
+        transfer_id: string;
+    };
+    query?: never;
+    url: '/api/v1/telephony/transfer-result/{transfer_id}';
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors];
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostResponses = {
     /**
      * Successful Response
      */

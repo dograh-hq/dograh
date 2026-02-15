@@ -552,11 +552,12 @@ async def _run_pipeline(
         embeddings_base_url=embeddings_base_url,
     )
 
-    # Create pipeline components with audio configuration
+    # Create pipeline components
     audio_buffer, context = create_pipeline_components(audio_config)
 
-    # Set the context and audio_buffer after creation
+    # Set the context, audio_config, and audio_buffer after creation
     engine.set_context(context)
+    engine.set_audio_config(audio_config)
 
     # Set Stasis connection for immediate transfers (if available)
     if stasis_connection:

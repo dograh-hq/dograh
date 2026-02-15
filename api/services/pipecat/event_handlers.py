@@ -80,6 +80,7 @@ def register_event_handlers(
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(_transport, _participant):
         call_disposed = engine.is_call_disposed()
+
         logger.debug(
             f"In on_client_disconnected callback handler. Call disposed: {call_disposed}"
         )
@@ -87,7 +88,6 @@ def register_event_handlers(
         # Stop recordings
         await audio_buffer.stop_recording()
 
-        # End the call
         await engine.end_call_with_reason(
             EndTaskReason.USER_HANGUP.value, abort_immediately=True
         )

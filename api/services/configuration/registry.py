@@ -278,7 +278,15 @@ class DograhTTSService(BaseTTSConfiguration):
 
 
 SARVAM_TTS_MODELS = ["bulbul:v2", "bulbul:v3"]
-SARVAM_V2_VOICES = ["anushka", "manisha", "vidya", "arya", "abhilash", "karun", "hitesh"]
+SARVAM_V2_VOICES = [
+    "anushka",
+    "manisha",
+    "vidya",
+    "arya",
+    "abhilash",
+    "karun",
+    "hitesh",
+]
 SARVAM_V3_VOICES = [
     "shubh",
     "aditya",

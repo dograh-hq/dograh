@@ -1,9 +1,9 @@
 "use client";
 
-import { Cog, Globe, type LucideIcon,PhoneOff, Puzzle } from "lucide-react";
+import { Cog, Globe, type LucideIcon, PhoneForwarded, PhoneOff, Puzzle } from "lucide-react";
 import { type ReactNode } from "react";
 
-export type ToolCategory = "http_api" | "end_call" | "native" | "integration";
+export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "native" | "integration";
 
 export type EndCallMessageType = "none" | "custom";
 
@@ -40,6 +40,18 @@ export const TOOL_CATEGORIES: ToolCategoryConfig[] = [
         autoFill: {
             name: "End Call",
             description: "End the call when either user asks to disconnect the call, or when you believe its time to end the conversation",
+        },
+    },
+    {
+        value: "transfer_call",
+        label: "Transfer Call",
+        description: "Transfer the call to another phone number (Twilio only)",
+        icon: PhoneForwarded,
+        iconName: "phone-forwarded",
+        iconColor: "#10B981",
+        autoFill: {
+            name: "Transfer Call",
+            description: "Transfer the caller to another phone number when requested",
         },
     },
     {
@@ -85,6 +97,8 @@ export function getToolTypeLabel(category: string): string {
     switch (category) {
         case "end_call":
             return "End Call Tool";
+        case "transfer_call":
+            return "Transfer Call Tool";
         case "http_api":
             return "HTTP API Tool";
         case "native":
@@ -105,6 +119,21 @@ export interface EndCallConfig {
 export const DEFAULT_END_CALL_CONFIG: EndCallConfig = {
     messageType: "none",
     customMessage: "",
+};
+
+// Transfer Call tool specific configuration
+export interface TransferCallConfig {
+    destination: string;
+    messageType: EndCallMessageType; // Reuse the same type
+    customMessage?: string;
+    timeout: number;
+}
+
+export const DEFAULT_TRANSFER_CALL_CONFIG: TransferCallConfig = {
+    destination: "",
+    messageType: "none",
+    customMessage: "",
+    timeout: 30,
 };
 
 // Tool definition types for different categories
@@ -132,12 +161,26 @@ export interface EndCallToolDefinition {
     config: EndCallConfig;
 }
 
-export type ToolDefinition = HttpApiToolDefinition | EndCallToolDefinition;
+export interface TransferCallToolDefinition {
+    schema_version: number;
+    type: "transfer_call";
+    config: TransferCallConfig;
+}
+
+export type ToolDefinition = HttpApiToolDefinition | EndCallToolDefinition | TransferCallToolDefinition;
 
 export function createEndCallDefinition(config: EndCallConfig): EndCallToolDefinition {
     return {
         schema_version: 1,
         type: "end_call",
+        config,
+    };
+}
+
+export function createTransferCallDefinition(config: TransferCallConfig): TransferCallToolDefinition {
+    return {
+        schema_version: 1,
+        type: "transfer_call",
         config,
     };
 }
@@ -157,6 +200,8 @@ export function createToolDefinition(category: ToolCategory): ToolDefinition {
     switch (category) {
         case "end_call":
             return createEndCallDefinition(DEFAULT_END_CALL_CONFIG);
+        case "transfer_call":
+            return createTransferCallDefinition(DEFAULT_TRANSFER_CALL_CONFIG);
         case "http_api":
         default:
             return createHttpApiDefinition();

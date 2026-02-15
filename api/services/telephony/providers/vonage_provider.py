@@ -484,3 +484,30 @@ class VonageProvider(TelephonyProvider):
         ]
 
         return Response(content=json.dumps(error_ncco), media_type="application/json")
+
+    # ======== CALL TRANSFER METHODS ========
+
+    async def transfer_call(
+        self,
+        destination: str,
+        transfer_id: str,
+        conference_name: str,
+        timeout: int = 30,
+        **kwargs: Any,
+    ) -> Dict[str, Any]:
+        """
+        Vonage provider does not support call transfers.
+
+        Raises:
+            NotImplementedError: call transfers are yet to be implemented
+        """
+        raise NotImplementedError("Vonage provider does not support call transfers")
+
+    def supports_transfers(self) -> bool:
+        """
+        Vonage does not support call transfers.
+
+        Returns:
+            False - Vonage provider does not support call transfers
+        """
+        return False

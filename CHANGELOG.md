@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.14.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.13.0...dograh-v1.14.0) (2026-02-16)
+
+
+### Features
+
+* telephony call transfer ([#155](https://github.com/dograh-hq/dograh/issues/155)) ([c711920](https://github.com/dograh-hq/dograh/commit/c71192016561333a109393186cf0d3b70bbd894d))
+
+
+### Bug Fixes
+
+* add check for workflow run mode in transfer call ([#160](https://github.com/dograh-hq/dograh/issues/160)) ([67e92e6](https://github.com/dograh-hq/dograh/commit/67e92e6b9c508b31db4e5256f3d6afb2aadd0eb4))
+* limit cloudonix transport to 20 ms packets ([559c0ca](https://github.com/dograh-hq/dograh/commit/559c0ca767389b1212b5a4726338df127a8d630a))
+* llm generation to annouce failed transfer call ([28eaa93](https://github.com/dograh-hq/dograh/commit/28eaa934f3430aacd5d0151e07e8ae86274a4148))
+
 ## [1.13.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.12.0...dograh-v1.13.0) (2026-02-13)
 
 

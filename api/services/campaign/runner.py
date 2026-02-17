@@ -4,6 +4,7 @@ from typing import Any, Dict
 from loguru import logger
 
 from api.db import db_client
+from api.services.campaign.circuit_breaker import circuit_breaker
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 
@@ -66,6 +67,9 @@ class CampaignRunnerService:
         # Update state to running. Do not queue batch since campaign orchestrator's
         # stale campaign checker would do that if there are pending work.
         await db_client.update_campaign(campaign_id=campaign_id, state="running")
+
+        # Reset circuit breaker so the resumed campaign starts with a clean slate
+        await circuit_breaker.reset(campaign_id)
 
         logger.info(f"Campaign {campaign_id} resumed")
 

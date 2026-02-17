@@ -104,6 +104,15 @@ DEFAULT_CAMPAIGN_RETRY_CONFIG = {
 }
 
 
+# Circuit breaker defaults for campaign call failure detection
+DEFAULT_CIRCUIT_BREAKER_CONFIG = {
+    "enabled": True,
+    "failure_threshold": 0.5,  # 50% failure rate trips the breaker
+    "window_seconds": 120,  # 2-minute sliding window
+    "min_calls_in_window": 5,  # Don't trip until at least 5 outcomes
+}
+
+
 TURN_SECRET = os.getenv("TURN_SECRET")
 TURN_HOST = os.getenv("TURN_HOST", "localhost")
 TURN_PORT = int(os.getenv("TURN_PORT", "3478"))

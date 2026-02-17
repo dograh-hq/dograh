@@ -48,7 +48,6 @@ from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
-
 # Short timeout for faster tests
 STOP_STRATEGY_TIMEOUT = 0.15
 # Delay to allow async processing
@@ -115,7 +114,15 @@ def _build_components(llm_steps=None):
 
     turn_controller = user_agg._user_turn_controller
 
-    return injector, user_agg, stop_strategy, turn_controller, mock_llm, context, pipeline
+    return (
+        injector,
+        user_agg,
+        stop_strategy,
+        turn_controller,
+        mock_llm,
+        context,
+        pipeline,
+    )
 
 
 async def _run_scenario(pipeline, inject_fn):
@@ -193,7 +200,9 @@ class TestUserTurnStopScenarios:
             await asyncio.sleep(0)
             await injector.inject(UserStartedSpeakingFrame())
             await asyncio.sleep(0)
-            await injector.inject(TranscriptionFrame("hello", "user-1", time_now_iso8601()))
+            await injector.inject(
+                TranscriptionFrame("hello", "user-1", time_now_iso8601())
+            )
             await asyncio.sleep(0)
             await injector.inject(UserStoppedSpeakingFrame())
             await asyncio.sleep(0)
@@ -217,7 +226,9 @@ class TestUserTurnStopScenarios:
             assert stop_strategy._text == "", (
                 f"Expected empty _text after clean turn, got '{stop_strategy._text}'"
             )
-            assert not turn_ctrl._user_turn, "Expected _user_turn to be False after turn"
+            assert not turn_ctrl._user_turn, (
+                "Expected _user_turn to be False after turn"
+            )
             assert mock_llm.get_current_step() == 1, (
                 f"Expected 1 LLM call (turn 2 only), got {mock_llm.get_current_step()}"
             )
@@ -257,7 +268,9 @@ class TestUserTurnStopScenarios:
             await asyncio.sleep(0)
             await injector.inject(UserStartedSpeakingFrame())
             await asyncio.sleep(0)
-            await injector.inject(TranscriptionFrame("hello", "user-1", time_now_iso8601()))
+            await injector.inject(
+                TranscriptionFrame("hello", "user-1", time_now_iso8601())
+            )
             await asyncio.sleep(ASYNC_DELAY)
 
             # Bot stops -> unmuted
@@ -329,7 +342,9 @@ class TestUserTurnStopScenarios:
             await asyncio.sleep(ASYNC_DELAY)
 
             # TranscriptionFrame arrives AFTER unmute -> reaches stop strategy
-            await injector.inject(TranscriptionFrame("hello", "user-1", time_now_iso8601()))
+            await injector.inject(
+                TranscriptionFrame("hello", "user-1", time_now_iso8601())
+            )
             await asyncio.sleep(ASYNC_DELAY)
 
             # Install spy on trigger_user_turn_stopped to track every call
@@ -408,7 +423,9 @@ class TestUserTurnStopScenarios:
             # _aggregation is a separate concern from the stop strategy's _text.
             messages = context.messages
             user_messages = [m for m in messages if m.get("role") == "user"]
-            assert len(user_messages) == 1, f"Expected 1 user message, got {len(user_messages)}"
+            assert len(user_messages) == 1, (
+                f"Expected 1 user message, got {len(user_messages)}"
+            )
             user_text = user_messages[0]["content"]
             assert "hello" in user_text, (
                 f"Expected 'hello' (from aggregator) in user message, got: '{user_text}'"
@@ -519,7 +536,9 @@ class TestUserTurnStopScenarios:
             await injector.inject(VADUserStoppedSpeakingFrame())
             await asyncio.sleep(0)
             # Late transcription - but still during bot speaking
-            await injector.inject(TranscriptionFrame("late hello", "user-1", time_now_iso8601()))
+            await injector.inject(
+                TranscriptionFrame("late hello", "user-1", time_now_iso8601())
+            )
             await asyncio.sleep(ASYNC_DELAY)
 
             await injector.inject(BotStoppedSpeakingFrame())
@@ -651,7 +670,9 @@ class TestUserTurnStopScenarios:
             # The LLM received both "late hello" (dangling in aggregator from turn 1)
             # and "real speech" (from turn 2).
             user_messages = [m for m in context.messages if m.get("role") == "user"]
-            assert len(user_messages) == 1, f"Expected 1 user message, got {len(user_messages)}"
+            assert len(user_messages) == 1, (
+                f"Expected 1 user message, got {len(user_messages)}"
+            )
             user_text = user_messages[0]["content"]
             assert "late hello" in user_text, (
                 f"Expected 'late hello' (from aggregator) in user message, got: '{user_text}'"
@@ -867,7 +888,9 @@ class TestUserTurnStopScenarios:
             await asyncio.sleep(ASYNC_DELAY)
 
             # Late transcription after unmute
-            await injector.inject(TranscriptionFrame("first", "user-1", time_now_iso8601()))
+            await injector.inject(
+                TranscriptionFrame("first", "user-1", time_now_iso8601())
+            )
             await asyncio.sleep(0)
             await injector.inject(UserStoppedSpeakingFrame())
             await asyncio.sleep(TIMEOUT_WAIT)
@@ -890,7 +913,9 @@ class TestUserTurnStopScenarios:
             await injector.inject(BotStoppedSpeakingFrame())
             await asyncio.sleep(ASYNC_DELAY)
 
-            await injector.inject(TranscriptionFrame("second", "user-1", time_now_iso8601()))
+            await injector.inject(
+                TranscriptionFrame("second", "user-1", time_now_iso8601())
+            )
             await asyncio.sleep(0)
             await injector.inject(UserStoppedSpeakingFrame())
             await asyncio.sleep(TIMEOUT_WAIT)
@@ -926,7 +951,9 @@ class TestUserTurnStopScenarios:
             user_text = user_messages[0]["content"]
             assert "first" in user_text, f"Expected 'first' in '{user_text}'"
             assert "second" in user_text, f"Expected 'second' in '{user_text}'"
-            assert "actual speech" in user_text, f"Expected 'actual speech' in '{user_text}'"
+            assert "actual speech" in user_text, (
+                f"Expected 'actual speech' in '{user_text}'"
+            )
 
             await injector.inject(EndTaskFrame(), direction=FrameDirection.UPSTREAM)
 

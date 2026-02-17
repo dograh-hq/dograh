@@ -14,6 +14,7 @@ from api.services.campaign.campaign_event_protocol import (
     BatchCompletedEvent,
     BatchFailedEvent,
     CampaignCompletedEvent,
+    CircuitBreakerTrippedEvent,
     RetryNeededEvent,
     SyncCompletedEvent,
 )
@@ -122,6 +123,32 @@ class CampaignEventPublisher:
         )
 
         await self.redis.publish(RedisChannel.CAMPAIGN_EVENTS.value, event.to_json())
+
+    async def publish_circuit_breaker_tripped(
+        self,
+        campaign_id: int,
+        failure_rate: float,
+        failure_count: int,
+        success_count: int,
+        threshold: float,
+        window_seconds: int,
+    ):
+        """Publish circuit breaker tripped event."""
+        event = CircuitBreakerTrippedEvent(
+            campaign_id=campaign_id,
+            failure_rate=failure_rate,
+            failure_count=failure_count,
+            success_count=success_count,
+            threshold=threshold,
+            window_seconds=window_seconds,
+        )
+
+        await self.redis.publish(RedisChannel.CAMPAIGN_EVENTS.value, event.to_json())
+
+        logger.warning(
+            f"Published circuit breaker tripped event for campaign {campaign_id}: "
+            f"failure_rate={failure_rate:.2%} ({failure_count} failures)"
+        )
 
 
 # Global publisher instance with lazy Redis connection

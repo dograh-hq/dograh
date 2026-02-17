@@ -25,11 +25,13 @@ from api.enums import RedisChannel
 from api.services.campaign.campaign_event_protocol import (
     BatchCompletedEvent,
     BatchFailedEvent,
+    CircuitBreakerTrippedEvent,
     RetryNeededEvent,
     SyncCompletedEvent,
     parse_campaign_event,
 )
 from api.services.campaign.campaign_event_publisher import CampaignEventPublisher
+from api.services.campaign.circuit_breaker import circuit_breaker
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 
@@ -164,6 +166,14 @@ class CampaignOrchestrator:
             )
             await self._schedule_next_batch(campaign_id)
             self._last_activity[campaign_id] = datetime.now(UTC)
+
+        elif isinstance(event, CircuitBreakerTrippedEvent):
+            # Circuit breaker tripped - clear state for this campaign
+            logger.warning(
+                f"campaign_id: {campaign_id} - Circuit breaker tripped event received: "
+                f"failure_rate={event.failure_rate:.2%}"
+            )
+            self._clear_campaign_state(campaign_id)
 
     async def _handle_retry_event(self, event: RetryNeededEvent):
         """Process retry event and schedule if eligible (from campaign_retry_manager)."""
@@ -300,6 +310,33 @@ class CampaignOrchestrator:
                 logger.info(
                     f"campaign_id: {campaign_id} - Campaign not in running state: {campaign.state}"
                 )
+                return
+
+            # Safety net: check circuit breaker before scheduling
+            cb_config = None
+            if campaign.orchestrator_metadata:
+                cb_config = campaign.orchestrator_metadata.get("circuit_breaker")
+
+            is_open, stats = await circuit_breaker.is_circuit_open(
+                campaign_id=campaign_id,
+                config=cb_config,
+            )
+
+            if is_open and stats:
+                logger.warning(
+                    f"campaign_id: {campaign_id} - Circuit breaker is open, "
+                    f"pausing campaign. Stats: {stats}"
+                )
+                await db_client.update_campaign(campaign_id=campaign_id, state="paused")
+                await self.publisher.publish_circuit_breaker_tripped(
+                    campaign_id=campaign_id,
+                    failure_rate=stats["failure_rate"],
+                    failure_count=stats["failure_count"],
+                    success_count=stats["success_count"],
+                    threshold=stats["threshold"],
+                    window_seconds=stats["window_seconds"],
+                )
+                self._clear_campaign_state(campaign_id)
                 return
 
             # Check for available work (queued runs + due retries)

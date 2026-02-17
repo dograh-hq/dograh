@@ -33,6 +33,9 @@ class CampaignEventType(str, Enum):
     RETRY_SCHEDULED = "retry_scheduled"
     RETRY_FAILED = "retry_failed"
 
+    # Circuit breaker events
+    CIRCUIT_BREAKER_TRIPPED = "circuit_breaker_tripped"
+
 
 class RetryReason(str, Enum):
     """Reasons for retry."""
@@ -218,6 +221,18 @@ class RetryFailedEvent(BaseCampaignEvent):
     last_reason: str = ""  # RetryReason value
 
 
+@dataclass
+class CircuitBreakerTrippedEvent(BaseCampaignEvent):
+    """Event sent when the circuit breaker trips and pauses a campaign."""
+
+    type: str = CampaignEventType.CIRCUIT_BREAKER_TRIPPED
+    failure_rate: float = 0.0
+    failure_count: int = 0
+    success_count: int = 0
+    threshold: float = 0.0
+    window_seconds: int = 0
+
+
 def parse_campaign_event(data: str) -> Any:
     """Parse a campaign event message."""
     try:
@@ -239,6 +254,7 @@ def parse_campaign_event(data: str) -> Any:
             CampaignEventType.RETRY_NEEDED: RetryNeededEvent,
             CampaignEventType.RETRY_SCHEDULED: RetryScheduledEvent,
             CampaignEventType.RETRY_FAILED: RetryFailedEvent,
+            CampaignEventType.CIRCUIT_BREAKER_TRIPPED: CircuitBreakerTrippedEvent,
         }
 
         event_class = event_class_map.get(event_type)

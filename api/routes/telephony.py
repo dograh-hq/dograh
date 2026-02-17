@@ -32,6 +32,7 @@ from api.errors.telephony_errors import TelephonyError
 from api.services.auth.depends import get_user
 from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
+from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.quota_service import check_dograh_quota, check_dograh_quota_by_user_id
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
@@ -760,6 +761,9 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         # Release concurrent slot if this was a campaign call
         if workflow_run.campaign_id:
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
+            await circuit_breaker.record_and_evaluate(
+                workflow_run.campaign_id, is_failure=False
+            )
 
         # Mark workflow run as completed
         await db_client.update_workflow_run(
@@ -776,6 +780,9 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         # Release concurrent slot for terminal statuses if this was a campaign call
         if workflow_run.campaign_id:
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
+            await circuit_breaker.record_and_evaluate(
+                workflow_run.campaign_id, is_failure=True
+            )
 
         # Check if retry is needed for campaign calls (busy/no-answer)
         if status.status in ["busy", "no-answer"] and workflow_run.campaign_id:

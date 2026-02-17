@@ -14,6 +14,7 @@ import asyncio
 import signal
 from datetime import UTC, datetime, timedelta
 from typing import Dict
+from zoneinfo import ZoneInfo
 
 import redis.asyncio as aioredis
 from loguru import logger
@@ -284,6 +285,53 @@ class CampaignOrchestrator:
             f"last reason: {reason}"
         )
 
+    def _is_within_schedule(self, campaign: CampaignModel) -> bool:
+        """Check if the current time falls within the campaign's schedule windows.
+
+        Returns True (allow scheduling) if:
+        - No schedule_config in metadata
+        - Schedule is disabled
+        - No slots configured
+        - Invalid timezone (fail open)
+        - Current time matches a slot
+        """
+        if not campaign.orchestrator_metadata:
+            return True
+
+        schedule_config = campaign.orchestrator_metadata.get("schedule_config")
+        if not schedule_config:
+            return True
+
+        if not schedule_config.get("enabled", False):
+            return True
+
+        slots = schedule_config.get("slots")
+        if not slots:
+            return True
+
+        timezone_str = schedule_config.get("timezone", "UTC")
+        try:
+            tz = ZoneInfo(timezone_str)
+        except (KeyError, Exception):
+            logger.warning(
+                f"campaign_id: {campaign.id} - Invalid timezone '{timezone_str}' in schedule_config, "
+                f"failing open (allowing scheduling)"
+            )
+            return True
+
+        now = datetime.now(tz)
+        current_day = now.weekday()  # 0=Monday through 6=Sunday
+        current_time = now.strftime("%H:%M")
+
+        for slot in slots:
+            if slot.get("day_of_week") == current_day:
+                start = slot.get("start_time", "")
+                end = slot.get("end_time", "")
+                if start <= current_time < end:
+                    return True
+
+        return False
+
     async def _schedule_next_batch(self, campaign_id: int):
         """Schedule next batch immediately if work available."""
 
@@ -309,6 +357,13 @@ class CampaignOrchestrator:
             if campaign.state not in ["running", "syncing"]:
                 logger.info(
                     f"campaign_id: {campaign_id} - Campaign not in running state: {campaign.state}"
+                )
+                return
+
+            # Check schedule window before scheduling
+            if not self._is_within_schedule(campaign):
+                logger.info(
+                    f"campaign_id: {campaign_id} - Outside scheduled time window, skipping batch"
                 )
                 return
 
@@ -436,6 +491,12 @@ class CampaignOrchestrator:
                 if campaign_id not in self._batch_in_progress:
                     has_work = await self._has_pending_work(campaign_id)
                     if has_work:
+                        if not self._is_within_schedule(campaign):
+                            logger.info(
+                                f"campaign_id: {campaign_id} - Found orphaned work but outside "
+                                f"schedule window, skipping"
+                            )
+                            continue
                         logger.info(
                             f"campaign_id: {campaign_id} - Found orphaned work (likely new retries), "
                             f"scheduling batch to process"
@@ -465,6 +526,12 @@ class CampaignOrchestrator:
         # Check for any pending work
         has_work = await self._has_pending_work(campaign_id)
         if has_work:
+            # If outside schedule window, don't mark complete — work remains for next window
+            if not self._is_within_schedule(campaign):
+                logger.debug(
+                    f"campaign_id: {campaign_id} - Outside schedule window with pending work, "
+                    f"not marking complete"
+                )
             return False
 
         # Check in-memory last activity

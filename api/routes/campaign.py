@@ -1,9 +1,10 @@
 import json
 from datetime import datetime
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
@@ -46,6 +47,28 @@ async def _get_from_numbers_count(organization_id: int) -> int:
     return 0
 
 
+async def _validate_max_concurrency(max_concurrency: int, organization_id: int) -> None:
+    """Validate max_concurrency against org limit and configured phone numbers.
+
+    Raises HTTPException(400) if the value exceeds the effective limit.
+    """
+    org_limit = await _get_org_concurrent_limit(organization_id)
+    from_numbers_count = await _get_from_numbers_count(organization_id)
+    effective_limit = (
+        min(org_limit, from_numbers_count) if from_numbers_count > 0 else org_limit
+    )
+    if max_concurrency > effective_limit:
+        if from_numbers_count > 0 and from_numbers_count < org_limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"max_concurrency ({max_concurrency}) cannot exceed {effective_limit}. You have {from_numbers_count} phone number(s) configured. Add more CLIs in telephony configuration to increase concurrency.",
+            )
+        raise HTTPException(
+            status_code=400,
+            detail=f"max_concurrency ({max_concurrency}) cannot exceed organization limit ({effective_limit})",
+        )
+
+
 class RetryConfigRequest(BaseModel):
     enabled: bool = True
     max_retries: int = Field(default=2, ge=0, le=10)
@@ -64,6 +87,45 @@ class RetryConfigResponse(BaseModel):
     retry_on_voicemail: bool
 
 
+class TimeSlotRequest(BaseModel):
+    day_of_week: int = Field(..., ge=0, le=6)
+    start_time: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    end_time: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+
+    @model_validator(mode="after")
+    def validate_times(self):
+        if self.start_time >= self.end_time:
+            raise ValueError("start_time must be before end_time")
+        return self
+
+
+class ScheduleConfigRequest(BaseModel):
+    enabled: bool = True
+    timezone: str = "UTC"
+    slots: List[TimeSlotRequest] = Field(..., min_length=1, max_length=50)
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        try:
+            ZoneInfo(v)
+        except (KeyError, Exception):
+            raise ValueError(f"Invalid timezone: {v}")
+        return v
+
+
+class TimeSlotResponse(BaseModel):
+    day_of_week: int
+    start_time: str
+    end_time: str
+
+
+class ScheduleConfigResponse(BaseModel):
+    enabled: bool
+    timezone: str
+    slots: List[TimeSlotResponse]
+
+
 class CreateCampaignRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     workflow_id: int
@@ -71,6 +133,14 @@ class CreateCampaignRequest(BaseModel):
     source_id: str  # Google Sheet URL or CSV file key
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
+    schedule_config: Optional[ScheduleConfigRequest] = None
+
+
+class UpdateCampaignRequest(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    retry_config: Optional[RetryConfigRequest] = None
+    max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
+    schedule_config: Optional[ScheduleConfigRequest] = None
 
 
 class CampaignResponse(BaseModel):
@@ -89,6 +159,7 @@ class CampaignResponse(BaseModel):
     completed_at: Optional[datetime]
     retry_config: RetryConfigResponse
     max_concurrency: Optional[int] = None
+    schedule_config: Optional[ScheduleConfigResponse] = None
 
 
 class CampaignsResponse(BaseModel):
@@ -138,10 +209,18 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         else DEFAULT_CAMPAIGN_RETRY_CONFIG
     )
 
-    # Get max_concurrency from orchestrator_metadata
+    # Get max_concurrency and schedule_config from orchestrator_metadata
     max_concurrency = None
+    schedule_config = None
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
+        sc = campaign.orchestrator_metadata.get("schedule_config")
+        if sc:
+            schedule_config = ScheduleConfigResponse(
+                enabled=sc.get("enabled", False),
+                timezone=sc.get("timezone", "UTC"),
+                slots=[TimeSlotResponse(**slot) for slot in sc.get("slots", [])],
+            )
 
     return CampaignResponse(
         id=campaign.id,
@@ -159,6 +238,7 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         completed_at=campaign.completed_at,
         retry_config=RetryConfigResponse(**retry_config),
         max_concurrency=max_concurrency,
+        schedule_config=schedule_config,
     )
 
 
@@ -181,30 +261,20 @@ async def create_campaign(
     if not validation_result.is_valid:
         raise HTTPException(status_code=400, detail=validation_result.error.message)
 
-    # Validate max_concurrency against effective limit (min of org limit and from_numbers count)
     if request.max_concurrency is not None:
-        org_limit = await _get_org_concurrent_limit(user.selected_organization_id)
-        from_numbers_count = await _get_from_numbers_count(
-            user.selected_organization_id
+        await _validate_max_concurrency(
+            request.max_concurrency, user.selected_organization_id
         )
-        effective_limit = (
-            min(org_limit, from_numbers_count) if from_numbers_count > 0 else org_limit
-        )
-        if request.max_concurrency > effective_limit:
-            if from_numbers_count > 0 and from_numbers_count < org_limit:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"max_concurrency ({request.max_concurrency}) cannot exceed {effective_limit}. You have {from_numbers_count} phone number(s) configured. Add more CLIs in telephony configuration to increase concurrency.",
-                )
-            raise HTTPException(
-                status_code=400,
-                detail=f"max_concurrency ({request.max_concurrency}) cannot exceed organization limit ({effective_limit})",
-            )
 
     # Build retry_config dict if provided
     retry_config = None
     if request.retry_config:
         retry_config = request.retry_config.model_dump()
+
+    # Build schedule_config dict if provided
+    schedule_config = None
+    if request.schedule_config:
+        schedule_config = request.schedule_config.model_dump()
 
     campaign = await db_client.create_campaign(
         name=request.name,
@@ -215,6 +285,7 @@ async def create_campaign(
         organization_id=user.selected_organization_id,
         retry_config=retry_config,
         max_concurrency=request.max_concurrency,
+        schedule_config=schedule_config,
     )
 
     return _build_campaign_response(campaign, workflow_name)
@@ -316,6 +387,62 @@ async def pause_campaign(
         raise HTTPException(status_code=400, detail=str(e))
 
     # Get updated campaign
+    campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
+    workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
+
+    return _build_campaign_response(campaign, workflow_name or "Unknown")
+
+
+@router.patch("/{campaign_id}")
+async def update_campaign(
+    campaign_id: int,
+    request: UpdateCampaignRequest,
+    user: UserModel = Depends(get_user),
+) -> CampaignResponse:
+    """Update campaign settings (name, retry config, max concurrency, schedule)"""
+    campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    if campaign.state in ["completed", "failed"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot update a {campaign.state} campaign",
+        )
+
+    if request.max_concurrency is not None:
+        await _validate_max_concurrency(
+            request.max_concurrency, user.selected_organization_id
+        )
+
+    # Build update kwargs
+    update_kwargs = {}
+
+    if request.name is not None:
+        update_kwargs["name"] = request.name
+
+    if request.retry_config is not None:
+        update_kwargs["retry_config"] = request.retry_config.model_dump()
+
+    # Merge max_concurrency and schedule_config into orchestrator_metadata
+    metadata = campaign.orchestrator_metadata or {}
+    metadata_changed = False
+
+    if request.max_concurrency is not None:
+        metadata["max_concurrency"] = request.max_concurrency
+        metadata_changed = True
+
+    if request.schedule_config is not None:
+        metadata["schedule_config"] = request.schedule_config.model_dump()
+        metadata_changed = True
+
+    if metadata_changed:
+        update_kwargs["orchestrator_metadata"] = metadata
+
+    if update_kwargs:
+        await db_client.update_campaign(campaign_id=campaign_id, **update_kwargs)
+
+    # Re-fetch to return updated data
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 

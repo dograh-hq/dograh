@@ -21,6 +21,7 @@ class CampaignClient(BaseDBClient):
         organization_id: int,
         retry_config: Optional[dict] = None,
         max_concurrency: Optional[int] = None,
+        schedule_config: Optional[dict] = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -28,6 +29,8 @@ class CampaignClient(BaseDBClient):
             orchestrator_metadata = {}
             if max_concurrency is not None:
                 orchestrator_metadata["max_concurrency"] = max_concurrency
+            if schedule_config is not None:
+                orchestrator_metadata["schedule_config"] = schedule_config
 
             campaign = CampaignModel(
                 name=name,

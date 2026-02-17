@@ -3,6 +3,7 @@
 import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
+import type { ITimezoneOption } from 'react-timezone-select';
 import { toast } from 'sonner';
 
 import {
@@ -23,9 +24,9 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/lib/auth';
 
+import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../CampaignAdvancedSettings';
 import CsvUploadSelector from '../CsvUploadSelector';
 import GoogleSheetSelector from '../GoogleSheetSelector';
 
@@ -59,6 +60,18 @@ export default function NewCampaignPage() {
     const [retryOnBusy, setRetryOnBusy] = useState(true);
     const [retryOnNoAnswer, setRetryOnNoAnswer] = useState(true);
     const [retryOnVoicemail, setRetryOnVoicemail] = useState(true);
+    // Schedule config state
+    const [scheduleEnabled, setScheduleEnabled] = useState(false);
+    const [scheduleTimezone, setScheduleTimezone] = useState<ITimezoneOption | string>(() => {
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        } catch {
+            return 'UTC';
+        }
+    });
+    const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([
+        { day_of_week: 0, start_time: '09:00', end_time: '17:00' },
+    ]);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -163,7 +176,6 @@ export default function NewCampaignPage() {
         try {
             const accessToken = await getAccessToken();
 
-            // Build retry_config only if user has modified settings from defaults
             const retryConfig = {
                 enabled: retryEnabled,
                 max_retries: parseInt(maxRetries) || 2,
@@ -173,6 +185,16 @@ export default function NewCampaignPage() {
                 retry_on_voicemail: retryOnVoicemail,
             };
 
+            // Build schedule_config if enabled
+            const timezoneValue = getTimezoneValue(scheduleTimezone);
+            const scheduleConfig = scheduleEnabled && timeSlots.length > 0
+                ? {
+                    enabled: true,
+                    timezone: timezoneValue,
+                    slots: timeSlots,
+                }
+                : undefined;
+
             const response = await createCampaignApiV1CampaignCreatePost({
                 body: {
                     name: campaignName,
@@ -181,6 +203,7 @@ export default function NewCampaignPage() {
                     source_id: sourceId,
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
+                    schedule_config: scheduleConfig,
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -353,107 +376,32 @@ export default function NewCampaignPage() {
                                         <ChevronRight className="h-4 w-4" />
                                     )}
                                 </CollapsibleTrigger>
-                                <CollapsibleContent className="px-4 pb-4 space-y-6">
-                                    {/* Max Concurrent Calls */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="max-concurrency">Max Concurrent Calls</Label>
-                                        <Input
-                                            id="max-concurrency"
-                                            type="number"
-                                            placeholder={`Default: ${effectiveLimit}`}
-                                            value={maxConcurrency}
-                                            onChange={(e) => setMaxConcurrency(e.target.value)}
-                                            min={1}
-                                            max={effectiveLimit}
-                                        />
-                                        <p className="text-sm text-muted-foreground">
-                                            Maximum number of simultaneous calls. Leave empty to use {effectiveLimit}.
-                                            {fromNumbersCount > 0 && ` You have ${fromNumbersCount} CLI${fromNumbersCount !== 1 ? 's' : ''} and an org limit of ${orgConcurrentLimit}.`}
-                                        </p>
-                                        {fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit && (
-                                            <p className="text-sm text-amber-600 dark:text-amber-400">
-                                                Concurrency is limited to {fromNumbersCount} by your configured phone numbers. To use the full org limit of {orgConcurrentLimit}, add more CLIs in <a href="/telephony-configurations" className="underline font-medium">Telephony Configuration</a>.
-                                            </p>
-                                        )}
-                                        {fromNumbersCount === 0 && (
-                                            <p className="text-sm text-amber-600 dark:text-amber-400">
-                                                No phone numbers configured. Add CLIs in <a href="/telephony-configurations" className="underline font-medium">Telephony Configuration</a> before running the campaign.
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Retry Configuration */}
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <Label htmlFor="retry-enabled">Enable Retries</Label>
-                                                <p className="text-sm text-muted-foreground">
-                                                    Automatically retry failed calls
-                                                </p>
-                                            </div>
-                                            <Switch
-                                                id="retry-enabled"
-                                                checked={retryEnabled}
-                                                onCheckedChange={setRetryEnabled}
-                                            />
-                                        </div>
-
-                                        {retryEnabled && (
-                                            <div className="space-y-4 pl-4 border-l-2 border-muted">
-                                                <div className="grid grid-cols-2 gap-4">
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="max-retries">Max Retries</Label>
-                                                        <Input
-                                                            id="max-retries"
-                                                            type="number"
-                                                            value={maxRetries}
-                                                            onChange={(e) => setMaxRetries(e.target.value)}
-                                                            min={0}
-                                                            max={10}
-                                                        />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                        <Label htmlFor="retry-delay">Retry Delay (seconds)</Label>
-                                                        <Input
-                                                            id="retry-delay"
-                                                            type="number"
-                                                            value={retryDelaySeconds}
-                                                            onChange={(e) => setRetryDelaySeconds(e.target.value)}
-                                                            min={30}
-                                                            max={3600}
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                <div className="space-y-3">
-                                                    <Label>Retry On</Label>
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-sm">Busy Signal</span>
-                                                            <Switch
-                                                                checked={retryOnBusy}
-                                                                onCheckedChange={setRetryOnBusy}
-                                                            />
-                                                        </div>
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-sm">No Answer</span>
-                                                            <Switch
-                                                                checked={retryOnNoAnswer}
-                                                                onCheckedChange={setRetryOnNoAnswer}
-                                                            />
-                                                        </div>
-                                                        <div className="flex items-center justify-between">
-                                                            <span className="text-sm">Voicemail</span>
-                                                            <Switch
-                                                                checked={retryOnVoicemail}
-                                                                onCheckedChange={setRetryOnVoicemail}
-                                                            />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
+                                <CollapsibleContent className="px-4 pb-4">
+                                    <CampaignAdvancedSettings
+                                        maxConcurrency={maxConcurrency}
+                                        onMaxConcurrencyChange={setMaxConcurrency}
+                                        effectiveLimit={effectiveLimit}
+                                        orgConcurrentLimit={orgConcurrentLimit}
+                                        fromNumbersCount={fromNumbersCount}
+                                        retryEnabled={retryEnabled}
+                                        onRetryEnabledChange={setRetryEnabled}
+                                        maxRetries={maxRetries}
+                                        onMaxRetriesChange={setMaxRetries}
+                                        retryDelaySeconds={retryDelaySeconds}
+                                        onRetryDelaySecondsChange={setRetryDelaySeconds}
+                                        retryOnBusy={retryOnBusy}
+                                        onRetryOnBusyChange={setRetryOnBusy}
+                                        retryOnNoAnswer={retryOnNoAnswer}
+                                        onRetryOnNoAnswerChange={setRetryOnNoAnswer}
+                                        retryOnVoicemail={retryOnVoicemail}
+                                        onRetryOnVoicemailChange={setRetryOnVoicemail}
+                                        scheduleEnabled={scheduleEnabled}
+                                        onScheduleEnabledChange={setScheduleEnabled}
+                                        scheduleTimezone={scheduleTimezone}
+                                        onScheduleTimezoneChange={setScheduleTimezone}
+                                        timeSlots={timeSlots}
+                                        onTimeSlotsChange={setTimeSlots}
+                                    />
                                 </CollapsibleContent>
                             </Collapsible>
 

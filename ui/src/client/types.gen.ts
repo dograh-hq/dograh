@@ -124,6 +124,7 @@ export type CampaignResponse = {
     completed_at: string | null;
     retry_config: RetryConfigResponse;
     max_concurrency?: number | null;
+    schedule_config?: ScheduleConfigResponse | null;
 };
 
 /**
@@ -244,6 +245,7 @@ export type CreateCampaignRequest = {
     source_id: string;
     retry_config?: RetryConfigRequest | null;
     max_concurrency?: number | null;
+    schedule_config?: ScheduleConfigRequest | null;
 };
 
 /**
@@ -777,6 +779,18 @@ export type S3SignedUrlResponse = {
     expires_in: number;
 };
 
+export type ScheduleConfigRequest = {
+    enabled?: boolean;
+    timezone?: string;
+    slots: Array<TimeSlotRequest>;
+};
+
+export type ScheduleConfigResponse = {
+    enabled: boolean;
+    timezone: string;
+    slots: Array<TimeSlotResponse>;
+};
+
 export type ServiceKeyResponse = {
     name: string;
     id: number;
@@ -860,6 +874,18 @@ export type TestSessionResponse = {
     created_at: string;
     started_at: string | null;
     completed_at: string | null;
+};
+
+export type TimeSlotRequest = {
+    day_of_week: number;
+    start_time: string;
+    end_time: string;
+};
+
+export type TimeSlotResponse = {
+    day_of_week: number;
+    start_time: string;
+    end_time: string;
 };
 
 /**
@@ -1011,6 +1037,13 @@ export type TwilioConfigurationResponse = {
     account_sid: string;
     auth_token: string;
     from_numbers: Array<string>;
+};
+
+export type UpdateCampaignRequest = {
+    name?: string | null;
+    retry_config?: RetryConfigRequest | null;
+    max_concurrency?: number | null;
+    schedule_config?: ScheduleConfigRequest | null;
 };
 
 /**
@@ -2726,6 +2759,41 @@ export type GetCampaignApiV1CampaignCampaignIdGetResponses = {
 };
 
 export type GetCampaignApiV1CampaignCampaignIdGetResponse = GetCampaignApiV1CampaignCampaignIdGetResponses[keyof GetCampaignApiV1CampaignCampaignIdGetResponses];
+
+export type UpdateCampaignApiV1CampaignCampaignIdPatchData = {
+    body: UpdateCampaignRequest;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        campaign_id: number;
+    };
+    query?: never;
+    url: '/api/v1/campaign/{campaign_id}';
+};
+
+export type UpdateCampaignApiV1CampaignCampaignIdPatchErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateCampaignApiV1CampaignCampaignIdPatchError = UpdateCampaignApiV1CampaignCampaignIdPatchErrors[keyof UpdateCampaignApiV1CampaignCampaignIdPatchErrors];
+
+export type UpdateCampaignApiV1CampaignCampaignIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: CampaignResponse;
+};
+
+export type UpdateCampaignApiV1CampaignCampaignIdPatchResponse = UpdateCampaignApiV1CampaignCampaignIdPatchResponses[keyof UpdateCampaignApiV1CampaignCampaignIdPatchResponses];
 
 export type StartCampaignApiV1CampaignCampaignIdStartPostData = {
     body?: never;

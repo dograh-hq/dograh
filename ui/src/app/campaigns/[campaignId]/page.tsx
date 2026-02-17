@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Pause, Play, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Check, Clock, Pause, Pencil, Play, RefreshCw, X } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -10,7 +10,8 @@ import {
     getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet,
     pauseCampaignApiV1CampaignCampaignIdPausePost,
     resumeCampaignApiV1CampaignCampaignIdResumePost,
-    startCampaignApiV1CampaignCampaignIdStartPost} from '@/client/sdk.gen';
+    startCampaignApiV1CampaignCampaignIdStartPost,
+} from '@/client/sdk.gen';
 import type { CampaignResponse } from '@/client/types.gen';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -236,31 +237,49 @@ export default function CampaignDetailPage() {
         }
     };
 
+    const canEdit = campaign && ['created', 'running', 'paused'].includes(campaign.state);
+
     // Render action button based on state
     const renderActionButton = () => {
         if (!campaign || isExecutingAction) return null;
 
+        const editButton = canEdit ? (
+            <Button variant="outline" onClick={() => router.push(`/campaigns/${campaignId}/edit`)}>
+                <Pencil className="h-4 w-4 mr-2" />
+                Edit Campaign
+            </Button>
+        ) : null;
+
         switch (campaign.state) {
             case 'created':
                 return (
-                    <Button onClick={handleStart} disabled={isExecutingAction}>
-                        <Play className="h-4 w-4 mr-2" />
-                        Start Campaign
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {editButton}
+                        <Button onClick={handleStart} disabled={isExecutingAction}>
+                            <Play className="h-4 w-4 mr-2" />
+                            Start Campaign
+                        </Button>
+                    </div>
                 );
             case 'running':
                 return (
-                    <Button onClick={handlePause} disabled={isExecutingAction}>
-                        <Pause className="h-4 w-4 mr-2" />
-                        Pause Campaign
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {editButton}
+                        <Button onClick={handlePause} disabled={isExecutingAction}>
+                            <Pause className="h-4 w-4 mr-2" />
+                            Pause Campaign
+                        </Button>
+                    </div>
                 );
             case 'paused':
                 return (
-                    <Button onClick={handleResume} disabled={isExecutingAction}>
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Resume Campaign
-                    </Button>
+                    <div className="flex items-center gap-2">
+                        {editButton}
+                        <Button onClick={handleResume} disabled={isExecutingAction}>
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                            Resume Campaign
+                        </Button>
+                    </div>
                 );
             default:
                 return null;
@@ -444,6 +463,51 @@ export default function CampaignDetailPage() {
                                             {campaign.retry_config.retry_on_voicemail && (
                                                 <Badge variant="outline" className="text-xs">Voicemail</Badge>
                                             )}
+                                        </dd>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <Separator />
+
+                        {/* Call Schedule (read-only) */}
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium">Call Schedule</span>
+                                <div className="flex items-center gap-2">
+                                    {campaign.schedule_config?.enabled ? (
+                                        <Badge variant="default" className="flex items-center gap-1">
+                                            <Clock className="h-3 w-3" />
+                                            Enabled
+                                        </Badge>
+                                    ) : (
+                                        <Badge variant="secondary" className="flex items-center gap-1">
+                                            <X className="h-3 w-3" />
+                                            Not configured
+                                        </Badge>
+                                    )}
+                                </div>
+                            </div>
+
+                            {campaign.schedule_config?.enabled && (
+                                <div className="pl-4 border-l-2 border-muted space-y-3">
+                                    <div>
+                                        <dt className="text-sm text-muted-foreground">Timezone</dt>
+                                        <dd className="mt-1 font-medium">{campaign.schedule_config.timezone.replace(/_/g, ' ')}</dd>
+                                    </div>
+                                    <div>
+                                        <dt className="text-sm text-muted-foreground">Time Slots</dt>
+                                        <dd className="mt-1 flex flex-wrap gap-2">
+                                            {campaign.schedule_config.slots.map((slot, index) => {
+                                                const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                                                return (
+                                                    <div key={index} className="flex items-center gap-1">
+                                                        <Badge variant="outline" className="text-xs">{dayNames[slot.day_of_week]}</Badge>
+                                                        <span className="text-sm">{slot.start_time} - {slot.end_time}</span>
+                                                    </div>
+                                                );
+                                            })}
                                         </dd>
                                     </div>
                                 </div>

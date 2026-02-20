@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 
 // Server component for workflow list
 async function WorkflowList() {
-    const authProvider = getServerAuthProvider();
+    const authProvider = await getServerAuthProvider();
     const accessToken = await getServerAccessToken();
 
     if (!accessToken) {

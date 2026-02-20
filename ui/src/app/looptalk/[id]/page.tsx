@@ -21,7 +21,7 @@ interface PageProps {
 }
 
 async function PageContent({ params }: PageProps) {
-    const authProvider = getServerAuthProvider();
+    const authProvider = await getServerAuthProvider();
     const accessToken = await getServerAccessToken();
 
     if (!accessToken) {

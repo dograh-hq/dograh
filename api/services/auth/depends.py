@@ -5,12 +5,13 @@ from fastapi import Header, HTTPException, Query, WebSocket
 from loguru import logger
 from pydantic import ValidationError
 
-from api.constants import DEPLOYMENT_MODE, DOGRAH_MPS_SECRET_KEY, MPS_API_URL
+from api.constants import AUTH_PROVIDER, DOGRAH_MPS_SECRET_KEY, MPS_API_URL
 from api.db import db_client
 from api.db.models import UserModel
 from api.schemas.user_configuration import UserConfiguration
 from api.services.auth.stack_auth import stackauth
 from api.services.configuration.registry import ServiceProviders
+from api.utils.auth import decode_jwt_token
 
 
 async def get_user(
@@ -24,9 +25,9 @@ async def get_user(
         return await _handle_api_key_auth(x_api_key)
 
     # ------------------------------------------------------------------
-    # Check if we're in OSS deployment mode
+    # Check if we're using local (email/password) auth
     # ------------------------------------------------------------------
-    if DEPLOYMENT_MODE == "oss":
+    if AUTH_PROVIDER == "local":
         return await _handle_oss_auth(authorization)
 
     # ------------------------------------------------------------------
@@ -54,6 +55,14 @@ async def get_user(
 
     try:
         user_model = await db_client.get_or_create_user_by_provider_id(stack_user["id"])
+
+        # Sync email from Stack Auth if available and not already set
+        stack_email = stack_user.get("primary_email_verified") and stack_user.get(
+            "primary_email"
+        )
+        if stack_email and user_model.email != stack_email:
+            await db_client.update_user_email(user_model.id, stack_email)
+            user_model.email = stack_email
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error while creating user from database {e}"
@@ -125,7 +134,7 @@ async def get_user_optional(
 async def _handle_oss_auth(authorization: str | None) -> UserModel:
     """
     Handle authentication for OSS deployment mode.
-    Uses the authorization token as provider_id and creates user/org if needed.
+    Validates JWT tokens issued by the email/password auth flow.
     """
     if not authorization:
         raise HTTPException(status_code=401, detail="Authorization header required")
@@ -141,49 +150,15 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
         raise HTTPException(status_code=401, detail="Invalid authorization token")
 
     try:
-        # Use token as provider_id for OSS mode
-        user_model = await db_client.get_or_create_user_by_provider_id(
-            provider_id=token
-        )
-
-        # Create or get organization for OSS user
-        # Each OSS user gets their own organization using their token as org ID
-        (
-            organization,
-            org_was_created,
-        ) = await db_client.get_or_create_organization_by_provider_id(
-            org_provider_id=f"org_{token}", user_id=user_model.id
-        )
-
-        # Ensure user is mapped to their organization
-        if user_model.selected_organization_id != organization.id:
-            # add_user_to_organization now handles race conditions with ON CONFLICT DO NOTHING
-            await db_client.add_user_to_organization(user_model.id, organization.id)
-            await db_client.update_user_selected_organization(
-                user_model.id, organization.id
-            )
-            user_model.selected_organization_id = organization.id
-
-            # Only create default configuration if organization was just created
-            # This prevents race conditions where multiple concurrent requests
-            # might try to create configurations
-            if org_was_created:
-                existing_cfg = await db_client.get_user_configurations(user_model.id)
-                if not (existing_cfg.llm or existing_cfg.tts or existing_cfg.stt):
-                    mps_config = await create_user_configuration_with_mps_key(
-                        user_model.id, organization.id, token
-                    )
-                    if mps_config:
-                        await db_client.update_user_configuration(
-                            user_model.id, mps_config
-                        )
-
-        return user_model
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error while handling OSS authentication: {e}"
-        )
+        payload = decode_jwt_token(token)
+        user = await db_client.get_user_by_id(payload["sub"])
+        if user:
+            return user
+        raise HTTPException(status_code=401, detail="User not found")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 async def _handle_api_key_auth(api_key: str) -> UserModel:
@@ -233,8 +208,8 @@ async def create_user_configuration_with_mps_key(
 
     async with httpx.AsyncClient() as client:
         # Use MPS API URL from constants
-        if DEPLOYMENT_MODE == "oss":
-            # For OSS mode, create a temporary service key without authentication
+        if AUTH_PROVIDER == "local":
+            # For local auth mode, create a temporary service key without authentication
             response = await client.post(
                 f"{MPS_API_URL}/api/v1/service-keys/",
                 json={

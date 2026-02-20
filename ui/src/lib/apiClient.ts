@@ -1,5 +1,6 @@
+import type { Client } from '@hey-api/client-fetch';
+
 import type { CreateClientConfig } from '@/client/client.gen';
-import { client } from '@/client/client.gen';
 
 export const createClientConfig: CreateClientConfig = (config) => {
     // Use different URLs for server-side vs client-side
@@ -10,8 +11,9 @@ export const createClientConfig: CreateClientConfig = (config) => {
         // for server-side rendering, still use environment variable as fallback
         baseUrl = process.env.BACKEND_URL || 'http://api:8000';
     } else {
-        // for client-side, use the current browser URL's origin
-        baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin;
+        // Client-side API calls are proxied through Next.js rewrites.
+        // AppConfigContext may update this later with the fetched backend URL.
+        baseUrl = window.location.origin;
     }
 
     return {
@@ -26,11 +28,11 @@ let interceptorRegistered = false;
  * Register a request interceptor that attaches a fresh access token
  * to every outgoing SDK request. Idempotent — safe for React strict mode.
  */
-export function setupAuthInterceptor(getAccessToken: () => Promise<string>) {
+export function setupAuthInterceptor(apiClient: Client, getAccessToken: () => Promise<string>) {
     if (interceptorRegistered) return;
     interceptorRegistered = true;
 
-    client.interceptors.request.use(async (request) => {
+    apiClient.interceptors.request.use(async (request) => {
         if (request.headers.get('Authorization')) {
             return request;
         }

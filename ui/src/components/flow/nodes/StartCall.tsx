@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { isOSSMode } from "@/lib/utils";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -350,21 +349,19 @@ const StartCallEditForm = ({
                     Add Global Prompt
                 </Label>
             </div>
-            {!isOSSMode() && (
-                <div className="flex items-center space-x-2">
-                    <Switch
-                        id="detect-voicemail"
-                        checked={detectVoicemail}
-                        onCheckedChange={setDetectVoicemail}
-                    />
-                    <Label htmlFor="detect-voicemail">
-                        Detect Voicemail
-                    </Label>
-                    <Label className="text-xs text-muted-foreground">
-                        Automatically detect and end call if voicemail is reached.
-                    </Label>
-                </div>
-            )}
+            <div className="flex items-center space-x-2">
+                <Switch
+                    id="detect-voicemail"
+                    checked={detectVoicemail}
+                    onCheckedChange={setDetectVoicemail}
+                />
+                <Label htmlFor="detect-voicemail">
+                    Detect Voicemail
+                </Label>
+                <Label className="text-xs text-muted-foreground">
+                    Automatically detect and end call if voicemail is reached.
+                </Label>
+            </div>
             <div className="flex flex-col space-y-2">
                 <div className="flex items-center space-x-2">
                     <Switch

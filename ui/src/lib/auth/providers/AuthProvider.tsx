@@ -1,7 +1,7 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
-import React, { createContext, lazy, Suspense, useContext } from 'react';
+import React, { createContext, lazy, Suspense, useContext, useEffect, useState } from 'react';
 
 import type { AuthUser } from '../types';
 
@@ -34,17 +34,30 @@ const LocalProviderWrapper = lazy(() =>
   }))
 );
 
+const LoadingFallback = (
+  <div className="flex items-center justify-center min-h-screen">
+    <Loader2 className="w-8 h-8 animate-spin" />
+  </div>
+);
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
+  const [authProvider, setAuthProvider] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/config/auth')
+      .then((res) => res.json())
+      .then((data) => setAuthProvider(data.provider || 'stack'))
+      .catch(() => setAuthProvider('local'));
+  }, []);
+
+  if (!authProvider) {
+    return LoadingFallback;
+  }
 
   // For Stack provider, use the dedicated wrapper
   if (authProvider === 'stack') {
     return (
-      <Suspense fallback={
-        <div className="flex items-center justify-center min-h-screen">
-          <Loader2 className="w-8 h-8 animate-spin" />
-        </div>
-      }>
+      <Suspense fallback={LoadingFallback}>
         <StackProviderWrapper>
           {children}
         </StackProviderWrapper>
@@ -54,11 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // For local/OSS provider
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="w-8 h-8 animate-spin" />
-      </div>
-    }>
+    <Suspense fallback={LoadingFallback}>
       <LocalProviderWrapper>
         {children}
       </LocalProviderWrapper>

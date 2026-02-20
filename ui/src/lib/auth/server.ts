@@ -5,20 +5,21 @@ import { cookies } from 'next/headers';
 
 import logger from '@/lib/logger';
 
+import { getAuthProvider } from './config';
 import type { LocalUser } from './types';
 
 // Server-side auth utilities for SSR pages
 // This file should only be imported in server components
 
 let stackServerApp: StackServerApp<boolean, string> | null = null;
-const OSS_TOKEN_COOKIE = 'dograh_oss_token';
-const OSS_USER_COOKIE = 'dograh_oss_user';
+const OSS_TOKEN_COOKIE = 'dograh_auth_token';
+const OSS_USER_COOKIE = 'dograh_auth_user';
 
 // Lazy load and cache the stack server app
-async function getStackServerApp(): Promise<StackServerApp<boolean, string> | null> {
+export async function getStackServerApp(): Promise<StackServerApp<boolean, string> | null> {
   if (!stackServerApp) {
     // Only import if using Stack provider
-    const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
+    const authProvider = await getAuthProvider();
     if (authProvider === 'stack') {
       const stackModule = await import('@stackframe/stack');
       const { StackServerApp } = stackModule;
@@ -38,7 +39,7 @@ async function getStackServerApp(): Promise<StackServerApp<boolean, string> | nu
  * Returns CurrentUser for stack, LocalUser for OSS, or null if not authenticated
  */
 export async function getServerUser(): Promise<CurrentUser | LocalUser | null> {
-  const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
+  const authProvider = await getAuthProvider();
 
   if (authProvider === 'stack') {
     const app = await getStackServerApp();
@@ -60,31 +61,12 @@ export async function getServerUser(): Promise<CurrentUser | LocalUser | null> {
   return null;
 }
 
-/**
- * Check if user is authenticated on the server side
- * For local provider, always returns true in development
- */
-export async function isServerAuthenticated(): Promise<boolean> {
-  const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
-
-  if (authProvider === 'stack') {
-    const user = await getServerUser();
-    return !!user;
-  }
-
-  // For local provider, consider authenticated in development
-  if (authProvider === 'local') {
-    return process.env.NODE_ENV === 'development';
-  }
-
-  return false;
-}
 
 /**
  * Get provider name for server-side rendering
  */
-export function getServerAuthProvider(): string {
-  return process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
+export async function getServerAuthProvider(): Promise<string> {
+  return getAuthProvider();
 }
 
 /**
@@ -105,14 +87,22 @@ export async function getOSSUser(): Promise<LocalUser | null> {
 
   if (userCookie) {
     try {
-      return JSON.parse(userCookie);
+      const parsed = JSON.parse(userCookie);
+      // Handle both legacy format and new JWT format
+      return {
+        id: String(parsed.id),
+        name: parsed.name || parsed.email || 'Local User',
+        email: parsed.email,
+        provider: 'local',
+        organizationId: parsed.organizationId || (parsed.organization_id ? String(parsed.organization_id) : undefined),
+      };
     } catch (error) {
-      logger.error('Error listing permissions:', error);
+      logger.error('Error parsing user cookie:', error);
       return null;
     }
   }
 
-  // If no user cookie, but we have a token, create user
+  // If no user cookie, but we have a token, create user from token
   const token = cookieStore.get(OSS_TOKEN_COOKIE)?.value;
   if (token) {
     const user: LocalUser = {
@@ -131,7 +121,7 @@ export async function getOSSUser(): Promise<LocalUser | null> {
  * Get access token for API calls
  */
 export async function getServerAccessToken(): Promise<string | null> {
-  const authProvider = getServerAuthProvider();
+  const authProvider = await getServerAuthProvider();
 
   if (authProvider === 'stack') {
     const user = await getServerUser();

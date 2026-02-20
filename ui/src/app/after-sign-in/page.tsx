@@ -1,3 +1,4 @@
+import { isNextRouterError } from "next/dist/client/components/is-next-router-error";
 import { redirect } from "next/navigation";
 
 import { getWorkflowCountApiV1WorkflowCountGet } from "@/client/sdk.gen";
@@ -9,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function AfterSignInPage() {
     logger.debug('[AfterSignInPage] Starting after-sign-in page');
-    const authProvider = getServerAuthProvider();
+    const authProvider = await getServerAuthProvider();
     logger.debug('[AfterSignInPage] Auth provider:', authProvider);
     logger.debug('[AfterSignInPage] Getting server user...');
     const user = await getServerUser();
@@ -54,6 +55,9 @@ export default async function AfterSignInPage() {
             }
         }
     } catch (error) {
+        if (isNextRouterError(error)) {
+            throw error;
+        }
         logger.error('[AfterSignInPage] Error checking workflows:', error);
     }
 

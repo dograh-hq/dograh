@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   logger.debug('[HomePage] Starting Home page render');
-  const authProvider = getServerAuthProvider();
+  const authProvider = await getServerAuthProvider();
   logger.debug('[HomePage] Auth provider:', authProvider);
 
   // For local/OSS provider, check if user has workflows
@@ -39,6 +39,8 @@ export default async function Home() {
           logger.debug('[HomePage] Redirecting to /workflow/create - no workflows found');
           redirect('/workflow/create');
         }
+      } else {
+        redirect('/auth/login');
       }
     } catch (error) {
       // Re-throw navigation errors (redirects, not found, etc.) - they're intentional

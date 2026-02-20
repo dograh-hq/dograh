@@ -148,3 +148,35 @@ class UserClient(BaseDBClient):
                 raise ValueError(f"User with ID {user_id} not found")
 
             await session.commit()
+
+    async def update_user_email(self, user_id: int, email: str) -> None:
+        """Update the user's email address."""
+        async with self.async_session() as session:
+            from sqlalchemy import update
+
+            stmt = update(UserModel).where(UserModel.id == user_id).values(email=email)
+            await session.execute(stmt)
+            await session.commit()
+
+    async def get_user_by_email(self, email: str) -> UserModel | None:
+        """Fetch a user by their email address."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(UserModel).where(UserModel.email == email)
+            )
+            return result.scalars().first()
+
+    async def create_user_with_email(
+        self, email: str, password_hash: str, name: str | None = None
+    ) -> UserModel:
+        """Create a new user with email and password hash."""
+        async with self.async_session() as session:
+            user = UserModel(
+                provider_id=f"email_{email}",
+                email=email,
+                password_hash=password_hash,
+            )
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+            return user

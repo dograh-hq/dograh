@@ -1,12 +1,11 @@
 import { StackHandler } from "@stackframe/stack";
 
-import { stackServerApp } from "../../../stack";
+import { getAuthProvider } from "@/lib/auth/config";
 
-const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER;
+export default async function Handler(props: unknown) {
+  const authProvider = await getAuthProvider();
 
-export default function Handler(props: unknown) {
   if (authProvider === "local") {
-    // Return a simple message when using local auth
     return (
       <div style={{ padding: '20px', textAlign: 'center' }}>
         <h1>Local Auth Mode</h1>
@@ -14,9 +13,14 @@ export default function Handler(props: unknown) {
       </div>
     );
   }
+
+  // Lazily import the real StackServerApp only when needed
+  const { getStackServerApp } = await import("@/lib/auth/server");
+  const app = await getStackServerApp();
+
   return <StackHandler
     fullPage
-    app={stackServerApp}
+    app={app!}
     routeProps={props}
   />;
 }

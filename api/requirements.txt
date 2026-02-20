@@ -15,3 +15,4 @@ sqlalchemy[asyncio]==2.0.43
 msgpack==1.1.2
 docling[rapidocr]==2.68.0
 pgvector==0.4.2
+bcrypt==5.0.0

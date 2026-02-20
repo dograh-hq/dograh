@@ -104,12 +104,6 @@ export async function getRedirectUrl(token: string, permissions: { id: string }[
   }
 }
 
-/**
- * Check if the application is running in OSS (Open Source Software) mode
- */
-export function isOSSMode(): boolean {
-  return process.env.NEXT_PUBLIC_DEPLOYMENT_MODE === 'oss';
-}
 
 /**
  * --------------------------------------------------------------------------

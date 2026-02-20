@@ -167,6 +167,8 @@ TURN_EOF
 echo -e "${GREEN}✓ turnserver.conf created${NC}"
 
 echo -e "${BLUE}[6/6] Creating environment file...${NC}"
+OSS_JWT_SECRET=$(openssl rand -hex 32)
+
 cat > .env << ENV_EOF
 # Backend API endpoint (for remote deployment)
 BACKEND_API_ENDPOINT=https://$SERVER_IP
@@ -174,6 +176,9 @@ BACKEND_API_ENDPOINT=https://$SERVER_IP
 # TURN Server Configuration (time-limited credentials via TURN REST API)
 TURN_HOST=$SERVER_IP
 TURN_SECRET=$TURN_SECRET
+
+# JWT secret for OSS authentication
+OSS_JWT_SECRET=$OSS_JWT_SECRET
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=true

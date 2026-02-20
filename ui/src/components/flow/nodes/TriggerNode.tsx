@@ -36,8 +36,7 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
     const [triggerPath] = useState(() => data.trigger_path ?? crypto.randomUUID());
 
     // Get backend URL from app config (fetched from backend health endpoint)
-    // Falls back to env variable, then to localhost for local development
-    const backendUrl = config?.backendApiEndpoint || process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
+    const backendUrl = config?.backendApiEndpoint || "http://localhost:8000";
     const endpoint = `${backendUrl}/api/v1/public/agent/${triggerPath}`;
 
     // Copy state for button feedback

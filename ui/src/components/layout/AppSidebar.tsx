@@ -8,7 +8,6 @@ import {
   CircleDollarSign,
   Database,
   FileText,
-  HelpCircle,
   Home,
   Key,
   LogOut,
@@ -24,7 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React from "react";
+import React, { useRef } from "react";
 
 import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
@@ -57,6 +56,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAppConfig } from "@/context/AppConfigContext";
+import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -75,7 +75,14 @@ export function AppSidebar() {
   const { config } = useAppConfig();
 
   // Get selected team for Stack auth (cast to Team type from Stack)
-  const selectedTeam = provider === "stack" && getSelectedTeam ? getSelectedTeam() as Team | null : null;
+  // Stabilize the reference so SelectedTeamSwitcher only sees a change when the team ID changes,
+  // preventing unnecessary PATCH calls to Stack Auth on every route navigation.
+  const selectedTeamRef = useRef<Team | null>(null);
+  const rawSelectedTeam = provider === "stack" && getSelectedTeam ? getSelectedTeam() as Team | null : null;
+  if (rawSelectedTeam?.id !== selectedTeamRef.current?.id) {
+    selectedTeamRef.current = rawSelectedTeam;
+  }
+  const selectedTeam = selectedTeamRef.current;
 
   // Version info from app config context
   const versionInfo = config ? { ui: config.uiVersion, api: config.apiVersion } : null;
@@ -358,54 +365,45 @@ export function AppSidebar() {
       )}>
         {/* Bottom Actions */}
         <div className="space-y-2">
-          {/* Get Help - for OSS mode */}
+          {/* User Button - for local/OSS mode */}
           {provider !== "stack" && (
-            <>
-              {state === "collapsed" ? (
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="w-full hover:bg-accent hover:text-accent-foreground"
-                        asChild
-                      >
-                        <a
-                          href="https://github.com/dograh-hq/dograh/issues/new/choose"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <HelpCircle className="h-4 w-4" />
-                          <span className="sr-only">Get Help</span>
-                        </a>
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      <p>Get Help</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : (
-                <Button
-                  variant="ghost"
-                  className="w-full justify-start hover:bg-accent hover:text-accent-foreground"
-                  asChild
-                >
-                  <a
-                    href="https://github.com/dograh-hq/dograh/issues/new/choose"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <HelpCircle className="h-4 w-4" />
-                    <span className="ml-2">Get Help</span>
-                  </a>
-                </Button>
-              )}
-            </>
+            <div className={cn(
+              "flex",
+              state === "collapsed" ? "justify-center" : "justify-start"
+            )}>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 cursor-pointer">
+                    <span className="text-xs font-medium">
+                      {(user?.displayName || (user as LocalUser | undefined)?.email || "")
+                        .split(/[\s@]/)
+                        .filter(Boolean)
+                        .slice(0, 2)
+                        .map((s: string) => s[0]?.toUpperCase())
+                        .join("")
+                        || "U"}
+                    </span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent side="top" align="start" className="w-56">
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      {(user as LocalUser | undefined)?.email && (
+                        <p className="text-xs text-muted-foreground">{(user as LocalUser).email}</p>
+                      )}
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
           )}
 
-          {/* User Button - at the bottom */}
+          {/* User Button - for Stack auth */}
           {provider === "stack" && (
             <div className={cn(
               "flex",

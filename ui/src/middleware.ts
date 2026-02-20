@@ -1,53 +1,57 @@
 import type { NextRequest } from 'next/server';
 import { NextResponse } from 'next/server';
 
-const OSS_TOKEN_COOKIE = 'dograh_oss_token';
-const OSS_USER_COOKIE = 'dograh_oss_user';
+const OSS_TOKEN_COOKIE = 'dograh_auth_token';
 
-function generateOSSToken(): string {
-  return `oss_${Date.now()}_${crypto.randomUUID()}`;
+// Paths that don't require authentication in OSS mode
+const PUBLIC_PATHS = ['/auth/login', '/auth/signup'];
+
+let cachedAuthProvider: string | null = null;
+
+async function fetchAuthProvider(): Promise<string> {
+  if (cachedAuthProvider) {
+    return cachedAuthProvider;
+  }
+
+  try {
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+    const res = await fetch(`${backendUrl}/api/v1/health`);
+    if (res.ok) {
+      const data = await res.json();
+      cachedAuthProvider = (data.auth_provider as string) || 'local';
+      return cachedAuthProvider;
+    }
+  } catch {
+    // Backend not reachable — fall back to local
+  }
+
+  cachedAuthProvider = 'local';
+  return cachedAuthProvider;
 }
 
-export function middleware(request: NextRequest) {
-  const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
+export async function middleware(request: NextRequest) {
+  const authProvider = await fetchAuthProvider();
 
   // Only handle OSS mode
   if (authProvider !== 'local') {
     return NextResponse.next();
   }
 
-  const response = NextResponse.next();
   const token = request.cookies.get(OSS_TOKEN_COOKIE)?.value;
+  const { pathname } = request.nextUrl;
 
-  // If no token exists, create one
-  if (!token) {
-    const newToken = generateOSSToken();
-    const user = {
-      id: newToken,
-      name: 'Local User',
-      provider: 'local',
-      organizationId: `org_${newToken}`,
-    };
-
-    // Set cookies in the response (httpOnly for security)
-    response.cookies.set(OSS_TOKEN_COOKIE, newToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-      path: '/',
-    });
-
-    response.cookies.set(OSS_USER_COOKIE, JSON.stringify(user), {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-      path: '/',
-    });
+  // Allow public paths without auth
+  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
+    return NextResponse.next();
   }
 
-  return response;
+  // If no token, redirect to login
+  if (!token) {
+    const loginUrl = new URL('/auth/login', request.url);
+    return NextResponse.redirect(loginUrl);
+  }
+
+  return NextResponse.next();
 }
 
 // Configure which routes the middleware runs on

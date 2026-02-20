@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 
 // Server component for integration list
 async function IntegrationList() {
-    const authProvider = getServerAuthProvider();
+    const authProvider = await getServerAuthProvider();
     const accessToken = await getServerAccessToken();
 
     if (!accessToken) {

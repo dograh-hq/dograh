@@ -20,12 +20,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useAppConfig } from '@/context/AppConfigContext';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
-import { isOSSMode } from '@/lib/utils';
 
 export default function APIKeysPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
+    const { config } = useAppConfig();
+    const isOSS = config?.deploymentMode === 'oss';
 
     logger.debug('[APIKeysPage] Component render', {
         loading,
@@ -313,8 +315,8 @@ export default function APIKeysPage() {
 
     // In OSS mode, check if there's already an active service key
     const activeServiceKeys = serviceKeys.filter(key => !key.archived_at);
-    const canCreateServiceKey = !isOSSMode() || activeServiceKeys.length === 0;
-    const showServiceKeyArchiveControls = !isOSSMode();
+    const canCreateServiceKey = !isOSS || activeServiceKeys.length === 0;
+    const showServiceKeyArchiveControls = !isOSS;
 
     return (
         <div className="min-h-screen bg-background">

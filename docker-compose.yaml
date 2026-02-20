@@ -118,6 +118,8 @@ services:
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
 
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
+
     ports:
       - "8000:8000"
     depends_on:
@@ -148,7 +150,6 @@ services:
       # Server-side URL (SSR, internal Docker network)
       BACKEND_URL: "http://api:8000"
       NODE_ENV: "oss"
-
       # Flag to enable/ disable posthog and sentry
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
 

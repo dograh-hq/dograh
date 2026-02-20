@@ -1,19 +1,18 @@
 /*
   Provides authentication token to LocalProviderWrapper once loaded
-  in the browser
+  in the browser.
+  Returns 401 if no token cookie exists (user needs to log in).
 */
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-const OSS_TOKEN_COOKIE = 'dograh_oss_token';
-const OSS_USER_COOKIE = 'dograh_oss_user';
+import { getAuthProvider } from '@/lib/auth/config';
 
-function generateOSSToken(): string {
-  return `oss_${Date.now()}_${crypto.randomUUID()}`;
-}
+const OSS_TOKEN_COOKIE = 'dograh_auth_token';
+const OSS_USER_COOKIE = 'dograh_auth_user';
 
 export async function GET() {
-  const authProvider = process.env.NEXT_PUBLIC_AUTH_PROVIDER || 'stack';
+  const authProvider = await getAuthProvider();
 
   // Only handle OSS mode
   if (authProvider !== 'local') {
@@ -21,40 +20,17 @@ export async function GET() {
   }
 
   const cookieStore = await cookies();
-  let token = cookieStore.get(OSS_TOKEN_COOKIE)?.value;
-  let user = cookieStore.get(OSS_USER_COOKIE)?.value;
+  const token = cookieStore.get(OSS_TOKEN_COOKIE)?.value;
+  const user = cookieStore.get(OSS_USER_COOKIE)?.value;
 
-  // If no token exists, create one
+  // If no token exists, return 401 (user needs to sign up or log in)
   if (!token) {
-    token = generateOSSToken();
-    user = JSON.stringify({
-      id: token,
-      name: 'Local User',
-      provider: 'local',
-      organizationId: `org_${token}`,
-    });
-
-    // Set cookies
-    cookieStore.set(OSS_TOKEN_COOKIE, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-      path: '/',
-    });
-
-    cookieStore.set(OSS_USER_COOKIE, user, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30, // 30 days
-      path: '/',
-    });
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
-  // Return the auth info as JSON (safe to expose to client)
+  // Return the auth info as JSON
   return NextResponse.json({
     token,
-    user: JSON.parse(user!),
+    user: user ? JSON.parse(user) : { id: token, name: 'Local User', provider: 'local' },
   });
 }

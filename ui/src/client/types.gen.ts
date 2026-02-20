@@ -80,6 +80,11 @@ export type AdminCommentResponse = {
     admin_comment_ts: string;
 };
 
+export type AuthResponse = {
+    token: string;
+    user: UserResponse;
+};
+
 export type AuthUserResponse = {
     id: number;
     is_superuser: boolean;
@@ -599,6 +604,8 @@ export type HealthResponse = {
     status: string;
     version: string;
     backend_api_endpoint: string;
+    deployment_mode: string;
+    auth_provider: string;
 };
 
 /**
@@ -721,6 +728,11 @@ export type LoadTestStatsResponse = {
     }>;
 };
 
+export type LoginRequest = {
+    email: string;
+    password: string;
+};
+
 export type PresignedUploadUrlRequest = {
     /**
      * CSV filename
@@ -806,6 +818,12 @@ export type ServiceKeyResponse = {
 export type SessionResponse = {
     session_token: string;
     expires_at: string;
+};
+
+export type SignupRequest = {
+    email: string;
+    password: string;
+    name?: string | null;
 };
 
 export type SuperuserWorkflowRunResponse = {
@@ -1127,6 +1145,13 @@ export type UserConfigurationRequestResponseSchema = {
     organization_pricing?: {
         [key: string]: number | string | boolean;
     } | null;
+};
+
+export type UserResponse = {
+    id: number;
+    email: string | null;
+    name?: string | null;
+    organization_id?: number | null;
 };
 
 export type ValidateWorkflowResponse = {
@@ -5017,6 +5042,97 @@ export type SearchChunksApiV1KnowledgeBaseSearchPostResponses = {
 };
 
 export type SearchChunksApiV1KnowledgeBaseSearchPostResponse = SearchChunksApiV1KnowledgeBaseSearchPostResponses[keyof SearchChunksApiV1KnowledgeBaseSearchPostResponses];
+
+export type SignupApiV1AuthSignupPostData = {
+    body: SignupRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/signup';
+};
+
+export type SignupApiV1AuthSignupPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SignupApiV1AuthSignupPostError = SignupApiV1AuthSignupPostErrors[keyof SignupApiV1AuthSignupPostErrors];
+
+export type SignupApiV1AuthSignupPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AuthResponse;
+};
+
+export type SignupApiV1AuthSignupPostResponse = SignupApiV1AuthSignupPostResponses[keyof SignupApiV1AuthSignupPostResponses];
+
+export type LoginApiV1AuthLoginPostData = {
+    body: LoginRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/login';
+};
+
+export type LoginApiV1AuthLoginPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LoginApiV1AuthLoginPostError = LoginApiV1AuthLoginPostErrors[keyof LoginApiV1AuthLoginPostErrors];
+
+export type LoginApiV1AuthLoginPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AuthResponse;
+};
+
+export type LoginApiV1AuthLoginPostResponse = LoginApiV1AuthLoginPostResponses[keyof LoginApiV1AuthLoginPostResponses];
+
+export type GetCurrentUserApiV1AuthMeGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/me';
+};
+
+export type GetCurrentUserApiV1AuthMeGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCurrentUserApiV1AuthMeGetError = GetCurrentUserApiV1AuthMeGetErrors[keyof GetCurrentUserApiV1AuthMeGetErrors];
+
+export type GetCurrentUserApiV1AuthMeGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserResponse;
+};
+
+export type GetCurrentUserApiV1AuthMeGetResponse = GetCurrentUserApiV1AuthMeGetResponses[keyof GetCurrentUserApiV1AuthMeGetResponses];
 
 export type HealthApiV1HealthGetData = {
     body?: never;

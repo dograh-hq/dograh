@@ -23,6 +23,12 @@ export function LocalProviderWrapper({ children }: { children: React.ReactNode }
           tokenRef.current = data.token;
           setUser(data.user);
           logger.info('OSS auth initialized', { user: data.user });
+        } else if (response.status === 401) {
+          // No token - redirect to login (but not if already on auth pages)
+          if (!window.location.pathname.startsWith('/auth/')) {
+            window.location.href = '/auth/login';
+            return;
+          }
         } else {
           logger.error('Failed to initialize OSS auth');
         }
@@ -48,12 +54,18 @@ export function LocalProviderWrapper({ children }: { children: React.ReactNode }
   }, []);
 
   const redirectToLogin = React.useCallback(() => {
-    logger.info('Login redirect not needed in local mode');
+    window.location.href = '/auth/login';
   }, []);
 
   const logout = React.useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch (error) {
+      logger.error('Error during logout', error);
+    }
     setUser(null);
-    logger.info('Logout requested in OSS mode - server cookies need to be cleared');
+    tokenRef.current = null;
+    window.location.href = '/auth/login';
   }, []);
 
   const contextValue = useMemo(() => ({

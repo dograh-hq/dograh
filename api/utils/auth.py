@@ -16,7 +16,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_jwt_token(user_id: int, email: str) -> str:
     payload = {
-        "sub": user_id,
+        "sub": str(user_id),
         "email": email,
         "exp": datetime.now(UTC) + timedelta(hours=OSS_JWT_EXPIRY_HOURS),
         "iat": datetime.now(UTC),

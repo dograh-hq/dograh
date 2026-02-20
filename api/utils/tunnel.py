@@ -27,7 +27,6 @@ class TunnelURLProvider:
             # Try to get URL from cloudflared metrics
             urls = await cls._get_cloudflared_urls()
             if urls:
-                logger.info(f"Retrieved tunnel URLs from cloudflared: {urls}")
                 return urls
         except Exception as e:
             logger.warning(f"Failed to get tunnel URL from cloudflared: {e}")

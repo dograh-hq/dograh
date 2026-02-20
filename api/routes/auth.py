@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
 from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResponse
-from api.services.auth.depends import get_user
+from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
 from api.utils.auth import create_jwt_token, hash_password, verify_password
 
 router = APIRouter(
@@ -28,7 +29,7 @@ async def signup(request: SignupRequest):
     )
 
     # Create organization for the user
-    org_provider_id = f"org_email_{request.email}"
+    org_provider_id = f"org_{user.provider_id}"
     organization, _ = await db_client.get_or_create_organization_by_provider_id(
         org_provider_id=org_provider_id, user_id=user.id
     )
@@ -36,6 +37,18 @@ async def signup(request: SignupRequest):
     # Link user to organization
     await db_client.add_user_to_organization(user.id, organization.id)
     await db_client.update_user_selected_organization(user.id, organization.id)
+
+    # Create default service configuration
+    try:
+        mps_config = await create_user_configuration_with_mps_key(
+            user.id, organization.id, user.provider_id
+        )
+        if mps_config:
+            await db_client.update_user_configuration(user.id, mps_config)
+    except Exception:
+        logger.warning(
+            "Failed to create default configuration for OSS user", exc_info=True
+        )
 
     # Create JWT token
     token = create_jwt_token(user.id, request.email)

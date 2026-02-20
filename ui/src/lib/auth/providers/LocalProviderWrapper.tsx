@@ -70,7 +70,7 @@ export function LocalProviderWrapper({ children }: { children: React.ReactNode }
 
   const contextValue = useMemo(() => ({
     user: user as AuthUser,
-    isAuthenticated: !loading,
+    isAuthenticated: !!user,
     loading,
     getAccessToken,
     redirectToLogin,

@@ -151,7 +151,7 @@ async def _handle_oss_auth(authorization: str | None) -> UserModel:
 
     try:
         payload = decode_jwt_token(token)
-        user = await db_client.get_user_by_id(payload["sub"])
+        user = await db_client.get_user_by_id(int(payload["sub"]))
         if user:
             return user
         raise HTTPException(status_code=401, detail="User not found")

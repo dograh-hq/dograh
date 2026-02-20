@@ -119,10 +119,6 @@ async def get_backend_endpoints() -> tuple[str, str]:
         _validate_url(BACKEND_API_ENDPOINT)
 
     if BACKEND_API_ENDPOINT:
-        logger.debug(
-            f"Processing BACKEND_API_ENDPOINT from environment: {BACKEND_API_ENDPOINT}"
-        )
-
         # Handle localhost/127.0.0.1 special case - use tunnel URL if available
         if "localhost" in BACKEND_API_ENDPOINT or "127.0.0.1" in BACKEND_API_ENDPOINT:
             logger.debug(

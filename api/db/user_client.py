@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from loguru import logger
@@ -172,7 +173,7 @@ class UserClient(BaseDBClient):
         """Create a new user with email and password hash."""
         async with self.async_session() as session:
             user = UserModel(
-                provider_id=f"email_{email}",
+                provider_id=f"oss_{int(datetime.now(timezone.utc).timestamp())}_{uuid.uuid4()}",
                 email=email,
                 password_hash=password_hash,
             )

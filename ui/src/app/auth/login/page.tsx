@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -12,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -26,7 +24,7 @@ export default function LoginPage() {
         body: { email, password },
       });
 
-      if (res.error) {
+      if (res.error || !res.data) {
         const detail = (res.error as { detail?: string })?.detail;
         toast.error(detail || "Login failed");
         return;
@@ -39,7 +37,7 @@ export default function LoginPage() {
         body: JSON.stringify({ token: res.data.token, user: res.data.user }),
       });
 
-      router.push("/after-sign-in");
+      window.location.href = "/after-sign-in";
     } catch {
       toast.error("An error occurred. Please try again.");
     } finally {

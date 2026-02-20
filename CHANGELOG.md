@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.15.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.14.0...dograh-v1.15.0) (2026-02-20)
+
+
+### Features
+
+* add asterisk ARI websocket interface ([#159](https://github.com/dograh-hq/dograh/issues/159)) ([7552b6c](https://github.com/dograh-hq/dograh/commit/7552b6c81980482dfa8cd70abf91d0810f3f96f1))
+* add authentication for OSS ([#167](https://github.com/dograh-hq/dograh/issues/167)) ([642cc34](https://github.com/dograh-hq/dograh/commit/642cc34e8ca6ea112b170ae065f5b889bdffe779))
+
+
+### Bug Fixes
+
+* Fixes [#139](https://github.com/dograh-hq/dograh/issues/139) ([9ce5a8e](https://github.com/dograh-hq/dograh/commit/9ce5a8e5e262032c8949dceec674b46e9d1a6b8c))
+* missing call_id in gathered_context ([#165](https://github.com/dograh-hq/dograh/issues/165)) ([13b4143](https://github.com/dograh-hq/dograh/commit/13b41437e8753d30f430d2e2a6ebfaffb47c8186))
+* trigger user turn stop ([ee4a874](https://github.com/dograh-hq/dograh/commit/ee4a874e540617953b691112b221600c84d4986f))
+
 ## [1.14.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.13.0...dograh-v1.14.0) (2026-02-16)
 
 

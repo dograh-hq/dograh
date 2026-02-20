@@ -103,6 +103,9 @@ services:
       MINIO_BUCKET: "voice-audio"
       MINIO_SECURE: "false"
 
+      # FastAPI workers count
+      FASTAPI_WORKERS: 1
+
       # Langfuse
       ENABLE_TRACING: "false"
       # LANGFUSE_SECRET_KEY: ""

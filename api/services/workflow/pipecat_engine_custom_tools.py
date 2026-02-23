@@ -341,16 +341,16 @@ class CustomToolManager:
 
                 # Validate destination format based on workflow run mode
                 if workflow_run.mode == WorkflowRunMode.ARI.value:
-                    # For ARI provider, also accept SIP endpoints  
+                    # For ARI provider, also accept SIP endpoints
                     SIP_ENDPOINT_REGEX = r"^(PJSIP|SIP)\/[\w\-\.@]+$"
                     E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
-                    
+
                     is_valid_sip = re.match(SIP_ENDPOINT_REGEX, destination)
                     is_valid_e164 = re.match(E164_PHONE_REGEX, destination)
-                    
+
                     if not (is_valid_sip or is_valid_e164):
                         validation_error_result = {
-                            "status": "failed", 
+                            "status": "failed",
                             "message": "I'm sorry, but the transfer destination appears to be invalid. Please contact support to verify the transfer settings.",
                             "action": "transfer_failed",
                             "reason": "invalid_destination",
@@ -367,7 +367,7 @@ class CustomToolManager:
                         validation_error_result = {
                             "status": "failed",
                             "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
-                            "action": "transfer_failed", 
+                            "action": "transfer_failed",
                             "reason": "invalid_destination",
                             "end_call": True,
                         }
@@ -540,7 +540,7 @@ class CustomToolManager:
 
             finally:
                 # Schedule background cleanup of transfer context after pipeline processing delay
-                if 'transfer_id' in locals():
+                if "transfer_id" in locals():
                     asyncio.create_task(
                         self._cleanup_transfer_context_delayed(transfer_id)
                     )
@@ -552,12 +552,14 @@ class CustomToolManager:
         try:
             # Wait for pipeline to process EndFrame(reason="transfer_call") in serializers
             await asyncio.sleep(1.0)  # 1 second delay for async pipeline processing
-            
+
             call_transfer_manager = await get_call_transfer_manager()
             await call_transfer_manager.remove_transfer_context(transfer_id)
             logger.info(f"Background cleanup: removed transfer context {transfer_id}")
         except Exception as e:
-            logger.error(f"Background cleanup error for transfer context {transfer_id}: {e}")
+            logger.error(
+                f"Background cleanup error for transfer context {transfer_id}: {e}"
+            )
 
     async def _handle_transfer_result(
         self, result: dict, function_call_params, properties

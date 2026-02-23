@@ -203,7 +203,7 @@ export default function ToolDetailPage() {
             const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
             const isValidE164 = e164Pattern.test(transferDestination);
             const isValidSip = sipPattern.test(transferDestination);
-            
+
             if (!transferDestination || (!isValidE164 && !isValidSip)) {
                 setError("Please enter a valid phone number (E.164 format) or SIP endpoint (e.g., PJSIP/1234)");
                 return;

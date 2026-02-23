@@ -1,11 +1,12 @@
 "use client";
 
+import {useState } from "react";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-import { useState, useEffect } from "react";
 
 import { type EndCallMessageType } from "../../config";
 
@@ -53,14 +54,14 @@ export function TransferCallToolConfig({
 
     const getValidationError = (): string | null => {
         if (!destination) return null;
-        
+
         if (sipMode) {
-            return isValidSipEndpoint(destination) 
-                ? null 
+            return isValidSipEndpoint(destination)
+                ? null
                 : "Please enter a valid SIP endpoint (e.g., PJSIP/1234 or SIP/extension@domain.com)";
         } else {
-            return isValidPhoneNumber(destination) 
-                ? null 
+            return isValidPhoneNumber(destination)
+                ? null
                 : "Please enter a valid phone number in E.164 format (e.g., +1234567890)";
         }
     };
@@ -109,7 +110,7 @@ export function TransferCallToolConfig({
                 <div className="grid gap-2 pt-4 border-t">
                     <Label>Transfer Destination</Label>
                     <Label className="text-xs text-muted-foreground">
-                        {sipMode 
+                        {sipMode
                             ? "SIP endpoint to transfer the call to (e.g., PJSIP/1234 or SIP/extension@domain.com)"
                             : "Phone number to transfer the call to (E.164 format with country code)"
                         }

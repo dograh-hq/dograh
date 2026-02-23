@@ -96,13 +96,13 @@ class TransferCallConfig(BaseModel):
 
         # E.164 format: +[1-9]\d{1,14}
         e164_pattern = r"^\+[1-9]\d{1,14}$"
-        
+
         # SIP endpoint format: PJSIP/extension or SIP/extension
         sip_pattern = r"^(PJSIP|SIP)/[\w\-\.@]+$"
-        
+
         is_valid_e164 = re.match(e164_pattern, v)
         is_valid_sip = re.match(sip_pattern, v, re.IGNORECASE)
-        
+
         if not (is_valid_e164 or is_valid_sip):
             raise ValueError(
                 "Destination must be a valid E.164 phone number (e.g., +1234567890) or SIP endpoint (e.g., PJSIP/1234)"

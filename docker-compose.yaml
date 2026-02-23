@@ -74,27 +74,27 @@ services:
     networks:
       - app-network
 
-  # api:
-  #   image: ${REGISTRY:-dograhai}/dograh-api:latest
-  #   volumes:
-  #     - shared-tmp:/tmp
-  #   environment:
-  #     # Core application config
-  #     ENVIRONMENT: "local"
-  #     LOG_LEVEL: "INFO"
+  api:
+    image: ${REGISTRY:-dograhai}/dograh-api:latest
+    volumes:
+      - shared-tmp:/tmp
+    environment:
+      # Core application config
+      ENVIRONMENT: "local"
+      LOG_LEVEL: "INFO"
 
-  #     # Replace this environment variable if you are using a custom
-  #     # domain to host the stack
-  #     BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+      # Replace this environment variable if you are using a custom
+      # domain to host the stack
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
 
-  #     # Database configuration (using containerized postgres)
-  #     DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
+      # Database configuration (using containerized postgres)
+      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
 
-  #     # Redis configuration (using containerized redis)
-  #     REDIS_URL: "redis://:redissecret@redis:6379"
+      # Redis configuration (using containerized redis)
+      REDIS_URL: "redis://:redissecret@redis:6379"
 
-  #     # Storage configuration - using local MinIO
-  #     ENABLE_AWS_S3: "false"
+      # Storage configuration - using local MinIO
+      ENABLE_AWS_S3: "false"
 
       # MinIO
       MINIO_ENDPOINT: "minio:9000"
@@ -112,10 +112,10 @@ services:
       # LANGFUSE_PUBLIC_KEY: ""
       # LANGFUSE_HOST: ""
 
-  #     # TURN server configuration (for WebRTC NAT traversal in remote server)
-  #     # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
-  #     TURN_HOST: "${TURN_HOST:-}"
-  #     TURN_SECRET: "${TURN_SECRET:-}"
+      # TURN server configuration (for WebRTC NAT traversal in remote server)
+      # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
+      TURN_HOST: "${TURN_HOST:-}"
+      TURN_SECRET: "${TURN_SECRET:-}"
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
 
@@ -182,32 +182,32 @@ services:
     networks:
       - app-network
 
-  # coturn:
-  #   image: coturn/coturn:4.8.0
-  #   container_name: coturn
-  #   restart: unless-stopped
-  #   profiles: ["remote"]
-  #   ports:
-  #     - "3478:3478/udp"
-  #     - "3478:3478/tcp"
-  #     - "5349:5349/udp"
-  #     - "5349:5349/tcp"
-  #     - "49152-49200:49152-49200/udp"
-  #   volumes:
-  #     - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-  #   command:
-  #     - -c
-  #     - /etc/coturn/turnserver.conf
-  #   networks:
-  #     - app-network
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    restart: unless-stopped
+    profiles: ["remote"]
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    networks:
+      - app-network
 
 volumes:
   postgres_data:
   redis_data:
   minio-data:
     driver: local
-  # shared-tmp:
-  #   driver: local
+  shared-tmp:
+    driver: local
 
 networks:
   app-network:

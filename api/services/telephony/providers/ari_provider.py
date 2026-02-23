@@ -415,13 +415,10 @@ class ARIProvider(TelephonyProvider):
             sip_endpoint = f"PJSIP/{destination}"
 
         # Build transfer appArgs for event correlation
-        app_args = f"transfer,{transfer_id},{conference_name}"
+        app_args = f"transfer,{transfer_id}"
 
         try:
-            # Build endpoint URL following existing pattern
             endpoint = f"{self.base_url}/channels"
-
-            # Prepare channel creation params following existing pattern
             params = {
                 "endpoint": sip_endpoint,
                 "app": self.app_name,
@@ -429,7 +426,6 @@ class ARIProvider(TelephonyProvider):
                 "timeout": timeout,  # Keep timeout for transfer calls
             }
 
-            # Originate destination channel using existing pattern
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     endpoint,
@@ -460,7 +456,7 @@ class ARIProvider(TelephonyProvider):
                 context, ttl=timeout + 10
             )
 
-            # Store transfer channel mapping for event correlation (works with any dialplan setup)
+            # Store transfer channel mapping for event correlation
             await call_transfer_manager.store_transfer_channel_mapping(
                 destination_channel_id, transfer_id
             )
@@ -486,7 +482,7 @@ class ARIProvider(TelephonyProvider):
 
     async def hangup_channel(self, channel_id: str, reason: str = "normal") -> bool:
         """Hang up an ARI channel."""
-        endpwoint = f"{self.base_url}/channels/{channel_id}"
+        endpoint = f"{self.base_url}/channels/{channel_id}"
         params = {"reason_code": reason}
 
         try:

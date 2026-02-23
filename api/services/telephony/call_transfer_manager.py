@@ -85,6 +85,20 @@ class CallTransferManager:
         except Exception as e:
             logger.error(f"Failed to remove transfer context: {e}")
 
+    async def store_transfer_channel_mapping(self, channel_id: str, transfer_id: str) -> None:
+        """Store channel->transfer mapping in Redis for event correlation.
+
+        Args:
+            channel_id: ARI channel ID
+            transfer_id: Transfer identifier
+        """
+        try:
+            redis = await self._get_redis()
+            await redis.setex(f"ari:transfer_channel:{channel_id}", 300, transfer_id)  # 5 minute TTL
+            logger.debug(f"[Transfer Manager] Stored channel mapping: channel={channel_id}, transfer_id={transfer_id}")
+        except Exception as e:
+            logger.error(f"[Transfer Manager] Error storing transfer channel mapping: {e}")
+
     async def publish_transfer_event(self, event: TransferEvent) -> None:
         """Publish transfer event to Redis channel.
 

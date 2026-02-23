@@ -71,7 +71,7 @@ class TransferCallConfig(BaseModel):
     """Configuration for Transfer Call tools."""
 
     destination: str = Field(
-        description="Phone number to transfer the call to (E.164 format, e.g., +1234567890)"
+        description="Phone number or SIP endpoint to transfer the call to (E.164 format e.g., +1234567890, or SIP endpoint e.g., PJSIP/1234)"
     )
     messageType: Literal["none", "custom"] = Field(
         default="none", description="Type of message to play before transfer"
@@ -89,16 +89,23 @@ class TransferCallConfig(BaseModel):
     @field_validator("destination")
     @classmethod
     def validate_destination(cls, v: str) -> str:
-        """Validate that destination is a valid E.164 phone number."""
+        """Validate that destination is a valid E.164 phone number or SIP endpoint."""
         # Allow empty string for initial creation (like HTTP API tools with empty URL)
         if not v.strip():
             return v
 
         # E.164 format: +[1-9]\d{1,14}
         e164_pattern = r"^\+[1-9]\d{1,14}$"
-        if not re.match(e164_pattern, v):
+        
+        # SIP endpoint format: PJSIP/extension or SIP/extension
+        sip_pattern = r"^(PJSIP|SIP)/[\w\-\.@]+$"
+        
+        is_valid_e164 = re.match(e164_pattern, v)
+        is_valid_sip = re.match(sip_pattern, v, re.IGNORECASE)
+        
+        if not (is_valid_e164 or is_valid_sip):
             raise ValueError(
-                "Destination must be a valid E.164 phone number (e.g., +1234567890)"
+                "Destination must be a valid E.164 phone number (e.g., +1234567890) or SIP endpoint (e.g., PJSIP/1234)"
             )
         return v
 

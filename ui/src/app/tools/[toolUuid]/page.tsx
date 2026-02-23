@@ -198,10 +198,14 @@ export default function ToolDetailPage() {
 
         // Validation based on tool type
         if (tool.category === "transfer_call") {
-            // Validate destination phone number for Transfer Call tools
+            // Validate destination for Transfer Call tools (supports both E.164 and SIP endpoints)
             const e164Pattern = /^\+[1-9]\d{1,14}$/;
-            if (!transferDestination || !e164Pattern.test(transferDestination)) {
-                setError("Please enter a valid phone number in E.164 format (e.g., +1234567890)");
+            const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
+            const isValidE164 = e164Pattern.test(transferDestination);
+            const isValidSip = sipPattern.test(transferDestination);
+            
+            if (!transferDestination || (!isValidE164 && !isValidSip)) {
+                setError("Please enter a valid phone number (E.164 format) or SIP endpoint (e.g., PJSIP/1234)");
                 return;
             }
         } else if (tool.category !== "end_call") {

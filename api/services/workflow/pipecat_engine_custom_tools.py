@@ -339,20 +339,42 @@ class CustomToolManager:
                     )
                     return
 
-                # Validate E.164 format
-                E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
-                if not re.match(E164_PHONE_REGEX, destination):
-                    validation_error_result = {
-                        "status": "failed",
-                        "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
-                        "action": "transfer_failed",
-                        "reason": "invalid_destination",
-                        "end_call": True,
-                    }
-                    await self._handle_transfer_result(
-                        validation_error_result, function_call_params, properties
-                    )
-                    return
+                # Validate destination format based on workflow run mode
+                if workflow_run.mode == WorkflowRunMode.ARI.value:
+                    # For ARI provider, also accept SIP endpoints  
+                    SIP_ENDPOINT_REGEX = r"^(PJSIP|SIP)\/[\w\-\.@]+$"
+                    E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
+                    
+                    is_valid_sip = re.match(SIP_ENDPOINT_REGEX, destination)
+                    is_valid_e164 = re.match(E164_PHONE_REGEX, destination)
+                    
+                    if not (is_valid_sip or is_valid_e164):
+                        validation_error_result = {
+                            "status": "failed", 
+                            "message": "I'm sorry, but the transfer destination appears to be invalid. Please contact support to verify the transfer settings.",
+                            "action": "transfer_failed",
+                            "reason": "invalid_destination",
+                            "end_call": True,
+                        }
+                        await self._handle_transfer_result(
+                            validation_error_result, function_call_params, properties
+                        )
+                        return
+                else:
+                    # For non-ARI providers (Twilio, etc), use E.164 validation
+                    E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
+                    if not re.match(E164_PHONE_REGEX, destination):
+                        validation_error_result = {
+                            "status": "failed",
+                            "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
+                            "action": "transfer_failed", 
+                            "reason": "invalid_destination",
+                            "end_call": True,
+                        }
+                        await self._handle_transfer_result(
+                            validation_error_result, function_call_params, properties
+                        )
+                        return
 
                 if message_type == "custom" and custom_message:
                     logger.info(f"Playing pre-transfer message: {custom_message}")
@@ -466,15 +488,15 @@ class CustomToolManager:
                     transfer_event = None
 
                 finally:
-                    # Single cleanup point: stop hold music, unmute pipeline, remove context
+                    # Cleanup hold music and pipeline state
+                    # Transfer context cleanup is now handled by respective serializers
                     logger.info(
-                        "Transfer wait ended, cleaning up hold music, pipeline state, and transfer context"
+                        "Transfer wait ended, cleaning up hold music and pipeline state"
                     )
                     hold_music_stop_event.set()
                     if hold_music_task:
                         await hold_music_task
                     self._engine.set_mute_pipeline(False)
-                    await call_transfer_manager.remove_transfer_context(transfer_id)
 
                 # Handle result (after cleanup)
                 if transfer_event:
@@ -516,7 +538,26 @@ class CustomToolManager:
                     exception_result, function_call_params, properties
                 )
 
+            finally:
+                # Schedule background cleanup of transfer context after pipeline processing delay
+                if 'transfer_id' in locals():
+                    asyncio.create_task(
+                        self._cleanup_transfer_context_delayed(transfer_id)
+                    )
+
         return transfer_call_handler
+
+    async def _cleanup_transfer_context_delayed(self, transfer_id: str):
+        """Background task to clean up transfer context after pipeline processing delay."""
+        try:
+            # Wait for pipeline to process EndFrame(reason="transfer_call") in serializers
+            await asyncio.sleep(1.0)  # 1 second delay for async pipeline processing
+            
+            call_transfer_manager = await get_call_transfer_manager()
+            await call_transfer_manager.remove_transfer_context(transfer_id)
+            logger.info(f"Background cleanup: removed transfer context {transfer_id}")
+        except Exception as e:
+            logger.error(f"Background cleanup error for transfer context {transfer_id}: {e}")
 
     async def _handle_transfer_result(
         self, result: dict, function_call_params, properties

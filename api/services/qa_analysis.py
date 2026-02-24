@@ -232,8 +232,26 @@ async def run_qa_analysis(
         logger.error(f"QA LLM call failed for run {workflow_run_id}: {e}")
         return {"error": str(e), "tags": [], "summary": "", "score": None}
 
+    # Extract token usage from LLM response
+    token_usage = None
+    if response.usage:
+        token_usage = {
+            "prompt_tokens": response.usage.prompt_tokens or 0,
+            "completion_tokens": response.usage.completion_tokens or 0,
+            "total_tokens": response.usage.total_tokens or 0,
+            "cache_read_input_tokens": getattr(
+                response.usage, "cache_read_input_tokens", 0
+            )
+            or 0,
+            "cache_creation_input_tokens": getattr(
+                response.usage, "cache_creation_input_tokens", None
+            ),
+        }
+
     # Parse response
-    result: dict[str, Any] = {"raw_response": raw_response}
+    result: dict[str, Any] = {"raw_response": raw_response, "model": model}
+    if token_usage:
+        result["token_usage"] = token_usage
     try:
         parsed = parse_llm_json(raw_response)
         result["tags"] = parsed.get("tags", [])

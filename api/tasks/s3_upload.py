@@ -6,6 +6,7 @@ from loguru import logger
 from api.db import db_client
 from api.services.storage import get_current_storage_backend, storage_fs
 from api.tasks.run_integrations import run_integrations_post_workflow_run
+from api.services.pricing.workflow_run_cost import calculate_workflow_run_cost
 from pipecat.utils.run_context import set_current_run_id
 
 
@@ -162,10 +163,16 @@ async def process_workflow_completion(
                 except Exception as e:
                     logger.warning(f"Failed to clean up temp transcript file: {e}")
 
-    # Step 3: Run webhook integrations (after uploads are complete)
+    # Step 3: Run integrations including QA analysis (after uploads are complete)
     try:
         await run_integrations_post_workflow_run(_ctx, workflow_run_id)
     except Exception as e:
         logger.error(f"Error running integrations for workflow {workflow_run_id}: {e}")
+
+    # Step 4: Calculate cost after integrations (so QA token usage is included)
+    try:
+        await calculate_workflow_run_cost(workflow_run_id)
+    except Exception as e:
+        logger.error(f"Error calculating cost for workflow {workflow_run_id}: {e}")
 
     logger.info(f"Completed workflow completion processing for run {workflow_run_id}")

@@ -50,6 +50,47 @@ async def _run_qa_nodes(
     return results
 
 
+async def _update_usage_info_with_qa_tokens(
+    workflow_run_id: int,
+    workflow_run: WorkflowRunModel,
+    qa_results: Dict[str, Any],
+) -> None:
+    """Add QA analysis LLM token usage to the workflow run's usage_info."""
+    try:
+        usage_info = dict(workflow_run.usage_info or {})
+        llm_usage = dict(usage_info.get("llm", {}))
+
+        for _node_key, result in qa_results.items():
+            token_usage = result.get("token_usage")
+            model = result.get("model")
+            if not token_usage or not model:
+                continue
+
+            key = f"QAAnalysis|||{model}"
+            if key in llm_usage:
+                # Aggregate if multiple QA nodes use the same model
+                existing = llm_usage[key]
+                for field in (
+                    "prompt_tokens",
+                    "completion_tokens",
+                    "total_tokens",
+                    "cache_read_input_tokens",
+                ):
+                    existing[field] = (existing.get(field) or 0) + (
+                        token_usage.get(field) or 0
+                    )
+            else:
+                llm_usage[key] = token_usage
+
+        usage_info["llm"] = llm_usage
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id, usage_info=usage_info
+        )
+        logger.info(f"Updated usage_info with QA token usage for run {workflow_run_id}")
+    except Exception as e:
+        logger.error(f"Failed to update usage_info with QA tokens: {e}")
+
+
 async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
     """
     Run integrations after a workflow run completes.
@@ -107,6 +148,12 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 await db_client.update_workflow_run(
                     workflow_run_id, annotations=qa_results
                 )
+
+                # Add QA token usage to workflow run's usage_info
+                await _update_usage_info_with_qa_tokens(
+                    workflow_run_id, workflow_run, qa_results
+                )
+
                 # Re-fetch workflow_run to get updated annotations
                 workflow_run, _ = await db_client.get_workflow_run_with_context(
                     workflow_run_id

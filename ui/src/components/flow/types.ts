@@ -4,7 +4,8 @@ export enum NodeType {
     END_CALL = 'endCall',
     GLOBAL_NODE = 'globalNode',
     TRIGGER = 'trigger',
-    WEBHOOK = 'webhook'
+    WEBHOOK = 'webhook',
+    QA = 'qa'
 }
 
 export type FlowNodeData = {
@@ -40,6 +41,10 @@ export type FlowNodeData = {
         max_retries: number;
         retry_delay_seconds: number;
     };
+    // QA node specific
+    qa_enabled?: boolean;
+    qa_system_prompt?: string;
+    qa_model?: string;
     // Tools - array of tool UUIDs that can be invoked by this node
     tool_uuids?: string[];
     // Documents - array of knowledge base document UUIDs that can be referenced by this node

@@ -1,4 +1,4 @@
-"""Execute webhook integrations after workflow run completion."""
+"""Execute integrations (QA analysis, webhooks) after workflow run completion."""
 
 from typing import Any, Dict, Optional
 
@@ -8,22 +8,60 @@ from loguru import logger
 from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
 from api.db.models import WorkflowRunModel
+from api.services.qa_analysis import run_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 from pipecat.utils.run_context import set_current_run_id
 
 
+async def _run_qa_nodes(
+    qa_nodes: list[dict],
+    workflow_run: WorkflowRunModel,
+    workflow_run_id: int,
+) -> Dict[str, Any]:
+    """Run QA analysis for each enabled QA node and aggregate results.
+
+    Returns:
+        Dict keyed by node ID with QA analysis results.
+    """
+    results: Dict[str, Any] = {}
+
+    for node in qa_nodes:
+        node_data = node.get("data", {})
+        node_id = node.get("id", "unknown")
+        node_name = node_data.get("name", "QA Analysis")
+
+        if not node_data.get("qa_enabled", True):
+            logger.debug(f"QA node '{node_name}' is disabled, skipping")
+            continue
+
+        try:
+            logger.info(f"Running QA analysis for node '{node_name}' (#{node_id})")
+            result = await run_qa_analysis(node_data, workflow_run, workflow_run_id)
+            results[f"qa_{node_id}"] = result
+            logger.info(
+                f"QA analysis complete for '{node_name}': "
+                f"score={result.get('score')}, tags={len(result.get('tags', []))}"
+            )
+        except Exception as e:
+            logger.error(f"QA analysis failed for node '{node_name}': {e}")
+            results[f"qa_{node_id}"] = {"error": str(e)}
+
+    return results
+
+
 async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
     """
-    Run webhook integrations after a workflow run completes.
+    Run integrations after a workflow run completes.
 
     This function:
     1. Gets the workflow run and its contexts
-    2. Extracts webhook nodes from workflow definition
-    3. Executes each enabled webhook node
+    2. Runs QA analysis nodes (if any)
+    3. Stores QA results in annotations
+    4. Executes webhook nodes with QA results available in render context
     """
     set_current_run_id(workflow_run_id)
-    logger.info("Running webhook integrations for workflow run")
+    logger.info("Running integrations for workflow run")
 
     try:
         # Step 1: Get workflow run with full context
@@ -36,39 +74,55 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
             return
 
         if not organization_id:
-            logger.warning("No organization found, skipping webhooks")
+            logger.warning("No organization found, skipping integrations")
             return
 
         # Step 2: Get workflow definition
         workflow_definition = workflow_run.workflow.workflow_definition_with_fallback
         if not workflow_definition:
-            logger.debug("No workflow definition, skipping webhooks")
+            logger.debug("No workflow definition, skipping integrations")
             return
 
-        # Step 3: Extract webhook nodes
+        # Step 3: Extract integration nodes
         nodes = workflow_definition.get("nodes", [])
+        qa_nodes = [n for n in nodes if n.get("type") == "qa"]
         webhook_nodes = [n for n in nodes if n.get("type") == "webhook"]
 
         # Step 4: Generate public access token if webhooks exist or campaign_id is set
         has_campaign = workflow_run.campaign_id is not None
-        if not webhook_nodes and not has_campaign:
-            logger.debug("No webhook nodes and no campaign, skipping")
+        if not webhook_nodes and not qa_nodes and not has_campaign:
+            logger.debug("No integration nodes and no campaign, skipping")
             return
 
         public_token = None
         if webhook_nodes or has_campaign:
             public_token = await db_client.ensure_public_access_token(workflow_run_id)
 
+        # Step 5: Run QA analysis before webhooks
+        if qa_nodes:
+            logger.info(f"Found {len(qa_nodes)} QA nodes to execute")
+            qa_results = await _run_qa_nodes(qa_nodes, workflow_run, workflow_run_id)
+
+            if qa_results:
+                await db_client.update_workflow_run(
+                    workflow_run_id, annotations=qa_results
+                )
+                # Re-fetch workflow_run to get updated annotations
+                workflow_run, _ = await db_client.get_workflow_run_with_context(
+                    workflow_run_id
+                )
+
+        # Step 6: Execute webhooks
         if not webhook_nodes:
             logger.debug("No webhook nodes in workflow")
             return
 
         logger.info(f"Found {len(webhook_nodes)} webhook nodes to execute")
 
-        # Step 5: Build render context
+        # Step 7: Build render context (includes annotations from QA)
         render_context = _build_render_context(workflow_run, public_token)
 
-        # Step 6: Execute each webhook node
+        # Step 8: Execute each webhook node
         for node in webhook_nodes:
             webhook_data = node.get("data", {})
             try:
@@ -84,7 +138,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 )
 
     except Exception as e:
-        logger.error(f"Error running webhook integrations: {e}", exc_info=True)
+        logger.error(f"Error running integrations: {e}", exc_info=True)
         raise
 
 
@@ -110,6 +164,8 @@ def _build_render_context(
         "initial_context": workflow_run.initial_context or {},
         "gathered_context": workflow_run.gathered_context or {},
         "cost_info": workflow_run.usage_info or {},
+        # Annotations (includes QA results)
+        "annotations": workflow_run.annotations or {},
     }
 
     # Add public download URLs if token is available

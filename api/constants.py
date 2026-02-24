@@ -15,7 +15,11 @@ VOICEMAIL_RECORDING_DURATION = 5.0
 
 # Configuration constants
 ENABLE_TRACING = os.getenv("ENABLE_TRACING", "false").lower() == "true"
-ENABLE_RNNOISE = os.getenv("ENABLE_RNNOISE", "false").lower() == "true"
+
+# Langfuse Configuration
+LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")
+LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
+LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 
 # URLs for deployment
 BACKEND_API_ENDPOINT = os.getenv("BACKEND_API_ENDPOINT", "http://localhost:8000")

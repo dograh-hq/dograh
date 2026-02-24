@@ -1,4 +1,4 @@
-import { ExternalLink, Globe, Headset, Link2, LucideIcon, OctagonX, Play, Webhook, X } from 'lucide-react';
+import { ClipboardCheck, ExternalLink, Globe, Headset, Link2, LucideIcon, OctagonX, Play, Webhook, X } from 'lucide-react';
 import { useEffect } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -57,12 +57,18 @@ const TRIGGER_NODE_TYPES: NodeTypeConfig[] = [
     }
 ];
 
-const WEBHOOK_NODE_TYPES: NodeTypeConfig[] = [
+const INTEGRATION_NODE_TYPES: NodeTypeConfig[] = [
     {
         type: NodeType.WEBHOOK,
         label: 'Webhook',
         description: 'Send HTTP request after workflow completion',
         icon: Link2
+    },
+    {
+        type: NodeType.QA,
+        label: 'QA Analysis',
+        description: 'Run LLM quality analysis after each call',
+        icon: ClipboardCheck
     }
 ];
 
@@ -163,7 +169,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
 
                     <NodeSection
                         title="Integrations"
-                        nodes={WEBHOOK_NODE_TYPES}
+                        nodes={INTEGRATION_NODE_TYPES}
                         onNodeSelect={onNodeSelect}
                     />
                 </div>

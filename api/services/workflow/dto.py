@@ -11,6 +11,7 @@ class NodeType(str, Enum):
     globalNode = "globalNode"
     trigger = "trigger"
     webhook = "webhook"
+    qa = "qa"
 
 
 class Position(BaseModel):
@@ -68,6 +69,10 @@ class NodeDataDTO(BaseModel):
     custom_headers: Optional[list[CustomHeaderDTO]] = None
     payload_template: Optional[dict] = None
     retry_config: Optional[RetryConfigDTO] = None
+    # QA node specific fields
+    qa_enabled: bool = True
+    qa_system_prompt: Optional[str] = None
+    qa_model: Optional[str] = None
 
 
 class RFNodeDTO(BaseModel):
@@ -78,8 +83,8 @@ class RFNodeDTO(BaseModel):
 
     @model_validator(mode="after")
     def _validate_prompt_required(self):
-        """Require prompt for all node types except trigger and webhook."""
-        if self.type not in (NodeType.trigger, NodeType.webhook):
+        """Require prompt for all node types except trigger, webhook, and qa."""
+        if self.type not in (NodeType.trigger, NodeType.webhook, NodeType.qa):
             if not self.data.prompt or len(self.data.prompt.strip()) == 0:
                 raise ValueError("Prompt is required for non-trigger nodes")
         return self

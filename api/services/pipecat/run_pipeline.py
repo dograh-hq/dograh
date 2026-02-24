@@ -32,7 +32,7 @@ from api.services.pipecat.service_factory import (
     create_stt_service,
     create_tts_service,
 )
-from api.services.pipecat.tracing_config import setup_pipeline_tracing
+from api.services.pipecat.tracing_config import setup_tracing_exporter
 from api.services.pipecat.transport_setup import (
     create_ari_transport,
     create_cloudonix_transport,
@@ -80,7 +80,7 @@ from pipecat.utils.run_context import set_current_run_id
 from pipecat.utils.tracing.context_registry import ContextProviderRegistry
 
 # Setup tracing if enabled
-setup_pipeline_tracing()
+setup_tracing_exporter()
 
 
 async def run_pipeline_twilio(

@@ -110,11 +110,7 @@ services:
       ENABLE_TRACING: "false"
       # LANGFUSE_SECRET_KEY: ""
       # LANGFUSE_PUBLIC_KEY: ""
-      # LANGFUSE_HOST: "https://langfuse.dograh.com"
-
-      # Sentry
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
-      SENTRY_DSN: "https://3acdb63d5f1f70430953353b82de61e0@o4509486225096704.ingest.us.sentry.io/4510152922693632"
+      # LANGFUSE_HOST: ""
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
@@ -153,15 +149,12 @@ services:
       # Server-side URL (SSR, internal Docker network)
       BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
       NODE_ENV: "oss"
-      # Flag to enable/ disable posthog and sentry
+      # Flag to enable/ disable posthog
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
 
       # Posthog
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.posthog.com"
-
-      # Sentry
-      SENTRY_DSN: "https://d9387fed5f80e90781f1dbd9b2c0994c@o4509486225096704.ingest.us.sentry.io/4510124708200448"
     ports:
       - "3010:3010"
     depends_on:

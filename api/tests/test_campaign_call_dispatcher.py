@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy import delete, text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api.db.models import (
     CampaignModel,
@@ -29,6 +30,35 @@ from api.services.campaign.campaign_call_dispatcher import CampaignCallDispatche
 # =============================================================================
 # Test-specific fixtures
 # =============================================================================
+
+
+@pytest.fixture(scope="module")
+async def db_session_factory(setup_test_database):
+    """
+    Create a real session factory for campaign integration tests.
+
+    These tests need real database commits (not savepoints) to test
+    concurrent SELECT FOR UPDATE SKIP LOCKED behavior across independent
+    connections.
+
+    Patches db_client so CampaignCallDispatcher uses the test database.
+    """
+    from api.db import db_client
+
+    test_url = setup_test_database
+    engine = create_async_engine(test_url, echo=False)
+    session_factory = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    original_engine = db_client.engine
+    original_session = db_client.async_session
+    db_client.engine = engine
+    db_client.async_session = session_factory
+
+    yield session_factory
+
+    db_client.engine = original_engine
+    db_client.async_session = original_session
+    await engine.dispose()
 
 
 @dataclass

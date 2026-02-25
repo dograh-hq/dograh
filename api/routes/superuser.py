@@ -45,8 +45,6 @@ class SuperuserWorkflowRunResponse(BaseModel):
     cost_info: Optional[dict]
     initial_context: Optional[dict]
     gathered_context: Optional[dict]
-    admin_comment: Optional[str]
-    admin_comment_ts: Optional[datetime]
     created_at: datetime
 
 
@@ -150,50 +148,4 @@ async def get_workflow_runs(
         page=page,
         limit=limit,
         total_pages=total_pages,
-    )
-
-
-# ------------------ Admin Comment ------------------
-
-
-class AdminCommentRequest(BaseModel):
-    admin_comment: str
-
-
-class AdminCommentResponse(BaseModel):
-    success: bool
-    admin_comment: str
-    admin_comment_ts: datetime
-
-
-# ------------------ Routes ------------------
-
-
-@router.post("/workflow-runs/{run_id}/comment", response_model=AdminCommentResponse)
-async def set_admin_comment(
-    run_id: int,
-    request: AdminCommentRequest,
-    user: UserModel = Depends(get_superuser),
-):
-    """Add or update an *admin-only* comment for a workflow run.
-
-    The comment is stored inside the ``annotations`` JSON column under the
-    ``admin_comment`` key so that it does not interfere with any other
-    annotations recorded by the system.
-    """
-
-    await db_client.update_admin_comment(
-        run_id=run_id, admin_comment=request.admin_comment
-    )
-
-    # Fetch the updated run to get the timestamp from annotations
-    updated_run = await db_client.get_workflow_run_by_id(run_id)
-    admin_comment_ts = None
-    if updated_run and updated_run.annotations:
-        admin_comment_ts = updated_run.annotations.get("admin_comment_ts")
-
-    return AdminCommentResponse(
-        success=True,
-        admin_comment=request.admin_comment,
-        admin_comment_ts=admin_comment_ts,
     )

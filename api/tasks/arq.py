@@ -15,8 +15,6 @@ setup_logging()
 from arq import create_pool
 from arq.connections import ArqRedis, RedisSettings
 
-from api.tasks.workflow_run_cost import calculate_workflow_run_cost
-
 parsed_url = urlparse(REDIS_URL)
 
 # Check if we're using TLS (rediss://)
@@ -55,7 +53,6 @@ from api.tasks.s3_upload import (
 
 class WorkerSettings:
     functions = [
-        calculate_workflow_run_cost,
         run_integrations_post_workflow_run,
         upload_voicemail_audio_to_s3,
         process_workflow_completion,

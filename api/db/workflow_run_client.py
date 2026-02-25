@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
@@ -180,10 +179,6 @@ class WorkflowRunClient(BaseDBClient):
                         "cost_info": run.cost_info,
                         "initial_context": run.initial_context,
                         "gathered_context": run.gathered_context,
-                        "admin_comment": (run.annotations or {}).get("admin_comment"),
-                        "admin_comment_ts": (run.annotations or {}).get(
-                            "admin_comment_ts"
-                        ),
                         "created_at": run.created_at,
                     }
                 )
@@ -321,6 +316,7 @@ class WorkflowRunClient(BaseDBClient):
         gathered_context: dict | None = None,
         logs: dict | None = None,
         state: str | None = None,
+        annotations: dict | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
@@ -353,43 +349,12 @@ class WorkflowRunClient(BaseDBClient):
             if logs:
                 # Lets merge the incoming logs key with existing ones
                 run.logs = {**run.logs, **logs}
+            if annotations:
+                run.annotations = {**run.annotations, **annotations}
             if is_completed:
                 run.is_completed = is_completed
             if state:
                 run.state = state
-            try:
-                await session.commit()
-            except Exception as e:
-                await session.rollback()
-                raise e
-            await session.refresh(run)
-        return run
-
-    async def update_admin_comment(
-        self, run_id: int, admin_comment: str
-    ) -> WorkflowRunModel:
-        """Update (or create) the admin comment inside the ``annotations`` JSON column.
-
-        The comment is stored under the key ``admin_comment`` so we do not
-        overwrite any other existing annotations that may be present.
-        """
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(WorkflowRunModel).where(WorkflowRunModel.id == run_id)
-            )
-            run = result.scalars().first()
-            if run is None:
-                raise ValueError(f"Workflow run with ID {run_id} not found")
-
-            # Ensure we never mutate a shared dict between instances
-            current_annotations = dict(run.annotations or {})
-            current_annotations["admin_comment"] = admin_comment
-
-            current_annotations["admin_comment_ts"] = datetime.now(
-                timezone.utc
-            ).isoformat()
-            run.annotations = current_annotations
-
             try:
                 await session.commit()
             except Exception as e:

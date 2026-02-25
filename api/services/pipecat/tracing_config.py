@@ -4,8 +4,15 @@ import os
 from loguru import logger
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
-from api.constants import ENABLE_TRACING
+from api.constants import (
+    ENABLE_TRACING,
+    LANGFUSE_HOST,
+    LANGFUSE_PUBLIC_KEY,
+    LANGFUSE_SECRET_KEY,
+)
 from pipecat.utils.tracing.setup import setup_tracing
+
+_tracing_initialized = False
 
 
 def is_tracing_enabled():
@@ -15,28 +22,31 @@ def is_tracing_enabled():
     return ENABLE_TRACING
 
 
-def setup_pipeline_tracing():
-    """Setup tracing for the pipeline if enabled"""
-    if is_tracing_enabled():
-        # Only set up Langfuse if credentials are provided
-        langfuse_host = os.environ.get("LANGFUSE_HOST")
-        langfuse_public_key = os.environ.get("LANGFUSE_PUBLIC_KEY")
-        langfuse_secret_key = os.environ.get("LANGFUSE_SECRET_KEY")
+def setup_tracing_exporter():
+    """Setup the OTEL tracing exporter for Langfuse if enabled.
 
-        if not all([langfuse_host, langfuse_public_key, langfuse_secret_key]):
+    Idempotent — safe to call from both the pipeline process and the ARQ worker.
+    """
+    global _tracing_initialized
+    if _tracing_initialized:
+        return
+
+    if is_tracing_enabled():
+        if not all([LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY]):
             logger.warning(
                 "Warning: ENABLE_TRACING is true but Langfuse credentials are not configured. Tracing disabled."
             )
             return
 
-        LANGFUSE_AUTH = base64.b64encode(
-            f"{langfuse_public_key}:{langfuse_secret_key}".encode()
+        langfuse_auth = base64.b64encode(
+            f"{LANGFUSE_PUBLIC_KEY}:{LANGFUSE_SECRET_KEY}".encode()
         ).decode()
 
-        os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = f"{langfuse_host}/api/public/otel"
+        os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = f"{LANGFUSE_HOST}/api/public/otel"
         os.environ["OTEL_EXPORTER_OTLP_HEADERS"] = (
-            f"Authorization=Basic {LANGFUSE_AUTH}"
+            f"Authorization=Basic {langfuse_auth}"
         )
 
         otlp_exporter = OTLPSpanExporter()
         setup_tracing(service_name="dograh-pipeline", exporter=otlp_exporter)
+        _tracing_initialized = True

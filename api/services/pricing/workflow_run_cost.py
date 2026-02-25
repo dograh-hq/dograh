@@ -4,7 +4,6 @@ from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.services.pricing.cost_calculator import cost_calculator
 from api.services.telephony.factory import get_telephony_provider
-from pipecat.utils.run_context import set_current_run_id
 
 
 async def _fetch_telephony_cost(workflow_run) -> dict | None:
@@ -62,9 +61,7 @@ async def _update_organization_usage(
         )
 
 
-async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
-    # Set the run_id in context variable for consistent logging format
-    set_current_run_id(workflow_run_id)
+async def calculate_workflow_run_cost(workflow_run_id: int):
     logger.debug("Calculating cost for workflow run")
 
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
@@ -97,7 +94,6 @@ async def calculate_workflow_run_cost(ctx, workflow_run_id: int):
             # Don't fail the whole cost calculation if telephony API fails
 
         # Store cost information back to the workflow run
-        # We'll add the cost breakdown to the workflow run
         # Convert USD to Dograh Tokens (1 cent = 1 token)
         dograh_tokens = round(float(cost_breakdown["total"]) * 100, 2)
 

@@ -1,25 +1,16 @@
 "use client";
 
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, MessageSquare, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, CheckCircle, ChevronLeft, ChevronRight, ExternalLink, Info, Loader2, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from "react";
 
-import { getWorkflowRunsApiV1SuperuserWorkflowRunsGet, setAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPost } from '@/client/sdk.gen';
+import { getWorkflowRunsApiV1SuperuserWorkflowRunsGet } from '@/client/sdk.gen';
 import { FilterBuilder } from "@/components/filters/FilterBuilder";
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-    Dialog,
-    DialogClose,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from '@/components/ui/dialog';
 import {
     Table,
     TableBody,
@@ -28,7 +19,6 @@ import {
     TableHeader,
     TableRow,
 } from "@/components/ui/table";
-import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from '@/lib/auth';
 import{ superadminFilterAttributes } from "@/lib/filterAttributes";
@@ -52,7 +42,6 @@ interface WorkflowRun {
     cost_info?: Record<string, unknown>;
     initial_context?: Record<string, unknown>;
     gathered_context?: Record<string, unknown>;
-    admin_comment?: string;
     created_at: string;
 }
 
@@ -101,10 +90,6 @@ export default function RunsPage() {
         return order === 'asc' ? 'asc' : 'desc';
     });
 
-    // Dialog state for comment editing
-    const [isCommentDialogOpen, setIsCommentDialogOpen] = useState(false);
-    const [commentRunId, setCommentRunId] = useState<number | null>(null);
-    const [commentText, setCommentText] = useState('');
     const [selectedRowId, setSelectedRowId] = useState<number | null>(null);
 
     const auth = useAuth();
@@ -257,29 +242,6 @@ export default function RunsPage() {
         updatePageInUrl(1, appliedFilters, newSortBy, newSortOrder);
     }, [sortBy, sortOrder, updatePageInUrl, appliedFilters]);
 
-    // Save comment function declared outside JSX (requirement #2)
-    const saveAdminComment = useCallback(async () => {
-        if (commentRunId === null || !auth.isAuthenticated) return;
-        try {
-            await setAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPost({
-                path: {
-                    run_id: commentRunId,
-                },
-                body: {
-                    admin_comment: commentText,
-                },
-            });
-
-            // Optimistically update UI
-            setRuns(prev => prev.map(r => r.id === commentRunId ? { ...r, admin_comment: commentText } : r));
-
-            setIsCommentDialogOpen(false);
-        } catch (err) {
-            console.error('Failed to set admin comment', err);
-            alert('Failed to save comment. Please try again.');
-        }
-    }, [commentRunId, commentText, auth.isAuthenticated]);
-
     /**
      * ----------------------------------------------------------------------------------
      * Helpers
@@ -388,7 +350,6 @@ export default function RunsPage() {
                                                 <TableHead className="font-semibold">Status</TableHead>
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Tags</TableHead>
-                                                <TableHead className="font-semibold">Comment</TableHead>
                                                 <TableHead
                                                     className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
                                                     onClick={() => handleSort('duration')}
@@ -470,13 +431,6 @@ export default function RunsPage() {
                                                             </div>
                                                         ) : (
                                                             <span className="text-sm text-muted-foreground">-</span>
-                                                        )}
-                                                    </TableCell>
-                                                    <TableCell className="max-w-sm whitespace-pre-wrap break-words">
-                                                        {run.admin_comment ? (
-                                                            <span>{run.admin_comment}</span>
-                                                        ) : (
-                                                            <span className="text-muted-foreground/70 italic">No comment</span>
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="text-sm whitespace-pre-wrap break-words">
@@ -590,18 +544,6 @@ export default function RunsPage() {
                                                                 <ExternalLink className="h-4 w-4" />
                                                             </Button>
 
-                                                            <Button
-                                                                variant="outline"
-                                                                size="icon"
-                                                                onClick={() => {
-                                                                    setCommentRunId(run.id);
-                                                                    setCommentText(run.admin_comment || '');
-                                                                    setIsCommentDialogOpen(true);
-                                                                }}
-                                                                title="Add/Edit Comment"
-                                                            >
-                                                                <MessageSquare className="h-4 w-4" />
-                                                            </Button>
                                                         </div>
                                                     </TableCell>
                                                 </TableRow>
@@ -669,32 +611,6 @@ export default function RunsPage() {
                         )}
                     </CardContent>
                 </Card>
-
-                {/* Comment Dialog */}
-                <Dialog open={isCommentDialogOpen} onOpenChange={setIsCommentDialogOpen}>
-                    <DialogContent className="sm:max-w-lg">
-                        <DialogHeader>
-                            <DialogTitle>{commentRunId ? 'Edit Comment' : 'Add Comment'}</DialogTitle>
-                            <DialogDescription>
-                                Admin-only comment for run #{commentRunId}
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        <Textarea
-                            value={commentText}
-                            onChange={(e) => setCommentText(e.target.value)}
-                            placeholder="Enter comment here..."
-                            className="min-h-[120px]"
-                        />
-
-                        <DialogFooter className="pt-4">
-                            <DialogClose asChild>
-                                <Button variant="secondary">Cancel</Button>
-                            </DialogClose>
-                            <Button onClick={saveAdminComment}>Save</Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
 
                 {/* Media Preview Dialog */}
                 {mediaPreview.dialog}

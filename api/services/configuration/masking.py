@@ -68,3 +68,65 @@ def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
         "test_phone_number": config.test_phone_number,
         "timezone": config.timezone,
     }
+
+
+# ---------------------------------------------------------------------------
+# Workflow definition helpers – mask / merge QA-node API keys
+# ---------------------------------------------------------------------------
+
+_QA_API_KEY_FIELD = "qa_api_key"
+
+
+def mask_workflow_definition(workflow_definition: Optional[Dict]) -> Optional[Dict]:
+    """Return a *shallow copy* of *workflow_definition* with QA-node API keys masked."""
+    if not workflow_definition:
+        return workflow_definition
+
+    import copy
+
+    masked = copy.deepcopy(workflow_definition)
+    for node in masked.get("nodes", []):
+        if node.get("type") != "qa":
+            continue
+        data = node.get("data", {})
+        raw_key = data.get(_QA_API_KEY_FIELD)
+        if raw_key:
+            data[_QA_API_KEY_FIELD] = mask_key(raw_key)
+    return masked
+
+
+def merge_workflow_api_keys(
+    incoming_definition: Optional[Dict], existing_definition: Optional[Dict]
+) -> Optional[Dict]:
+    """Preserve real QA-node API keys when the incoming value is a masked placeholder.
+
+    For each QA node in *incoming_definition*, if its ``qa_api_key`` equals
+    the masked form of the corresponding node in *existing_definition*, the
+    real key is restored so it is never lost.
+    """
+    if not incoming_definition or not existing_definition:
+        return incoming_definition
+
+    # Build lookup: node-id → data for existing QA nodes
+    existing_qa: Dict[str, Dict] = {}
+    for node in existing_definition.get("nodes", []):
+        if node.get("type") == "qa":
+            existing_qa[node["id"]] = node.get("data", {})
+
+    for node in incoming_definition.get("nodes", []):
+        if node.get("type") != "qa":
+            continue
+        data = node.get("data", {})
+        incoming_key = data.get(_QA_API_KEY_FIELD)
+        if not incoming_key:
+            continue
+
+        old_data = existing_qa.get(node["id"])
+        if not old_data:
+            continue
+
+        old_key = old_data.get(_QA_API_KEY_FIELD, "")
+        if old_key and is_mask_of(incoming_key, old_key):
+            data[_QA_API_KEY_FIELD] = old_key
+
+    return incoming_definition

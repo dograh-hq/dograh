@@ -216,9 +216,8 @@ def register_event_handlers(
         except Exception as e:
             logger.error(f"Error preparing buffers for S3 upload: {e}", exc_info=True)
 
-        await enqueue_job(FunctionNames.CALCULATE_WORKFLOW_RUN_COST, workflow_run_id)
-
-        # Combined task: uploads artifacts then runs integrations sequentially
+        # Combined task: uploads artifacts, runs integrations (including QA),
+        # then calculates cost (so QA token usage is captured in usage_info)
         await enqueue_job(
             FunctionNames.PROCESS_WORKFLOW_COMPLETION,
             workflow_run_id,

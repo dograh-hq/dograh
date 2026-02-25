@@ -268,14 +268,16 @@ const QANodeEditForm = ({
             <div className="grid gap-2">
                 <Label>System Prompt</Label>
                 <Label className="text-xs text-muted-foreground">
-                    The prompt sent to the LLM for QA analysis. Use {'{metrics}'} placeholder for
-                    call metrics.
+                    The prompt sent to the LLM for per-node QA analysis. Available placeholders:{' '}
+                    {'{{node_summary}}'} (purpose of the current node), {'{{previous_conversation_summary}}'}{' '}
+                    (summary of conversation before this node), {'{{transcript}}'} (this node&apos;s
+                    conversation), {'{{metrics}}'} (call metrics for this node).
                 </Label>
                 <Textarea
                     value={qaSystemPrompt}
                     onChange={(e) => setQaSystemPrompt(e.target.value)}
                     className="min-h-[300px] font-mono text-xs"
-                    placeholder="Enter QA analysis system prompt..."
+                    placeholder={`You are a QA analyst evaluating a specific segment of a voice AI conversation.\n\n## Node Purpose\n{{node_summary}}\n\n## Previous Conversation Context\n{{previous_conversation_summary}}\n\n## Call Metrics\n{{metrics}}\n\nEvaluate the transcript and return JSON with:\n- "tags": array of relevant tags\n- "summary": 2-3 sentence summary of this segment\n- "call_quality_score": number 1-10\n- "overall_sentiment": "positive", "neutral", or "negative"`}
                 />
             </div>
 

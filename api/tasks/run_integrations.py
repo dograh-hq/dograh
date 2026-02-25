@@ -9,7 +9,7 @@ from loguru import logger
 from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
 from api.db.models import WorkflowRunModel
-from api.services.qa_analysis import run_qa_analysis
+from api.services.workflow.qa import run_per_node_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 from pipecat.utils.enums import EndTaskReason
@@ -53,6 +53,8 @@ async def _run_qa_nodes(
     qa_nodes: list[dict],
     workflow_run: WorkflowRunModel,
     workflow_run_id: int,
+    workflow_definition: dict,
+    definition_id: int | None,
 ) -> Dict[str, Any]:
     """Run QA analysis for each enabled QA node and aggregate results.
 
@@ -78,15 +80,32 @@ async def _run_qa_nodes(
 
         try:
             logger.info(f"Running QA analysis for node '{node_name}' (#{node_id})")
-            result = await run_qa_analysis(node_data, workflow_run, workflow_run_id)
+            result = await run_per_node_qa_analysis(
+                node_data,
+                workflow_run,
+                workflow_run_id,
+                workflow_definition,
+                definition_id,
+            )
             results[f"qa_{node_id}"] = result
+            # Log summary from node_results
+            node_results = result.get("node_results", {})
             logger.info(
                 f"QA analysis complete for '{node_name}': "
-                f"score={result.get('score')}, tags={len(result.get('tags', []))}"
+                f"{len(node_results)} nodes analyzed"
             )
         except Exception as e:
             logger.error(f"QA analysis failed for node '{node_name}': {e}")
             results[f"qa_{node_id}"] = {"error": str(e)}
+
+    # Collect all unique tags across all QA node results for top-level filtering
+    all_tags: set[str] = set()
+    for result in results.values():
+        for node_result in result.get("node_results", {}).values():
+            if isinstance(node_result, dict):
+                all_tags.update(node_result.get("tags", []))
+    if all_tags:
+        results["tags"] = sorted(all_tags)
 
     return results
 
@@ -159,8 +178,16 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
             logger.warning("No organization found, skipping integrations")
             return
 
-        # Step 2: Get workflow definition
-        workflow_definition = workflow_run.workflow.workflow_definition_with_fallback
+        # Step 2: Get workflow definition (prefer the run-specific definition)
+        if workflow_run.definition:
+            workflow_definition = workflow_run.definition.workflow_json
+            definition_id = workflow_run.definition.id
+        else:
+            workflow_definition = (
+                workflow_run.workflow.workflow_definition_with_fallback
+            )
+            definition_id = workflow_run.workflow.current_definition_id
+
         if not workflow_definition:
             logger.debug("No workflow definition, skipping integrations")
             return
@@ -183,7 +210,13 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         # Step 5: Run QA analysis before webhooks
         if qa_nodes:
             logger.info(f"Found {len(qa_nodes)} QA nodes to execute")
-            qa_results = await _run_qa_nodes(qa_nodes, workflow_run, workflow_run_id)
+            qa_results = await _run_qa_nodes(
+                qa_nodes,
+                workflow_run,
+                workflow_run_id,
+                workflow_definition,
+                definition_id,
+            )
 
             if qa_results:
                 await db_client.update_workflow_run(

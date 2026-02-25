@@ -22,7 +22,13 @@ import logger from '@/lib/logger';
 import { getNextNodeId, getRandomId } from "@/lib/utils";
 import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from "@/types/workflow-configurations";
 
-const DEFAULT_QA_SYSTEM_PROMPT = `You are a QA expert analyzing voice AI call transcripts. Analyze the conversation and return a structured JSON assessment.
+const DEFAULT_QA_SYSTEM_PROMPT = `You are a QA analyst evaluating a specific segment of a voice AI conversation.
+
+## Node Purpose
+{{node_summary}}
+
+## Previous Conversation Context (For start of conversation, previous conversation summary can be empty.)
+{{previous_conversation_summary}}
 
 ## Tags to evaluate
 
@@ -42,7 +48,7 @@ Examine the conversation carefully and identify which of the following tags appl
 ## Call metrics (pre-computed)
 
 Use these alongside the transcript for your analysis:
-{metrics}
+{{metrics}}
 
 ## Output format
 
@@ -56,7 +62,7 @@ Return ONLY a valid JSON object (no markdown):
     ],
     "overall_sentiment": "positive|neutral|negative",
     "call_quality_score": <1-10>,
-    "summary": "1-2 sentence summary of the call"
+    "summary": "1-2 sentence summary of this segment"
 }
 
 If no tags apply, return an empty tags list. Always provide sentiment, score, and summary.`;

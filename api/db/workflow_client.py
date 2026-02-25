@@ -374,6 +374,36 @@ class WorkflowClient(BaseDBClient):
             )
             return result.scalar() or 0
 
+    async def update_definition_node_summaries(
+        self, definition_id: int, node_summaries: dict
+    ) -> None:
+        """Update the node_summaries field within a workflow definition's workflow_json.
+
+        Args:
+            definition_id: The ID of the WorkflowDefinitionModel to update
+            node_summaries: Dict mapping node_id to summary data
+                (e.g. {"summary": "...", "trace_url": "..."})
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.id == definition_id
+                )
+            )
+            definition = result.scalars().first()
+            if not definition:
+                return
+
+            workflow_json = dict(definition.workflow_json)
+            workflow_json["node_summaries"] = node_summaries
+            definition.workflow_json = workflow_json
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+
     async def get_workflow_run_counts(self, workflow_ids: list[int]) -> dict[int, int]:
         """Get run counts for multiple workflows in a single query.
 

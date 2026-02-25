@@ -376,10 +376,11 @@ class WorkflowRunClient(BaseDBClient):
             result = await session.execute(
                 select(WorkflowRunModel)
                 .options(
+                    selectinload(WorkflowRunModel.definition),
                     selectinload(WorkflowRunModel.workflow).options(
                         selectinload(WorkflowModel.user),
                         selectinload(WorkflowModel.current_definition),
-                    )
+                    ),
                 )
                 .where(WorkflowRunModel.id == workflow_run_id)
             )

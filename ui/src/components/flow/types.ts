@@ -48,6 +48,9 @@ export type FlowNodeData = {
     qa_provider?: string;
     qa_model?: string;
     qa_api_key?: string;
+    qa_min_call_duration?: number;
+    qa_voicemail_calls?: boolean;
+    qa_sample_rate?: number;
     // Tools - array of tool UUIDs that can be invoked by this node
     tool_uuids?: string[];
     // Documents - array of knowledge base document UUIDs that can be referenced by this node

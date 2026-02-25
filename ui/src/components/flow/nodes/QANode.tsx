@@ -1,5 +1,5 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { Circle, ClipboardCheck, Edit, Trash2Icon } from "lucide-react";
+import { ChevronDown, ChevronRight, Circle, ClipboardCheck, Edit, Trash2Icon } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
@@ -31,6 +31,9 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
     const [qaModel, setQaModel] = useState(data.qa_model || "gpt-4.1");
     const [qaApiKey, setQaApiKey] = useState(data.qa_api_key || "");
     const [qaSystemPrompt, setQaSystemPrompt] = useState(data.qa_system_prompt || "");
+    const [minCallDuration, setMinCallDuration] = useState(data.qa_min_call_duration ?? 15);
+    const [qaVoicemailCalls, setQaVoicemailCalls] = useState(data.qa_voicemail_calls ?? false);
+    const [qaSampleRate, setQaSampleRate] = useState(data.qa_sample_rate ?? 100);
 
     const isDirty = useMemo(() => {
         return (
@@ -40,9 +43,12 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
             qaProvider !== (data.qa_provider || "openai") ||
             qaModel !== (data.qa_model || "gpt-4.1") ||
             qaApiKey !== (data.qa_api_key || "") ||
-            qaSystemPrompt !== (data.qa_system_prompt || "")
+            qaSystemPrompt !== (data.qa_system_prompt || "") ||
+            minCallDuration !== (data.qa_min_call_duration ?? 15) ||
+            qaVoicemailCalls !== (data.qa_voicemail_calls ?? false) ||
+            qaSampleRate !== (data.qa_sample_rate ?? 100)
         );
-    }, [name, qaEnabled, useWorkflowLlm, qaProvider, qaModel, qaApiKey, qaSystemPrompt, data]);
+    }, [name, qaEnabled, useWorkflowLlm, qaProvider, qaModel, qaApiKey, qaSystemPrompt, minCallDuration, qaVoicemailCalls, qaSampleRate, data]);
 
     const handleSave = async () => {
         handleSaveNodeData({
@@ -54,6 +60,9 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
             qa_model: qaModel,
             qa_api_key: qaApiKey,
             qa_system_prompt: qaSystemPrompt,
+            qa_min_call_duration: minCallDuration,
+            qa_voicemail_calls: qaVoicemailCalls,
+            qa_sample_rate: qaSampleRate,
         });
         setOpen(false);
         setTimeout(async () => {
@@ -69,6 +78,9 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
         setQaModel(data.qa_model || "gpt-4.1");
         setQaApiKey(data.qa_api_key || "");
         setQaSystemPrompt(data.qa_system_prompt || "");
+        setMinCallDuration(data.qa_min_call_duration ?? 15);
+        setQaVoicemailCalls(data.qa_voicemail_calls ?? false);
+        setQaSampleRate(data.qa_sample_rate ?? 100);
     };
 
     const handleOpenChange = (newOpen: boolean) => {
@@ -152,6 +164,12 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
                         setQaApiKey={setQaApiKey}
                         qaSystemPrompt={qaSystemPrompt}
                         setQaSystemPrompt={setQaSystemPrompt}
+                        minCallDuration={minCallDuration}
+                        setMinCallDuration={setMinCallDuration}
+                        qaVoicemailCalls={qaVoicemailCalls}
+                        setQaVoicemailCalls={setQaVoicemailCalls}
+                        qaSampleRate={qaSampleRate}
+                        setQaSampleRate={setQaSampleRate}
                     />
                 )}
             </NodeEditDialog>
@@ -174,6 +192,12 @@ interface QANodeEditFormProps {
     setQaApiKey: (value: string) => void;
     qaSystemPrompt: string;
     setQaSystemPrompt: (value: string) => void;
+    minCallDuration: number;
+    setMinCallDuration: (value: number) => void;
+    qaVoicemailCalls: boolean;
+    setQaVoicemailCalls: (value: boolean) => void;
+    qaSampleRate: number;
+    setQaSampleRate: (value: number) => void;
 }
 
 const QANodeEditForm = ({
@@ -191,7 +215,15 @@ const QANodeEditForm = ({
     setQaApiKey,
     qaSystemPrompt,
     setQaSystemPrompt,
+    minCallDuration,
+    setMinCallDuration,
+    qaVoicemailCalls,
+    setQaVoicemailCalls,
+    qaSampleRate,
+    setQaSampleRate,
 }: QANodeEditFormProps) => {
+    const [advancedOpen, setAdvancedOpen] = useState(false);
+
     return (
         <div className="space-y-4">
             <div className="grid gap-2">
@@ -245,6 +277,69 @@ const QANodeEditForm = ({
                     className="min-h-[300px] font-mono text-xs"
                     placeholder="Enter QA analysis system prompt..."
                 />
+            </div>
+
+            {/* Advanced Configuration */}
+            <div className="border rounded-md">
+                <button
+                    type="button"
+                    className="flex items-center gap-2 w-full p-3 text-sm font-medium hover:bg-muted/50 transition-colors"
+                    onClick={() => setAdvancedOpen(!advancedOpen)}
+                >
+                    {advancedOpen ? (
+                        <ChevronDown className="h-4 w-4" />
+                    ) : (
+                        <ChevronRight className="h-4 w-4" />
+                    )}
+                    Advanced Configuration
+                </button>
+
+                {advancedOpen && (
+                    <div className="px-3 pb-3 space-y-4 border-t pt-3">
+                        <div className="grid gap-2">
+                            <Label>Minimum Call Duration (seconds)</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Calls shorter than this duration will be skipped from QA analysis.
+                            </Label>
+                            <Input
+                                type="number"
+                                min={0}
+                                value={minCallDuration}
+                                onChange={(e) => setMinCallDuration(Number(e.target.value))}
+                            />
+                        </div>
+
+                        <div className="flex items-center space-x-2 p-2 border rounded-md bg-muted/20">
+                            <Switch
+                                id="qa-voicemail"
+                                checked={qaVoicemailCalls}
+                                onCheckedChange={setQaVoicemailCalls}
+                            />
+                            <Label htmlFor="qa-voicemail">QA Voicemail Calls</Label>
+                            <Label className="text-xs text-muted-foreground ml-2">
+                                Run QA analysis on calls that reached voicemail.
+                            </Label>
+                        </div>
+
+                        <div className="grid gap-2">
+                            <Label>Sample Rate (%)</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Percentage of eligible calls to run QA analysis on.
+                            </Label>
+                            <Input
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={qaSampleRate}
+                                onChange={(e) =>
+                                    setQaSampleRate(
+                                        Math.min(100, Math.max(1, Number(e.target.value)))
+                                    )
+                                }
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

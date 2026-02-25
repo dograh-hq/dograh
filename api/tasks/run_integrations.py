@@ -1,5 +1,6 @@
 """Execute integrations (QA analysis, webhooks) after workflow run completion."""
 
+import random
 from typing import Any, Dict, Optional
 
 import httpx
@@ -11,7 +12,41 @@ from api.db.models import WorkflowRunModel
 from api.services.qa_analysis import run_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
+from pipecat.utils.enums import EndTaskReason
 from pipecat.utils.run_context import set_current_run_id
+
+
+def _should_skip_qa(
+    node_data: dict,
+    workflow_run: WorkflowRunModel,
+) -> str | None:
+    """Check whether QA analysis should be skipped for this call.
+
+    Returns a reason string if the call should be skipped, or None if it should proceed.
+    """
+    # Check minimum call duration
+    min_duration = node_data.get("qa_min_call_duration", 15)
+    usage_info = workflow_run.usage_info or {}
+    call_duration = usage_info.get("call_duration_seconds")
+    if call_duration is not None and call_duration < min_duration:
+        return f"call duration ({call_duration:.1f}s) below minimum ({min_duration}s)"
+
+    # Check voicemail calls
+    qa_voicemail_calls = node_data.get("qa_voicemail_calls", False)
+    if not qa_voicemail_calls:
+        gathered_context = workflow_run.gathered_context or {}
+        call_disposition = gathered_context.get("call_disposition", "")
+        if call_disposition == EndTaskReason.VOICEMAIL_DETECTED.value:
+            return "voicemail call and QA voicemail calls is disabled"
+
+    # Check sample rate
+    sample_rate = node_data.get("qa_sample_rate", 100)
+    if sample_rate < 100:
+        roll = random.randint(1, 100)
+        if roll > sample_rate:
+            return f"excluded by sampling ({sample_rate}% sample rate, rolled {roll})"
+
+    return None
 
 
 async def _run_qa_nodes(
@@ -33,6 +68,12 @@ async def _run_qa_nodes(
 
         if not node_data.get("qa_enabled", True):
             logger.debug(f"QA node '{node_name}' is disabled, skipping")
+            continue
+
+        skip_reason = _should_skip_qa(node_data, workflow_run)
+        if skip_reason:
+            logger.info(f"Skipping QA node '{node_name}' (#{node_id}): {skip_reason}")
+            results[f"qa_{node_id}"] = {"skipped": True, "reason": skip_reason}
             continue
 
         try:

@@ -73,6 +73,9 @@ class NodeDataDTO(BaseModel):
     qa_enabled: bool = True
     qa_system_prompt: Optional[str] = None
     qa_model: Optional[str] = None
+    qa_min_call_duration: int = 15
+    qa_voicemail_calls: bool = False
+    qa_sample_rate: int = 100
 
 
 class RFNodeDTO(BaseModel):

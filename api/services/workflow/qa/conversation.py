@@ -6,6 +6,29 @@ from datetime import datetime
 from pipecat.utils.enums import RealtimeFeedbackType
 
 
+def _safe_parse_timestamp(event: dict) -> datetime | None:
+    """Best-effort parse of an ISO timestamp from an event.
+
+    Returns None if no valid timestamp is available.
+    """
+    # Prefer payload timestamp when present
+    payload = event.get("payload") or {}
+    candidates = [
+        payload.get("timestamp"),
+        event.get("timestamp"),
+    ]
+
+    for ts in candidates:
+        if not ts:
+            continue
+        try:
+            return datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            continue
+
+    return None
+
+
 def build_conversation_structure(logs: list[dict]) -> list[dict]:
     """Transform raw call logs into a conversation structure for LLM QA analysis."""
     if not logs:
@@ -18,24 +41,18 @@ def build_conversation_structure(logs: list[dict]) -> list[dict]:
         if event["type"] == RealtimeFeedbackType.BOT_TEXT.value:
             speaker = "assistant"
             utterance_text = event["payload"]["text"]
-            try:
-                event_time = datetime.fromisoformat(event["payload"]["timestamp"])
-            except KeyError:
-                event_time = datetime.fromisoformat(event["timestamp"])
+            event_time = _safe_parse_timestamp(event) or start_time
         elif event["type"] == RealtimeFeedbackType.USER_TRANSCRIPTION.value and event[
             "payload"
         ].get("final", False):
             speaker = "user"
             utterance_text = event["payload"]["text"]
-            try:
-                event_time = datetime.fromisoformat(event["payload"]["timestamp"])
-            except KeyError:
-                event_time = datetime.fromisoformat(event["timestamp"])
+            event_time = _safe_parse_timestamp(event) or start_time
         elif event["type"] == RealtimeFeedbackType.FUNCTION_CALL_START.value:
             speaker = "tool_call"
             payload = event["payload"]
             utterance_text = payload.get("function_name", "unknown")
-            event_time = datetime.fromisoformat(event["timestamp"])
+            event_time = _safe_parse_timestamp(event) or start_time
         else:
             continue
 

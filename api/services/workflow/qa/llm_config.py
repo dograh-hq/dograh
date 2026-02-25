@@ -1,5 +1,6 @@
 """LLM configuration resolution and token usage accumulation."""
 
+from api.constants import MPS_API_URL
 from api.db import db_client
 from api.db.models import WorkflowRunModel
 
@@ -14,6 +15,8 @@ def _provider_base_url(provider: str | None, endpoint: str = "") -> str | None:
         return "https://generativelanguage.googleapis.com/v1beta/openai/"
     if provider == "azure":
         return endpoint or None
+    if provider == "dograh":
+        return f"{MPS_API_URL}/api/v1/llm"
     return None
 
 

@@ -98,15 +98,6 @@ async def _run_qa_nodes(
             logger.error(f"QA analysis failed for node '{node_name}': {e}")
             results[f"qa_{node_id}"] = {"error": str(e)}
 
-    # Collect all unique tags across all QA node results for top-level filtering
-    all_tags: set[str] = set()
-    for result in results.values():
-        for node_result in result.get("node_results", {}).values():
-            if isinstance(node_result, dict):
-                all_tags.update(node_result.get("tags", []))
-    if all_tags:
-        results["tags"] = sorted(all_tags)
-
     return results
 
 
@@ -219,13 +210,25 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
             )
 
             if qa_results:
-                await db_client.update_workflow_run(
-                    workflow_run_id, annotations=qa_results
-                )
-
                 # Add QA token usage to workflow run's usage_info
                 await _update_usage_info_with_qa_tokens(
                     workflow_run_id, workflow_run, qa_results
+                )
+
+                # Collect unique tags across all QA node results for top-level filtering
+                all_tags: set[str] = set()
+                for qa_key, qa_result in qa_results.items():
+                    for node_result in qa_result.get("node_results", {}).values():
+                        for tag in node_result.get("tags", []):
+                            if isinstance(tag, str):
+                                all_tags.add(tag)
+                            elif isinstance(tag, dict) and "tag" in tag:
+                                all_tags.add(tag["tag"])
+                if all_tags:
+                    qa_results["tags"] = sorted(all_tags)
+
+                await db_client.update_workflow_run(
+                    workflow_run_id, annotations=qa_results
                 )
 
                 # Re-fetch workflow_run to get updated annotations

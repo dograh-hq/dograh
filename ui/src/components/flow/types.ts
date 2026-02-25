@@ -44,7 +44,10 @@ export type FlowNodeData = {
     // QA node specific
     qa_enabled?: boolean;
     qa_system_prompt?: string;
+    qa_use_workflow_llm?: boolean;
+    qa_provider?: string;
     qa_model?: string;
+    qa_api_key?: string;
     // Tools - array of tool UUIDs that can be invoked by this node
     tool_uuids?: string[];
     // Documents - array of knowledge base document UUIDs that can be referenced by this node

@@ -15,6 +15,10 @@ from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import CallType
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
+from api.services.configuration.masking import (
+    mask_workflow_definition,
+    merge_workflow_api_keys,
+)
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.errors import ItemKind, WorkflowError
@@ -273,7 +277,9 @@ async def create_workflow(
         "name": workflow.name,
         "status": workflow.status,
         "created_at": workflow.created_at,
-        "workflow_definition": workflow.workflow_definition_with_fallback,
+        "workflow_definition": mask_workflow_definition(
+            workflow.workflow_definition_with_fallback
+        ),
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": workflow.template_context_variables,
         "call_disposition_codes": workflow.call_disposition_codes,
@@ -351,7 +357,9 @@ async def create_workflow_from_template(
             "name": workflow.name,
             "status": workflow.status,
             "created_at": workflow.created_at,
-            "workflow_definition": workflow.workflow_definition_with_fallback,
+            "workflow_definition": mask_workflow_definition(
+                workflow.workflow_definition_with_fallback
+            ),
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
             "call_disposition_codes": workflow.call_disposition_codes,
@@ -462,7 +470,9 @@ async def get_workflow(
         "name": workflow.name,
         "status": workflow.status,
         "created_at": workflow.created_at,
-        "workflow_definition": workflow.workflow_definition_with_fallback,
+        "workflow_definition": mask_workflow_definition(
+            workflow.workflow_definition_with_fallback
+        ),
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": workflow.template_context_variables,
         "call_disposition_codes": workflow.call_disposition_codes,
@@ -512,7 +522,9 @@ async def update_workflow_status(
             "name": workflow.name,
             "status": workflow.status,
             "created_at": workflow.created_at,
-            "workflow_definition": workflow.workflow_definition_with_fallback,
+            "workflow_definition": mask_workflow_definition(
+                workflow.workflow_definition_with_fallback
+            ),
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
             "call_disposition_codes": workflow.call_disposition_codes,
@@ -545,18 +557,30 @@ async def update_workflow(
         HTTPException: If the workflow is not found or if there's a database error
     """
     try:
+        # Restore real API keys where the incoming definition has masked placeholders
+        workflow_definition = request.workflow_definition
+        if workflow_definition:
+            existing_workflow = await db_client.get_workflow(
+                workflow_id, organization_id=user.selected_organization_id
+            )
+            if existing_workflow:
+                workflow_definition = merge_workflow_api_keys(
+                    workflow_definition,
+                    existing_workflow.workflow_definition_with_fallback,
+                )
+
         workflow = await db_client.update_workflow(
             workflow_id=workflow_id,
             name=request.name,
-            workflow_definition=request.workflow_definition,
+            workflow_definition=workflow_definition,
             template_context_variables=request.template_context_variables,
             workflow_configurations=request.workflow_configurations,
             organization_id=user.selected_organization_id,
         )
 
         # Sync agent triggers if workflow definition was updated
-        if request.workflow_definition:
-            trigger_paths = extract_trigger_paths(request.workflow_definition)
+        if workflow_definition:
+            trigger_paths = extract_trigger_paths(workflow_definition)
             await db_client.sync_triggers_for_workflow(
                 workflow_id=workflow.id,
                 organization_id=user.selected_organization_id,
@@ -568,7 +592,9 @@ async def update_workflow(
             "name": workflow.name,
             "status": workflow.status,
             "created_at": workflow.created_at,
-            "workflow_definition": workflow.workflow_definition_with_fallback,
+            "workflow_definition": mask_workflow_definition(
+                workflow.workflow_definition_with_fallback
+            ),
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
             "call_disposition_codes": workflow.call_disposition_codes,
@@ -798,7 +824,9 @@ async def duplicate_workflow_template(
         "name": workflow.name,
         "status": workflow.status,
         "created_at": workflow.created_at,
-        "workflow_definition": workflow.workflow_definition_with_fallback,
+        "workflow_definition": mask_workflow_definition(
+            workflow.workflow_definition_with_fallback
+        ),
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": workflow.template_context_variables,
         "call_disposition_codes": workflow.call_disposition_codes,

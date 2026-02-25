@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { FlowNodeData } from "@/components/flow/types";
+import { LLMConfigSelector } from "@/components/LLMConfigSelector";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,24 +26,33 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
     // Form state
     const [name, setName] = useState(data.name || "QA Analysis");
     const [qaEnabled, setQaEnabled] = useState(data.qa_enabled ?? true);
-    const [qaModel, setQaModel] = useState(data.qa_model || "default");
+    const [useWorkflowLlm, setUseWorkflowLlm] = useState(data.qa_use_workflow_llm ?? true);
+    const [qaProvider, setQaProvider] = useState(data.qa_provider || "openai");
+    const [qaModel, setQaModel] = useState(data.qa_model || "gpt-4.1");
+    const [qaApiKey, setQaApiKey] = useState(data.qa_api_key || "");
     const [qaSystemPrompt, setQaSystemPrompt] = useState(data.qa_system_prompt || "");
 
     const isDirty = useMemo(() => {
         return (
             name !== (data.name || "QA Analysis") ||
             qaEnabled !== (data.qa_enabled ?? true) ||
-            qaModel !== (data.qa_model || "default") ||
+            useWorkflowLlm !== (data.qa_use_workflow_llm ?? true) ||
+            qaProvider !== (data.qa_provider || "openai") ||
+            qaModel !== (data.qa_model || "gpt-4.1") ||
+            qaApiKey !== (data.qa_api_key || "") ||
             qaSystemPrompt !== (data.qa_system_prompt || "")
         );
-    }, [name, qaEnabled, qaModel, qaSystemPrompt, data]);
+    }, [name, qaEnabled, useWorkflowLlm, qaProvider, qaModel, qaApiKey, qaSystemPrompt, data]);
 
     const handleSave = async () => {
         handleSaveNodeData({
             ...data,
             name,
             qa_enabled: qaEnabled,
+            qa_use_workflow_llm: useWorkflowLlm,
+            qa_provider: qaProvider,
             qa_model: qaModel,
+            qa_api_key: qaApiKey,
             qa_system_prompt: qaSystemPrompt,
         });
         setOpen(false);
@@ -51,23 +61,28 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
         }, 100);
     };
 
+    const resetFormState = () => {
+        setName(data.name || "QA Analysis");
+        setQaEnabled(data.qa_enabled ?? true);
+        setUseWorkflowLlm(data.qa_use_workflow_llm ?? true);
+        setQaProvider(data.qa_provider || "openai");
+        setQaModel(data.qa_model || "gpt-4.1");
+        setQaApiKey(data.qa_api_key || "");
+        setQaSystemPrompt(data.qa_system_prompt || "");
+    };
+
     const handleOpenChange = (newOpen: boolean) => {
         if (newOpen) {
-            setName(data.name || "QA Analysis");
-            setQaEnabled(data.qa_enabled ?? true);
-            setQaModel(data.qa_model || "default");
-            setQaSystemPrompt(data.qa_system_prompt || "");
+            resetFormState();
         }
         setOpen(newOpen);
     };
 
     useEffect(() => {
         if (open) {
-            setName(data.name || "QA Analysis");
-            setQaEnabled(data.qa_enabled ?? true);
-            setQaModel(data.qa_model || "default");
-            setQaSystemPrompt(data.qa_system_prompt || "");
+            resetFormState();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data, open]);
 
     return (
@@ -86,7 +101,9 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
                 <div className="space-y-2">
                     <div className="flex items-center gap-2">
                         <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">
-                            {data.qa_model || "default"}
+                            {data.qa_use_workflow_llm !== false
+                                ? "Workflow LLM"
+                                : `${data.qa_provider || "openai"}/${data.qa_model || "gpt-4.1"}`}
                         </span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -125,8 +142,14 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
                         setName={setName}
                         qaEnabled={qaEnabled}
                         setQaEnabled={setQaEnabled}
+                        useWorkflowLlm={useWorkflowLlm}
+                        setUseWorkflowLlm={setUseWorkflowLlm}
+                        qaProvider={qaProvider}
+                        setQaProvider={setQaProvider}
                         qaModel={qaModel}
                         setQaModel={setQaModel}
+                        qaApiKey={qaApiKey}
+                        setQaApiKey={setQaApiKey}
                         qaSystemPrompt={qaSystemPrompt}
                         setQaSystemPrompt={setQaSystemPrompt}
                     />
@@ -141,8 +164,14 @@ interface QANodeEditFormProps {
     setName: (value: string) => void;
     qaEnabled: boolean;
     setQaEnabled: (value: boolean) => void;
+    useWorkflowLlm: boolean;
+    setUseWorkflowLlm: (value: boolean) => void;
+    qaProvider: string;
+    setQaProvider: (value: string) => void;
     qaModel: string;
     setQaModel: (value: string) => void;
+    qaApiKey: string;
+    setQaApiKey: (value: string) => void;
     qaSystemPrompt: string;
     setQaSystemPrompt: (value: string) => void;
 }
@@ -152,8 +181,14 @@ const QANodeEditForm = ({
     setName,
     qaEnabled,
     setQaEnabled,
+    useWorkflowLlm,
+    setUseWorkflowLlm,
+    qaProvider,
+    setQaProvider,
     qaModel,
     setQaModel,
+    qaApiKey,
+    setQaApiKey,
     qaSystemPrompt,
     setQaSystemPrompt,
 }: QANodeEditFormProps) => {
@@ -175,22 +210,34 @@ const QANodeEditForm = ({
                 </Label>
             </div>
 
-            <div className="grid gap-2">
-                <Label>Model</Label>
-                <Label className="text-xs text-muted-foreground">
-                    LLM model to use. Set to &quot;default&quot; to use your configured LLM.
-                </Label>
-                <Input
-                    value={qaModel}
-                    onChange={(e) => setQaModel(e.target.value)}
-                    placeholder="default"
+            <div className="flex items-center space-x-2 p-2 border rounded-md bg-muted/20">
+                <Switch
+                    id="use-workflow-llm"
+                    checked={useWorkflowLlm}
+                    onCheckedChange={setUseWorkflowLlm}
                 />
+                <Label htmlFor="use-workflow-llm">Use Workflow LLM</Label>
+                <Label className="text-xs text-muted-foreground ml-2">
+                    Use the LLM configured in your account settings.
+                </Label>
             </div>
+
+            {!useWorkflowLlm && (
+                <LLMConfigSelector
+                    provider={qaProvider}
+                    onProviderChange={setQaProvider}
+                    model={qaModel}
+                    onModelChange={setQaModel}
+                    apiKey={qaApiKey}
+                    onApiKeyChange={setQaApiKey}
+                />
+            )}
 
             <div className="grid gap-2">
                 <Label>System Prompt</Label>
                 <Label className="text-xs text-muted-foreground">
-                    The prompt sent to the LLM for QA analysis. Use {'{metrics}'} placeholder for call metrics.
+                    The prompt sent to the LLM for QA analysis. Use {'{metrics}'} placeholder for
+                    call metrics.
                 </Label>
                 <Textarea
                     value={qaSystemPrompt}

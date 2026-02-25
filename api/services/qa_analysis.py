@@ -117,34 +117,63 @@ def _extract_trace_id(gathered_context: dict) -> str | None:
     return None
 
 
-def _resolve_llm_config(
-    qa_model: str, user_config: dict | None
+def _provider_base_url(provider: str | None, endpoint: str = "") -> str | None:
+    """Return the base URL for a given LLM provider."""
+    if provider == "openrouter":
+        return "https://openrouter.ai/api/v1"
+    if provider == "groq":
+        return "https://api.groq.com/openai/v1"
+    if provider == "google":
+        return "https://generativelanguage.googleapis.com/v1beta/openai/"
+    if provider == "azure":
+        return endpoint or None
+    return None
+
+
+async def _resolve_llm_config(
+    qa_node_data: dict, workflow_run: WorkflowRunModel
 ) -> tuple[str, str, str | None]:
     """Resolve the LLM model, API key, and base URL for QA analysis.
+
+    If the QA node has its own LLM configuration (qa_use_workflow_llm=False),
+    use those settings directly. Otherwise, fall back to the user's configured LLM.
 
     Returns:
         (model, api_key, base_url) tuple
     """
-    llm_config = (user_config or {}).get("llm", {})
+    if not qa_node_data.get("qa_use_workflow_llm", True):
+        return (
+            qa_node_data.get("qa_model"),
+            qa_node_data.get("qa_api_key"),
+            _provider_base_url(
+                qa_node_data.get("qa_provider"),
+                qa_node_data.get("qa_endpoint", ""),
+            ),
+        )
+
+    # Fall back to user's configured LLM
+    user_id = None
+    if workflow_run.workflow and workflow_run.workflow.user:
+        user_id = workflow_run.workflow.user.id
+
+    llm_config: dict = {}
+    if user_id:
+        user_configuration = await db_client.get_user_configurations(user_id)
+        llm_config = user_configuration.model_dump(exclude_none=True).get("llm", {})
+
     provider = llm_config.get("provider", "openai")
     api_key = llm_config.get("api_key", "")
-    base_url = llm_config.get("base_url")
 
+    qa_model = qa_node_data.get("qa_model", "default")
     if qa_model and qa_model != "default":
         model = qa_model
     else:
         model = llm_config.get("model", "gpt-4.1")
 
-    # Set base_url based on provider
-    if provider == "openrouter":
-        base_url = base_url or "https://openrouter.ai/api/v1"
-    elif provider == "groq":
-        base_url = "https://api.groq.com/openai/v1"
-    elif provider == "google":
-        base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
-    elif provider == "azure":
-        endpoint = llm_config.get("endpoint", "")
-        base_url = endpoint if endpoint else None
+    base_url = _provider_base_url(provider, llm_config.get("endpoint", ""))
+    # For openrouter, prefer user-configured base_url if set
+    if provider == "openrouter" and llm_config.get("base_url"):
+        base_url = llm_config["base_url"]
 
     return model, api_key, base_url
 
@@ -183,23 +212,12 @@ async def run_qa_analysis(
     metrics = compute_call_metrics(rtf_events, call_duration)
 
     # Resolve LLM config
-    user_id = None
-    if workflow_run.workflow and workflow_run.workflow.user:
-        user_id = workflow_run.workflow.user.id
-
-    user_config = None
-    if user_id:
-        user_configuration = await db_client.get_user_configurations(user_id)
-        user_config = user_configuration.model_dump(exclude_none=True)
-
-    qa_model = qa_node_data.get("qa_model", "default")
     system_prompt = qa_node_data.get("qa_system_prompt", "")
-
     if not system_prompt:
         logger.warning("No system prompt defined for QA Node")
         return {"error": "no_system_prompt", "tags": [], "summary": "", "score": None}
 
-    model, api_key, base_url = _resolve_llm_config(qa_model, user_config)
+    model, api_key, base_url = await _resolve_llm_config(qa_node_data, workflow_run)
 
     if not api_key:
         logger.warning(

@@ -47,7 +47,7 @@ if [[ -d "$RUN_DIR" ]]; then
     [[ -e "$pidfile" ]] || continue
     pid=$(<"$pidfile")
     if kill -0 "$pid" 2>/dev/null; then
-      ((live_count++))
+      live_count=$((live_count + 1))
     fi
   done
 
@@ -171,17 +171,17 @@ if [[ -f "$NGINX_UPSTREAM_TEMPLATE" ]]; then
 
   # Generate upstream config from template
   sed -e "s|{{UVICORN_UPSTREAM_SERVERS}}|${UPSTREAM_SERVERS}|" \
-      "$NGINX_UPSTREAM_TEMPLATE" > "$NGINX_UPSTREAM_CONF"
+      "$NGINX_UPSTREAM_TEMPLATE" | sudo tee "$NGINX_UPSTREAM_CONF" > /dev/null
 
   echo "Generated nginx upstream config with $FASTAPI_WORKERS workers (ports ${UVICORN_BASE_PORT}-$((UVICORN_BASE_PORT + FASTAPI_WORKERS - 1)))"
 
   # Test and reload nginx
-  if nginx -t 2>/dev/null; then
-    systemctl reload nginx
+  if sudo nginx -t 2>/dev/null; then
+    sudo systemctl reload nginx
     echo "Nginx reloaded successfully"
   else
     echo "ERROR: nginx config test failed, not reloading"
-    nginx -t
+    sudo nginx -t
     exit 1
   fi
 fi

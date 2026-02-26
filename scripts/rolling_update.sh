@@ -154,7 +154,7 @@ for ((w = 0; w < FASTAPI_WORKERS; w++)); do
   if [[ -f "$pidfile" ]]; then
     pid=$(<"$pidfile")
     if kill -0 "$pid" 2>/dev/null; then
-      ((old_running++))
+      old_running=$((old_running + 1))
     fi
   fi
 done
@@ -168,7 +168,7 @@ log_info "Found $old_running running old worker(s)"
 # Verify new ports are free
 for ((w = 0; w < FASTAPI_WORKERS; w++)); do
   port=$((NEW_BASE + w))
-  if lsof -Pi :"$port" -sTCP:LISTEN -t >/dev/null 2>&1; then
+  if ss -tln "sport = :$port" | grep -q LISTEN; then
     log_error "Port $port is already in use. Cannot start new band."
     exit 1
   fi
@@ -312,14 +312,14 @@ done
 
 # Generate upstream config
 sed -e "s|{{UVICORN_UPSTREAM_SERVERS}}|${UPSTREAM_SERVERS}|" \
-    "$NGINX_UPSTREAM_TEMPLATE" > "$NGINX_UPSTREAM_CONF"
+    "$NGINX_UPSTREAM_TEMPLATE" | sudo tee "$NGINX_UPSTREAM_CONF" > /dev/null
 
 log_info "Generated nginx upstream config with $FASTAPI_WORKERS workers (ports ${NEW_BASE}–$((NEW_BASE + FASTAPI_WORKERS - 1)))"
 
 # Validate config
-if ! nginx -t 2>/dev/null; then
+if ! sudo nginx -t 2>/dev/null; then
   log_error "nginx config validation failed!"
-  nginx -t 2>&1 || true
+  sudo nginx -t 2>&1 || true
   # Restore old upstream config
   OLD_UPSTREAM=""
   for ((w = 0; w < FASTAPI_WORKERS; w++)); do
@@ -327,14 +327,14 @@ if ! nginx -t 2>/dev/null; then
     OLD_UPSTREAM="${OLD_UPSTREAM}    server 127.0.0.1:${port};\n"
   done
   sed -e "s|{{UVICORN_UPSTREAM_SERVERS}}|${OLD_UPSTREAM}|" \
-      "$NGINX_UPSTREAM_TEMPLATE" > "$NGINX_UPSTREAM_CONF"
+      "$NGINX_UPSTREAM_TEMPLATE" | sudo tee "$NGINX_UPSTREAM_CONF" > /dev/null
 
   rollback_new_workers "$NEW_BAND"
   exit 1
 fi
 
 # Reload nginx (graceful — finishes in-flight requests to old upstream)
-systemctl reload nginx
+sudo systemctl reload nginx
 log_info "nginx reloaded — traffic now routed to band $NEW_BAND"
 
 ###############################################################################

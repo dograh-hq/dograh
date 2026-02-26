@@ -42,17 +42,17 @@ kill_process_tree() {
 
   descendants=$(get_descendants "$pid")
 
-  # Kill children first (bottom-up), then parent
+  # Kill the parent first so supervisors don't respawn children
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$signal" "$pid" 2>/dev/null || true
+  fi
+
+  # Then kill any remaining descendants
   for desc_pid in $descendants; do
     if kill -0 "$desc_pid" 2>/dev/null; then
       kill "$signal" "$desc_pid" 2>/dev/null || true
     fi
   done
-
-  # Kill the parent
-  if kill -0 "$pid" 2>/dev/null; then
-    kill "$signal" "$pid" 2>/dev/null || true
-  fi
 }
 
 ###############################################################################
@@ -113,14 +113,14 @@ for pidfile in "${pid_files[@]}"; do
         # Final check
         if kill -0 "$oldpid" 2>/dev/null; then
           echo "  Error: Failed to stop $name (PID $oldpid)"
-          ((failed_count++))
+          failed_count=$((failed_count + 1))
         else
           echo "  Stopped $name (forced)"
-          ((stopped_count++))
+          stopped_count=$((stopped_count + 1))
         fi
       else
         echo "  Stopped $name"
-        ((stopped_count++))
+        stopped_count=$((stopped_count + 1))
       fi
     else
       echo "Service $name (PID $oldpid) is not running"

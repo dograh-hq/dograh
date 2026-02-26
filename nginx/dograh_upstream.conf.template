@@ -3,5 +3,5 @@
 upstream dograh_backend {
     least_conn;
 
-    {{UVICORN_UPSTREAM_SERVERS}}
+{{UVICORN_UPSTREAM_SERVERS}}
 }

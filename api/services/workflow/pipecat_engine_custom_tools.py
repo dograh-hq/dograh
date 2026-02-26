@@ -488,7 +488,7 @@ class CustomToolManager:
 
                 finally:
                     # Cleanup hold music and pipeline state
-                    # Transfer context cleanup is now handled by respective serializers
+                    # Transfer context cleanup is handled by respective transfer call strategies
                     logger.info(
                         "Transfer wait ended, cleaning up hold music and pipeline state"
                     )

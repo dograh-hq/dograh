@@ -388,7 +388,6 @@ class ARIProvider(TelephonyProvider):
             f"(timeout: {timeout}s)"
         )
 
-        # Import here to avoid circular dependency
         from api.services.telephony.call_transfer_manager import (
             get_call_transfer_manager,
         )
@@ -456,7 +455,7 @@ class ARIProvider(TelephonyProvider):
             }
 
         except Exception as e:
-            logger.error(f"[ARI Transfer] Failed to originate transfer channel: {e}")
+            logger.error(f"[ARI Transfer] Failed to originate call transfer destination channel: {e}")
             await call_transfer_manager.remove_transfer_context(transfer_id)
             raise
 

@@ -276,7 +276,7 @@ class ARIConnection:
             else:
                 # Outbound call (state == "Up") — originated by us
                 # Check if this is a transfer destination channel (app_args starts with "transfer")
-                # Transfer destinations run externally - we only track status to publish transfer event, not run our pipeline
+                # Transfer destinations run externally - we only track status to publish transfer event, not run the pipeline
                 transfer_id = self._get_transfer_id(app_args)
                 if transfer_id:
                     logger.info(
@@ -318,7 +318,6 @@ class ARIConnection:
             logger.info(
                 f"[ARI org={self.organization_id}] StasisEnd: channel={channel_id}"
             )
-
             workflow_run_id = await self._get_channel_run(channel_id)
             if workflow_run_id:
                 asyncio.create_task(
@@ -629,7 +628,8 @@ class ARIConnection:
             bridge_id = ctx.get("bridge_id")
             transfer_state = ctx.get("transfer_state")
 
-            # Check if this is transfer-protected external channe. Skip full teardown if transfer is in progress and this is the external media channel
+            # Check if this is a call transfer scenario external channel. Skip full teardown if 
+            # transfer is in progress and this is the external media channel
             # During call transfer, we preserve the caller-destination bridge
             if (
                 transfer_state == "in-progress"
@@ -811,7 +811,6 @@ class ARIConnection:
         try:
             logger.info(f"[ARI Transfer] Transfer {transfer_id} failed: {reason}")
 
-            # Get transfer context
             transfer_manager = await self._get_transfer_manager()
             context = await transfer_manager.get_transfer_context(transfer_id)
 

@@ -130,8 +130,8 @@ for pidfile in "${pid_files[@]}"; do
   fi
 done
 
-# Clean up any port tracking files for uvicorn
-rm -f "$RUN_DIR/uvicorn.port" "$RUN_DIR/uvicorn_new.port" "$RUN_DIR/uvicorn_old.pid"
+# Clean up any port tracking files for uvicorn and band tracking
+rm -f "$RUN_DIR/uvicorn.port" "$RUN_DIR/uvicorn_new.port" "$RUN_DIR/uvicorn_old.pid" "$RUN_DIR/active_band"
 
 ###############################################################################
 ### SUMMARY

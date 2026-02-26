@@ -395,7 +395,6 @@ class CustomToolManager:
                     )
                     return
 
-                # Get telephony provider directly (no HTTP round-trip)
                 provider = await get_telephony_provider(organization_id)
                 if not provider.supports_transfers() or not provider.validate_config():
                     validation_error_result = {
@@ -418,6 +417,19 @@ class CustomToolManager:
                 # Compute conference name from original call SID
                 conference_name = f"transfer-{original_call_sid}"
 
+                # Store initial transfer context in Redis before provider call to avoid race condition
+                call_transfer_manager = await get_call_transfer_manager()
+                transfer_context = TransferContext(
+                    transfer_id=transfer_id,
+                    call_sid=None,  # Will be updated after provider response
+                    target_number=destination,
+                    tool_uuid=tool.tool_uuid,
+                    original_call_sid=original_call_sid,
+                    conference_name=conference_name,
+                    initiated_at=time.time(),
+                )
+                await call_transfer_manager.store_transfer_context(transfer_context)
+
                 # Mute the pipeline
                 self._engine.set_mute_pipeline(True)
 
@@ -432,21 +444,8 @@ class CustomToolManager:
                 call_sid = transfer_result.get("call_sid")
                 logger.info(f"Transfer call initiated successfully: {call_sid}")
 
-                # TODO: Possible race here between saving the transfer context
-                # and getting a callback response from Twilio? Should we store_transfer_context
-                # before sending request to Twilio and update the transfer context afterwards?
-
-                # Store transfer context in Redis
-                call_transfer_manager = await get_call_transfer_manager()
-                transfer_context = TransferContext(
-                    transfer_id=transfer_id,
-                    call_sid=call_sid,
-                    target_number=destination,
-                    tool_uuid=tool.tool_uuid,
-                    original_call_sid=original_call_sid,
-                    conference_name=conference_name,
-                    initiated_at=time.time(),
-                )
+                # Update transfer context with actual call_sid from provider response
+                transfer_context.call_sid = call_sid
                 await call_transfer_manager.store_transfer_context(transfer_context)
 
                 # Wait for status callback completion using Redis pub/sub
@@ -538,67 +537,57 @@ class CustomToolManager:
                     exception_result, function_call_params, properties
                 )
 
-            finally:
-                # Schedule background cleanup of transfer context after pipeline processing delay
-                if "transfer_id" in locals():
-                    asyncio.create_task(
-                        self._cleanup_transfer_context_delayed(transfer_id)
-                    )
-
         return transfer_call_handler
-
-    async def _cleanup_transfer_context_delayed(self, transfer_id: str):
-        """Background task to clean up transfer context after pipeline processing delay."""
-        try:
-            # Wait for pipeline to process EndFrame(reason="transfer_call") in serializers
-            await asyncio.sleep(1.0)  # 1 second delay for async pipeline processing
-
-            call_transfer_manager = await get_call_transfer_manager()
-            await call_transfer_manager.remove_transfer_context(transfer_id)
-            logger.info(f"Background cleanup: removed transfer context {transfer_id}")
-        except Exception as e:
-            logger.error(
-                f"Background cleanup error for transfer context {transfer_id}: {e}"
-            )
 
     async def _handle_transfer_result(
         self, result: dict, function_call_params, properties
     ):
-        """Handle different transfer call outcomes and take appropriate action."""
+        """Handle transfer call outcomes from any telephony provider (Twilio, ARI, etc).
+
+        This method is provider-agnostic and processes standardized result dictionaries
+        from transfer completion events, validation failures, timeouts, and errors.
+
+        Args:
+            result: Standardized result dict with keys: action, status, reason, message
+            function_call_params: LLM function call parameters for response callback
+            properties: Function call result properties (e.g., run_llm setting)
+        """
         action = result.get("action", "")
         status = result.get("status", "")
 
         logger.info(f"Handling transfer result: action={action}, status={status}")
 
-        if action == "transfer_success":
-            # Successful transfer - add original caller to conference and end pipeline
+        if action == "destination_answered":
+            # Transfer destination answered - proceeding with bridge swap/conference join
             conference_id = result.get("conference_id")
             original_call_sid = result.get("original_call_sid")
             transfer_call_sid = result.get("transfer_call_sid")
 
             logger.info(
-                f"Transfer successful! Conference: {conference_id}, Original: {original_call_sid}, Transfer: {transfer_call_sid}"
+                f"Transfer destination answered! Conference/Bridge: {conference_id}, "
+                f"Original: {original_call_sid}, Transfer: {transfer_call_sid}"
             )
 
-            # Inform LLM of success and end the call with Transfer call reason
+            # Inform LLM of success and end the call (no further LLM processing needed)
             response_properties = FunctionCallResultProperties(run_llm=False)
             await function_call_params.result_callback(
                 {
                     "status": "transfer_success",
-                    "message": "Transfer successful - connecting to conference",
+                    "message": "Transfer destination answered - connecting calls",
                     "conference_id": conference_id,
                 },
                 properties=response_properties,
             )
 
+            # End pipeline - providers complete bridge swap/conference join as final transfer leg
             await self._engine.end_call_with_reason(
                 EndTaskReason.TRANSFER_CALL.value, abort_immediately=False
             )
 
         elif action == "transfer_failed":
-            # Transfer failed - inform user via LLM and then end the call
+            # Transfer failed - let LLM inform user with error details
             reason = result.get("reason", "unknown")
-            logger.info(f"Transfer failed ({reason}), informing user")
+            logger.info(f"Transfer failed ({reason}), informing user via LLM")
 
             await function_call_params.result_callback(
                 {

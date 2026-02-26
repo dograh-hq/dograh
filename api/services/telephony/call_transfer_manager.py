@@ -158,16 +158,10 @@ class CallTransferManager:
                             )
 
                             # Check if this is a completion event
-                            if (
-                                event.type
-                                in [
-                                    TransferEventType.TRANSFER_ANSWERED,  # Call answered = transfer successful
-                                    TransferEventType.TRANSFER_COMPLETED,
-                                    TransferEventType.TRANSFER_FAILED,
-                                    TransferEventType.TRANSFER_CANCELLED,
-                                    TransferEventType.TRANSFER_TIMEOUT,
-                                ]
-                            ):
+                            if event.type in [
+                                TransferEventType.DESTINATION_ANSWERED,
+                                TransferEventType.TRANSFER_FAILED,
+                            ]:
                                 return event
                         except Exception as e:
                             logger.error(f"Failed to parse transfer event: {e}")

@@ -6,7 +6,6 @@ The ARI WebSocket event listener runs as a separate process (ari_manager.py).
 """
 
 import json
-import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -393,20 +392,9 @@ class ARIProvider(TelephonyProvider):
         from api.services.telephony.call_transfer_manager import (
             get_call_transfer_manager,
         )
-        from api.services.telephony.transfer_event_protocol import TransferContext
 
-        # Store transfer context for event correlation
+        # Get call transfer manager for event correlation mapping
         call_transfer_manager = await get_call_transfer_manager()
-        context = TransferContext(
-            transfer_id=transfer_id,
-            call_sid=None,  # Will be updated after channel creation
-            target_number=destination,
-            tool_uuid=kwargs.get("tool_uuid", ""),
-            original_call_sid=kwargs.get("original_call_sid", ""),
-            conference_name=conference_name,
-            initiated_at=time.time(),
-        )
-        await call_transfer_manager.store_transfer_context(context, ttl=timeout + 10)
 
         # Build SIP endpoint
         if destination.startswith("SIP/") or destination.startswith("PJSIP/"):
@@ -449,12 +437,6 @@ class ARIProvider(TelephonyProvider):
                 )
                 await call_transfer_manager.remove_transfer_context(transfer_id)
                 raise Exception("Failed to create destination channel")
-
-            # Update transfer context with destination channel ID
-            context.call_sid = destination_channel_id
-            await call_transfer_manager.store_transfer_context(
-                context, ttl=timeout + 10
-            )
 
             # Store transfer channel mapping for event correlation
             await call_transfer_manager.store_transfer_channel_mapping(

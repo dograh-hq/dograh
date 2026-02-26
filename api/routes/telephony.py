@@ -1670,7 +1670,7 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
         result = {
             "status": "success",
             "message": "Great! The destination number answered. Let me transfer you now.",
-            "action": "transfer_success",
+            "action": "destination_answered",
             "conference_id": conference_name,
             "transfer_call_sid": call_sid,  # The outbound transfer call SID
             "original_call_sid": original_call_sid,  # The original caller's SID
@@ -1714,9 +1714,7 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
     try:
         # Determine event type based on result status
         if result["status"] == "success":
-            event_type = TransferEventType.TRANSFER_COMPLETED
-        elif result.get("reason") == "timeout":
-            event_type = TransferEventType.TRANSFER_TIMEOUT
+            event_type = TransferEventType.DESTINATION_ANSWERED
         else:
             event_type = TransferEventType.TRANSFER_FAILED
 

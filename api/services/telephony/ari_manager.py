@@ -284,7 +284,7 @@ class ARIConnection:
                         f"channel={channel_id}, transfer_id={transfer_id}"
                     )
                     asyncio.create_task(
-                        self._handle_transfer_answered(transfer_id, channel_id)
+                        self._handle_destination_answered(transfer_id, channel_id)
                     )
                     return
 
@@ -753,7 +753,7 @@ class ARIConnection:
             )
             return None
 
-    async def _handle_transfer_answered(
+    async def _handle_destination_answered(
         self, transfer_id: str, destination_channel_id: str
     ):
         """Handle transfer destination channel answered - publish success event."""
@@ -780,16 +780,16 @@ class ARIConnection:
                 f"caller={context.original_call_sid} -> destination={destination_channel_id}"
             )
 
-            # Publish transfer success event - this will trigger the bridge swap in serializer
+            # Publish destination answered event - this will trigger the bridge swap in serializer
             success_event = TransferEvent(
-                type=TransferEventType.TRANSFER_ANSWERED,
+                type=TransferEventType.DESTINATION_ANSWERED,
                 transfer_id=transfer_id,
                 original_call_sid=context.original_call_sid,
                 transfer_call_sid=destination_channel_id,
                 conference_name=context.conference_name,
                 message="Transfer destination answered",
                 status="success",
-                action="transfer_success",
+                action="destination_answered",
                 end_call=True,
                 timestamp=time.time(),
             )

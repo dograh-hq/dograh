@@ -12,7 +12,7 @@ const nextConfig: NextConfig = {
       // API proxy for backend calls (excluding Next.js API routes)
       {
         source: "/api/:path((?!config|auth).*)*",
-        destination: `${process.env.BACKEND_URL || 'http://localhost:8000'}/api/:path*`,
+        destination: `${process.env.BACKEND_URL || 'http://172.18.0.142:8000'}/api/:path*`,
       },
       {
         source: "/ingest/static/:path*",
@@ -26,6 +26,7 @@ const nextConfig: NextConfig = {
         source: "/ingest/decide",
         destination: "https://us.i.posthog.com/decide",
       },
+      
     ];
   },
   // This is required to support PostHog trailing slash API requests

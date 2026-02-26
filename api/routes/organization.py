@@ -37,6 +37,7 @@ PROVIDER_MASKED_FIELDS = {
 
 # TODO: Make endpoints provider-agnostic
 @router.get("/telephony-config", response_model=TelephonyConfigurationResponse)
+# @router.get("/", response_model=TelephonyConfigurationResponse)
 async def get_telephony_configuration(user: UserModel = Depends(get_user)):
     """Get telephony configuration for the user's organization with masked sensitive fields."""
     if not user.selected_organization_id:

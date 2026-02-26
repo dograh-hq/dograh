@@ -128,6 +128,11 @@ export function AppSidebar() {
           icon: Phone,
         },
         {
+          title: "DID Routing",
+          url: "/did-workflow-mapping",
+          icon: Phone,
+        },
+        {
           title: "Tools",
           url: "/tools",
           icon: Wrench,

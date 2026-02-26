@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from api.routes.auth import router as auth_router
 from api.routes.campaign import router as campaign_router
+from api.routes.did_workflow_mapping import router as did_workflow_mapping_router
 from api.routes.credentials import router as credentials_router
 from api.routes.integration import router as integration_router
 from api.routes.knowledge_base import router as knowledge_base_router
@@ -52,6 +53,7 @@ router.include_router(public_download_router)
 router.include_router(workflow_embed_router)
 router.include_router(knowledge_base_router)
 router.include_router(auth_router)
+router.include_router(did_workflow_mapping_router)
 
 
 class HealthResponse(BaseModel):

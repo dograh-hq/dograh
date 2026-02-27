@@ -43,7 +43,24 @@
               "voice-agent/introduction",
               "voice-agent/editing-a-workflow",
               "voice-agent/template-variables",
-              "voice-agent/tools",
+              {
+                "group": "Tools",
+                "pages": [
+                  {
+                    "group": "Built-in Tools",
+                    "pages": [
+                      "voice-agent/tools/call-transfer",
+                      "voice-agent/tools/end-call"
+                    ]
+                  },
+                  {
+                    "group": "Custom Tools",
+                    "pages": [
+                      "voice-agent/tools/http-api"
+                    ]
+                  }
+                ]
+              },
               {
                 "group": "Nodes",
                 "pages": [

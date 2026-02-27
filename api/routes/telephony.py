@@ -1728,7 +1728,6 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
             status=result["status"],
             action=result.get("action", ""),
             reason=result.get("reason"),
-            end_call=result.get("end_call", False),
         )
 
         # Publish the event via Redis

@@ -52,7 +52,6 @@ class TransferEvent:
             "conference_id": self.conference_name,
             "transfer_call_sid": self.transfer_call_sid,
             "original_call_sid": self.original_call_sid,
-            "end_call": self.end_call,
             "reason": self.reason,
         }
         return result

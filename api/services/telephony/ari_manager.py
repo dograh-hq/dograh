@@ -790,8 +790,6 @@ class ARIConnection:
                 message="Transfer destination answered",
                 status="success",
                 action="destination_answered",
-                end_call=True,
-                timestamp=time.time(),
             )
             await transfer_manager.publish_transfer_event(success_event)
 
@@ -824,8 +822,6 @@ class ARIConnection:
                 status="failed",
                 action="transfer_failed",
                 reason=reason,
-                end_call=False,
-                timestamp=time.time(),
             )
             await transfer_manager.publish_transfer_event(failure_event)
 

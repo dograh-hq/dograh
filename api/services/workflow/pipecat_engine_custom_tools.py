@@ -318,7 +318,6 @@ class CustomToolManager:
                         "message": "I'm sorry, but call transfers are not available for web calls. Please try a telephony call.",
                         "action": "transfer_failed",
                         "reason": "webrtc_not_supported",
-                        "end_call": True,
                     }
                     await self._handle_transfer_result(
                         webrtc_error_result, function_call_params, properties
@@ -332,7 +331,6 @@ class CustomToolManager:
                         "message": "I'm sorry, but I don't have a phone number configured for the transfer. Please contact support to set up call transfer.",
                         "action": "transfer_failed",
                         "reason": "no_destination",
-                        "end_call": True,
                     }
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
@@ -354,7 +352,6 @@ class CustomToolManager:
                             "message": "I'm sorry, but the transfer destination appears to be invalid. Please contact support to verify the transfer settings.",
                             "action": "transfer_failed",
                             "reason": "invalid_destination",
-                            "end_call": True,
                         }
                         await self._handle_transfer_result(
                             validation_error_result, function_call_params, properties
@@ -369,7 +366,6 @@ class CustomToolManager:
                             "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
                             "action": "transfer_failed",
                             "reason": "invalid_destination",
-                            "end_call": True,
                         }
                         await self._handle_transfer_result(
                             validation_error_result, function_call_params, properties
@@ -388,7 +384,6 @@ class CustomToolManager:
                         "message": "I'm sorry, there's an issue with this call transfer. Please contact support.",
                         "action": "transfer_failed",
                         "reason": "no_organization_id",
-                        "end_call": False,
                     }
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
@@ -402,7 +397,6 @@ class CustomToolManager:
                         "message": "I'm sorry, there's an issue with this call transfer. Please contact support.",
                         "action": "transfer_failed",
                         "reason": "provider_does_not_support_transfer",
-                        "end_call": False,
                     }
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
@@ -512,7 +506,6 @@ class CustomToolManager:
                         "message": "I'm sorry, but the call is taking longer than expected to connect. The person might not be available right now. Please try calling back later.",
                         "action": "transfer_failed",
                         "reason": "timeout",
-                        "end_call": True,
                     }
                     await self._handle_transfer_result(
                         timeout_result, function_call_params, properties
@@ -530,7 +523,6 @@ class CustomToolManager:
                     "message": "I'm sorry, but something went wrong while trying to transfer your call. Please try again later or contact support if the problem persists.",
                     "action": "transfer_failed",
                     "reason": "execution_error",
-                    "end_call": True,
                 }
 
                 await self._handle_transfer_result(

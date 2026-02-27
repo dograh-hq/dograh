@@ -18,7 +18,7 @@ import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
 import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
-import { AgentNode, EndCall, GlobalNode, StartCall, TriggerNode, WebhookNode } from "../../../components/flow/nodes";
+import { AgentNode, EndCall, GlobalNode, QANode, StartCall, TriggerNode, WebhookNode } from "../../../components/flow/nodes";
 import { ConfigurationsDialog } from './components/ConfigurationsDialog';
 import { DictionaryDialog } from './components/DictionaryDialog';
 import { EmbedDialog } from './components/EmbedDialog';
@@ -37,6 +37,7 @@ const nodeTypes = {
     [NodeType.GLOBAL_NODE]: GlobalNode,
     [NodeType.TRIGGER]: TriggerNode,
     [NodeType.WEBHOOK]: WebhookNode,
+    [NodeType.QA]: QANode,
 };
 
 const edgeTypes = {

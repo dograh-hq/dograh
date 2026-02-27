@@ -3,6 +3,8 @@
 import { Loader2 } from 'lucide-react';
 import React, { createContext, lazy, Suspense, useContext, useEffect, useState } from 'react';
 
+import logger from '@/lib/logger';
+
 import type { AuthUser } from '../types';
 
 // Shared context type for both Stack and Local providers
@@ -46,8 +48,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     fetch('/api/config/auth')
       .then((res) => res.json())
-      .then((data) => setAuthProvider(data.provider || 'stack'))
-      .catch(() => setAuthProvider('local'));
+      .then((data) => {
+        logger.debug(`Setting auth provider as ${data.provider}`)
+        setAuthProvider(data.provider || 'stack')
+  })
+      .catch((e) => {
+        logger.error(`Got error ${e} while setting auth provider`)
+        setAuthProvider('local')
+      });
   }, []);
 
   if (!authProvider) {

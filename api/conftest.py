@@ -12,15 +12,16 @@ References:
 """
 
 import os
+
+# Load environment variables before importing anything else
 from pathlib import Path
 from typing import AsyncGenerator
 from urllib.parse import urlparse, urlunparse
 
-# Load environment variables before importing anything else
 from dotenv import load_dotenv
 
-# Load .env.test from api directory for test configuration
-env_path = Path(__file__).parent / ".env.test"
+# Load .env.test before importing api.constants (which reads DATABASE_URL at import time)
+env_path = Path(__file__).resolve().parent / ".env.test"
 load_dotenv(env_path)
 
 import logging
@@ -28,6 +29,8 @@ import sys
 
 import loguru
 import pytest
+
+from api.constants import APP_ROOT_DIR  # noqa: E402
 
 
 def setup_test_logging():
@@ -191,7 +194,7 @@ async def run_migrations(database_url: str):
     from alembic.config import Config
 
     # Get alembic.ini path
-    alembic_ini_path = Path(__file__).parent / "alembic.ini"
+    alembic_ini_path = APP_ROOT_DIR / "alembic.ini"
 
     # Create alembic config
     alembic_cfg = Config(str(alembic_ini_path))

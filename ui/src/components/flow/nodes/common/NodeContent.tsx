@@ -12,7 +12,7 @@ interface NodeContentProps {
     hovered_through_edge?: boolean;
     title: string;
     icon: ReactNode;
-    nodeType?: 'start' | 'agent' | 'end' | 'global' | 'trigger' | 'webhook';
+    nodeType?: 'start' | 'agent' | 'end' | 'global' | 'trigger' | 'webhook' | 'qa';
     hasSourceHandle?: boolean;
     hasTargetHandle?: boolean;
     children?: ReactNode;
@@ -36,6 +36,8 @@ const getNodeTypeBadge = (nodeType?: string) => {
             return { label: 'API Trigger', className: 'bg-purple-500 text-white' };
         case 'webhook':
             return { label: 'Webhook', className: 'bg-indigo-500 text-white' };
+        case 'qa':
+            return { label: 'QA Analysis', className: 'bg-teal-500 text-white' };
         default:
             return { label: 'Node', className: 'bg-zinc-500 text-white' };
     }

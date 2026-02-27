@@ -25,6 +25,7 @@ interface WorkflowRunResponse {
     initial_context: Record<string, string | number | boolean | object> | null;
     gathered_context: Record<string, string | number | boolean | object> | null;
     logs: WorkflowRunLogs | null;
+    annotations: Record<string, unknown> | null;
 }
 
 function ContextDisplay({ title, context }: { title: string; context: Record<string, string | number | boolean | object> | null }) {
@@ -107,6 +108,7 @@ export default function WorkflowRunPage() {
                 initial_context: response.data?.initial_context as Record<string, string> | null ?? null,
                 gathered_context: response.data?.gathered_context as Record<string, string> | null ?? null,
                 logs: response.data?.logs as WorkflowRunLogs | null ?? null,
+                annotations: response.data?.annotations as Record<string, unknown> | null ?? null,
             });
         };
         fetchWorkflowRun();
@@ -237,6 +239,13 @@ export default function WorkflowRunPage() {
                                 context={workflowRun?.gathered_context}
                             />
                         </div>
+
+                        {workflowRun?.annotations && Object.keys(workflowRun.annotations).length > 0 && (
+                            <ContextDisplay
+                                title="QA Results"
+                                context={workflowRun.annotations as Record<string, string | number | boolean | object>}
+                            />
+                        )}
                     </div>
                 </div>
 

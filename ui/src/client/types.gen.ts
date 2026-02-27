@@ -70,16 +70,6 @@ export type AccessTokenResponse = {
     connection_id: string;
 };
 
-export type AdminCommentRequest = {
-    admin_comment: string;
-};
-
-export type AdminCommentResponse = {
-    success: boolean;
-    admin_comment: string;
-    admin_comment_ts: string;
-};
-
 export type AuthResponse = {
     token: string;
     user: UserResponse;
@@ -858,8 +848,6 @@ export type SuperuserWorkflowRunResponse = {
     gathered_context: {
         [key: string]: unknown;
     } | null;
-    admin_comment: string | null;
-    admin_comment_ts: string | null;
     created_at: string;
 };
 
@@ -1345,6 +1333,9 @@ export type WorkflowRunResponseSchema = {
     } | null;
     call_type: CallType;
     logs?: {
+        [key: string]: unknown;
+    } | null;
+    annotations?: {
         [key: string]: unknown;
     } | null;
 };
@@ -1835,41 +1826,6 @@ export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses = {
 };
 
 export type GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponse = GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses[keyof GetWorkflowRunsApiV1SuperuserWorkflowRunsGetResponses];
-
-export type SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostData = {
-    body: AdminCommentRequest;
-    headers?: {
-        authorization?: string | null;
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        run_id: number;
-    };
-    query?: never;
-    url: '/api/v1/superuser/workflow-runs/{run_id}/comment';
-};
-
-export type SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostError = SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostErrors[keyof SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostErrors];
-
-export type SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: AdminCommentResponse;
-};
-
-export type SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostResponse = SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostResponses[keyof SetAdminCommentApiV1SuperuserWorkflowRunsRunIdCommentPostResponses];
 
 export type ValidateWorkflowApiV1WorkflowWorkflowIdValidatePostData = {
     body?: never;

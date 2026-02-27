@@ -1,5 +1,4 @@
 class FunctionNames:
-    CALCULATE_WORKFLOW_RUN_COST = "calculate_workflow_run_cost"
     RUN_INTEGRATIONS_POST_WORKFLOW_RUN = "run_integrations_post_workflow_run"
     PROCESS_WORKFLOW_COMPLETION = "process_workflow_completion"
     UPLOAD_VOICEMAIL_AUDIO_TO_S3 = "upload_voicemail_audio_to_s3"

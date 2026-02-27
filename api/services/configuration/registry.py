@@ -286,7 +286,7 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     model: str = Field(
         default="sonic-3", json_schema_extra={"examples": CARTESIA_TTS_MODELS}
     )
-    voice: str = Field(default="a167e0f3-df7e-4d52-a9c3-f949145571bd")
+    voice: str = Field(default="3faa81ae-d3d8-4ab1-9e44-e50e46d33c30")
     api_key: str
 
 

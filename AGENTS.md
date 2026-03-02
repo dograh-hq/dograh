@@ -29,7 +29,7 @@ dograh/
 
 ```bash
 # Start infrastructure services (postgres, redis, minio)
-./scripts/start_services.sh --dev
+./scripts/start_services_dev.sh
 
 # Stop all services
 ./scripts/stop_services.sh

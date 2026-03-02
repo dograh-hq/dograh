@@ -389,6 +389,7 @@ class CloudonixProvider(TelephonyProvider):
             # Wait for "connected" event
             first_msg = await websocket.receive_text()
             msg = json.loads(first_msg)
+            logger.debug(f"Received first message: {msg}")
 
             if msg.get("event") != "connected":
                 logger.error(f"Expected 'connected' event, got: {msg.get('event')}")

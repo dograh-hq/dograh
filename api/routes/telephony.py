@@ -6,8 +6,7 @@ Consolidated from split modules for easier maintenance.
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Optional
-
+from typing import Optional, Any, Dict
 from fastapi import (
     APIRouter,
     Depends,
@@ -49,6 +48,7 @@ from api.utils.telephony_helper import (
     normalize_webhook_data,
     numbers_match,
     parse_webhook_request,
+    parse_cloudonix_amd_callback
 )
 from pipecat.utils.run_context import set_current_run_id
 
@@ -1182,13 +1182,12 @@ async def handle_cloudonix_status_callback(
         logger.warning(f"Workflow run {workflow_run_id} not found for status callback")
         return {"status": "ignored", "reason": "workflow_run_not_found"}
 
-    # Get workflow and provider
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
+    # Get workflow from workflow_run and get the provider
+    if not workflow_run.workflow:
         logger.warning(f"Workflow {workflow_run.workflow_id} not found")
         return {"status": "ignored", "reason": "workflow_not_found"}
 
-    provider = await get_telephony_provider(workflow.organization_id)
+    provider = await get_telephony_provider(workflow_run.workflow.organization_id)
 
     # Parse the callback data into generic format
     parsed_data = provider.parse_status_callback(callback_data)
@@ -1208,6 +1207,71 @@ async def handle_cloudonix_status_callback(
     await _process_status_update(workflow_run_id, status_update)
 
     return {"status": "success"}
+
+@router.post("/cloudonix/amd-callback/{workflow_run_id}")
+async def handle_cloudonix_amd_callback(
+    workflow_run_id: int,
+    request: Request,
+):
+    """Handle Cloudonix-specific status callbacks.
+
+    Cloudonix sends call status updates to the callback URL specified during call initiation.
+    """
+    set_current_run_id(workflow_run_id)
+    # Parse callback data - determine if JSON or form data
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        callback_data = await request.json()
+    else:
+        # Assume form data (like Twilio)
+        form_data = await request.form()
+        callback_data = dict(form_data)
+
+    logger.info(
+        f"[run {workflow_run_id}] Received Cloudonix AMD status callback: {json.dumps(callback_data)}"
+    )
+    
+    call_id = callback_data["CallSid"]
+    answered_by = callback_data["AnsweredBy"]
+    logger.info(
+        f"[run {workflow_run_id}] returning from the AMD callback for call answered-by: {answered_by}"
+)
+
+    if answered_by in ["human", "unknown"]:
+        logger.info(
+        f"[run {workflow_run_id}] returning from the AMD callback for call answered-by: {answered_by}"
+)
+        return {"status": answered_by}
+    
+    logger.info(
+        f"[run {workflow_run_id}] proceeding with call hang up and workflow run update for call answered-by: {answered_by}"
+    )
+    workflow_run = await db_client.get_workflow_run_by_call_id(call_id)
+    if not workflow_run:
+        logger.warning(f"No workflow run found for Cloudonix call_id: {call_id}")
+        return {"status": "ignored", "reason": "workflow_run_not_found"}
+    organization_id = workflow_run.workflow.organization_id
+    provider = await get_telephony_provider(organization_id)
+
+    # Parse the AMD callback data to persist in workflow_run
+    parsed_data = parse_cloudonix_amd_callback(callback_data)
+
+    # Create status update for AMD detection
+    status_update = StatusCallbackRequest(
+        call_id=parsed_data["call_id"],
+        status=f"amd_{parsed_data['answered_by']}",
+        extra_data=parsed_data,
+    )
+
+    # Process the status update
+    await _process_status_update(workflow_run_id, status_update)
+
+    logger.info(
+        f"[run {workflow_run_id}] Call answered by: {answered_by}, hang up call with call_id: {call_id}"
+    )
+    await provider.hang_up(call_id)
+    return {"status": answered_by}
 
 
 @router.post("/vobiz/hangup-callback/workflow/{workflow_id}")

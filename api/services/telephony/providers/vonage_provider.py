@@ -511,3 +511,8 @@ class VonageProvider(TelephonyProvider):
             False - Vonage provider does not support call transfers
         """
         return False
+
+    async def hang_up(self, call_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """Terminate a Vonage call."""
+        # TODO: Implement Vonage call termination
+        return {"status": "not_implemented"}

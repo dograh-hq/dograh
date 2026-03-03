@@ -587,3 +587,8 @@ class TwilioProvider(TelephonyProvider):
             True - Twilio provider supports call transfers
         """
         return True
+
+    async def hang_up(self, call_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """Terminate a Twilio call."""
+        # TODO: Implement Twilio call termination
+        return {"status": "not_implemented"}

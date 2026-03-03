@@ -418,3 +418,8 @@ class ARIProvider(TelephonyProvider):
             f"&app={self.app_name}"
             f"&subscribeAll=true"
         )
+
+    async def hang_up(self, call_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """Terminate an ARI call."""
+        # TODO: Implement ARI call termination
+        return {"status": "not_implemented"}

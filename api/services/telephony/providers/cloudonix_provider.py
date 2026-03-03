@@ -106,6 +106,16 @@ class CloudonixProvider(TelephonyProvider):
             "caller-id": from_number,  # Required field
         }
 
+        # Enable and process AMD
+        data["machineDetection"] = "DetectMessageEnd"
+        data["asyncAmd"] = True
+        data["machineDetectionTimeout"] = 30
+        data["machineDetectionSpeechThreshold"] = 2500
+        data["machineDetectionSpeechEndThreshold"] = 6000
+        data["machineDetectionSilenceTimeout"] = 2500
+        data["asyncAmdStatusCallback"] = f"{backend_endpoint}/api/v1/telephony/cloudonix/amd-callback/{workflow_run_id}"
+        data["asyncAmdStatusCallbackMethod"]= "POST"
+
         # TODO: Cloudonix status callbacks are spammy, so commenting it out. Can send it to
         # some persistent logging system instead of transcational database.
         # Add status callback if workflow_run_id provided
@@ -681,6 +691,42 @@ class CloudonixProvider(TelephonyProvider):
 </Response>"""
 
         return Response(content=twiml, media_type="application/xml"), "application/xml"
+
+    async def hang_up(self, call_id: str, **kwargs: Any) -> Dict[str, Any]:
+
+        # Construct the DELETE session endpoint
+        # Using "self" as customer-id as per Cloudonix documentation
+        endpoint = (
+            f"{self.base_url}/customers/self/domains/{self.domain_id}/sessions/{call_id}"
+        )
+
+        # Prepare headers with Bearer token authentication
+        headers = {
+            "Authorization": f"Bearer {self.bearer_token}",
+            "Content-Type": "application/json",
+        }
+
+        logger.info(f"Terminating Cloudonix call {call_id} via DELETE {endpoint}")
+
+        # Make the DELETE request to terminate the session
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(endpoint, headers=headers) as response:
+                status = response.status
+                response_text = await response.text()
+
+                if status in (200, 204, 404):
+                    # 200/204: Success
+                    # 404: Session already terminated (acceptable)
+                    logger.info(
+                        f"Successfully terminated Cloudonix session {call_id} "
+                        f"(HTTP {status}), Response: {response_text}"
+                    )
+                else:
+                    logger.warning(
+                        f"Unexpected response terminating Cloudonix session {call_id}: "
+                        f"HTTP {status}, Response: {response_text}"
+                    )        
+        return {"status": "success"}
 
     # ======== CALL TRANSFER METHODS ========
 

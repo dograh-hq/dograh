@@ -560,3 +560,8 @@ class VobizProvider(TelephonyProvider):
             False - Vobiz provider does not support call transfers
         """
         return False
+
+    async def hang_up(self, call_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """Terminate a Vobiz call."""
+        # TODO: Implement Vobiz call termination
+        return {"status": "not_implemented"}

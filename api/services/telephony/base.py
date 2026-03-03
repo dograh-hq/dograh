@@ -352,3 +352,17 @@ class TelephonyProvider(ABC):
             True if provider supports call transfers, False otherwise
         """
         pass
+
+    @abstractmethod
+    async def hang_up(self, call_id: str, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Terminate an active call.
+
+        Args:
+            call_id: Provider-specific call identifier
+            **kwargs: Provider-specific additional parameters
+
+        Returns:
+            Dict containing hangup response (format varies by provider)
+        """
+        pass

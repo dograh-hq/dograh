@@ -59,155 +59,155 @@ services:
     networks:
       - app-network
 
-  nginx:
-    image: nginx:alpine
-    container_name: nginx_https
-    profiles: ["remote"]
-    depends_on:
-      - ui
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./certs:/etc/nginx/certs:ro
-    networks:
-      - app-network
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: nginx_https
+  #   profiles: ["remote"]
+  #   depends_on:
+  #     - ui
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   networks:
+  #     - app-network
 
-  api:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest
-    volumes:
-      - shared-tmp:/tmp
-    environment:
-      # Core application config
-      ENVIRONMENT: "local"
-      LOG_LEVEL: "INFO"
+  # api:
+  #   image: ${REGISTRY:-dograhai}/dograh-api:latest
+  #   volumes:
+  #     - shared-tmp:/tmp
+  #   environment:
+  #     # Core application config
+  #     ENVIRONMENT: "local"
+  #     LOG_LEVEL: "INFO"
 
-      # Replace this environment variable if you are using a custom
-      # domain to host the stack
-      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+  #     # Replace this environment variable if you are using a custom
+  #     # domain to host the stack
+  #     BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
 
-      # Database configuration (using containerized postgres)
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
+  #     # Database configuration (using containerized postgres)
+  #     DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
 
-      # Redis configuration (using containerized redis)
-      REDIS_URL: "redis://:redissecret@redis:6379"
+  #     # Redis configuration (using containerized redis)
+  #     REDIS_URL: "redis://:redissecret@redis:6379"
 
-      # Storage configuration - using local MinIO
-      ENABLE_AWS_S3: "false"
+  #     # Storage configuration - using local MinIO
+  #     ENABLE_AWS_S3: "false"
 
-      # MinIO
-      MINIO_ENDPOINT: "minio:9000"
-      MINIO_ACCESS_KEY: "minioadmin"
-      MINIO_SECRET_KEY: "minioadmin"
-      MINIO_BUCKET: "voice-audio"
-      MINIO_SECURE: "false"
+  #     # MinIO
+  #     MINIO_ENDPOINT: "minio:9000"
+  #     MINIO_ACCESS_KEY: "minioadmin"
+  #     MINIO_SECRET_KEY: "minioadmin"
+  #     MINIO_BUCKET: "voice-audio"
+  #     MINIO_SECURE: "false"
 
-      # FastAPI workers count
-      FASTAPI_WORKERS: 1
+  #     # FastAPI workers count
+  #     FASTAPI_WORKERS: 1
 
-      # Langfuse
-      ENABLE_TRACING: "false"
-      # LANGFUSE_SECRET_KEY: ""
-      # LANGFUSE_PUBLIC_KEY: ""
-      # LANGFUSE_HOST: ""
+  #     # Langfuse
+  #     ENABLE_TRACING: "false"
+  #     # LANGFUSE_SECRET_KEY: ""
+  #     # LANGFUSE_PUBLIC_KEY: ""
+  #     # LANGFUSE_HOST: ""
 
-      # TURN server configuration (for WebRTC NAT traversal in remote server)
-      # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
-      TURN_HOST: "${TURN_HOST:-}"
-      TURN_SECRET: "${TURN_SECRET:-}"
+  #     # TURN server configuration (for WebRTC NAT traversal in remote server)
+  #     # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
+  #     TURN_HOST: "${TURN_HOST:-}"
+  #     TURN_SECRET: "${TURN_SECRET:-}"
 
-      OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
+  #     OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
 
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      cloudflared:
-        condition: service_started
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - app-network
+  #   ports:
+  #     - "8000:8000"
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #     minio:
+  #       condition: service_healthy
+  #     cloudflared:
+  #       condition: service_started
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+  #       ]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 60s
+  #   networks:
+  #     - app-network
 
-  ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:latest
-    environment:
-      # Server-side URL (SSR, internal Docker network)
-      BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
-      NODE_ENV: "oss"
-      # Flag to enable/ disable posthog
-      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+  # ui:
+  #   image: ${REGISTRY:-dograhai}/dograh-ui:latest
+  #   environment:
+  #     # Server-side URL (SSR, internal Docker network)
+  #     BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+  #     NODE_ENV: "oss"
+  #     # Flag to enable/ disable posthog
+  #     ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
 
-      # Posthog
-      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
-      POSTHOG_HOST: "https://us.posthog.com"
-    ports:
-      - "3010:3010"
-    depends_on:
-      api:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - app-network
+  #     # Posthog
+  #     POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+  #     POSTHOG_HOST: "https://us.posthog.com"
+  #   ports:
+  #     - "3010:3010"
+  #   depends_on:
+  #     api:
+  #       condition: service_healthy
+  #   healthcheck:
+  #     test:
+  #       [
+  #         "CMD-SHELL",
+  #         "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
+  #       ]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 30s
+  #   networks:
+  #     - app-network
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared-tunnel
-    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
-    ports:
-      - "2000:2000" # Expose metrics endpoint
-    networks:
-      - app-network
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: cloudflared-tunnel
+  #   command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
+  #   ports:
+  #     - "2000:2000" # Expose metrics endpoint
+  #   networks:
+  #     - app-network
 
-  coturn:
-    image: coturn/coturn:4.8.0
-    container_name: coturn
-    restart: unless-stopped
-    profiles: ["remote"]
-    ports:
-      - "3478:3478/udp"
-      - "3478:3478/tcp"
-      - "5349:5349/udp"
-      - "5349:5349/tcp"
-      - "49152-49200:49152-49200/udp"
-    volumes:
-      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-    command:
-      - -c
-      - /etc/coturn/turnserver.conf
-    networks:
-      - app-network
+  # coturn:
+  #   image: coturn/coturn:4.8.0
+  #   container_name: coturn
+  #   restart: unless-stopped
+  #   profiles: ["remote"]
+  #   ports:
+  #     - "3478:3478/udp"
+  #     - "3478:3478/tcp"
+  #     - "5349:5349/udp"
+  #     - "5349:5349/tcp"
+  #     - "49152-49200:49152-49200/udp"
+  #   volumes:
+  #     - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+  #   command:
+  #     - -c
+  #     - /etc/coturn/turnserver.conf
+  #   networks:
+  #     - app-network
 
 volumes:
   postgres_data:
   redis_data:
   minio-data:
     driver: local
-  shared-tmp:
-    driver: local
+  # shared-tmp:
+  #   driver: local
 
 networks:
   app-network:

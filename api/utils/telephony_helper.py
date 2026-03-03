@@ -231,3 +231,30 @@ def get_countries_for_code(dialing_code: str) -> list[str]:
         return []
 
     return [country for country, code in COUNTRY_CODES.items() if code == dialing_code]
+
+
+def parse_cloudonix_amd_callback(data: dict) -> dict:
+    """
+    Parse Cloudonix AMD callback data into generic format.
+    
+    Note: This is Cloudonix-specific and not part of the generic provider interface
+    as AMD callbacks are currently only supported by Cloudonix.
+    
+    Args:
+        data: Raw AMD callback data from Cloudonix
+        
+    Returns:
+        Dict with parsed AMD information
+    """
+    return {
+        "call_id": data.get("CallSid", ""),
+        "session": data.get("Session", ""),
+        "answered_by": data.get("AnsweredBy", ""),
+        "from_number": data.get("From", ""),
+        "to_number": data.get("To", ""),
+        "call_status": data.get("CallStatus", ""),
+        "domain": data.get("Domain", ""),
+        "direction": data.get("Direction", ""),
+        "account_sid": data.get("AccountSid", ""),
+        "api_version": data.get("ApiVersion", "")
+    }

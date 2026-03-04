@@ -42,11 +42,16 @@ class ARIBridgeSwapStrategy(TransferStrategy):
 
             from api.constants import REDIS_URL
             from api.db import db_client
-
+            from api.services.telephony.call_transfer_manager import (
+                get_call_transfer_manager,
+            )
             auth = BasicAuth(app_name, app_password)
 
+            # Get call transfer manager instance
+            call_transfer_manager = await get_call_transfer_manager()
+
             # 1. Find active transfer context for this caller channel
-            transfer_context = await self._find_transfer_context_for_call(channel_id)
+            transfer_context = await call_transfer_manager.find_transfer_context_for_call(channel_id)
             if not transfer_context:
                 logger.error(
                     f"[ARI Transfer] No active transfer context found for caller {channel_id}"
@@ -162,9 +167,6 @@ class ARIBridgeSwapStrategy(TransferStrategy):
             )
 
             # 5. Clean up transfer context after successful completion
-            from api.services.telephony.call_transfer_manager import (
-                get_call_transfer_manager,
-            )
 
             call_transfer_manager = await get_call_transfer_manager()
             await call_transfer_manager.remove_transfer_context(
@@ -175,35 +177,6 @@ class ARIBridgeSwapStrategy(TransferStrategy):
         except Exception as e:
             logger.exception(f"Failed to execute ARI transfer: {e}")
             return False
-
-    async def _find_transfer_context_for_call(self, caller_channel_id: str):
-        """Find the active transfer context for this caller channel."""
-        try:
-            import redis.asyncio as aioredis
-
-            from api.constants import REDIS_URL
-            from api.services.telephony.transfer_event_protocol import TransferContext
-
-            # Search Redis for transfer contexts where original_call_sid matches this caller
-            redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-            transfer_keys = await redis.keys("transfer:context:*")
-
-            for key in transfer_keys:
-                try:
-                    context_data = await redis.get(key)
-                    if context_data:
-                        context = TransferContext.from_json(context_data)
-                        if context.original_call_sid == caller_channel_id:
-                            return context
-                except Exception:
-                    continue
-
-            return None
-
-        except Exception as e:
-            logger.error(f"[ARI Transfer] Error finding transfer context: {e}")
-            return None
-
 
 class ARIHangupStrategy(HangupStrategy):
     """Implements hangup for Asterisk ARI channels."""

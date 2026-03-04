@@ -185,6 +185,31 @@ class CallTransferManager:
             except Exception as e:
                 logger.error(f"Error closing pubsub connection: {e}")
 
+    async def find_transfer_context_for_call(self, caller_channel_id: str):
+        """Find the active transfer context for this caller channel."""
+
+        redis = await self._get_redis()
+
+        try:
+            # Search Redis for transfer contexts where original_call_sid matches this caller
+            transfer_keys = await redis.keys("transfer:context:*")
+
+            for key in transfer_keys:
+                try:
+                    context_data = await redis.get(key)
+                    if context_data:
+                        context = TransferContext.from_json(context_data)
+                        if context.original_call_sid == caller_channel_id:
+                            return context
+                except Exception:
+                    continue
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[ARI Transfer] Error finding transfer context: {e}")
+            return None
+
     async def cleanup(self):
         """Clean up Redis connections."""
         try:

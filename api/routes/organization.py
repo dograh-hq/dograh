@@ -270,10 +270,10 @@ class ScheduleConfigResponse(BaseModel):
 
 
 class CircuitBreakerConfigResponse(BaseModel):
-    enabled: bool
-    failure_threshold: float
-    window_seconds: int
-    min_calls_in_window: int
+    enabled: bool = False
+    failure_threshold: float = 0.5
+    window_seconds: int = 120
+    min_calls_in_window: int = 5
 
 
 class LastCampaignSettingsResponse(BaseModel):
@@ -339,7 +339,7 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
 
             max_conc = None
             sched = None
-            cb = None
+            cb = CircuitBreakerConfigResponse()
             if last_campaign.orchestrator_metadata:
                 max_conc = last_campaign.orchestrator_metadata.get("max_concurrency")
                 sc = last_campaign.orchestrator_metadata.get("schedule_config")
@@ -354,6 +354,8 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
                 cb_data = last_campaign.orchestrator_metadata.get("circuit_breaker")
                 if cb_data:
                     cb = CircuitBreakerConfigResponse(**cb_data)
+                else:
+                    cb = CircuitBreakerConfigResponse()
 
             last_campaign_settings = LastCampaignSettingsResponse(
                 retry_config=retry,

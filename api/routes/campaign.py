@@ -137,10 +137,10 @@ class CircuitBreakerConfigRequest(BaseModel):
 
 
 class CircuitBreakerConfigResponse(BaseModel):
-    enabled: bool
-    failure_threshold: float
-    window_seconds: int
-    min_calls_in_window: int
+    enabled: bool = False
+    failure_threshold: float = 0.5
+    window_seconds: int = 120
+    min_calls_in_window: int = 5
 
 
 class CreateCampaignRequest(BaseModel):
@@ -232,7 +232,7 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
     # Get max_concurrency, schedule_config, circuit_breaker from orchestrator_metadata
     max_concurrency = None
     schedule_config = None
-    circuit_breaker_config = None
+    circuit_breaker_config = CircuitBreakerConfigResponse()
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
         sc = campaign.orchestrator_metadata.get("schedule_config")

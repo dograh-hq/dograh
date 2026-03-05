@@ -63,9 +63,7 @@ bash scripts/start_services_dev.sh
 ```
 Verify that your backend server is running
 ```
-(venv)abhishek$ curl -X GET localhost:8000/api/v1/health
-{"message":"OK"}                                                                                                                                                                      
-(venv)abhishek$
+curl -X GET localhost:8000/api/v1/health                                                                                                                                                                  
 ```
 You would be able to see the logs in logs/ directory.
 ```

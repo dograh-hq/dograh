@@ -45,13 +45,16 @@ class ARIBridgeSwapStrategy(TransferStrategy):
             from api.services.telephony.call_transfer_manager import (
                 get_call_transfer_manager,
             )
+
             auth = BasicAuth(app_name, app_password)
 
             # Get call transfer manager instance
             call_transfer_manager = await get_call_transfer_manager()
 
             # 1. Find active transfer context for this caller channel
-            transfer_context = await call_transfer_manager.find_transfer_context_for_call(channel_id)
+            transfer_context = (
+                await call_transfer_manager.find_transfer_context_for_call(channel_id)
+            )
             if not transfer_context:
                 logger.error(
                     f"[ARI Transfer] No active transfer context found for caller {channel_id}"
@@ -177,6 +180,7 @@ class ARIBridgeSwapStrategy(TransferStrategy):
         except Exception as e:
             logger.exception(f"Failed to execute ARI transfer: {e}")
             return False
+
 
 class ARIHangupStrategy(HangupStrategy):
     """Implements hangup for Asterisk ARI channels."""

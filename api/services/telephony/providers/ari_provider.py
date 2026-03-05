@@ -455,7 +455,9 @@ class ARIProvider(TelephonyProvider):
             }
 
         except Exception as e:
-            logger.error(f"[ARI Transfer] Failed to originate call transfer destination channel: {e}")
+            logger.error(
+                f"[ARI Transfer] Failed to originate call transfer destination channel: {e}"
+            )
             await call_transfer_manager.remove_transfer_context(transfer_id)
             raise
 

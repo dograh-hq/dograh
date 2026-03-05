@@ -783,7 +783,8 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         if workflow_run.campaign_id:
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
             await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id, is_failure=True
+                workflow_run.campaign_id,
+                is_failure=status.status == "error",
             )
 
         # Check if retry is needed for campaign calls (busy/no-answer)
@@ -1208,6 +1209,7 @@ async def handle_cloudonix_status_callback(
     await _process_status_update(workflow_run_id, status_update)
 
     return {"status": "success"}
+
 
 @router.post("/cloudonix/amd-callback/{workflow_run_id}")
 async def handle_cloudonix_amd_callback(

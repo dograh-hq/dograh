@@ -8,8 +8,8 @@ import { toast } from 'sonner';
 
 import {
     getCampaignApiV1CampaignCampaignIdGet,
-    getCampaignLimitsApiV1OrganizationsCampaignLimitsGet,
-    updateCampaignApiV1CampaignCampaignIdPatch,
+    getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet,
+    updateCampaignApiV1CampaignCampaignIdPatch
 } from '@/client/sdk.gen';
 import type { CampaignResponse } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
@@ -55,6 +55,11 @@ export default function EditCampaignPage() {
     const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([
         { day_of_week: 0, start_time: '09:00', end_time: '17:00' },
     ]);
+    // Circuit breaker config state
+    const [circuitBreakerEnabled, setCircuitBreakerEnabled] = useState(true);
+    const [circuitBreakerFailureThreshold, setCircuitBreakerFailureThreshold] = useState<string>('50');
+    const [circuitBreakerWindowSeconds, setCircuitBreakerWindowSeconds] = useState<string>('120');
+    const [circuitBreakerMinCalls, setCircuitBreakerMinCalls] = useState<string>('5');
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -104,6 +109,15 @@ export default function EditCampaignPage() {
                         setTimeSlots(c.schedule_config.slots.map(s => ({ ...s })));
                     }
                 }
+
+                // Circuit breaker config
+                const cb = (c as unknown as { circuit_breaker?: { enabled: boolean; failure_threshold: number; window_seconds: number; min_calls_in_window: number } }).circuit_breaker;
+                if (cb) {
+                    setCircuitBreakerEnabled(cb.enabled);
+                    setCircuitBreakerFailureThreshold(String(Math.round(cb.failure_threshold * 100)));
+                    setCircuitBreakerWindowSeconds(String(cb.window_seconds));
+                    setCircuitBreakerMinCalls(String(cb.min_calls_in_window));
+                }
             }
         } catch (error) {
             console.error('Failed to fetch campaign:', error);
@@ -115,11 +129,11 @@ export default function EditCampaignPage() {
     }, [user, getAccessToken, campaignId, router]);
 
     // Fetch campaign limits
-    const fetchCampaignLimits = useCallback(async () => {
+    const fetchCampaignDefaults = useCallback(async () => {
         if (!user) return;
         try {
             const accessToken = await getAccessToken();
-            const response = await getCampaignLimitsApiV1OrganizationsCampaignLimitsGet({
+            const response = await getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });
 
@@ -136,9 +150,9 @@ export default function EditCampaignPage() {
     useEffect(() => {
         if (user) {
             fetchCampaign();
-            fetchCampaignLimits();
+            fetchCampaignDefaults();
         }
-    }, [fetchCampaign, fetchCampaignLimits, user]);
+    }, [fetchCampaign, fetchCampaignDefaults, user]);
 
     // Effective concurrency limit
     const effectiveLimit = fromNumbersCount > 0
@@ -213,6 +227,14 @@ export default function EditCampaignPage() {
                     slots: [{ day_of_week: 0, start_time: '09:00', end_time: '17:00' }],
                 };
 
+            const circuitBreakerConfig = {
+                enabled: circuitBreakerEnabled,
+                failure_threshold: (parseInt(circuitBreakerFailureThreshold) || 50) / 100,
+                window_seconds: parseInt(circuitBreakerWindowSeconds) || 120,
+                min_calls_in_window: parseInt(circuitBreakerMinCalls) || 5,
+            };
+
+
             const response = await updateCampaignApiV1CampaignCampaignIdPatch({
                 path: { campaign_id: campaignId },
                 body: {
@@ -220,6 +242,7 @@ export default function EditCampaignPage() {
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
                     schedule_config: scheduleConfig,
+                    circuit_breaker: circuitBreakerConfig,
                 },
                 headers: { 'Authorization': `Bearer ${accessToken}` },
             });
@@ -332,6 +355,14 @@ export default function EditCampaignPage() {
                             onScheduleTimezoneChange={setScheduleTimezone}
                             timeSlots={timeSlots}
                             onTimeSlotsChange={setTimeSlots}
+                            circuitBreakerEnabled={circuitBreakerEnabled}
+                            onCircuitBreakerEnabledChange={setCircuitBreakerEnabled}
+                            circuitBreakerFailureThreshold={circuitBreakerFailureThreshold}
+                            onCircuitBreakerFailureThresholdChange={setCircuitBreakerFailureThreshold}
+                            circuitBreakerWindowSeconds={circuitBreakerWindowSeconds}
+                            onCircuitBreakerWindowSecondsChange={setCircuitBreakerWindowSeconds}
+                            circuitBreakerMinCalls={circuitBreakerMinCalls}
+                            onCircuitBreakerMinCallsChange={setCircuitBreakerMinCalls}
                         />
 
                         {submitError && (

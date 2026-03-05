@@ -14,7 +14,6 @@ setup_logging()
 import asyncio
 import json
 import signal
-import time
 from typing import Dict, Optional, Set
 from urllib.parse import urlparse
 
@@ -628,7 +627,7 @@ class ARIConnection:
             bridge_id = ctx.get("bridge_id")
             transfer_state = ctx.get("transfer_state")
 
-            # Check if this is a call transfer scenario external channel. Skip full teardown if 
+            # Check if this is a call transfer scenario external channel. Skip full teardown if
             # transfer is in progress and this is the external media channel
             # During call transfer, we preserve the caller-destination bridge
             if (

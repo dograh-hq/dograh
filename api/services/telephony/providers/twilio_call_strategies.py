@@ -76,20 +76,26 @@ class TwilioConferenceStrategy(TransferStrategy):
                         )
 
                         # 3. Clean up transfer context after successful transfer
-                        await self._cleanup_transfer_context(transfer_context.transfer_id)
+                        await self._cleanup_transfer_context(
+                            transfer_context.transfer_id
+                        )
                         return True
                     elif response.status == 404:
                         logger.error(
                             f"Failed to transfer Twilio call {call_sid}: Call not found (404)"
                         )
-                        await self._cleanup_transfer_context(transfer_context.transfer_id)
+                        await self._cleanup_transfer_context(
+                            transfer_context.transfer_id
+                        )
                         return False
                     else:
                         logger.error(
                             f"Failed to transfer Twilio call {call_sid} to conference {conference_name}: "
                             f"Status {response.status}, Response: {response_text}"
                         )
-                        await self._cleanup_transfer_context(transfer_context.transfer_id)
+                        await self._cleanup_transfer_context(
+                            transfer_context.transfer_id
+                        )
                         return False
 
         except Exception as e:
@@ -132,7 +138,7 @@ class TwilioConferenceStrategy(TransferStrategy):
             from api.services.telephony.call_transfer_manager import (
                 get_call_transfer_manager,
             )
-            
+
             call_transfer_manager = await get_call_transfer_manager()
             await call_transfer_manager.remove_transfer_context(transfer_id)
         except Exception as e:

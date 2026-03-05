@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 
 import {
     createCampaignApiV1CampaignCreatePost,
-    getCampaignLimitsApiV1OrganizationsCampaignLimitsGet,
+    getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet,
     getWorkflowsSummaryApiV1WorkflowSummaryGet
 } from '@/client/sdk.gen';
 import type { WorkflowSummaryResponse } from '@/client/types.gen';
@@ -72,6 +72,11 @@ export default function NewCampaignPage() {
     const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([
         { day_of_week: 0, start_time: '09:00', end_time: '17:00' },
     ]);
+    // Circuit breaker config state
+    const [circuitBreakerEnabled, setCircuitBreakerEnabled] = useState(true);
+    const [circuitBreakerFailureThreshold, setCircuitBreakerFailureThreshold] = useState<string>('50');
+    const [circuitBreakerWindowSeconds, setCircuitBreakerWindowSeconds] = useState<string>('120');
+    const [circuitBreakerMinCalls, setCircuitBreakerMinCalls] = useState<string>('5');
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -104,11 +109,11 @@ export default function NewCampaignPage() {
     }, [user, getAccessToken]);
 
     // Fetch campaign limits
-    const fetchCampaignLimits = useCallback(async () => {
+    const fetchCampaignDefaults = useCallback(async () => {
         if (!user) return;
         try {
             const accessToken = await getAccessToken();
-            const response = await getCampaignLimitsApiV1OrganizationsCampaignLimitsGet({
+            const response = await getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet({
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                 }
@@ -117,14 +122,56 @@ export default function NewCampaignPage() {
             if (response.data) {
                 setOrgConcurrentLimit(response.data.concurrent_call_limit);
                 setFromNumbersCount(response.data.from_numbers_count);
-                // Initialize retry config from defaults
-                const retryConfig = response.data.default_retry_config;
-                setRetryEnabled(retryConfig.enabled);
-                setMaxRetries(String(retryConfig.max_retries));
-                setRetryDelaySeconds(String(retryConfig.retry_delay_seconds));
-                setRetryOnBusy(retryConfig.retry_on_busy);
-                setRetryOnNoAnswer(retryConfig.retry_on_no_answer);
-                setRetryOnVoicemail(retryConfig.retry_on_voicemail);
+
+                const last = (response.data as { last_campaign_settings?: {
+                    retry_config?: { enabled: boolean; max_retries: number; retry_delay_seconds: number; retry_on_busy: boolean; retry_on_no_answer: boolean; retry_on_voicemail: boolean };
+                    max_concurrency?: number | null;
+                    schedule_config?: { enabled: boolean; timezone: string; slots: TimeSlot[] } | null;
+                    circuit_breaker?: { enabled: boolean; failure_threshold: number; window_seconds: number; min_calls_in_window: number } | null;
+                } | null }).last_campaign_settings;
+
+                if (last) {
+                    // Pre-populate from last campaign
+                    if (last.retry_config) {
+                        setRetryEnabled(last.retry_config.enabled);
+                        setMaxRetries(String(last.retry_config.max_retries));
+                        setRetryDelaySeconds(String(last.retry_config.retry_delay_seconds));
+                        setRetryOnBusy(last.retry_config.retry_on_busy);
+                        setRetryOnNoAnswer(last.retry_config.retry_on_no_answer);
+                        setRetryOnVoicemail(last.retry_config.retry_on_voicemail);
+                    } else {
+                        const retryConfig = response.data.default_retry_config;
+                        setRetryEnabled(retryConfig.enabled);
+                        setMaxRetries(String(retryConfig.max_retries));
+                        setRetryDelaySeconds(String(retryConfig.retry_delay_seconds));
+                        setRetryOnBusy(retryConfig.retry_on_busy);
+                        setRetryOnNoAnswer(retryConfig.retry_on_no_answer);
+                        setRetryOnVoicemail(retryConfig.retry_on_voicemail);
+                    }
+                    if (last.max_concurrency) {
+                        setMaxConcurrency(String(last.max_concurrency));
+                    }
+                    if (last.schedule_config) {
+                        setScheduleEnabled(last.schedule_config.enabled);
+                        setScheduleTimezone(last.schedule_config.timezone);
+                        setTimeSlots(last.schedule_config.slots);
+                    }
+                    if (last.circuit_breaker) {
+                        setCircuitBreakerEnabled(last.circuit_breaker.enabled);
+                        setCircuitBreakerFailureThreshold(String(Math.round(last.circuit_breaker.failure_threshold * 100)));
+                        setCircuitBreakerWindowSeconds(String(last.circuit_breaker.window_seconds));
+                        setCircuitBreakerMinCalls(String(last.circuit_breaker.min_calls_in_window));
+                    }
+                } else {
+                    // No previous campaign — use defaults
+                    const retryConfig = response.data.default_retry_config;
+                    setRetryEnabled(retryConfig.enabled);
+                    setMaxRetries(String(retryConfig.max_retries));
+                    setRetryDelaySeconds(String(retryConfig.retry_delay_seconds));
+                    setRetryOnBusy(retryConfig.retry_on_busy);
+                    setRetryOnNoAnswer(retryConfig.retry_on_no_answer);
+                    setRetryOnVoicemail(retryConfig.retry_on_voicemail);
+                }
             }
         } catch (error) {
             console.error('Failed to fetch campaign limits:', error);
@@ -135,9 +182,9 @@ export default function NewCampaignPage() {
     useEffect(() => {
         if (user) {
             fetchWorkflows();
-            fetchCampaignLimits();
+            fetchCampaignDefaults();
         }
-    }, [fetchWorkflows, fetchCampaignLimits, user]);
+    }, [fetchWorkflows, fetchCampaignDefaults, user]);
 
     // Effective concurrency limit considering both org limit and available CLIs
     const effectiveLimit = fromNumbersCount > 0
@@ -195,6 +242,15 @@ export default function NewCampaignPage() {
                 }
                 : undefined;
 
+            // Build circuit_breaker config
+            const circuitBreakerConfig = {
+                enabled: circuitBreakerEnabled,
+                failure_threshold: (parseInt(circuitBreakerFailureThreshold) || 50) / 100,
+                window_seconds: parseInt(circuitBreakerWindowSeconds) || 120,
+                min_calls_in_window: parseInt(circuitBreakerMinCalls) || 5,
+            };
+
+
             const response = await createCampaignApiV1CampaignCreatePost({
                 body: {
                     name: campaignName,
@@ -204,6 +260,7 @@ export default function NewCampaignPage() {
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
                     schedule_config: scheduleConfig,
+                    circuit_breaker: circuitBreakerConfig,
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -401,6 +458,14 @@ export default function NewCampaignPage() {
                                         onScheduleTimezoneChange={setScheduleTimezone}
                                         timeSlots={timeSlots}
                                         onTimeSlotsChange={setTimeSlots}
+                                        circuitBreakerEnabled={circuitBreakerEnabled}
+                                        onCircuitBreakerEnabledChange={setCircuitBreakerEnabled}
+                                        circuitBreakerFailureThreshold={circuitBreakerFailureThreshold}
+                                        onCircuitBreakerFailureThresholdChange={setCircuitBreakerFailureThreshold}
+                                        circuitBreakerWindowSeconds={circuitBreakerWindowSeconds}
+                                        onCircuitBreakerWindowSecondsChange={setCircuitBreakerWindowSeconds}
+                                        circuitBreakerMinCalls={circuitBreakerMinCalls}
+                                        onCircuitBreakerMinCallsChange={setCircuitBreakerMinCalls}
                                     />
                                 </CollapsibleContent>
                             </Collapsible>

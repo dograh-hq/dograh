@@ -1,4 +1,4 @@
-from typing import Union
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -257,14 +257,41 @@ class RetryConfigResponse(BaseModel):
     retry_on_voicemail: bool
 
 
-class CampaignLimitsResponse(BaseModel):
+class TimeSlotResponse(BaseModel):
+    day_of_week: int
+    start_time: str
+    end_time: str
+
+
+class ScheduleConfigResponse(BaseModel):
+    enabled: bool
+    timezone: str
+    slots: List[TimeSlotResponse]
+
+
+class CircuitBreakerConfigResponse(BaseModel):
+    enabled: bool
+    failure_threshold: float
+    window_seconds: int
+    min_calls_in_window: int
+
+
+class LastCampaignSettingsResponse(BaseModel):
+    retry_config: Optional[RetryConfigResponse] = None
+    max_concurrency: Optional[int] = None
+    schedule_config: Optional[ScheduleConfigResponse] = None
+    circuit_breaker: Optional[CircuitBreakerConfigResponse] = None
+
+
+class CampaignDefaultsResponse(BaseModel):
     concurrent_call_limit: int
     from_numbers_count: int
     default_retry_config: RetryConfigResponse
+    last_campaign_settings: Optional[LastCampaignSettingsResponse] = None
 
 
-@router.get("/campaign-limits", response_model=CampaignLimitsResponse)
-async def get_campaign_limits(user: UserModel = Depends(get_user)):
+@router.get("/campaign-defaults", response_model=CampaignDefaultsResponse)
+async def get_campaign_defaults(user: UserModel = Depends(get_user)):
     """Get campaign limits for the user's organization.
 
     Returns the organization's concurrent call limit and default retry configuration.
@@ -299,8 +326,47 @@ async def get_campaign_limits(user: UserModel = Depends(get_user)):
     except Exception:
         pass
 
-    return CampaignLimitsResponse(
+    # Get last campaign settings for pre-population
+    last_campaign_settings = None
+    try:
+        last_campaign = await db_client.get_latest_campaign(
+            user.selected_organization_id
+        )
+        if last_campaign:
+            retry = None
+            if last_campaign.retry_config:
+                retry = RetryConfigResponse(**last_campaign.retry_config)
+
+            max_conc = None
+            sched = None
+            cb = None
+            if last_campaign.orchestrator_metadata:
+                max_conc = last_campaign.orchestrator_metadata.get("max_concurrency")
+                sc = last_campaign.orchestrator_metadata.get("schedule_config")
+                if sc:
+                    sched = ScheduleConfigResponse(
+                        enabled=sc.get("enabled", False),
+                        timezone=sc.get("timezone", "UTC"),
+                        slots=[
+                            TimeSlotResponse(**slot) for slot in sc.get("slots", [])
+                        ],
+                    )
+                cb_data = last_campaign.orchestrator_metadata.get("circuit_breaker")
+                if cb_data:
+                    cb = CircuitBreakerConfigResponse(**cb_data)
+
+            last_campaign_settings = LastCampaignSettingsResponse(
+                retry_config=retry,
+                max_concurrency=max_conc,
+                schedule_config=sched,
+                circuit_breaker=cb,
+            )
+    except Exception:
+        pass
+
+    return CampaignDefaultsResponse(
         concurrent_call_limit=concurrent_limit,
         from_numbers_count=from_numbers_count,
         default_retry_config=RetryConfigResponse(**DEFAULT_CAMPAIGN_RETRY_CONFIG),
+        last_campaign_settings=last_campaign_settings,
     )

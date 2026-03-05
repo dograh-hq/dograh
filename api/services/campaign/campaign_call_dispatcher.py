@@ -9,6 +9,7 @@ from api.constants import DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import QueuedRunModel, WorkflowRunModel
 from api.enums import OrganizationConfigurationKey, WorkflowRunState
+from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.campaign.errors import (
     ConcurrentSlotAcquisitionError,
     PhoneNumberPoolExhaustedError,
@@ -314,6 +315,9 @@ class CampaignCallDispatcher:
                     "telephony_status_callbacks": telephony_callback_logs,
                 },
             )
+
+            # Record call initiation failure in circuit breaker
+            await circuit_breaker.record_and_evaluate(campaign.id, is_failure=True)
 
             # Release concurrent slot on failure
             mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run.id)

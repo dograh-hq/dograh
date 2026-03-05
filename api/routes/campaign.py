@@ -6,7 +6,10 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
+from api.constants import (
+    DEFAULT_CAMPAIGN_RETRY_CONFIG,
+    DEFAULT_ORG_CONCURRENCY_LIMIT,
+)
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
@@ -126,6 +129,20 @@ class ScheduleConfigResponse(BaseModel):
     slots: List[TimeSlotResponse]
 
 
+class CircuitBreakerConfigRequest(BaseModel):
+    enabled: bool = True
+    failure_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    window_seconds: int = Field(default=120, ge=30, le=600)
+    min_calls_in_window: int = Field(default=5, ge=1, le=100)
+
+
+class CircuitBreakerConfigResponse(BaseModel):
+    enabled: bool
+    failure_threshold: float
+    window_seconds: int
+    min_calls_in_window: int
+
+
 class CreateCampaignRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     workflow_id: int
@@ -134,6 +151,7 @@ class CreateCampaignRequest(BaseModel):
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
+    circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -141,6 +159,7 @@ class UpdateCampaignRequest(BaseModel):
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
+    circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 
 
 class CampaignResponse(BaseModel):
@@ -160,6 +179,7 @@ class CampaignResponse(BaseModel):
     retry_config: RetryConfigResponse
     max_concurrency: Optional[int] = None
     schedule_config: Optional[ScheduleConfigResponse] = None
+    circuit_breaker: Optional[CircuitBreakerConfigResponse] = None
 
 
 class CampaignsResponse(BaseModel):
@@ -209,9 +229,10 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         else DEFAULT_CAMPAIGN_RETRY_CONFIG
     )
 
-    # Get max_concurrency and schedule_config from orchestrator_metadata
+    # Get max_concurrency, schedule_config, circuit_breaker from orchestrator_metadata
     max_concurrency = None
     schedule_config = None
+    circuit_breaker_config = None
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
         sc = campaign.orchestrator_metadata.get("schedule_config")
@@ -221,6 +242,9 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
                 timezone=sc.get("timezone", "UTC"),
                 slots=[TimeSlotResponse(**slot) for slot in sc.get("slots", [])],
             )
+        cb = campaign.orchestrator_metadata.get("circuit_breaker")
+        if cb:
+            circuit_breaker_config = CircuitBreakerConfigResponse(**cb)
 
     return CampaignResponse(
         id=campaign.id,
@@ -239,6 +263,7 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         retry_config=RetryConfigResponse(**retry_config),
         max_concurrency=max_concurrency,
         schedule_config=schedule_config,
+        circuit_breaker=circuit_breaker_config,
     )
 
 
@@ -276,6 +301,11 @@ async def create_campaign(
     if request.schedule_config:
         schedule_config = request.schedule_config.model_dump()
 
+    # Build circuit_breaker dict if provided
+    circuit_breaker_config = None
+    if request.circuit_breaker:
+        circuit_breaker_config = request.circuit_breaker.model_dump()
+
     campaign = await db_client.create_campaign(
         name=request.name,
         workflow_id=request.workflow_id,
@@ -286,6 +316,7 @@ async def create_campaign(
         retry_config=retry_config,
         max_concurrency=request.max_concurrency,
         schedule_config=schedule_config,
+        circuit_breaker=circuit_breaker_config,
     )
 
     return _build_campaign_response(campaign, workflow_name)
@@ -434,6 +465,10 @@ async def update_campaign(
 
     if request.schedule_config is not None:
         metadata["schedule_config"] = request.schedule_config.model_dump()
+        metadata_changed = True
+
+    if request.circuit_breaker is not None:
+        metadata["circuit_breaker"] = request.circuit_breaker.model_dump()
         metadata_changed = True
 
     if metadata_changed:

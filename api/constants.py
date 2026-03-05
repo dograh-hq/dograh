@@ -54,6 +54,15 @@ SENTRY_DSN = os.getenv("SENTRY_DSN")
 
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"
+
+# Logging configuration
+LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", None)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
+
+# Log rotation configuration
+LOG_ROTATION_SIZE = os.getenv("LOG_ROTATION_SIZE", "100 MB")
+LOG_RETENTION = os.getenv("LOG_RETENTION", "7 days")
+LOG_COMPRESSION = os.getenv("LOG_COMPRESSION", "gz")
 ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "false").lower() == "true"
 
 

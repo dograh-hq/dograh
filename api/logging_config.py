@@ -4,17 +4,18 @@ import sys
 
 import loguru
 
-from api.constants import SERIALIZE_LOG_OUTPUT
+from api.constants import (
+    ENVIRONMENT,
+    LOG_COMPRESSION,
+    LOG_FILE_PATH,
+    LOG_LEVEL,
+    LOG_RETENTION,
+    LOG_ROTATION_SIZE,
+    SERIALIZE_LOG_OUTPUT,
+)
 from api.enums import Environment
 from api.utils.worker import get_worker_id, is_worker_process
-from pipecat.utils.run_context import run_id_var, turn_var
-
-ENVIRONMENT = os.getenv("ENVIRONMENT", Environment.LOCAL.value)
-ENABLE_TURN_LOGGING = os.getenv("ENABLE_TURN_LOGGING", "false").lower() == "true"
-
-# We write different uvicorn forked worker log to a different
-# file which is then synced to cloudwatch logs
-LOG_FILE_PATH = os.getenv("LOG_FILE_PATH", None)
+from pipecat.utils.run_context import run_id_var
 
 # Track if logging has been initialized
 _logging_initialized = False
@@ -44,26 +45,6 @@ def inject_run_id(record):
     """Inject run_id from context variable into log record"""
     record["extra"]["run_id"] = run_id_var.get()
 
-    # Only handle turn logging if enabled
-    if ENABLE_TURN_LOGGING:
-        # Get turn number with fallback mechanism
-        turn = turn_var.get()
-
-        # If turn is still 0, try the turn context manager
-        if turn == 0:
-            try:
-                from api.services.pipecat.turn_context import get_turn_context_manager
-
-                turn = get_turn_context_manager().get_turn()
-            except ImportError:
-                # Turn context manager not available
-                pass
-
-        record["extra"]["turn"] = turn
-    else:
-        # Turn logging disabled, use default value
-        record["extra"]["turn"] = 0
-
 
 def setup_logging():
     """Set up logging for the main application"""
@@ -73,7 +54,7 @@ def setup_logging():
     if _logging_initialized:
         return
 
-    log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
+    log_level = LOG_LEVEL
 
     # Don't setup logging in test environment
     if ENVIRONMENT == Environment.TEST.value:
@@ -89,11 +70,7 @@ def setup_logging():
     # Patch loguru to inject run_id
     patched = loguru.logger.patch(inject_run_id)
 
-    # Determine log format
-    if ENABLE_TURN_LOGGING:
-        log_format = "{time:YYYY-MM-DD HH:mm:ss.SSS} | <level>{level}</level> | [run_id={extra[run_id]}] [turn={extra[turn]}] | {file.name}:{line} | {message}"
-    else:
-        log_format = "{time:YYYY-MM-DD HH:mm:ss.SSS} | <level>{level}</level> | [run_id={extra[run_id]}] | {file.name}:{line} | {message}"
+    log_format = "{time:YYYY-MM-DD HH:mm:ss.SSS} | <level>{level}</level> | [run_id={extra[run_id]}] | {file.name}:{line} | {message}"
 
     # Add handler - either file or console
     if LOG_FILE_PATH:
@@ -114,6 +91,9 @@ def setup_logging():
             enqueue=True,  # Thread-safe writing
             backtrace=True,  # Include full traceback in exceptions
             diagnose=False,  # Don't include local variables in traceback for security
+            rotation=LOG_ROTATION_SIZE,  # Rotate when file reaches size limit
+            retention=LOG_RETENTION,  # Keep old logs for this duration
+            compression=LOG_COMPRESSION,  # Compress rotated logs
         )
     else:
         # Console handler (existing behavior)

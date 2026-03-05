@@ -105,6 +105,11 @@ class CloudonixProvider(TelephonyProvider):
 </Response>""",
             "caller-id": from_number,  # Required field
         }
+        data["machineDetection"] = "DetectMessageEnd"
+        data["asyncAmd"] = True
+        data["asyncAmdStatusCallback"] = f"{backend_endpoint}/api/v1/telephony/cloudonix/amd-callback/{workflow_run_id}"
+        data["asyncAmdStatusCallbackMethod"]= "POST"
+
 
         # TODO: Cloudonix status callbacks are spammy, so commenting it out. Can send it to
         # some persistent logging system instead of transcational database.

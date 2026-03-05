@@ -1209,6 +1209,33 @@ async def handle_cloudonix_status_callback(
 
     return {"status": "success"}
 
+@router.post("/cloudonix/amd-callback/{workflow_run_id}")
+async def handle_cloudonix_amd_callback(
+    workflow_run_id: int,
+    request: Request,
+):
+    """Handle Cloudonix-specific Answering Machine Detection(AMD) callbacks.
+    Cloudonix sends AMD updates to the callback URL specified during call initiation.
+    """
+    set_current_run_id(workflow_run_id)
+
+    content_type = request.headers.get("content-type", "")
+
+    if "application/json" in content_type:
+        callback_data = await request.json()
+    else:
+        form_data = await request.form()
+        callback_data = dict(form_data)
+
+    call_id = callback_data["CallSid"]
+    answered_by = callback_data["AnsweredBy"]
+
+    logger.info(
+        f"[run {workflow_run_id}] Received Cloudonix AMD status callback with answered-by {answered_by} for call ID {call_id}: {json.dumps(callback_data)}"
+    )
+
+    return {"status": answered_by}
+
 
 @router.post("/vobiz/hangup-callback/workflow/{workflow_id}")
 async def handle_vobiz_hangup_callback_by_workflow(

@@ -13,12 +13,8 @@ from typing import Any, Dict, Optional
 class TransferEventType(str, Enum):
     """Types of transfer events sent between instances."""
 
-    TRANSFER_INITIATED = "transfer_initiated"
-    TRANSFER_ANSWERED = "transfer_answered"
-    TRANSFER_COMPLETED = "transfer_completed"
+    DESTINATION_ANSWERED = "destination_answered"
     TRANSFER_FAILED = "transfer_failed"
-    TRANSFER_CANCELLED = "transfer_cancelled"
-    TRANSFER_TIMEOUT = "transfer_timeout"
 
 
 @dataclass
@@ -56,7 +52,6 @@ class TransferEvent:
             "conference_id": self.conference_name,
             "transfer_call_sid": self.transfer_call_sid,
             "original_call_sid": self.original_call_sid,
-            "end_call": self.end_call,
             "reason": self.reason,
         }
         return result

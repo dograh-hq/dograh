@@ -85,6 +85,28 @@ class CallTransferManager:
         except Exception as e:
             logger.error(f"Failed to remove transfer context: {e}")
 
+    async def store_transfer_channel_mapping(
+        self, channel_id: str, transfer_id: str
+    ) -> None:
+        """Store channel->transfer mapping in Redis for event correlation.
+
+        Args:
+            channel_id: ARI channel ID
+            transfer_id: Transfer identifier
+        """
+        try:
+            redis = await self._get_redis()
+            await redis.setex(
+                f"ari:transfer_channel:{channel_id}", 300, transfer_id
+            )  # 5 minute TTL
+            logger.debug(
+                f"[Transfer Manager] Stored channel mapping: channel={channel_id}, transfer_id={transfer_id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"[Transfer Manager] Error storing transfer channel mapping: {e}"
+            )
+
     async def publish_transfer_event(self, event: TransferEvent) -> None:
         """Publish transfer event to Redis channel.
 
@@ -136,16 +158,10 @@ class CallTransferManager:
                             )
 
                             # Check if this is a completion event
-                            if (
-                                event.type
-                                in [
-                                    TransferEventType.TRANSFER_ANSWERED,  # Call answered = transfer successful
-                                    TransferEventType.TRANSFER_COMPLETED,
-                                    TransferEventType.TRANSFER_FAILED,
-                                    TransferEventType.TRANSFER_CANCELLED,
-                                    TransferEventType.TRANSFER_TIMEOUT,
-                                ]
-                            ):
+                            if event.type in [
+                                TransferEventType.DESTINATION_ANSWERED,
+                                TransferEventType.TRANSFER_FAILED,
+                            ]:
                                 return event
                         except Exception as e:
                             logger.error(f"Failed to parse transfer event: {e}")
@@ -168,6 +184,31 @@ class CallTransferManager:
                 await pubsub.close()
             except Exception as e:
                 logger.error(f"Error closing pubsub connection: {e}")
+
+    async def find_transfer_context_for_call(self, caller_channel_id: str):
+        """Find the active transfer context for this caller channel."""
+
+        redis = await self._get_redis()
+
+        try:
+            # Search Redis for transfer contexts where original_call_sid matches this caller
+            transfer_keys = await redis.keys("transfer:context:*")
+
+            for key in transfer_keys:
+                try:
+                    context_data = await redis.get(key)
+                    if context_data:
+                        context = TransferContext.from_json(context_data)
+                        if context.original_call_sid == caller_channel_id:
+                            return context
+                except Exception:
+                    continue
+
+            return None
+
+        except Exception as e:
+            logger.error(f"[ARI Transfer] Error finding transfer context: {e}")
+            return None
 
     async def cleanup(self):
         """Clean up Redis connections."""

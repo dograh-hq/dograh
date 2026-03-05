@@ -14,6 +14,7 @@ setup_logging()
 import asyncio
 import json
 import signal
+import time
 from typing import Dict, Optional, Set
 from urllib.parse import urlparse
 
@@ -26,6 +27,11 @@ from api.constants import REDIS_URL
 from api.db import db_client
 from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunMode
 from api.services.quota_service import check_dograh_quota_by_user_id
+from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.transfer_event_protocol import (
+    TransferEvent,
+    TransferEventType,
+)
 
 # Redis key pattern and TTL for channel-to-run mapping
 _CHANNEL_KEY_PREFIX = "ari:channel:"
@@ -62,6 +68,9 @@ class ARIConnection:
         # Redis client for channel-to-run reverse mapping (lazy init)
         self._redis_client: Optional[aioredis.Redis] = None
 
+        # Transfer manager for handling call transfers
+        self._call_transfer_manager = None
+
     async def _get_redis(self) -> aioredis.Redis:
         """Get Redis client instance (lazy init)."""
         if not self._redis_client:
@@ -69,6 +78,12 @@ class ARIConnection:
                 REDIS_URL, decode_responses=True
             )
         return self._redis_client
+
+    async def _get_transfer_manager(self):
+        """Get transfer manager instance."""
+        if not self._call_transfer_manager:
+            self._call_transfer_manager = await get_call_transfer_manager()
+        return self._call_transfer_manager
 
     async def _set_channel_run(self, channel_id: str, workflow_run_id: str):
         """Store channel_id -> workflow_run_id mapping in Redis."""
@@ -229,6 +244,11 @@ class ARIConnection:
         channel_id = channel.get("id", "unknown")
         channel_state = channel.get("state", "unknown")
 
+        # Log all events for each channel
+        logger.debug(
+            f"[ARI EVENT org={self.organization_id}] {event_type}: channel={channel_id}, state={channel_state}"
+        )
+
         if event_type == "StasisStart":
             # Skip external media channels we created — they fire
             # their own StasisStart but need no further handling.
@@ -255,6 +275,19 @@ class ARIConnection:
                 )
             else:
                 # Outbound call (state == "Up") — originated by us
+                # Check if this is a transfer destination channel (app_args starts with "transfer")
+                # Transfer destinations run externally - we only track status to publish transfer event, not run the pipeline
+                transfer_id = self._get_transfer_id(app_args)
+                if transfer_id:
+                    logger.info(
+                        f"[ARI org={self.organization_id}] Transfer destination answered: "
+                        f"channel={channel_id}, transfer_id={transfer_id}"
+                    )
+                    asyncio.create_task(
+                        self._handle_destination_answered(transfer_id, channel_id)
+                    )
+                    return
+
                 # Parse args to extract workflow context
                 args_dict = {}
                 for arg in app_args:
@@ -298,12 +331,25 @@ class ARIConnection:
             )
 
         elif event_type == "ChannelDestroyed":
-            cause = channel.get("cause", 0)
-            cause_txt = channel.get("cause_txt", "unknown")
+            cause = event.get("cause", 0)
+            cause_txt = event.get("cause_txt", "unknown")
+            tech_cause = event.get("tech_cause", "unknown")
             logger.info(
                 f"[ARI org={self.organization_id}] ChannelDestroyed: "
-                f"channel={channel_id}, cause={cause} ({cause_txt})"
+                f"channel={channel_id}, cause={cause} ({cause_txt}), tech_cause = {tech_cause}"
             )
+
+            # Check if this is a transfer destination that failed
+            transfer_id = await self._get_transfer_id_for_channel(channel_id)
+            if transfer_id:
+                failure_message = self._map_hangup_cause_to_message(
+                    cause, tech_cause, cause_txt
+                )
+                asyncio.create_task(
+                    self._handle_transfer_failed(
+                        transfer_id, channel_id, failure_message
+                    )
+                )
 
         elif event_type == "ChannelDtmfReceived":
             digit = event.get("digit", "")
@@ -580,7 +626,38 @@ class ARIConnection:
             call_id = ctx.get("call_id")
             ext_channel_id = ctx.get("ext_channel_id")
             bridge_id = ctx.get("bridge_id")
+            transfer_state = ctx.get("transfer_state")
 
+            # Check if this is a call transfer scenario external channel. Skip full teardown if 
+            # transfer is in progress and this is the external media channel
+            # During call transfer, we preserve the caller-destination bridge
+            if (
+                transfer_state == "in-progress"
+                and channel_id == ext_channel_id
+                and ext_channel_id is not None
+            ):
+                logger.info(
+                    f"[ARI org={self.organization_id}] Transfer in progress - skipping full teardown "
+                    f"for external channel {channel_id}, preserving bridge {bridge_id} and caller {call_id}"
+                )
+
+                # Update transfer state to complete
+                ctx["transfer_state"] = "complete"
+                await db_client.update_workflow_run(
+                    run_id=int(workflow_run_id), gathered_context=ctx
+                )
+
+                # Clean up only Redis markers for external channel
+                await self._delete_channel_run(channel_id)
+                await self._delete_ext_channel(channel_id)
+
+                logger.info(
+                    f"[ARI org={self.organization_id}] Transfer cleanup complete - preserved caller {call_id} "
+                    f"in bridge {bridge_id}"
+                )
+                return
+
+            # Normal full teardown for non-transfer scenarios (transfer_state is None or not in-progress)
             # Delete the bridge first (removes channels from it)
             if bridge_id:
                 await self._delete_bridge(bridge_id)
@@ -632,6 +709,124 @@ class ARIConnection:
                         f"[ARI org={self.organization_id}] Failed to delete bridge {bridge_id}: "
                         f"{response.status} {text}"
                     )
+
+    # ======== CALL TRANSFER HELPER METHODS ========
+
+    def _map_hangup_cause_to_message(
+        self, cause: int, tech_cause: str, cause_txt: str
+    ) -> str:
+        """Map Asterisk cause codes to user-friendly transfer failure messages."""
+        if cause == 17 and tech_cause == "486":  # User busy/declined
+            return "The person declined the call or their line is busy."
+        elif cause == 19 and tech_cause == "480":  # No answer
+            return "The transfer call was not answered. The person may be busy or unavailable right now."
+        elif cause == 21:  # Call rejected
+            return "The transfer call failed to connect. There may be a network issue or the number is unavailable."
+        else:
+            return f"Transfer failed: {cause_txt}"
+
+    def _get_transfer_id(self, app_args: list) -> Optional[str]:
+        """Get transfer_id if this is a transfer channel, None otherwise.
+
+        Args format: ['transfer', '{transfer_id}', '{conf_name}']
+        """
+        if len(app_args) > 1 and app_args[0] == "transfer":
+            transfer_id = app_args[1]
+            logger.debug(
+                f"[ARI org={self.organization_id}] Detected transfer channel with transfer_id: {transfer_id}"
+            )
+            return transfer_id
+        return None
+
+    async def _get_transfer_id_for_channel(self, channel_id: str) -> Optional[str]:
+        """Get transfer_id for a channel by checking Redis mapping."""
+        try:
+            r = await self._get_redis()
+            transfer_id = await r.get(f"ari:transfer_channel:{channel_id}")
+            logger.debug(
+                f"[ARI Transfer] Looking up transfer_id for channel {channel_id}: {transfer_id}"
+            )
+            return transfer_id
+        except Exception as e:
+            logger.error(
+                f"[ARI org={self.organization_id}] Error getting transfer ID for channel {channel_id}: {e}"
+            )
+            return None
+
+    async def _handle_destination_answered(
+        self, transfer_id: str, destination_channel_id: str
+    ):
+        """Handle transfer destination channel answered - publish success event."""
+        try:
+            logger.info(
+                f"[ARI Transfer org={self.organization_id}] Destination {destination_channel_id} "
+                f"answered for transfer {transfer_id}"
+            )
+
+            # Store channel mapping for potential future events and get transfer context
+            transfer_manager = await self._get_transfer_manager()
+            await transfer_manager.store_transfer_channel_mapping(
+                destination_channel_id, transfer_id
+            )
+            context = await transfer_manager.get_transfer_context(transfer_id)
+            if not context:
+                logger.error(
+                    f"[ARI Transfer org={self.organization_id}] No transfer context found for {transfer_id}"
+                )
+                return
+
+            logger.info(
+                f"[ARI Transfer org={self.organization_id}] Transfer {transfer_id} success: "
+                f"caller={context.original_call_sid} -> destination={destination_channel_id}"
+            )
+
+            # Publish destination answered event - this will trigger the bridge swap in serializer
+            success_event = TransferEvent(
+                type=TransferEventType.DESTINATION_ANSWERED,
+                transfer_id=transfer_id,
+                original_call_sid=context.original_call_sid,
+                transfer_call_sid=destination_channel_id,
+                conference_name=context.conference_name,
+                message="Transfer destination answered",
+                status="success",
+                action="destination_answered",
+            )
+            await transfer_manager.publish_transfer_event(success_event)
+
+        except Exception as e:
+            logger.error(
+                f"[ARI Transfer org={self.organization_id}] Error handling transfer answer: {e}"
+            )
+            # On error, publish failure event
+            await self._handle_transfer_failed(
+                transfer_id, destination_channel_id, f"Transfer processing error: {e}"
+            )
+
+    async def _handle_transfer_failed(
+        self, transfer_id: str, channel_id: str, reason: str
+    ):
+        """Handle transfer failure - publish failure event."""
+        try:
+            logger.info(f"[ARI Transfer] Transfer {transfer_id} failed: {reason}")
+
+            transfer_manager = await self._get_transfer_manager()
+            context = await transfer_manager.get_transfer_context(transfer_id)
+
+            # Publish failure event
+            failure_event = TransferEvent(
+                type=TransferEventType.TRANSFER_FAILED,
+                transfer_id=transfer_id,
+                original_call_sid=context.original_call_sid if context else "",
+                transfer_call_sid=channel_id,
+                message=f"Transfer failed: {reason}",
+                status="failed",
+                action="transfer_failed",
+                reason=reason,
+            )
+            await transfer_manager.publish_transfer_event(failure_event)
+
+        except Exception as e:
+            logger.error(f"[ARI Transfer] Error handling transfer failure: {e}")
 
     async def _delete_channel(self, channel_id: str):
         """Delete (hang up) an ARI channel. Ignores 404 (already gone)."""

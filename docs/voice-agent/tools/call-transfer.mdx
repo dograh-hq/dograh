@@ -1,0 +1,57 @@
+---
+title: "Call Transfer"
+description: "Enable your AI agent to transfer calls to phone numbers or SIP endpoints with built-in call transfer functionality."
+---
+
+The Call Transfer tool enables your AI agent to transfer active calls to phone numbers or SIP endpoints. When configured, your agent can seamlessly transfer callers to human operators, departments, or other systems while maintaining a professional experience.
+
+## Supported Providers
+
+Call transfer is available for telephony calls using Twilio or Asterisk ARI providers. Web calls do not support transfer functionality.
+
+## How It Works
+
+The Call Transfer tool performs **blind transfers** where no call context is shared with the destination. Here's what happens:
+
+1. **Agent Decision**: Your AI agent determines a transfer is needed and calls the transfer function
+2. **Pre-transfer Message**: (Optional) Agent plays a custom message like "Let me transfer you to our sales team"
+3. **Hold Experience**: Caller hears hold music while the transfer is processed
+4. **Connection**: Once the destination answers, the caller is connected directly
+5. **Agent Handoff**: The AI agent ends its involvement in the call
+
+## Configuration
+
+### Basic Settings
+
+- **Destination**: Phone number or SIP endpoint (see formats below)
+- **Timeout**: How long to wait for destination to answer (default 30 seconds)
+- **Pre-transfer Message**: Optional custom message played before transfer
+
+### Destination Formats
+
+**For Twilio:**
+- **Phone numbers**: E.164 format: `+1234567890`
+- Must be a valid reachable phone number
+
+**For Asterisk ARI:**
+- **SIP endpoints only**: `PJSIP/extension` or `SIP/endpoint`
+- **Examples**: `PJSIP/sales-queue`, `SIP/1001`, `PJSIP/conference-room`
+
+<Warning>
+Asterisk ARI transfers only work with SIP endpoints configured on your Asterisk server. External phone numbers require additional PSTN trunk configuration.
+</Warning>
+
+## Setup Requirements
+
+1. **Organization Setup**: Ensure your organization has a supported telephony provider configured
+2. **Tool Enablement**: Add the Call Transfer tool to your agent's available tools
+3. **Destination Validation**: 
+   - **Twilio**: Verify phone numbers are reachable
+   - **ARI**: Verify SIP endpoints exist on your Asterisk server
+4. **Testing**: Test transfers in your specific provider environment
+
+## Troubleshooting
+
+- **Destination not reachable**: Verify destination number/endpoint is valid and reachable
+- **Tool not available**: Check that Call Transfer tool is added to the correct agent node
+- **Transfer failures**: Handle transfer failure scenarios within your agent prompts

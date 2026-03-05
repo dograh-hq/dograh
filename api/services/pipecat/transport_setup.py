@@ -6,6 +6,14 @@ from api.constants import APP_ROOT_DIR
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.telephony.providers.ari_call_strategies import (
+    ARIBridgeSwapStrategy,
+    ARIHangupStrategy,
+)
+from api.services.telephony.providers.twilio_call_strategies import (
+    TwilioConferenceStrategy,
+    TwilioHangupStrategy,
+)
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 from pipecat.serializers.asterisk import AsteriskFrameSerializer
@@ -54,12 +62,17 @@ async def create_twilio_transport(
         raise ValueError(
             f"Incomplete Twilio configuration for organization {organization_id}"
         )
+    # Create strategy instances
+    transfer_strategy = TwilioConferenceStrategy()
+    hangup_strategy = TwilioHangupStrategy()
 
     serializer = TwilioFrameSerializer(
         stream_sid=stream_sid,
         call_sid=call_sid,
         account_sid=account_sid,
         auth_token=auth_token,
+        transfer_strategy=transfer_strategy,
+        hangup_strategy=hangup_strategy,
     )
 
     return FastAPIWebsocketTransport(
@@ -178,12 +191,17 @@ async def create_ari_transport(
             f"Incomplete ARI configuration for organization {organization_id}. "
             f"Required: ari_endpoint, app_name, app_password"
         )
+    # Create strategy instances
+    transfer_strategy = ARIBridgeSwapStrategy()
+    hangup_strategy = ARIHangupStrategy()
 
     serializer = AsteriskFrameSerializer(
         channel_id=channel_id,
         ari_endpoint=ari_endpoint,
         app_name=app_name,
         app_password=app_password,
+        transfer_strategy=transfer_strategy,
+        hangup_strategy=hangup_strategy,
         params=AsteriskFrameSerializer.InputParams(
             asterisk_sample_rate=audio_config.transport_in_sample_rate,
             sample_rate=audio_config.pipeline_sample_rate,

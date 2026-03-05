@@ -349,8 +349,8 @@ class ARIProvider(TelephonyProvider):
     # ======== CALL TRANSFER METHODS ========
 
     def supports_transfers(self) -> bool:
-        """ARI does not currently support call transfers."""
-        return False
+        """ARI supports call transfers via bridge manipulation."""
+        return True
 
     async def transfer_call(
         self,
@@ -360,8 +360,104 @@ class ARIProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """ARI call transfers are not yet implemented."""
-        raise NotImplementedError("ARI provider does not support call transfers")
+        """Initiate ARI call transfer by creating an outbound channel to the destination.
+
+        This method creates the destination channel and returns immediately. The transfer
+        process completes asynchronously - success/failure is determined by ARI events
+        and communicated through the transfer event system.
+
+              Args:
+                  destination: Destination phone number (SIP endpoint)
+                  transfer_id: Unique identifier for this transfer attempt
+                  conference_name: Conference name (unused in ARI, kept for interface compatibility)
+                  timeout: Transfer timeout in seconds
+                  **kwargs: Additional arguments
+
+              Returns:
+                  Dict containing:
+                      - call_sid: Destination channel ID
+                      - status: "initiated"
+                      - provider: "ari"
+                      - raw_response: Full ARI channel creation response
+        """
+        if not self.validate_config():
+            raise ValueError("ARI provider not properly configured")
+
+        logger.info(
+            f"[ARI Transfer] Initiating transfer {transfer_id} to {destination} "
+            f"(timeout: {timeout}s)"
+        )
+
+        from api.services.telephony.call_transfer_manager import (
+            get_call_transfer_manager,
+        )
+
+        # Get call transfer manager for event correlation mapping
+        call_transfer_manager = await get_call_transfer_manager()
+
+        # Build SIP endpoint
+        if destination.startswith("SIP/") or destination.startswith("PJSIP/"):
+            sip_endpoint = destination
+        else:
+            sip_endpoint = f"PJSIP/{destination}"
+
+        # Build transfer appArgs for event correlation
+        app_args = f"transfer,{transfer_id}"
+
+        try:
+            endpoint = f"{self.base_url}/channels"
+            params = {
+                "endpoint": sip_endpoint,
+                "app": self.app_name,
+                "appArgs": app_args,
+                "timeout": timeout,  # Keep timeout for transfer calls
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint,
+                    params=params,
+                    auth=self._get_auth(),
+                ) as response:
+                    response_text = await response.text()
+
+                    if response.status != 200:
+                        error_msg = f"ARI channel creation failed: {response.status} {response_text}"
+                        logger.error(f"[ARI Transfer] {error_msg}")
+                        await call_transfer_manager.remove_transfer_context(transfer_id)
+                        raise Exception(error_msg)
+
+                    result = json.loads(response_text)
+
+            destination_channel_id = result.get("id", "")
+            if not destination_channel_id:
+                logger.error(
+                    f"[ARI Transfer] Failed to get channel ID from response: {result}"
+                )
+                await call_transfer_manager.remove_transfer_context(transfer_id)
+                raise Exception("Failed to create destination channel")
+
+            # Store transfer channel mapping for event correlation
+            await call_transfer_manager.store_transfer_channel_mapping(
+                destination_channel_id, transfer_id
+            )
+
+            logger.info(
+                f"[ARI Transfer] Originated destination channel {destination_channel_id} "
+                f"for transfer {transfer_id}"
+            )
+
+            return {
+                "call_sid": destination_channel_id,
+                "status": "initiated",
+                "provider": self.PROVIDER_NAME,
+                "raw_response": result,
+            }
+
+        except Exception as e:
+            logger.error(f"[ARI Transfer] Failed to originate call transfer destination channel: {e}")
+            await call_transfer_manager.remove_transfer_context(transfer_id)
+            raise
 
     # ======== ARI-SPECIFIC METHODS ========
 

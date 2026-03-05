@@ -4,7 +4,7 @@
  */
 
 export interface TranscriptEvent {
-    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric';
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error';
     text: string;
     final?: boolean;
     timestamp: string;
@@ -16,6 +16,7 @@ export interface TranscriptEvent {
     ttfbSeconds?: number;
     processor?: string;
     model?: string;
+    fatal?: boolean;
 }
 
 export interface ProcessedMessage {
@@ -28,6 +29,7 @@ export interface ProcessedMessage {
     status?: 'running' | 'completed';
     nodeName?: string;
     ttfbSeconds?: number;
+    fatal?: boolean;
 }
 
 /**
@@ -143,5 +145,6 @@ function convertToProcessedMessage(event: TranscriptEvent, overrideText?: string
         status: event.status,
         nodeName: event.nodeName,
         ttfbSeconds: event.ttfbSeconds,
+        fatal: event.fatal,
     };
 }

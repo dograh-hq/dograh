@@ -536,10 +536,11 @@ class PipecatEngine:
         # Mute the pipeline
         self._mute_pipeline = True
 
-        # Perform final variable extraction synchronously before ending
-        await self._perform_variable_extraction_if_needed(
-            self._current_node, run_in_background=False
-        )
+        if reason != EndTaskReason.PIPELINE_ERROR.value:
+            # Perform final variable extraction synchronously before ending
+            await self._perform_variable_extraction_if_needed(
+                self._current_node, run_in_background=False
+            )
 
         frame_to_push = (
             CancelFrame(reason=reason) if abort_immediately else EndFrame(reason=reason)

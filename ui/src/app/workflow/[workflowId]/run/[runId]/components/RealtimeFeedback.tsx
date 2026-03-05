@@ -20,6 +20,8 @@ interface RealtimeFeedbackEvent {
         ttfb_seconds?: number;
         processor?: string;
         model?: string;
+        error?: string;
+        fatal?: boolean;
     };
     timestamp: string;
     turn: number;
@@ -74,13 +76,16 @@ function convertLogEventsToTranscriptEvents(events: RealtimeFeedbackEvent[]): Tr
             case 'rtf-ttfb-metric':
                 type = 'ttfb-metric';
                 break;
+            case 'rtf-pipeline-error':
+                type = 'pipeline-error';
+                break;
             default:
                 type = 'bot-text';
         }
 
         return {
             type,
-            text: event.payload.text || event.payload.result || event.payload.function_name || event.payload.node_name || '',
+            text: event.payload.text || event.payload.error || event.payload.result || event.payload.function_name || event.payload.node_name || '',
             final: event.payload.final,
             timestamp: event.timestamp,
             turn: event.turn,
@@ -91,6 +96,7 @@ function convertLogEventsToTranscriptEvents(events: RealtimeFeedbackEvent[]): Tr
             ttfbSeconds: event.payload.ttfb_seconds,
             processor: event.payload.processor,
             model: event.payload.model,
+            fatal: event.payload.fatal,
         };
     });
 }
@@ -111,6 +117,7 @@ function convertLiveMessagesToTranscriptEvents(messages: FeedbackMessage[]): Tra
         ttfbSeconds: msg.ttfbSeconds,
         processor: msg.processor,
         model: msg.model,
+        fatal: msg.fatal,
     }));
 }
 

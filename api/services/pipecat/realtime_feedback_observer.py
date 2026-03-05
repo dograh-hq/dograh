@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
+    ErrorFrame,
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
     InterimTranscriptionFrame,
@@ -272,6 +273,19 @@ class RealtimeFeedbackObserver(BaseObserver):
                                 },
                             }
                         )
+        # Handle pipeline errors
+        elif isinstance(frame, ErrorFrame):
+            processor_name = str(frame.processor) if frame.processor else None
+            await self._send_message(
+                {
+                    "type": RealtimeFeedbackType.PIPELINE_ERROR.value,
+                    "payload": {
+                        "error": frame.error,
+                        "fatal": frame.fatal,
+                        "processor": processor_name,
+                    },
+                }
+            )
 
     async def _send_ws(self, message: dict):
         """Send message via WebSocket only, handling errors gracefully."""

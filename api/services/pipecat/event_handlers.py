@@ -3,6 +3,7 @@ from loguru import logger
 from api.db import db_client
 from api.enums import WorkflowRunState
 from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
+from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.in_memory_buffers import (
     InMemoryAudioBuffer,
@@ -94,6 +95,22 @@ def register_event_handlers(
         logger.debug("In on_pipeline_started callback handler")
         ready_state["pipeline_started"] = True
         await maybe_trigger_llm()
+
+    @task.event_handler("on_pipeline_error")
+    async def on_pipeline_error(_task: PipelineTask, frame: Frame):
+        logger.warning(f"Pipeline error for workflow run {workflow_run_id}: {frame}")
+        try:
+            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+            if workflow_run and workflow_run.campaign_id:
+                await circuit_breaker.record_and_evaluate(
+                    campaign_id=workflow_run.campaign_id, is_failure=True
+                )
+        except Exception as e:
+            logger.error(f"Error recording circuit breaker failure: {e}", exc_info=True)
+
+        await engine.end_call_with_reason(
+            EndTaskReason.PIPELINE_ERROR.value, abort_immediately=True
+        )
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(

@@ -49,6 +49,7 @@ export const UnifiedTranscript = ({
         status: msg.status,
         nodeName: msg.nodeName,
         ttfbSeconds: msg.ttfbSeconds,
+        fatal: msg.fatal,
     }));
 
     // Default empty state

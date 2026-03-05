@@ -2,7 +2,6 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunState
-from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.in_memory_buffers import (
@@ -186,7 +185,9 @@ def register_event_handlers(
 
         usage_info = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
 
-        logger.debug(f"Usage metrics: {usage_info}")
+        logger.debug(
+            f"Usage metrics: {usage_info}, Gathered context: {gathered_context}"
+        )
 
         await db_client.update_workflow_run(
             run_id=workflow_run_id,
@@ -211,10 +212,6 @@ def register_event_handlers(
                 logger.error(f"Error saving realtime feedback logs: {e}", exc_info=True)
         else:
             logger.debug("Logs buffer is empty, skipping save")
-
-        # Release concurrent slot for campaign calls
-        if workflow_run and workflow_run.campaign_id:
-            await campaign_call_dispatcher.release_call_slot(workflow_run_id)
 
         # Write buffers to temp files and enqueue combined processing task
         audio_temp_path = None

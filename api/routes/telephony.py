@@ -747,11 +747,6 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         logs={"telephony_status_callbacks": telephony_callback_logs},
     )
 
-    # The workflow run state is already marked as completed from either status-update
-    # callbacks or CDR update callbacks. Lets skip processing.
-    if workflow_run.state == WorkflowRunState.COMPLETED.value:
-        return
-
     # Handle call completion - make these updates idempotent - i.e
     # they should handle multiple API calls (one due to status update,
     # and other due to CDR updates.)
@@ -768,11 +763,12 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             )
 
         # Mark workflow run as completed
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            is_completed=True,
-            state=WorkflowRunState.COMPLETED.value,
-        )
+        if workflow_run.state != WorkflowRunState.COMPLETED.value:
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id,
+                is_completed=True,
+                state=WorkflowRunState.COMPLETED.value,
+            )
 
     elif status.status in ["failed", "busy", "no-answer", "canceled", "error"]:
         logger.warning(
@@ -812,6 +808,10 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
             gathered_context={"call_tags": call_tags},
+        )
+    else:
+        logger.warning(
+            f"[run {workflow_run_id}] Unexpected status update: {status.status}"
         )
 
 

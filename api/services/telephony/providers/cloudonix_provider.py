@@ -10,6 +10,15 @@ import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 
+from api.constants import (
+    AMD_ASYNC,
+    AMD_CALLBACK_METHOD,
+    AMD_MACHINE_DETECTION,
+    AMD_MACHINE_DETECTION_SILENCE_TIMEOUT,
+    AMD_MACHINE_DETECTION_SPEECH_END_THRESHOLD,
+    AMD_MACHINE_DETECTION_SPEECH_THRESHOLD,
+    AMD_MACHINE_DETECTION_TIMEOUT,
+)
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -56,6 +65,29 @@ class CloudonixProvider(TelephonyProvider):
         return {
             "Authorization": f"Bearer {self.bearer_token}",
             "Content-Type": "application/json",
+        }
+
+    def _get_amd_config(
+        self, backend_endpoint: str, workflow_run_id: Optional[int]
+    ) -> Dict[str, Any]:
+        """Build the Answering Machine Detection configuration for an outbound call.
+
+        Args:
+            backend_endpoint: The backend base URL for the AMD status callback.
+            workflow_run_id: The workflow run ID used to route the callback.
+
+        Returns:
+            Dict containing AMD-related fields to merge into the call payload.
+        """
+        return {
+            "machineDetection": AMD_MACHINE_DETECTION,
+            "asyncAmd": AMD_ASYNC,
+            "asyncAmdStatusCallback": f"{backend_endpoint}/api/v1/telephony/cloudonix/amd-callback/{workflow_run_id}",
+            "asyncAmdStatusCallbackMethod": AMD_CALLBACK_METHOD,
+            "machineDetectionTimeout": AMD_MACHINE_DETECTION_TIMEOUT,
+            "machineDetectionSpeechThreshold": AMD_MACHINE_DETECTION_SPEECH_THRESHOLD,
+            "machineDetectionSpeechEndThreshold": AMD_MACHINE_DETECTION_SPEECH_END_THRESHOLD,
+            "machineDetectionSilenceTimeout": AMD_MACHINE_DETECTION_SILENCE_TIMEOUT,
         }
 
     async def initiate_call(
@@ -105,12 +137,8 @@ class CloudonixProvider(TelephonyProvider):
 </Response>""",
             "caller-id": from_number,  # Required field
         }
-        data["machineDetection"] = "DetectMessageEnd"
-        data["asyncAmd"] = True
-        data["asyncAmdStatusCallback"] = (
-            f"{backend_endpoint}/api/v1/telephony/cloudonix/amd-callback/{workflow_run_id}"
-        )
-        data["asyncAmdStatusCallbackMethod"] = "POST"
+
+        data.update(self._get_amd_config(backend_endpoint, workflow_run_id))
 
         # TODO: Cloudonix status callbacks are spammy, so commenting it out. Can send it to
         # some persistent logging system instead of transcational database.
@@ -687,6 +715,30 @@ class CloudonixProvider(TelephonyProvider):
 </Response>"""
 
         return Response(content=twiml, media_type="application/xml"), "application/xml"
+
+    # ======== CALL CONTROL METHODS ========
+
+    async def hangup_machine_answered_call(self, call_id: str) -> bool:
+        """Hang up a call that was answered by an answering machine.
+
+        Args:
+            call_id: The Cloudonix session token / call ID to terminate.
+
+        Returns:
+            True if the call was successfully terminated, False otherwise.
+        """
+        from api.services.telephony.providers.cloudonix_call_strategies import (
+            CloudonixHangupStrategy,
+        )
+
+        strategy = CloudonixHangupStrategy()
+        return await strategy.execute_hangup(
+            {
+                "call_id": call_id,
+                "domain_id": self.domain_id,
+                "bearer_token": self.bearer_token,
+            }
+        )
 
     # ======== CALL TRANSFER METHODS ========
 

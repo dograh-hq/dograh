@@ -128,14 +128,14 @@ class CustomToolManager:
                 function_name = schema["function"]["name"]
 
                 # Create and register the handler
-                handler, disable_timeout, cancel_on_interruption = self._create_handler(
+                handler, timeout_secs, cancel_on_interruption = self._create_handler(
                     tool, function_name
                 )
                 self._engine.llm.register_function(
                     function_name,
                     handler,
                     cancel_on_interruption=cancel_on_interruption,
-                    disable_timeout=disable_timeout,
+                    timeout_secs=timeout_secs,
                 )
 
                 logger.debug(
@@ -156,21 +156,20 @@ class CustomToolManager:
         Returns:
             Async handler function for the tool
         """
-        # Whether to disable function call timeout
-        disable_timeout = False
+        timeout_secs: Optional[float] = None
         cancel_on_interruption = True
 
         if tool.category == ToolCategory.END_CALL.value:
             cancel_on_interruption = False
             handler = self._create_end_call_handler(tool, function_name)
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
-            disable_timeout = True
+            timeout_secs = 120.0
             cancel_on_interruption = False
             handler = self._create_transfer_call_handler(tool, function_name)
         else:
             handler = self._create_http_tool_handler(tool, function_name)
 
-        return handler, disable_timeout, cancel_on_interruption
+        return handler, timeout_secs, cancel_on_interruption
 
     def _create_http_tool_handler(self, tool: Any, function_name: str):
         """Create a handler function for an HTTP API tool.

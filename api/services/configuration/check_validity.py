@@ -1,10 +1,7 @@
 from typing import Dict, Optional, TypedDict
 
 import openai
-from deepgram import (
-    DeepgramClient,
-    LiveOptions,
-)
+from deepgram import DeepgramClient
 from groq import Groq
 
 # try:
@@ -105,20 +102,12 @@ class UserConfigurationValidator:
         if model in self._provider_api_key_validity_status:
             return self._provider_api_key_validity_status[model]
 
-        deepgram = DeepgramClient(api_key)
-        dg_connection = deepgram.listen.websocket.v("1")
-
         try:
-            options = LiveOptions(
-                model="nova-2",
-                language="en-US",
-                smart_format=True,
-            )
-
-            connected = dg_connection.start(options)
-            self._provider_api_key_validity_status[model] = connected
-        finally:
-            dg_connection.finish()
+            deepgram = DeepgramClient(api_key=api_key)
+            deepgram.manage.v1.projects.list()
+            self._provider_api_key_validity_status[model] = True
+        except Exception:
+            self._provider_api_key_validity_status[model] = False
         return self._provider_api_key_validity_status[model]
 
     def _check_groq_api_key(self, model: str, api_key: str) -> bool:

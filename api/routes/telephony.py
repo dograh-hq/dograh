@@ -780,7 +780,7 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
             await circuit_breaker.record_and_evaluate(
                 workflow_run.campaign_id,
-                is_failure=status.status == "error",
+                is_failure=status.status in ("error", "failed"),
             )
 
         # Check if retry is needed for campaign calls (busy/no-answer)

@@ -341,12 +341,6 @@ class TestUserTurnStopScenarios:
             await injector.inject(BotStoppedSpeakingFrame())
             await asyncio.sleep(ASYNC_DELAY)
 
-            # TranscriptionFrame arrives AFTER unmute -> reaches stop strategy
-            await injector.inject(
-                TranscriptionFrame("hello", "user-1", time_now_iso8601())
-            )
-            await asyncio.sleep(ASYNC_DELAY)
-
             # Install spy on trigger_user_turn_stopped to track every call
             # and the _user_turn state at the time of each call.
             trigger_stop_calls = []
@@ -357,6 +351,12 @@ class TestUserTurnStopScenarios:
                 await original_trigger_stop()
 
             stop_strategy.trigger_user_turn_stopped = spy_trigger_stop
+
+            # TranscriptionFrame arrives AFTER unmute -> reaches stop strategy
+            await injector.inject(
+                TranscriptionFrame("hello", "user-1", time_now_iso8601())
+            )
+            await asyncio.sleep(ASYNC_DELAY)
 
             # UserStoppedSpeaking arrives AFTER unmute
             # Stop strategy: _user_speaking is False (UserStartedSpeaking was suppressed),

@@ -77,7 +77,6 @@ from pipecat.turns.user_stop import (
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
 from pipecat.utils.run_context import set_current_run_id
-from pipecat.utils.tracing.context_registry import ContextProviderRegistry
 
 # Setup tracing if enabled
 setup_tracing_exporter()
@@ -766,5 +765,4 @@ async def _run_pipeline(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
-        ContextProviderRegistry.remove_providers(str(workflow_run_id))
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

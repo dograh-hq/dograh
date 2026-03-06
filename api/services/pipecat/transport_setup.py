@@ -10,7 +10,9 @@ from api.services.telephony.providers.ari_call_strategies import (
     ARIBridgeSwapStrategy,
     ARIHangupStrategy,
 )
-from api.services.telephony.providers.cloudonix_call_strategies import CloudonixHangupStrategy
+from api.services.telephony.providers.cloudonix_call_strategies import (
+    CloudonixHangupStrategy,
+)
 from api.services.telephony.providers.twilio_call_strategies import (
     TwilioConferenceStrategy,
     TwilioHangupStrategy,

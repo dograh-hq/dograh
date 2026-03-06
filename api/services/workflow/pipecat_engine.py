@@ -49,7 +49,6 @@ from api.services.workflow.tools.timezone import (
     get_current_time,
     get_time_tools,
 )
-from pipecat.utils.tracing.context_registry import get_current_turn_context
 
 
 class PipecatEngine:
@@ -115,6 +114,17 @@ class PipecatEngine:
             return await self._custom_tool_manager.get_organization_id()
         # Fallback for when manager is not yet initialized
         return await get_organization_id_from_workflow_run(self._workflow_run_id)
+
+    def _get_otel_context(self):
+        """Extract the OTel Context from the task's TracingContext.
+
+        Returns the turn-level context if available, otherwise the
+        conversation-level context, or None.
+        """
+        tracing_ctx = getattr(self.task, "_tracing_context", None)
+        if not tracing_ctx:
+            return None
+        return tracing_ctx.get_turn_context() or tracing_ctx.get_conversation_context()
 
     @property
     def builtin_function_schemas(self) -> list[dict]:
@@ -356,6 +366,7 @@ class PipecatEngine:
                     embeddings_api_key=self._embeddings_api_key,
                     embeddings_model=self._embeddings_model,
                     embeddings_base_url=self._embeddings_base_url,
+                    tracing_context=self._get_otel_context(),
                 )
 
                 await function_call_params.result_callback(result)
@@ -383,8 +394,8 @@ class PipecatEngine:
             return
 
         # Capture the current turn context for otel tracing
-        # before creating the background task
-        parent_context = get_current_turn_context()
+        # before creating the background task.
+        parent_context = self._get_otel_context()
 
         extraction_prompt = self._format_prompt(node.extraction_prompt)
         extraction_variables = node.extraction_variables
@@ -416,11 +427,11 @@ class PipecatEngine:
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
-        # Set node name for tracing
+        # Set OTel span name for tracing
         try:
-            self.context.set_node_name(node.name)
+            self.context.set_otel_span_name(f"llm-{node.name}")
         except AttributeError:
-            logger.warning(f"context has no set_node_name method")
+            logger.warning(f"context has no set_otel_span_name method")
 
         # Register transition functions if not an end node
         if not node.is_end:

@@ -10,6 +10,7 @@ from api.services.telephony.providers.ari_call_strategies import (
     ARIBridgeSwapStrategy,
     ARIHangupStrategy,
 )
+from api.services.telephony.providers.cloudonix_call_strategies import CloudonixHangupStrategy
 from api.services.telephony.providers.twilio_call_strategies import (
     TwilioConferenceStrategy,
     TwilioHangupStrategy,
@@ -131,11 +132,13 @@ async def create_cloudonix_transport(
 
     from pipecat.serializers.cloudonix import CloudonixFrameSerializer
 
+    hangup_strategy = CloudonixHangupStrategy()
     serializer = CloudonixFrameSerializer(
         call_id=call_id,
         stream_sid=stream_sid,
         domain_id=domain_id,
         bearer_token=bearer_token,
+        hangup_strategy=hangup_strategy,
     )
 
     return FastAPIWebsocketTransport(

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.17.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.16.0...dograh-v1.17.0) (2026-03-07)
+
+
+### Features
+
+* add early voicemail detection ([7717810](https://github.com/dograh-hq/dograh/commit/771781096e959d00580d46f6b71fa6fa0709e9cb))
+* hang up cloudonix machine answered call if feature flag enabled ([#182](https://github.com/dograh-hq/dograh/issues/182)) ([3c5bc68](https://github.com/dograh-hq/dograh/commit/3c5bc688eddde55395611fd0345229c524b33301))
+
+
+### Bug Fixes
+
+* add cloudonix call hangup strategy ([#181](https://github.com/dograh-hq/dograh/issues/181)) ([7b77721](https://github.com/dograh-hq/dograh/commit/7b777219645b73ea28d778932e0d8f3b8cc963f1))
+* handle delayed transcription in ExternalTurnStopStrategy ([77a55fc](https://github.com/dograh-hq/dograh/commit/77a55fcfe3405e6f2c10bc5c21e180da47cadc48))
+
 ## [1.16.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.15.0...dograh-v1.16.0) (2026-03-05)
 
 

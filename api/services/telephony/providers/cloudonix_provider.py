@@ -106,7 +106,6 @@ class CloudonixProvider(TelephonyProvider):
             "caller-id": from_number,  # Required field
         }
 
-
         # TODO: Cloudonix status callbacks are spammy, so commenting it out. Can send it to
         # some persistent logging system instead of transcational database.
         # Add status callback if workflow_run_id provided

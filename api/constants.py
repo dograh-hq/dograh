@@ -13,50 +13,6 @@ FILLER_SOUND_PROBABILITY = 0.0
 
 VOICEMAIL_RECORDING_DURATION = 5.0
 
-# Cloudonix Answering Machine Detection (AMD) constants
-# Ref: https://developers.cloudonix.com/Documentation/apiWorkflow/callControlAndSessionManagement#answering-machine-detection-results
-
-# Enables AMD and waits for the full voicemail greeting to finish before reporting a result.
-# Alternative: "Enable" — ends detection immediately upon determination.
-AMD_MACHINE_DETECTION = "DetectMessageEnd"
-
-# Runs AMD in the background while the call continues, posting results to asyncAmdStatusCallback.
-# Default: disabled (False).
-AMD_ASYNC = True
-
-# HTTP method used when Cloudonix posts the AMD result to the callback URL.
-# Allowed: "POST" or "GET". Default: "POST".
-AMD_CALLBACK_METHOD = "POST"
-
-# Maximum seconds to wait for a determination before returning "unknown".
-# Range: 3–59 seconds. Default: 30.
-AMD_MACHINE_DETECTION_TIMEOUT = 30
-
-# Minimum greeting duration (ms) expected from an answering machine.
-# Range: 1000–6000 ms. Default: 2400.
-AMD_MACHINE_DETECTION_SPEECH_THRESHOLD = 2400
-
-# Duration of silence (ms) after speech that confirms the greeting has ended.
-# Range: 500–5000 ms. Default: 1200.
-AMD_MACHINE_DETECTION_SPEECH_END_THRESHOLD = 1200
-
-# Maximum wait (ms) for any audio after the call is answered before timing out.
-# Range: 2000–10000 ms. Default: 5000.
-AMD_MACHINE_DETECTION_SILENCE_TIMEOUT = 5000
-
-# Cloudonix AMD final result values
-MACHINE_END_SILENCE = "machine_end_silence"
-MACHINE_END_OTHER = "machine_end_other"
-HUMAN = "human"
-UNKNOWN = "unknown"
-
-# Final (non-interim) AMD result values — only these are stored in gathered context.
-AMD_FINAL_RESULTS = {MACHINE_END_SILENCE, MACHINE_END_OTHER, HUMAN, UNKNOWN}
-
-# When enabled, Cloudonix calls answered by an answering machine are automatically hung up.
-AMD_HANGUP_ENABLED = os.getenv("AMD_HANGUP_ENABLED", "false").lower() == "true"
-
-
 # Configuration constants
 ENABLE_TRACING = os.getenv("ENABLE_TRACING", "false").lower() == "true"
 

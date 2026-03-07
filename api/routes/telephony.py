@@ -24,12 +24,6 @@ from sqlalchemy.future import select
 from starlette.responses import HTMLResponse
 from starlette.websockets import WebSocketDisconnect
 
-from api.constants import (
-    AMD_FINAL_RESULTS,
-    AMD_HANGUP_ENABLED,
-    MACHINE_END_OTHER,
-    MACHINE_END_SILENCE,
-)
 from api.db import db_client
 from api.db.models import OrganizationConfigurationModel, UserModel
 from api.db.workflow_client import WorkflowClient
@@ -1215,87 +1209,6 @@ async def handle_cloudonix_status_callback(
     await _process_status_update(workflow_run_id, status_update)
 
     return {"status": "success"}
-
-
-@router.post("/cloudonix/amd-callback/{workflow_run_id}")
-async def handle_cloudonix_amd_callback(
-    workflow_run_id: int,
-    request: Request,
-):
-    """Handle Cloudonix-specific Answering Machine Detection(AMD) callbacks.
-    Cloudonix sends AMD updates to the callback URL specified during call initiation.
-    Final results - 'machine_end_silence', 'machine_end_other', 'human', 'unknown'
-    """
-    set_current_run_id(workflow_run_id)
-
-    content_type = request.headers.get("content-type", "")
-
-    if "application/json" in content_type:
-        callback_data = await request.json()
-    else:
-        form_data = await request.form()
-        callback_data = dict(form_data)
-
-    call_id = callback_data["CallSid"]
-    answered_by = callback_data["AnsweredBy"]
-
-    logger.info(
-        f"[run {workflow_run_id}] Received Cloudonix AMD status callback with answered-by {answered_by} for call ID {call_id}: {json.dumps(callback_data)}"
-    )
-
-    if answered_by in AMD_FINAL_RESULTS:
-        try:
-            await db_client.update_workflow_run(
-                run_id=workflow_run_id,
-                gathered_context={"answered_by": answered_by},
-            )
-            logger.info(
-                f"[run {workflow_run_id}] AMD final result '{answered_by}' stored in gathered context"
-            )
-
-            is_machine = (
-                answered_by == MACHINE_END_SILENCE or answered_by == MACHINE_END_OTHER
-            )
-            if is_machine and AMD_HANGUP_ENABLED:
-                workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-                if not workflow_run:
-                    logger.warning(
-                        f"[run {workflow_run_id}] Workflow run not found, skipping AMD hangup"
-                    )
-                    return {"status": "success"}
-
-                workflow_run_call_id = (workflow_run.gathered_context or {}).get(
-                    "call_id"
-                )
-                if workflow_run_call_id != call_id:
-                    logger.warning(
-                        f"[run {workflow_run_id}] AMD callback call_id '{call_id}' does not match "
-                        f"workflow run call_id '{workflow_run_call_id}', skipping AMD hangup"
-                    )
-                    return {"status": "success"}
-
-                if not workflow_run.workflow:
-                    logger.warning(
-                        f"[run {workflow_run_id}] Workflow not found, skipping AMD hangup"
-                    )
-                    return {"status": "success"}
-
-                provider = await get_telephony_provider(
-                    workflow_run.workflow.organization_id
-                )
-                await provider.hangup_machine_answered_call(call_id)
-                logger.info(
-                    f"[run {workflow_run_id}] AMD hangup executed for machine call {call_id}"
-                )
-
-            return {"status": "success"}
-
-        except Exception as e:
-            logger.error(
-                f"[run {workflow_run_id}] Failed to process AMD final result '{answered_by}': {e}"
-            )
-
-    return {"status": answered_by}
 
 
 @router.post("/vobiz/hangup-callback/workflow/{workflow_id}")

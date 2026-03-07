@@ -667,7 +667,8 @@ async def _run_pipeline(
         voicemail_llm = create_llm_service(user_config)
         voicemail_detector = VoicemailDetector(
             llm=voicemail_llm,
-            voicemail_response_delay=2.0,
+            voicemail_response_delay=1.0,
+            long_speech_timeout=8.0,
         )
 
         # Register event handler to end task when voicemail is detected

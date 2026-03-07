@@ -53,6 +53,7 @@ def create_stt_service(
                 params=DeepgramFluxSTTService.InputParams(
                     eot_timeout_ms=3000,
                     eot_threshold=0.7,
+                    eager_eot_threshold=0.5,
                     keyterm=keyterms or [],
                 ),
                 should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame

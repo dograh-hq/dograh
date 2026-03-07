@@ -1,4 +1,4 @@
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, ExternalLink } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
 import { FlowNodeData } from "@/components/flow/types";
@@ -24,6 +24,7 @@ interface NodeEditDialogProps {
     onSave?: () => void;
     error?: string | null;
     isDirty?: boolean;
+    documentationUrl?: string;
 }
 
 export const NodeEditDialog = ({
@@ -34,7 +35,8 @@ export const NodeEditDialog = ({
     children,
     onSave,
     error,
-    isDirty = false
+    isDirty = false,
+    documentationUrl,
 }: NodeEditDialogProps) => {
     const [showDiscardAlert, setShowDiscardAlert] = useState(false);
 
@@ -84,7 +86,20 @@ export const NodeEditDialog = ({
                 style={{ maxWidth: "1200px", width: "95vw" }}
             >
                 <DialogHeader>
-                    <DialogTitle>{title}</DialogTitle>
+                    <div className="flex items-center justify-between">
+                        <DialogTitle>{title}</DialogTitle>
+                        {documentationUrl && (
+                            <a
+                                href={documentationUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors pr-6"
+                            >
+                                Docs
+                                <ExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                        )}
+                    </div>
                     <DialogDescription>
                         Configure the settings for this node in your workflow.
                     </DialogDescription>

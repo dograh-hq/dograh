@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -147,6 +148,7 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
                 title="Edit QA Analysis"
                 onSave={handleSave}
                 isDirty={isDirty}
+                documentationUrl={NODE_DOCUMENTATION_URLS.qaAnalysis}
             >
                 {open && (
                     <QANodeEditForm

@@ -809,6 +809,9 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             state=WorkflowRunState.COMPLETED.value,
             gathered_context={"call_tags": call_tags},
         )
+    elif status.status in ["in-progress", "initiated", "ringing"]:
+        # No Op
+        pass
     else:
         logger.warning(
             f"[run {workflow_run_id}] Unexpected status update: {status.status}"

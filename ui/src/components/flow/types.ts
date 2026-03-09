@@ -73,6 +73,7 @@ export type FlowNode = {
 export type FlowEdgeData = {
     condition: string;
     label: string;
+    transition_speech?: string;
     invalid?: boolean;
     validationMessage?: string | null;
 }

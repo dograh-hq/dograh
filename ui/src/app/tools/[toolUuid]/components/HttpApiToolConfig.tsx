@@ -1,5 +1,7 @@
 "use client";
 
+import { AlertCircle } from "lucide-react";
+
 import {
     CredentialSelector,
     type HttpMethod,
@@ -33,6 +35,8 @@ export interface HttpApiToolConfigProps {
     onParametersChange: (parameters: ToolParameter[]) => void;
     timeoutMs: number;
     onTimeoutMsChange: (timeout: number) => void;
+    customMessage: string;
+    onCustomMessageChange: (message: string) => void;
 }
 
 export function HttpApiToolConfig({
@@ -52,6 +56,8 @@ export function HttpApiToolConfig({
     onParametersChange,
     timeoutMs,
     onTimeoutMsChange,
+    customMessage,
+    onCustomMessageChange,
 }: HttpApiToolConfigProps) {
     return (
         <Card>
@@ -124,6 +130,23 @@ export function HttpApiToolConfig({
                                 onChange={onUrlChange}
                                 placeholder="https://api.example.com/appointments"
                                 showValidation
+                            />
+                        </div>
+
+                        <div className="grid gap-2 pt-4 border-t">
+                            <Label>Custom Message</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Optional message the AI will speak before executing this tool (e.g., &quot;Let me look that up for you&quot;)
+                            </Label>
+                            <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
+                                <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                                <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
+                            </div>
+                            <Textarea
+                                value={customMessage}
+                                onChange={(e) => onCustomMessageChange(e.target.value)}
+                                placeholder="e.g., Let me check that for you, one moment please."
+                                rows={2}
                             />
                         </div>
                     </TabsContent>

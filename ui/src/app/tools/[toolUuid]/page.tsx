@@ -40,6 +40,7 @@ interface HttpApiConfigWithParams {
     credential_uuid?: string;
     parameters?: ToolParameter[];
     timeout_ms?: number;
+    customMessage?: string;
 }
 
 export default function ToolDetailPage() {
@@ -58,6 +59,9 @@ export default function ToolDetailPage() {
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
 
+    // Shared form state
+    const [customMessage, setCustomMessage] = useState("");
+
     // HTTP API form state
     const [httpMethod, setHttpMethod] = useState<HttpMethod>("POST");
     const [url, setUrl] = useState("");
@@ -68,7 +72,6 @@ export default function ToolDetailPage() {
 
     // End Call form state
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
-    const [endCallCustomMessage, setEndCallCustomMessage] = useState("");
     const [endCallReason, setEndCallReason] = useState(false);
     const [endCallReasonDescription, setEndCallReasonDescription] = useState("");
 
@@ -82,7 +85,6 @@ export default function ToolDetailPage() {
     // Transfer Call form state
     const [transferDestination, setTransferDestination] = useState("");
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
-    const [transferCustomMessage, setTransferCustomMessage] = useState("");
     const [transferTimeout, setTransferTimeout] = useState(30);
 
     // Redirect if not authenticated
@@ -128,12 +130,12 @@ export default function ToolDetailPage() {
             const config = tool.definition?.config as EndCallConfig | undefined;
             if (config) {
                 setEndCallMessageType(config.messageType || "none");
-                setEndCallCustomMessage(config.customMessage || "");
+                setCustomMessage(config.customMessage || "");
                 setEndCallReason(config.endCallReason ?? false);
                 setEndCallReasonDescription(config.endCallReasonDescription || "");
             } else {
                 setEndCallMessageType("none");
-                setEndCallCustomMessage("");
+                setCustomMessage("");
                 setEndCallReason(false);
                 setEndCallReasonDescription("");
             }
@@ -143,12 +145,12 @@ export default function ToolDetailPage() {
             if (config) {
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
-                setTransferCustomMessage(config.customMessage || "");
+                setCustomMessage(config.customMessage || "");
                 setTransferTimeout(config.timeout ?? 30);
             } else {
                 setTransferDestination("");
                 setTransferMessageType("none");
-                setTransferCustomMessage("");
+                setCustomMessage("");
                 setTransferTimeout(30);
             }
         } else {
@@ -159,6 +161,7 @@ export default function ToolDetailPage() {
                 setUrl(config.url || "");
                 setCredentialUuid(config.credential_uuid || "");
                 setTimeoutMs(config.timeout_ms || 5000);
+                setCustomMessage(config.customMessage || "");
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -242,7 +245,7 @@ export default function ToolDetailPage() {
                         type: "end_call",
                         config: {
                             messageType: endCallMessageType,
-                            customMessage: endCallMessageType === "custom" ? endCallCustomMessage : undefined,
+                            customMessage: endCallMessageType === "custom" ? customMessage : undefined,
                             endCallReason,
                             endCallReasonDescription: endCallReason ? endCallReasonDescription || undefined : undefined,
                         },
@@ -259,7 +262,7 @@ export default function ToolDetailPage() {
                         config: {
                             destination: transferDestination,
                             messageType: transferMessageType,
-                            customMessage: transferMessageType === "custom" ? transferCustomMessage : undefined,
+                            customMessage: transferMessageType === "custom" ? customMessage : undefined,
                             timeout: transferTimeout,
                         },
                     },
@@ -290,6 +293,7 @@ export default function ToolDetailPage() {
                             parameters:
                                 validParameters.length > 0 ? validParameters : undefined,
                             timeout_ms: timeoutMs,
+                            customMessage: customMessage || undefined,
                         },
                     },
                 };
@@ -450,8 +454,8 @@ const data = await response.json();`;
                             onDescriptionChange={setDescription}
                             messageType={endCallMessageType}
                             onMessageTypeChange={setEndCallMessageType}
-                            customMessage={endCallCustomMessage}
-                            onCustomMessageChange={setEndCallCustomMessage}
+                            customMessage={customMessage}
+                            onCustomMessageChange={setCustomMessage}
                             endCallReason={endCallReason}
                             onEndCallReasonChange={handleEndCallReasonChange}
                             endCallReasonDescription={endCallReasonDescription}
@@ -467,8 +471,8 @@ const data = await response.json();`;
                             onDestinationChange={setTransferDestination}
                             messageType={transferMessageType}
                             onMessageTypeChange={setTransferMessageType}
-                            customMessage={transferCustomMessage}
-                            onCustomMessageChange={setTransferCustomMessage}
+                            customMessage={customMessage}
+                            onCustomMessageChange={setCustomMessage}
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
                         />
@@ -490,6 +494,8 @@ const data = await response.json();`;
                             onParametersChange={setParameters}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
+                            customMessage={customMessage}
+                            onCustomMessageChange={setCustomMessage}
                         />
                     )}
 

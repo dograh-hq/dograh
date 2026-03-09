@@ -12,14 +12,12 @@ import {
   Key,
   LogOut,
   Megaphone,
-  MessageSquare,
   Phone,
   Settings,
   Star,
   TrendingUp,
   Workflow,
   Wrench,
-  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -112,11 +110,11 @@ export function AppSidebar() {
           url: "/campaigns",
           icon: Megaphone,
         },
-        {
-          title: "Automation",
-          url: "/automation",
-          icon: Zap,
-        },
+        // {
+        //   title: "Automation",
+        //   url: "/automation",
+        //   icon: Zap,
+        // },
         {
           title: "Models",
           url: "/model-configurations",
@@ -160,11 +158,11 @@ export function AppSidebar() {
       url: "/reports",
       icon: FileText,
     },
-    {
-      title: "LoopTalk",
-      url: "/looptalk",
-      icon: MessageSquare,
-    },
+    // {
+    //   title: "LoopTalk",
+    //   url: "/looptalk",
+    //   icon: MessageSquare,
+    // },
   ];
 
   const handleMobileNavClick = () => {

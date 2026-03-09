@@ -440,9 +440,9 @@ const data = await response.json();`;
                                     View Code
                                 </Button>
                             )}
-                            {TOOL_DOCUMENTATION_URLS[tool.category as keyof typeof TOOL_DOCUMENTATION_URLS] && (
+                            {TOOL_DOCUMENTATION_URLS[tool.category] && (
                                 <a
-                                    href={TOOL_DOCUMENTATION_URLS[tool.category as keyof typeof TOOL_DOCUMENTATION_URLS]}
+                                    href={TOOL_DOCUMENTATION_URLS[tool.category]}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"

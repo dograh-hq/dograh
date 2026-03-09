@@ -7,7 +7,7 @@ stored, while honouring masked API keys.
 from typing import Dict
 
 from api.schemas.user_configuration import UserConfiguration
-from api.services.configuration.masking import is_mask_of
+from api.services.configuration.masking import resolve_masked_api_keys
 
 SERVICE_FIELDS = ("llm", "tts", "stt", "embeddings")
 
@@ -50,12 +50,10 @@ def merge_user_configurations(
         if not provider_changed:
             # conditional preservation of api_key
             if incoming_api_key is not None:
-                if (
-                    old_cfg
-                    and "api_key" in old_cfg
-                    and is_mask_of(incoming_api_key, old_cfg["api_key"])
-                ):
-                    incoming_cfg["api_key"] = old_cfg["api_key"]
+                if old_cfg and "api_key" in old_cfg:
+                    incoming_cfg["api_key"] = resolve_masked_api_keys(
+                        incoming_api_key, old_cfg["api_key"]
+                    )
             else:
                 if "api_key" in old_cfg:
                     incoming_cfg["api_key"] = old_cfg["api_key"]

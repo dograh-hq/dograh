@@ -41,6 +41,36 @@ def is_mask_of(masked: str, real_key: str) -> bool:
     return mask_key(real_key) == masked
 
 
+def resolve_masked_api_keys(
+    incoming: str | list[str], existing: str | list[str]
+) -> str | list[str]:
+    """Resolve masked API keys against existing real keys.
+
+    For each incoming key, if it matches the mask of an existing key, the real
+    key is restored.  New (unmasked) keys are kept as-is.  This handles adds,
+    removes, reorders, and partial replacements correctly.
+    """
+    if isinstance(incoming, str) and isinstance(existing, str):
+        return existing if is_mask_of(incoming, existing) else incoming
+
+    existing_list = existing if isinstance(existing, list) else [existing]
+    incoming_list = incoming if isinstance(incoming, list) else [incoming]
+
+    resolved: list[str] = []
+    used: set[int] = set()
+    for key in incoming_list:
+        matched = False
+        for i, real in enumerate(existing_list):
+            if i not in used and is_mask_of(key, real):
+                resolved.append(real)
+                used.add(i)
+                matched = True
+                break
+        if not matched:
+            resolved.append(key)
+    return resolved
+
+
 # ---------------------------------------------------------------------------
 # High-level helpers for UserConfiguration objects
 # ---------------------------------------------------------------------------
@@ -53,7 +83,11 @@ def _mask_service(service_cfg: Optional[ServiceConfig]) -> Optional[Dict[str, An
     # Work on a dict copy so we don't mutate original models
     data = service_cfg.model_dump()
     if "api_key" in data and data["api_key"]:
-        data["api_key"] = mask_key(data["api_key"])
+        raw = data["api_key"]
+        if isinstance(raw, list):
+            data["api_key"] = [mask_key(k) for k in raw]
+        else:
+            data["api_key"] = mask_key(raw)
     return data
 
 

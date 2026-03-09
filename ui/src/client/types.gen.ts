@@ -202,10 +202,10 @@ export type CircuitBreakerConfigRequest = {
 };
 
 export type CircuitBreakerConfigResponse = {
-    enabled: boolean;
-    failure_threshold: number;
-    window_seconds: number;
-    min_calls_in_window: number;
+    enabled?: boolean;
+    failure_threshold?: number;
+    window_seconds?: number;
+    min_calls_in_window?: number;
 };
 
 /**
@@ -1150,16 +1150,16 @@ export type UsageHistoryResponse = {
 
 export type UserConfigurationRequestResponseSchema = {
     llm?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     tts?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     stt?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     embeddings?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     test_phone_number?: string | null;
     timezone?: string | null;
@@ -1593,35 +1593,6 @@ export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWo
 export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostError = HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors[keyof HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors];
 
 export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type HandleCloudonixAmdCallbackApiV1TelephonyCloudonixAmdCallbackWorkflowRunIdPostData = {
-    body?: never;
-    path: {
-        workflow_run_id: number;
-    };
-    query?: never;
-    url: '/api/v1/telephony/cloudonix/amd-callback/{workflow_run_id}';
-};
-
-export type HandleCloudonixAmdCallbackApiV1TelephonyCloudonixAmdCallbackWorkflowRunIdPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type HandleCloudonixAmdCallbackApiV1TelephonyCloudonixAmdCallbackWorkflowRunIdPostError = HandleCloudonixAmdCallbackApiV1TelephonyCloudonixAmdCallbackWorkflowRunIdPostErrors[keyof HandleCloudonixAmdCallbackApiV1TelephonyCloudonixAmdCallbackWorkflowRunIdPostErrors];
-
-export type HandleCloudonixAmdCallbackApiV1TelephonyCloudonixAmdCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */

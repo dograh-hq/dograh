@@ -10,24 +10,6 @@ import type { AuthUser } from '@/lib/auth';
 import { useAuth } from '@/lib/auth';
 
 
-export type SaveUserConfigFunctionParams = {
-    llm?: {
-        [key: string]: string | number;
-    } | null;
-    tts?: {
-        [key: string]: string | number;
-    } | null;
-    stt?: {
-        [key: string]: string | number;
-    } | null;
-    embeddings?: {
-        [key: string]: string | number;
-    } | null;
-    test_phone_number?: string | null;
-    timezone?: string | null;
-};
-
-
 interface TeamPermission {
     id: string;
 }
@@ -40,7 +22,7 @@ interface OrganizationPricing {
 
 interface UserConfigContextType {
     userConfig: UserConfigurationRequestResponseSchema | null;
-    saveUserConfig: (userConfig: SaveUserConfigFunctionParams) => Promise<void>;
+    saveUserConfig: (userConfig: UserConfigurationRequestResponseSchema) => Promise<void>;
     loading: boolean;
     error: Error | null;
     refreshConfig: () => Promise<void>;
@@ -139,7 +121,7 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
         fetchUserConfig();
     }, [auth.loading, auth.isAuthenticated]);
 
-    const saveUserConfig = useCallback(async (userConfigRequest: SaveUserConfigFunctionParams) => {
+    const saveUserConfig = useCallback(async (userConfigRequest: UserConfigurationRequestResponseSchema) => {
         if (!authRef.current.isAuthenticated) throw new Error('No authentication available');
         const response = await updateUserConfigurationsApiV1UserConfigurationsUserPut({
             body: {

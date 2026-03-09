@@ -1,5 +1,6 @@
 "use client";
 
+import { Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -171,13 +172,19 @@ export default function ServiceConfiguration() {
         stt: "",
         embeddings: ""
     });
+    const [apiKeys, setApiKeys] = useState<Record<ServiceSegment, string[]>>({
+        llm: [""],
+        tts: [""],
+        stt: [""],
+        embeddings: [""],
+    });
     const [isManualModelInput, setIsManualModelInput] = useState(false);
     const [hasCheckedManualMode, setHasCheckedManualMode] = useState(false);
 
     const {
         register,
         handleSubmit,
-        formState: { errors },
+        formState: { },
         reset,
         getValues,
         setValue,
@@ -207,10 +214,24 @@ export default function ServiceConfiguration() {
                 embeddings: response.data.default_providers.embeddings
             };
 
+            const loadedApiKeys: Record<ServiceSegment, string[]> = {
+                llm: [""],
+                tts: [""],
+                stt: [""],
+                embeddings: [""],
+            };
+
             const setServicePropertyValues = (service: ServiceSegment) => {
                 if (userConfig?.[service]?.provider) {
                     Object.entries(userConfig?.[service]).forEach(([field, value]) => {
-                        if (field !== "provider") {
+                        if (field === "api_key") {
+                            // Handle api_key separately — it can be string or string[]
+                            if (Array.isArray(value)) {
+                                loadedApiKeys[service] = value.length > 0 ? value : [""];
+                            } else {
+                                loadedApiKeys[service] = value ? [value as string] : [""];
+                            }
+                        } else if (field !== "provider") {
                             defaultValues[`${service}_${field}`] = value;
                         }
                     });
@@ -236,6 +257,7 @@ export default function ServiceConfiguration() {
             // Otherwise, Radix Select sees old values that don't match new provider's enum
             // and calls onValueChange('') to clear "invalid" values
             reset(defaultValues);
+            setApiKeys(loadedApiKeys);
             setServiceProviders(selectedProviders);
         };
         fetchConfigurations();
@@ -320,6 +342,7 @@ export default function ServiceConfiguration() {
         preservedValues[`${service}_provider`] = providerName;
         reset(preservedValues);
         setServiceProviders(prev => ({ ...prev, [service]: providerName }));
+        setApiKeys(prev => ({ ...prev, [service]: [""] }));
 
         // Reset manual model input when LLM provider changes
         if (service === "llm") {
@@ -332,23 +355,27 @@ export default function ServiceConfiguration() {
         setApiError(null);
         setIsSaving(true);
 
-        const userConfig: Record<ServiceSegment, Record<string, string | number>> = {
+        // Collect non-empty API keys per service
+        const getServiceApiKeys = (service: ServiceSegment): string[] =>
+            apiKeys[service].map(k => k.trim()).filter(k => k.length > 0);
+
+        const userConfig: Record<ServiceSegment, Record<string, string | number | string[]>> = {
             llm: {
                 provider: serviceProviders.llm,
-                api_key: data.llm_api_key as string,
+                api_key: getServiceApiKeys("llm"),
                 model: data.llm_model as string
             },
             tts: {
                 provider: serviceProviders.tts,
-                api_key: data.tts_api_key as string
+                api_key: getServiceApiKeys("tts"),
             },
             stt: {
                 provider: serviceProviders.stt,
-                api_key: data.stt_api_key as string
+                api_key: getServiceApiKeys("stt"),
             },
             embeddings: {
                 provider: serviceProviders.embeddings,
-                api_key: data.embeddings_api_key as string,
+                api_key: getServiceApiKeys("embeddings"),
                 model: data.embeddings_model as string
             }
         };
@@ -359,6 +386,7 @@ export default function ServiceConfiguration() {
             const service = parts[0] as ServiceSegment;
             const field = parts.slice(1).join('_');
 
+            if (field === "api_key") return; // handled via apiKeys state
             if (userConfig[service] && !(field in userConfig[service])) {
                 (userConfig[service] as Record<string, string>)[field] = value as string;
             }
@@ -366,10 +394,10 @@ export default function ServiceConfiguration() {
 
         // Build save config - only include embeddings if api_key is provided
         const saveConfig: {
-            llm: Record<string, string | number>;
-            tts: Record<string, string | number>;
-            stt: Record<string, string | number>;
-            embeddings?: Record<string, string | number>;
+            llm: Record<string, string | number | string[]>;
+            tts: Record<string, string | number | string[]>;
+            stt: Record<string, string | number | string[]>;
+            embeddings?: Record<string, string | number | string[]>;
         } = {
             llm: userConfig.llm,
             tts: userConfig.tts,
@@ -377,7 +405,8 @@ export default function ServiceConfiguration() {
         };
 
         // Only include embeddings if user has configured it (has api_key)
-        if (userConfig.embeddings.api_key) {
+        const embeddingsKeys = getServiceApiKeys("embeddings");
+        if (embeddingsKeys.length > 0) {
             saveConfig.embeddings = userConfig.embeddings;
         }
 
@@ -459,25 +488,53 @@ export default function ServiceConfiguration() {
                     </div>
                 )}
 
-                {/* API Key in bottom row */}
+                {/* API Key(s) */}
                 {currentProvider && providerSchema && providerSchema.properties.api_key && (
                     <div className="space-y-2">
-                        <Label>API Key</Label>
-                        <Input
-                            type="text"
-                            placeholder="Enter API key"
-                            {...register(`${service}_api_key`, {
-                                // Embeddings is optional, so don't require its api_key
-                                required: service !== "embeddings" && providerSchema.required?.includes("api_key"),
-                            })}
-                        />
-                        {errors[`${service}_api_key`] && (
-                            <p className="text-sm text-red-500">
-                                {typeof errors[`${service}_api_key`]?.message === 'string'
-                                    ? String(errors[`${service}_api_key`]?.message)
-                                    : "This field is required"}
-                            </p>
-                        )}
+                        <Label>API Key(s)</Label>
+                        {apiKeys[service].map((key, index) => (
+                            <div key={index} className="flex gap-2">
+                                <Input
+                                    type="text"
+                                    placeholder="Enter API key"
+                                    value={key}
+                                    onChange={(e) => {
+                                        const newKeys = [...apiKeys[service]];
+                                        newKeys[index] = e.target.value;
+                                        setApiKeys(prev => ({ ...prev, [service]: newKeys }));
+                                    }}
+                                />
+                                {apiKeys[service].length > 1 && (
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="shrink-0"
+                                        onClick={() => {
+                                            setApiKeys(prev => ({
+                                                ...prev,
+                                                [service]: prev[service].filter((_, i) => i !== index),
+                                            }));
+                                        }}
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                )}
+                            </div>
+                        ))}
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                                setApiKeys(prev => ({
+                                    ...prev,
+                                    [service]: [...prev[service], ""],
+                                }));
+                            }}
+                        >
+                            <Plus className="h-4 w-4 mr-1" /> Add API Key
+                        </Button>
                     </div>
                 )}
             </div>

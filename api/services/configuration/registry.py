@@ -53,9 +53,7 @@ class BaseServiceConfiguration(BaseModel):
         if name == "api_key":
             value = super().__getattribute__(name)
             if isinstance(value, list):
-                selected_api_key = random.choice(value)
-                logger.debug(f"selected API key {selected_api_key[:-4]}")
-                return selected_api_key
+                return random.choice(value)
             return value
         return super().__getattribute__(name)
 

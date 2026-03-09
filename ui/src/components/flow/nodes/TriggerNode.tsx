@@ -8,6 +8,7 @@ import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAppConfig } from "@/context/AppConfigContext";
 
 import { NodeContent } from "./common/NodeContent";
@@ -145,6 +146,7 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
                 title="Edit API Trigger"
                 onSave={handleSave}
                 isDirty={isDirty}
+                documentationUrl={NODE_DOCUMENTATION_URLS.apiTrigger}
             >
                 {open && (
                     <TriggerNodeEditForm

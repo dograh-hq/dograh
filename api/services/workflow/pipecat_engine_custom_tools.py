@@ -189,6 +189,18 @@ class CustomToolManager:
             logger.info(f"Arguments: {function_call_params.arguments}")
 
             try:
+                # Queue custom message before executing the API call
+                config = tool.definition.get("config", {}) if tool.definition else {}
+                custom_message = config.get("customMessage", "")
+                if custom_message:
+                    logger.info(
+                        f"Playing custom message before HTTP tool: {custom_message}"
+                    )
+                    self._engine._queued_speech_mute_state = "waiting"
+                    await self._engine.task.queue_frame(
+                        TTSSpeakFrame(custom_message, append_to_context=False)
+                    )
+
                 result = await execute_http_tool(
                     tool=tool,
                     arguments=function_call_params.arguments,
@@ -373,6 +385,7 @@ class CustomToolManager:
 
                 if message_type == "custom" and custom_message:
                     logger.info(f"Playing pre-transfer message: {custom_message}")
+                    self._engine._queued_speech_mute_state = "waiting"
                     await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
 
                 # Get organization ID for provider configuration

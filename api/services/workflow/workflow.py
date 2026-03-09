@@ -13,6 +13,7 @@ class Edge:
 
         self.label = data.label
         self.condition = data.condition
+        self.transition_speech = data.transition_speech
 
         self.data = data
 

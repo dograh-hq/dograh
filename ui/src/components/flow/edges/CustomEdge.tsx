@@ -25,17 +25,19 @@ interface EdgeDetailsDialogProps {
 const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDialogProps) => {
     const [condition, setCondition] = useState(data?.condition ?? '');
     const [label, setLabel] = useState(data?.label ?? '');
+    const [transitionSpeech, setTransitionSpeech] = useState(data?.transition_speech ?? '');
 
     // Update form state when data changes (e.g., from undo/redo)
     useEffect(() => {
         if (open) {
             setCondition(data?.condition ?? '');
             setLabel(data?.label ?? '');
+            setTransitionSpeech(data?.transition_speech ?? '');
         }
     }, [data, open]);
 
     const handleSave = () => {
-        onSave({ condition: condition, label: label });
+        onSave({ condition: condition, label: label, transition_speech: transitionSpeech || undefined });
         onOpenChange(false);
     };
 
@@ -75,6 +77,22 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                         <Textarea
                             value={condition}
                             onChange={(e) => setCondition(e.target.value)}
+                        />
+                    </div>
+                    <div className="grid gap-2">
+                        <Label>Transition Speech</Label>
+                        <Label className="text-xs text-muted-foreground">
+                            Optional text the assistant will speak right before transitioning to the node.
+                            This text will not be attached in Conversation Context. Use this as simple filler to reduce latency.
+                        </Label>
+                        <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
+                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                            <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
+                        </div>
+                        <Textarea
+                            value={transitionSpeech}
+                            placeholder="e.g. Let me transfer you to our billing department..."
+                            onChange={(e) => setTransitionSpeech(e.target.value)}
                         />
                     </div>
                 </div>

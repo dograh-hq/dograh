@@ -1,7 +1,9 @@
+import random
 from enum import Enum, auto
 from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 
-from pydantic import BaseModel, Field, computed_field
+from loguru import logger
+from pydantic import BaseModel, Field, computed_field, field_validator
 
 
 class ServiceType(Enum):
@@ -38,7 +40,29 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DOGRAH,
         # ServiceProviders.SARVAM,
     ]
-    api_key: str
+    api_key: str | list[str]
+
+    @field_validator("api_key")
+    @classmethod
+    def validate_api_key(cls, v):
+        if isinstance(v, list) and len(v) == 0:
+            raise ValueError("api_key list must not be empty")
+        return v
+
+    def __getattribute__(self, name: str):
+        if name == "api_key":
+            value = super().__getattribute__(name)
+            if isinstance(value, list):
+                return random.choice(value)
+            return value
+        return super().__getattribute__(name)
+
+    def get_all_api_keys(self) -> list[str]:
+        """Get all API keys as a list (bypasses random selection)."""
+        value = super().__getattribute__("api_key")
+        if isinstance(value, list):
+            return list(value)
+        return [value]
 
 
 class BaseLLMConfiguration(BaseServiceConfiguration):
@@ -150,7 +174,6 @@ DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen"]
 class OpenAILLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(default="gpt-4.1", json_schema_extra={"examples": OPENAI_MODELS})
-    api_key: str
 
 
 @register_llm
@@ -159,7 +182,6 @@ class GoogleLLMService(BaseLLMConfiguration):
     model: str = Field(
         default="gemini-2.0-flash", json_schema_extra={"examples": GOOGLE_MODELS}
     )
-    api_key: str
 
 
 @register_llm
@@ -168,7 +190,6 @@ class GroqLLMService(BaseLLMConfiguration):
     model: str = Field(
         default="llama-3.3-70b-versatile", json_schema_extra={"examples": GROQ_MODELS}
     )
-    api_key: str
 
 
 @register_llm
@@ -177,7 +198,7 @@ class OpenRouterLLMConfiguration(BaseLLMConfiguration):
     model: str = Field(
         default="openai/gpt-4.1", json_schema_extra={"examples": OPENROUTER_MODELS}
     )
-    api_key: str
+
     base_url: str = Field(default="https://openrouter.ai/api/v1")
 
 
@@ -187,7 +208,7 @@ class AzureLLMService(BaseLLMConfiguration):
     model: str = Field(
         default="gpt-4.1-mini", json_schema_extra={"examples": AZURE_MODELS}
     )
-    api_key: str
+
     endpoint: str
 
 
@@ -197,7 +218,6 @@ class DograhLLMService(BaseLLMConfiguration):
     model: str = Field(
         default="default", json_schema_extra={"examples": DOGRAH_LLM_MODELS}
     )
-    api_key: str
 
 
 LLMConfig = Annotated[
@@ -219,7 +239,6 @@ LLMConfig = Annotated[
 class DeepgramTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
     voice: str = "aura-2-helena-en"
-    api_key: str
 
     @computed_field
     @property
@@ -247,7 +266,6 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
         default="eleven_flash_v2_5",
         json_schema_extra={"examples": ELEVENLABS_TTS_MODELS},
     )
-    api_key: str
 
 
 OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]
@@ -260,7 +278,6 @@ class OpenAITTSService(BaseTTSConfiguration):
         default="gpt-4o-mini-tts", json_schema_extra={"examples": OPENAI_TTS_MODELS}
     )
     voice: str = "alloy"
-    api_key: str
 
 
 DOGRAH_TTS_MODELS = ["default"]
@@ -274,7 +291,6 @@ class DograhTTSService(BaseTTSConfiguration):
     )
     voice: str = "default"
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice")
-    api_key: str
 
 
 CARTESIA_TTS_MODELS = ["sonic-3"]
@@ -287,7 +303,6 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
         default="sonic-3", json_schema_extra={"examples": CARTESIA_TTS_MODELS}
     )
     voice: str = Field(default="3faa81ae-d3d8-4ab1-9e44-e50e46d33c30")
-    api_key: str
 
 
 SARVAM_TTS_MODELS = ["bulbul:v2", "bulbul:v3"]
@@ -376,7 +391,6 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
     language: str = Field(
         default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
     )
-    api_key: str
 
 
 TTSConfig = Annotated[
@@ -496,7 +510,6 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
             },
         },
     )
-    api_key: str
 
 
 CARTESIA_STT_MODELS = ["ink-whisper"]
@@ -508,7 +521,6 @@ class CartesiaSTTConfiguration(BaseSTTConfiguration):
     model: str = Field(
         default="ink-whisper", json_schema_extra={"examples": CARTESIA_STT_MODELS}
     )
-    api_key: str
 
 
 OPENAI_STT_MODELS = ["gpt-4o-transcribe"]
@@ -520,7 +532,6 @@ class OpenAISTTConfiguration(BaseSTTConfiguration):
     model: str = Field(
         default="gpt-4o-transcribe", json_schema_extra={"examples": OPENAI_STT_MODELS}
     )
-    api_key: str
 
 
 # Dograh STT Service
@@ -537,7 +548,6 @@ class DograhSTTService(BaseSTTConfiguration):
     language: str = Field(
         default="multi", json_schema_extra={"examples": DOGRAH_STT_LANGUAGES}
     )
-    api_key: str
 
 
 # Sarvam STT Service
@@ -553,7 +563,6 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
     language: str = Field(
         default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
     )
-    api_key: str
 
 
 # Speechmatics STT Service
@@ -593,7 +602,6 @@ class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
     language: str = Field(
         default="en", json_schema_extra={"examples": SPEECHMATICS_STT_LANGUAGES}
     )
-    api_key: str
 
 
 STTConfig = Annotated[
@@ -619,7 +627,6 @@ class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
         default="text-embedding-3-small",
         json_schema_extra={"examples": OPENAI_EMBEDDING_MODELS},
     )
-    api_key: str
 
 
 OPENROUTER_EMBEDDING_MODELS = ["openai/text-embedding-3-small"]
@@ -632,7 +639,7 @@ class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
         default="openai/text-embedding-3-small",
         json_schema_extra={"examples": OPENROUTER_EMBEDDING_MODELS},
     )
-    api_key: str
+
     base_url: str = Field(default="https://openrouter.ai/api/v1")
 
 

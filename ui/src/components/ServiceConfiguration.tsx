@@ -232,7 +232,7 @@ export default function ServiceConfiguration() {
                                 loadedApiKeys[service] = value ? [value as string] : [""];
                             }
                         } else if (field !== "provider") {
-                            defaultValues[`${service}_${field}`] = value;
+                            defaultValues[`${service}_${field}`] = value as string | number | boolean;
                         }
                     });
                     selectedProviders[service] = userConfig?.[service]?.provider as string;

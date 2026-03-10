@@ -25,6 +25,7 @@ class ServiceProviders(str, Enum):
     DOGRAH = "dograh"
     SARVAM = "sarvam"
     SPEECHMATICS = "speechmatics"
+    CAMB = "camb"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -392,6 +393,19 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]
+
+
+@register_tts
+class CambTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.CAMB] = ServiceProviders.CAMB
+    model: str = Field(
+        default="mars-flash", json_schema_extra={"examples": CAMB_TTS_MODELS}
+    )
+    voice: str = Field(default="147320", description="Camb.ai voice ID")
+    language: str = Field(default="en-us", description="BCP-47 language code")
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -400,6 +414,7 @@ TTSConfig = Annotated[
         CartesiaTTSConfiguration,
         DograhTTSService,
         SarvamTTSConfiguration,
+        CambTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]

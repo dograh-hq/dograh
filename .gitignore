@@ -15,4 +15,4 @@ venv/
 .venv/
 .playwright-mcp
 coturn/
-dograh_pcm_cache/
+*.wav

@@ -3034,6 +3034,39 @@ export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrl
 
 export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponse = GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses[keyof GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses];
 
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        campaign_id: number;
+    };
+    query?: never;
+    url: '/api/v1/campaign/{campaign_id}/report';
+};
+
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetError = DownloadCampaignReportApiV1CampaignCampaignIdReportGetErrors[keyof DownloadCampaignReportApiV1CampaignCampaignIdReportGetErrors];
+
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type ListCredentialsApiV1CredentialsGetData = {
     body?: never;
     headers?: {

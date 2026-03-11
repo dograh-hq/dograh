@@ -131,8 +131,10 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
         });
         if (response.error) {
             let msg = 'Failed to save user configuration';
-            const detail = (response.error as unknown as { detail?: { errors: { model: string; message: string }[] } }).detail;
-            if (Array.isArray(detail)) {
+            const detail = (response.error as unknown as { detail?: string | { errors: { model: string; message: string }[] } }).detail;
+            if (typeof detail === 'string') {
+                msg = detail;
+            } else if (Array.isArray(detail)) {
                 msg = detail
                     .map((e: { model: string; message: string }) => `${e.model}: ${e.message}`)
                     .join('\n');

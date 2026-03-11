@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowLeft, Check, Clock, Pause, Pencil, Play, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, Check, Clock, Download, Pause, Pencil, Play, RefreshCw, X } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
+    downloadCampaignReportApiV1CampaignCampaignIdReportGet,
     getCampaignApiV1CampaignCampaignIdGet,
     getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet,
     pauseCampaignApiV1CampaignCampaignIdPausePost,
@@ -108,6 +109,40 @@ export default function CampaignDetailPage() {
         } catch (error) {
             console.error('Failed to download CSV:', error);
             toast.error('Failed to download CSV file');
+        }
+    };
+
+    // Handle download report
+    const handleDownloadReport = async () => {
+        if (!user) return;
+        try {
+            const accessToken = await getAccessToken();
+            const response = await downloadCampaignReportApiV1CampaignCampaignIdReportGet({
+                path: {
+                    campaign_id: campaignId,
+                },
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                },
+                parseAs: 'blob',
+            });
+
+            if (response.data) {
+                const blob = response.data as Blob;
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `campaign_${campaignId}_report.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } else {
+                toast.error('Failed to download report');
+            }
+        } catch (error) {
+            console.error('Failed to download report:', error);
+            toast.error('Failed to download report');
         }
     };
 
@@ -328,7 +363,13 @@ export default function CampaignDetailPage() {
                                 </span>
                             </div>
                         </div>
-                        {renderActionButton()}
+                        <div className="flex items-center gap-2">
+                            <Button variant="outline" onClick={handleDownloadReport}>
+                                <Download className="h-4 w-4 mr-2" />
+                                Download Report
+                            </Button>
+                            {renderActionButton()}
+                        </div>
                     </div>
                 </div>
 

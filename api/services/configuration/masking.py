@@ -16,6 +16,28 @@ from api.services.configuration.registry import ServiceConfig
 
 VISIBLE_CHARS = 4  # number of trailing characters to reveal
 MASK_CHAR = "*"
+MASK_MARKER = "***"  # substring that indicates a masked key
+
+
+def contains_masked_key(api_key: str | list[str] | None) -> bool:
+    """Return True if *api_key* looks like a masked placeholder."""
+    if api_key is None:
+        return False
+    keys = api_key if isinstance(api_key, list) else [api_key]
+    return any(MASK_MARKER in k for k in keys)
+
+
+def check_for_masked_keys(config: "UserConfiguration") -> None:
+    """Raise ValueError if any service in *config* still has a masked API key."""
+    for field in ("llm", "tts", "stt", "embeddings"):
+        service = getattr(config, field, None)
+        if service is None:
+            continue
+        if contains_masked_key(service.get_all_api_keys()):
+            raise ValueError(
+                f"The {field} api_key appears to be masked. "
+                "Please provide the actual API key, not the masked value."
+            )
 
 
 def mask_key(real_key: str, visible: int = VISIBLE_CHARS) -> str:

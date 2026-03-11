@@ -2,7 +2,6 @@ import random
 from enum import Enum, auto
 from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 
-from loguru import logger
 from pydantic import BaseModel, Field, computed_field, field_validator
 
 
@@ -607,6 +606,7 @@ class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
+        CartesiaSTTConfiguration,
         OpenAISTTConfiguration,
         DograhSTTService,
         SpeechmaticsSTTConfiguration,

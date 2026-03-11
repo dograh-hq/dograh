@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from loguru import logger
 
+from api.utils.transcript import generate_transcript_text as _generate_transcript_text
 from pipecat.utils.enums import RealtimeFeedbackType
 
 
@@ -138,26 +139,9 @@ class InMemoryLogsBuffer:
         """Generate transcript text from logged events.
 
         Filters for rtf-user-transcription (final) and rtf-bot-text events,
-        formats them as '[timestamp] user/assistant: text\n'.
+        formats them as '[timestamp] user/assistant: text\\n'.
         """
-        lines: List[str] = []
-        for event in self._events:
-            event_type = event.get("type")
-            payload = event.get("payload", {})
-
-            if (
-                event_type == RealtimeFeedbackType.USER_TRANSCRIPTION.value
-                and payload.get("final") is True
-            ):
-                timestamp = payload.get("timestamp", "")
-                prefix = f"[{timestamp}] " if timestamp else ""
-                lines.append(f"{prefix}user: {payload.get('text', '')}\n")
-            elif event_type == RealtimeFeedbackType.BOT_TEXT.value:
-                timestamp = payload.get("timestamp", "")
-                prefix = f"[{timestamp}] " if timestamp else ""
-                lines.append(f"{prefix}assistant: {payload.get('text', '')}\n")
-
-        return "".join(lines)
+        return _generate_transcript_text(self._events)
 
     def write_transcript_to_temp_file(self) -> Optional[str]:
         """Write transcript to a temporary text file and return the path.

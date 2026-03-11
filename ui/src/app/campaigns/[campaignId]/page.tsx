@@ -41,6 +41,7 @@ export default function CampaignDetailPage() {
 
     // Action state
     const [isExecutingAction, setIsExecutingAction] = useState(false);
+    const [isDownloadingReport, setIsDownloadingReport] = useState(false);
 
     // Fetch campaign details
     const fetchCampaign = useCallback(async () => {
@@ -115,6 +116,7 @@ export default function CampaignDetailPage() {
     // Handle download report
     const handleDownloadReport = async () => {
         if (!user) return;
+        setIsDownloadingReport(true);
         try {
             const accessToken = await getAccessToken();
             const response = await downloadCampaignReportApiV1CampaignCampaignIdReportGet({
@@ -143,6 +145,8 @@ export default function CampaignDetailPage() {
         } catch (error) {
             console.error('Failed to download report:', error);
             toast.error('Failed to download report');
+        } finally {
+            setIsDownloadingReport(false);
         }
     };
 
@@ -364,7 +368,7 @@ export default function CampaignDetailPage() {
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <Button variant="outline" onClick={handleDownloadReport}>
+                            <Button variant="outline" onClick={handleDownloadReport} disabled={isDownloadingReport}>
                                 <Download className="h-4 w-4 mr-2" />
                                 Download Report
                             </Button>

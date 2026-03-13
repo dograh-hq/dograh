@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.16.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.15.0...dograh-v1.16.0) (2026-03-05)
+
+
+### Features
+
+* abort call on pipeline error and send rtf event ([dfb741e](https://github.com/dograh-hq/dograh/commit/dfb741e475e618f6d526796db8fd7f5d7e11faf6))
+* add cartesia tts ([e111cbb](https://github.com/dograh-hq/dograh/commit/e111cbb36d945acc231961313051f1b2198d95bf))
+* add cloudonix amd callback with logs only ([#177](https://github.com/dograh-hq/dograh/issues/177)) ([628132f](https://github.com/dograh-hq/dograh/commit/628132f29b51865f0a014dd75c9474a3ac9b5950))
+* Add end call reason in tool calls. ([7e2de09](https://github.com/dograh-hq/dograh/commit/7e2de092ae4306ec534d4f6ad48b5ec170fffa78))
+* add qa node in workflow builder ([#172](https://github.com/dograh-hq/dograh/issues/172)) ([a836825](https://github.com/dograh-hq/dograh/commit/a836825b830a0fccd039ff9757fed34e461c52f9))
+* add rolling updates for production deployment ([#175](https://github.com/dograh-hq/dograh/issues/175)) ([aed5a78](https://github.com/dograh-hq/dograh/commit/aed5a782fb4ef2f21f20f8fe3a33139f84a8cfcf))
+* render QA in UI ([ef080d5](https://github.com/dograh-hq/dograh/commit/ef080d57c8a60de50fd5455747713d50933ed724))
+* run per node QA ([c8742db](https://github.com/dograh-hq/dograh/commit/c8742dbdc0679a410a216c80d92437e4f071f3fa))
+* tansfer calls with aasterisk ([#171](https://github.com/dograh-hq/dograh/issues/171)) ([bd07b75](https://github.com/dograh-hq/dograh/commit/bd07b753cd7936078227639d252628553c1f1a72))
+
+
+### Bug Fixes
+
+* fix appsidebar on mobile ([9e05869](https://github.com/dograh-hq/dograh/commit/9e058699c54db60c4a27baf08b0e140ec5aafc1c))
+* fix circuit breaker failure recording ([3ea235a](https://github.com/dograh-hq/dograh/commit/3ea235a66655489b4e226ca4496c8eb0823207e7))
+* fix circuit breaker failure recording ([3ea235a](https://github.com/dograh-hq/dograh/commit/3ea235a66655489b4e226ca4496c8eb0823207e7))
+* fix default voice of cartesia tts ([f1f4830](https://github.com/dograh-hq/dograh/commit/f1f48300128f3a89fea0beac6b67f980f37e77d0))
+* keep the start_services_dev script alive for docker ([#178](https://github.com/dograh-hq/dograh/issues/178)) ([21b32c1](https://github.com/dograh-hq/dograh/commit/21b32c1d0ded4ddea7f47992b596f04bc67811e2))
+* safe parse timestamp ([7aef9c6](https://github.com/dograh-hq/dograh/commit/7aef9c6db592a9ffc0d3922bdbfd85cdaf5e9d4c))
+* use environment variable for BACKEND_URL ([20b8dc6](https://github.com/dograh-hq/dograh/commit/20b8dc60c1c3469dadebaef9c11a6a29a2eb6f2e))
+
 ## [1.15.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.14.0...dograh-v1.15.0) (2026-02-20)
 
 

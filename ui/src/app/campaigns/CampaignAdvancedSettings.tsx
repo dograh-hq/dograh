@@ -46,6 +46,15 @@ export interface CampaignAdvancedSettingsProps {
     onScheduleTimezoneChange: (value: ITimezoneOption | string) => void;
     timeSlots: TimeSlot[];
     onTimeSlotsChange: (value: TimeSlot[]) => void;
+    // Circuit breaker config
+    circuitBreakerEnabled: boolean;
+    onCircuitBreakerEnabledChange: (value: boolean) => void;
+    circuitBreakerFailureThreshold: string;
+    onCircuitBreakerFailureThresholdChange: (value: string) => void;
+    circuitBreakerWindowSeconds: string;
+    onCircuitBreakerWindowSecondsChange: (value: string) => void;
+    circuitBreakerMinCalls: string;
+    onCircuitBreakerMinCallsChange: (value: string) => void;
 }
 
 /** Extract the string timezone value from ITimezoneOption | string */
@@ -101,6 +110,10 @@ export default function CampaignAdvancedSettings({
     retryOnVoicemail, onRetryOnVoicemailChange,
     scheduleEnabled, onScheduleEnabledChange, scheduleTimezone, onScheduleTimezoneChange,
     timeSlots, onTimeSlotsChange,
+    circuitBreakerEnabled, onCircuitBreakerEnabledChange,
+    circuitBreakerFailureThreshold, onCircuitBreakerFailureThresholdChange,
+    circuitBreakerWindowSeconds, onCircuitBreakerWindowSecondsChange,
+    circuitBreakerMinCalls, onCircuitBreakerMinCallsChange,
 }: CampaignAdvancedSettingsProps) {
     const timezoneSelectId = useId();
 
@@ -291,6 +304,68 @@ export default function CampaignAdvancedSettings({
                                 <Plus className="h-4 w-4 mr-1" />
                                 Add Time Slot
                             </Button>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <Separator />
+
+            {/* Circuit Breaker */}
+            <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <Label htmlFor="circuit-breaker-enabled">Circuit Breaker</Label>
+                        <p className="text-sm text-muted-foreground">
+                            Auto-pause campaign on high failure rates
+                        </p>
+                    </div>
+                    <Switch
+                        id="circuit-breaker-enabled"
+                        checked={circuitBreakerEnabled}
+                        onCheckedChange={onCircuitBreakerEnabledChange}
+                    />
+                </div>
+
+                {circuitBreakerEnabled && (
+                    <div className="space-y-4 pl-4 border-l-2 border-muted">
+                        <div className="space-y-2">
+                            <Label htmlFor="cb-failure-threshold">Failure Threshold (%)</Label>
+                            <Input
+                                id="cb-failure-threshold"
+                                type="number"
+                                value={circuitBreakerFailureThreshold}
+                                onChange={(e) => onCircuitBreakerFailureThresholdChange(e.target.value)}
+                                min={1}
+                                max={100}
+                            />
+                            <p className="text-sm text-muted-foreground">
+                                Pause when failure rate exceeds this percentage
+                            </p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="cb-window">Window (seconds)</Label>
+                                <Input
+                                    id="cb-window"
+                                    type="number"
+                                    value={circuitBreakerWindowSeconds}
+                                    onChange={(e) => onCircuitBreakerWindowSecondsChange(e.target.value)}
+                                    min={30}
+                                    max={600}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="cb-min-calls">Min Calls in Window</Label>
+                                <Input
+                                    id="cb-min-calls"
+                                    type="number"
+                                    value={circuitBreakerMinCalls}
+                                    onChange={(e) => onCircuitBreakerMinCallsChange(e.target.value)}
+                                    min={1}
+                                    max={100}
+                                />
+                            </div>
                         </div>
                     </div>
                 )}

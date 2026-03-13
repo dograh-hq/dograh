@@ -178,6 +178,7 @@ async def run_per_node_qa_analysis(
                 model=model,
                 messages=messages,
                 temperature=0,
+                extra_body={"stream": False},
             )
             raw_response = response.choices[0].message.content
             accumulate_token_usage(total_token_usage, response)

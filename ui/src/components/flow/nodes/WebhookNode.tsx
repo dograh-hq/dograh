@@ -19,6 +19,7 @@ import { JsonEditor, validateJson } from "@/components/ui/json-editor";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -180,6 +181,7 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
                 onSave={handleSave}
                 error={endpointError || jsonError}
                 isDirty={isDirty}
+                documentationUrl={NODE_DOCUMENTATION_URLS.webhook}
             >
                 {open && (
                     <WebhookNodeEditForm

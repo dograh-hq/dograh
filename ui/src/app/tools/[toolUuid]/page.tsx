@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Code, Loader2, Save } from "lucide-react";
+import { ArrowLeft, Code, ExternalLink, Loader2, Save } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
@@ -20,6 +20,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAuth } from "@/lib/auth";
 
 import {
@@ -40,6 +41,7 @@ interface HttpApiConfigWithParams {
     credential_uuid?: string;
     parameters?: ToolParameter[];
     timeout_ms?: number;
+    customMessage?: string;
 }
 
 export default function ToolDetailPage() {
@@ -58,6 +60,9 @@ export default function ToolDetailPage() {
     const [name, setName] = useState("");
     const [description, setDescription] = useState("");
 
+    // Shared form state
+    const [customMessage, setCustomMessage] = useState("");
+
     // HTTP API form state
     const [httpMethod, setHttpMethod] = useState<HttpMethod>("POST");
     const [url, setUrl] = useState("");
@@ -68,7 +73,6 @@ export default function ToolDetailPage() {
 
     // End Call form state
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
-    const [endCallCustomMessage, setEndCallCustomMessage] = useState("");
     const [endCallReason, setEndCallReason] = useState(false);
     const [endCallReasonDescription, setEndCallReasonDescription] = useState("");
 
@@ -82,7 +86,6 @@ export default function ToolDetailPage() {
     // Transfer Call form state
     const [transferDestination, setTransferDestination] = useState("");
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
-    const [transferCustomMessage, setTransferCustomMessage] = useState("");
     const [transferTimeout, setTransferTimeout] = useState(30);
 
     // Redirect if not authenticated
@@ -128,12 +131,12 @@ export default function ToolDetailPage() {
             const config = tool.definition?.config as EndCallConfig | undefined;
             if (config) {
                 setEndCallMessageType(config.messageType || "none");
-                setEndCallCustomMessage(config.customMessage || "");
+                setCustomMessage(config.customMessage || "");
                 setEndCallReason(config.endCallReason ?? false);
                 setEndCallReasonDescription(config.endCallReasonDescription || "");
             } else {
                 setEndCallMessageType("none");
-                setEndCallCustomMessage("");
+                setCustomMessage("");
                 setEndCallReason(false);
                 setEndCallReasonDescription("");
             }
@@ -143,12 +146,12 @@ export default function ToolDetailPage() {
             if (config) {
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
-                setTransferCustomMessage(config.customMessage || "");
+                setCustomMessage(config.customMessage || "");
                 setTransferTimeout(config.timeout ?? 30);
             } else {
                 setTransferDestination("");
                 setTransferMessageType("none");
-                setTransferCustomMessage("");
+                setCustomMessage("");
                 setTransferTimeout(30);
             }
         } else {
@@ -159,6 +162,7 @@ export default function ToolDetailPage() {
                 setUrl(config.url || "");
                 setCredentialUuid(config.credential_uuid || "");
                 setTimeoutMs(config.timeout_ms || 5000);
+                setCustomMessage(config.customMessage || "");
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -198,10 +202,14 @@ export default function ToolDetailPage() {
 
         // Validation based on tool type
         if (tool.category === "transfer_call") {
-            // Validate destination phone number for Transfer Call tools
+            // Validate destination for Transfer Call tools (supports both E.164 and SIP endpoints)
             const e164Pattern = /^\+[1-9]\d{1,14}$/;
-            if (!transferDestination || !e164Pattern.test(transferDestination)) {
-                setError("Please enter a valid phone number in E.164 format (e.g., +1234567890)");
+            const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
+            const isValidE164 = e164Pattern.test(transferDestination);
+            const isValidSip = sipPattern.test(transferDestination);
+
+            if (!transferDestination || (!isValidE164 && !isValidSip)) {
+                setError("Please enter a valid phone number (E.164 format) or SIP endpoint (e.g., PJSIP/1234)");
                 return;
             }
         } else if (tool.category !== "end_call") {
@@ -238,7 +246,7 @@ export default function ToolDetailPage() {
                         type: "end_call",
                         config: {
                             messageType: endCallMessageType,
-                            customMessage: endCallMessageType === "custom" ? endCallCustomMessage : undefined,
+                            customMessage: endCallMessageType === "custom" ? customMessage : undefined,
                             endCallReason,
                             endCallReasonDescription: endCallReason ? endCallReasonDescription || undefined : undefined,
                         },
@@ -255,7 +263,7 @@ export default function ToolDetailPage() {
                         config: {
                             destination: transferDestination,
                             messageType: transferMessageType,
-                            customMessage: transferMessageType === "custom" ? transferCustomMessage : undefined,
+                            customMessage: transferMessageType === "custom" ? customMessage : undefined,
                             timeout: transferTimeout,
                         },
                     },
@@ -286,6 +294,7 @@ export default function ToolDetailPage() {
                             parameters:
                                 validParameters.length > 0 ? validParameters : undefined,
                             timeout_ms: timeoutMs,
+                            customMessage: customMessage || undefined,
                         },
                     },
                 };
@@ -435,6 +444,17 @@ const data = await response.json();`;
                                     View Code
                                 </Button>
                             )}
+                            {TOOL_DOCUMENTATION_URLS[tool.category] && (
+                                <a
+                                    href={TOOL_DOCUMENTATION_URLS[tool.category]}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                    Docs
+                                    <ExternalLink className="h-3.5 w-3.5" />
+                                </a>
+                            )}
                         </div>
                     </div>
 
@@ -446,8 +466,8 @@ const data = await response.json();`;
                             onDescriptionChange={setDescription}
                             messageType={endCallMessageType}
                             onMessageTypeChange={setEndCallMessageType}
-                            customMessage={endCallCustomMessage}
-                            onCustomMessageChange={setEndCallCustomMessage}
+                            customMessage={customMessage}
+                            onCustomMessageChange={setCustomMessage}
                             endCallReason={endCallReason}
                             onEndCallReasonChange={handleEndCallReasonChange}
                             endCallReasonDescription={endCallReasonDescription}
@@ -463,8 +483,8 @@ const data = await response.json();`;
                             onDestinationChange={setTransferDestination}
                             messageType={transferMessageType}
                             onMessageTypeChange={setTransferMessageType}
-                            customMessage={transferCustomMessage}
-                            onCustomMessageChange={setTransferCustomMessage}
+                            customMessage={customMessage}
+                            onCustomMessageChange={setCustomMessage}
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
                         />
@@ -486,6 +506,8 @@ const data = await response.json();`;
                             onParametersChange={setParameters}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
+                            customMessage={customMessage}
+                            onCustomMessageChange={setCustomMessage}
                         />
                     )}
 

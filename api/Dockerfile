@@ -59,17 +59,15 @@ ENV PYTHONUNBUFFERED=1
 
 # Copy application code
 COPY ./api ./api
-COPY ./scripts/start_services.sh ./scripts/start_services.sh
+COPY ./scripts/start_services_dev.sh ./scripts/start_services_dev.sh
 
 ENV PYTHONPATH=/app
 
 # Disable file logging in Docker - logs go to stdout for docker logs
 ENV LOG_TO_FILE=false
-# Keep container alive by waiting for background processes
-ENV WAIT_FOR_PROCESSES=true
 
 # Expose the port FastAPI will run on
 EXPOSE 8000
 
 # Run the FastAPI app with uvicorn
-CMD ["./scripts/start_services.sh"]
+CMD ["./scripts/start_services_dev.sh"]

@@ -128,14 +128,14 @@ class CustomToolManager:
                 function_name = schema["function"]["name"]
 
                 # Create and register the handler
-                handler, disable_timeout, cancel_on_interruption = self._create_handler(
+                handler, timeout_secs, cancel_on_interruption = self._create_handler(
                     tool, function_name
                 )
                 self._engine.llm.register_function(
                     function_name,
                     handler,
                     cancel_on_interruption=cancel_on_interruption,
-                    disable_timeout=disable_timeout,
+                    timeout_secs=timeout_secs,
                 )
 
                 logger.debug(
@@ -156,21 +156,20 @@ class CustomToolManager:
         Returns:
             Async handler function for the tool
         """
-        # Whether to disable function call timeout
-        disable_timeout = False
+        timeout_secs: Optional[float] = None
         cancel_on_interruption = True
 
         if tool.category == ToolCategory.END_CALL.value:
             cancel_on_interruption = False
             handler = self._create_end_call_handler(tool, function_name)
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
-            disable_timeout = True
+            timeout_secs = 120.0
             cancel_on_interruption = False
             handler = self._create_transfer_call_handler(tool, function_name)
         else:
             handler = self._create_http_tool_handler(tool, function_name)
 
-        return handler, disable_timeout, cancel_on_interruption
+        return handler, timeout_secs, cancel_on_interruption
 
     def _create_http_tool_handler(self, tool: Any, function_name: str):
         """Create a handler function for an HTTP API tool.
@@ -190,6 +189,18 @@ class CustomToolManager:
             logger.info(f"Arguments: {function_call_params.arguments}")
 
             try:
+                # Queue custom message before executing the API call
+                config = tool.definition.get("config", {}) if tool.definition else {}
+                custom_message = config.get("customMessage", "")
+                if custom_message:
+                    logger.info(
+                        f"Playing custom message before HTTP tool: {custom_message}"
+                    )
+                    self._engine._queued_speech_mute_state = "waiting"
+                    await self._engine.task.queue_frame(
+                        TTSSpeakFrame(custom_message, append_to_context=False)
+                    )
+
                 result = await execute_http_tool(
                     tool=tool,
                     arguments=function_call_params.arguments,
@@ -318,7 +329,6 @@ class CustomToolManager:
                         "message": "I'm sorry, but call transfers are not available for web calls. Please try a telephony call.",
                         "action": "transfer_failed",
                         "reason": "webrtc_not_supported",
-                        "end_call": True,
                     }
                     await self._handle_transfer_result(
                         webrtc_error_result, function_call_params, properties
@@ -332,30 +342,50 @@ class CustomToolManager:
                         "message": "I'm sorry, but I don't have a phone number configured for the transfer. Please contact support to set up call transfer.",
                         "action": "transfer_failed",
                         "reason": "no_destination",
-                        "end_call": True,
                     }
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
                     return
 
-                # Validate E.164 format
-                E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
-                if not re.match(E164_PHONE_REGEX, destination):
-                    validation_error_result = {
-                        "status": "failed",
-                        "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
-                        "action": "transfer_failed",
-                        "reason": "invalid_destination",
-                        "end_call": True,
-                    }
-                    await self._handle_transfer_result(
-                        validation_error_result, function_call_params, properties
-                    )
-                    return
+                # Validate destination format based on workflow run mode
+                if workflow_run.mode == WorkflowRunMode.ARI.value:
+                    # For ARI provider, also accept SIP endpoints
+                    SIP_ENDPOINT_REGEX = r"^(PJSIP|SIP)\/[\w\-\.@]+$"
+                    E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
+
+                    is_valid_sip = re.match(SIP_ENDPOINT_REGEX, destination)
+                    is_valid_e164 = re.match(E164_PHONE_REGEX, destination)
+
+                    if not (is_valid_sip or is_valid_e164):
+                        validation_error_result = {
+                            "status": "failed",
+                            "message": "I'm sorry, but the transfer destination appears to be invalid. Please contact support to verify the transfer settings.",
+                            "action": "transfer_failed",
+                            "reason": "invalid_destination",
+                        }
+                        await self._handle_transfer_result(
+                            validation_error_result, function_call_params, properties
+                        )
+                        return
+                else:
+                    # For non-ARI providers (Twilio, etc), use E.164 validation
+                    E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
+                    if not re.match(E164_PHONE_REGEX, destination):
+                        validation_error_result = {
+                            "status": "failed",
+                            "message": "I'm sorry, but the transfer phone number appears to be invalid. Please contact support to verify the transfer settings.",
+                            "action": "transfer_failed",
+                            "reason": "invalid_destination",
+                        }
+                        await self._handle_transfer_result(
+                            validation_error_result, function_call_params, properties
+                        )
+                        return
 
                 if message_type == "custom" and custom_message:
                     logger.info(f"Playing pre-transfer message: {custom_message}")
+                    self._engine._queued_speech_mute_state = "waiting"
                     await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
 
                 # Get organization ID for provider configuration
@@ -366,14 +396,12 @@ class CustomToolManager:
                         "message": "I'm sorry, there's an issue with this call transfer. Please contact support.",
                         "action": "transfer_failed",
                         "reason": "no_organization_id",
-                        "end_call": False,
                     }
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
                     )
                     return
 
-                # Get telephony provider directly (no HTTP round-trip)
                 provider = await get_telephony_provider(organization_id)
                 if not provider.supports_transfers() or not provider.validate_config():
                     validation_error_result = {
@@ -381,7 +409,6 @@ class CustomToolManager:
                         "message": "I'm sorry, there's an issue with this call transfer. Please contact support.",
                         "action": "transfer_failed",
                         "reason": "provider_does_not_support_transfer",
-                        "end_call": False,
                     }
                     await self._handle_transfer_result(
                         validation_error_result, function_call_params, properties
@@ -395,6 +422,19 @@ class CustomToolManager:
 
                 # Compute conference name from original call SID
                 conference_name = f"transfer-{original_call_sid}"
+
+                # Store initial transfer context in Redis before provider call to avoid race condition
+                call_transfer_manager = await get_call_transfer_manager()
+                transfer_context = TransferContext(
+                    transfer_id=transfer_id,
+                    call_sid=None,  # Will be updated after provider response
+                    target_number=destination,
+                    tool_uuid=tool.tool_uuid,
+                    original_call_sid=original_call_sid,
+                    conference_name=conference_name,
+                    initiated_at=time.time(),
+                )
+                await call_transfer_manager.store_transfer_context(transfer_context)
 
                 # Mute the pipeline
                 self._engine.set_mute_pipeline(True)
@@ -410,21 +450,8 @@ class CustomToolManager:
                 call_sid = transfer_result.get("call_sid")
                 logger.info(f"Transfer call initiated successfully: {call_sid}")
 
-                # TODO: Possible race here between saving the transfer context
-                # and getting a callback response from Twilio? Should we store_transfer_context
-                # before sending request to Twilio and update the transfer context afterwards?
-
-                # Store transfer context in Redis
-                call_transfer_manager = await get_call_transfer_manager()
-                transfer_context = TransferContext(
-                    transfer_id=transfer_id,
-                    call_sid=call_sid,
-                    target_number=destination,
-                    tool_uuid=tool.tool_uuid,
-                    original_call_sid=original_call_sid,
-                    conference_name=conference_name,
-                    initiated_at=time.time(),
-                )
+                # Update transfer context with actual call_sid from provider response
+                transfer_context.call_sid = call_sid
                 await call_transfer_manager.store_transfer_context(transfer_context)
 
                 # Wait for status callback completion using Redis pub/sub
@@ -466,15 +493,15 @@ class CustomToolManager:
                     transfer_event = None
 
                 finally:
-                    # Single cleanup point: stop hold music, unmute pipeline, remove context
+                    # Cleanup hold music and pipeline state
+                    # Transfer context cleanup is handled by respective transfer call strategies
                     logger.info(
-                        "Transfer wait ended, cleaning up hold music, pipeline state, and transfer context"
+                        "Transfer wait ended, cleaning up hold music and pipeline state"
                     )
                     hold_music_stop_event.set()
                     if hold_music_task:
                         await hold_music_task
                     self._engine.set_mute_pipeline(False)
-                    await call_transfer_manager.remove_transfer_context(transfer_id)
 
                 # Handle result (after cleanup)
                 if transfer_event:
@@ -491,7 +518,6 @@ class CustomToolManager:
                         "message": "I'm sorry, but the call is taking longer than expected to connect. The person might not be available right now. Please try calling back later.",
                         "action": "transfer_failed",
                         "reason": "timeout",
-                        "end_call": True,
                     }
                     await self._handle_transfer_result(
                         timeout_result, function_call_params, properties
@@ -509,7 +535,6 @@ class CustomToolManager:
                     "message": "I'm sorry, but something went wrong while trying to transfer your call. Please try again later or contact support if the problem persists.",
                     "action": "transfer_failed",
                     "reason": "execution_error",
-                    "end_call": True,
                 }
 
                 await self._handle_transfer_result(
@@ -521,41 +546,52 @@ class CustomToolManager:
     async def _handle_transfer_result(
         self, result: dict, function_call_params, properties
     ):
-        """Handle different transfer call outcomes and take appropriate action."""
+        """Handle transfer call outcomes from any telephony provider (Twilio, ARI, etc).
+
+        This method is provider-agnostic and processes standardized result dictionaries
+        from transfer completion events, validation failures, timeouts, and errors.
+
+        Args:
+            result: Standardized result dict with keys: action, status, reason, message
+            function_call_params: LLM function call parameters for response callback
+            properties: Function call result properties (e.g., run_llm setting)
+        """
         action = result.get("action", "")
         status = result.get("status", "")
 
         logger.info(f"Handling transfer result: action={action}, status={status}")
 
-        if action == "transfer_success":
-            # Successful transfer - add original caller to conference and end pipeline
+        if action == "destination_answered":
+            # Transfer destination answered - proceeding with bridge swap/conference join
             conference_id = result.get("conference_id")
             original_call_sid = result.get("original_call_sid")
             transfer_call_sid = result.get("transfer_call_sid")
 
             logger.info(
-                f"Transfer successful! Conference: {conference_id}, Original: {original_call_sid}, Transfer: {transfer_call_sid}"
+                f"Transfer destination answered! Conference/Bridge: {conference_id}, "
+                f"Original: {original_call_sid}, Transfer: {transfer_call_sid}"
             )
 
-            # Inform LLM of success and end the call with Transfer call reason
+            # Inform LLM of success and end the call (no further LLM processing needed)
             response_properties = FunctionCallResultProperties(run_llm=False)
             await function_call_params.result_callback(
                 {
                     "status": "transfer_success",
-                    "message": "Transfer successful - connecting to conference",
+                    "message": "Transfer destination answered - connecting calls",
                     "conference_id": conference_id,
                 },
                 properties=response_properties,
             )
 
+            # End pipeline - providers complete bridge swap/conference join as final transfer leg
             await self._engine.end_call_with_reason(
                 EndTaskReason.TRANSFER_CALL.value, abort_immediately=False
             )
 
         elif action == "transfer_failed":
-            # Transfer failed - inform user via LLM and then end the call
+            # Transfer failed - let LLM inform user with error details
             reason = result.get("reason", "unknown")
-            logger.info(f"Transfer failed ({reason}), informing user")
+            logger.info(f"Transfer failed ({reason}), informing user via LLM")
 
             await function_call_params.result_callback(
                 {

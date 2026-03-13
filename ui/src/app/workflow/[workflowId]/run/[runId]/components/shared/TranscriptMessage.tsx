@@ -1,17 +1,18 @@
 'use client';
 
-import { Brain, GitBranch, Wrench } from 'lucide-react';
+import { AlertTriangle, Brain, GitBranch, Wrench } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
 export interface TranscriptMessageData {
     id: string;
-    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric';
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error';
     text: string;
     final?: boolean;
     functionName?: string;
     nodeName?: string;
     ttfbSeconds?: number;
+    fatal?: boolean;
 }
 
 interface TranscriptMessageProps {
@@ -32,6 +33,23 @@ export function TranscriptMessage({ message, nextMessage }: TranscriptMessagePro
                     </span>
                 </div>
                 <div className="flex-1 h-px bg-border"></div>
+            </div>
+        );
+    }
+
+    // Pipeline error - show as a red alert
+    if (message.type === 'pipeline-error') {
+        return (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20">
+                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-red-700 dark:text-red-400">
+                        {message.fatal ? 'Fatal Pipeline Error' : 'Pipeline Error'}
+                    </div>
+                    <div className="text-sm text-red-600 dark:text-red-300 mt-0.5 break-words">
+                        {message.text}
+                    </div>
+                </div>
             </div>
         );
     }

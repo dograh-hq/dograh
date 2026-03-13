@@ -15,10 +15,6 @@ from opentelemetry import trace
 from api.db import db_client
 from api.services.gen_ai import OpenAIEmbeddingService
 from api.services.pipecat.tracing_config import is_tracing_enabled
-from pipecat.utils.tracing.context_registry import (
-    get_current_conversation_context,
-    get_current_turn_context,
-)
 
 
 async def retrieve_from_knowledge_base(
@@ -29,6 +25,7 @@ async def retrieve_from_knowledge_base(
     embeddings_api_key: Optional[str] = None,
     embeddings_model: Optional[str] = None,
     embeddings_base_url: Optional[str] = None,
+    tracing_context=None,
 ) -> Dict[str, Any]:
     """Retrieve relevant information from the knowledge base using vector similarity search.
 
@@ -45,6 +42,7 @@ async def retrieve_from_knowledge_base(
         embeddings_api_key: Optional API key for embedding service
         embeddings_model: Optional model ID for embedding service
         embeddings_base_url: Optional base URL for embedding service
+        tracing_context: Optional OpenTelemetry context for tracing
 
     Returns:
         Dictionary containing:
@@ -55,10 +53,7 @@ async def retrieve_from_knowledge_base(
     # Create span for retrieval operation if tracing is enabled
     if is_tracing_enabled():
         try:
-            # Get parent context from turn or conversation
-            turn_context = get_current_turn_context()
-            conversation_context = get_current_conversation_context()
-            parent_context = turn_context or conversation_context
+            parent_context = tracing_context
 
             # Get tracer
             tracer = trace.get_tracer("pipecat")

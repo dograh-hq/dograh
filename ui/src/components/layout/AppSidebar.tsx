@@ -12,14 +12,12 @@ import {
   Key,
   LogOut,
   Megaphone,
-  MessageSquare,
   Phone,
   Settings,
   Star,
   TrendingUp,
   Workflow,
   Wrench,
-  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -70,7 +68,7 @@ const StackTeamSwitcher = React.lazy(() =>
 export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { state } = useSidebar();
+  const { state, isMobile, setOpenMobile } = useSidebar();
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
 
@@ -112,11 +110,11 @@ export function AppSidebar() {
           url: "/campaigns",
           icon: Megaphone,
         },
-        {
-          title: "Automation",
-          url: "/automation",
-          icon: Zap,
-        },
+        // {
+        //   title: "Automation",
+        //   url: "/automation",
+        //   icon: Zap,
+        // },
         {
           title: "Models",
           url: "/model-configurations",
@@ -165,12 +163,18 @@ export function AppSidebar() {
       url: "/reports",
       icon: FileText,
     },
-    {
-      title: "LoopTalk",
-      url: "/looptalk",
-      icon: MessageSquare,
-    },
+    // {
+    //   title: "LoopTalk",
+    //   url: "/looptalk",
+    //   icon: MessageSquare,
+    // },
   ];
+
+  const handleMobileNavClick = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
 
   const SidebarLink = ({ item }: { item: typeof overviewSection[0] }) => {
     const isItemActive = isActive(item.url);
@@ -188,7 +192,7 @@ export function AppSidebar() {
                   isItemActive && "bg-accent text-accent-foreground"
                 )}
               >
-                <Link href={item.url}>
+                <Link href={item.url} onClick={handleMobileNavClick}>
                   <Icon className="h-4 w-4" />
                   <span className="sr-only">{item.title}</span>
                 </Link>
@@ -210,7 +214,7 @@ export function AppSidebar() {
           isItemActive && "bg-accent text-accent-foreground"
         )}
       >
-        <Link href={item.url}>
+        <Link href={item.url} onClick={handleMobileNavClick}>
           <Icon className="h-4 w-4" />
           <span>{item.title}</span>
         </Link>

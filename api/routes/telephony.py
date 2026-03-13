@@ -747,11 +747,6 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         logs={"telephony_status_callbacks": telephony_callback_logs},
     )
 
-    # The workflow run state is already marked as completed from either status-update
-    # callbacks or CDR update callbacks. Lets skip processing.
-    if workflow_run.state == WorkflowRunState.COMPLETED.value:
-        return
-
     # Handle call completion - make these updates idempotent - i.e
     # they should handle multiple API calls (one due to status update,
     # and other due to CDR updates.)
@@ -768,11 +763,12 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             )
 
         # Mark workflow run as completed
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            is_completed=True,
-            state=WorkflowRunState.COMPLETED.value,
-        )
+        if workflow_run.state != WorkflowRunState.COMPLETED.value:
+            await db_client.update_workflow_run(
+                run_id=workflow_run_id,
+                is_completed=True,
+                state=WorkflowRunState.COMPLETED.value,
+            )
 
     elif status.status in ["failed", "busy", "no-answer", "canceled", "error"]:
         logger.warning(
@@ -783,7 +779,8 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         if workflow_run.campaign_id:
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
             await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id, is_failure=True
+                workflow_run.campaign_id,
+                is_failure=status.status in ("error", "failed"),
             )
 
         # Check if retry is needed for campaign calls (busy/no-answer)
@@ -811,6 +808,13 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
             gathered_context={"call_tags": call_tags},
+        )
+    elif status.status in ["in-progress", "initiated", "ringing"]:
+        # No Op
+        pass
+    else:
+        logger.warning(
+            f"[run {workflow_run_id}] Unexpected status update: {status.status}"
         )
 
 
@@ -1670,7 +1674,7 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
         result = {
             "status": "success",
             "message": "Great! The destination number answered. Let me transfer you now.",
-            "action": "transfer_success",
+            "action": "destination_answered",
             "conference_id": conference_name,
             "transfer_call_sid": call_sid,  # The outbound transfer call SID
             "original_call_sid": original_call_sid,  # The original caller's SID
@@ -1714,9 +1718,7 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
     try:
         # Determine event type based on result status
         if result["status"] == "success":
-            event_type = TransferEventType.TRANSFER_COMPLETED
-        elif result.get("reason") == "timeout":
-            event_type = TransferEventType.TRANSFER_TIMEOUT
+            event_type = TransferEventType.DESTINATION_ANSWERED
         else:
             event_type = TransferEventType.TRANSFER_FAILED
 
@@ -1730,7 +1732,6 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
             status=result["status"],
             action=result.get("action", ""),
             reason=result.get("reason"),
-            end_call=result.get("end_call", False),
         )
 
         # Publish the event via Redis

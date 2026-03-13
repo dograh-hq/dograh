@@ -96,6 +96,7 @@ class RFNodeDTO(BaseModel):
 class EdgeDataDTO(BaseModel):
     label: str = Field(..., min_length=1)
     condition: str = Field(..., min_length=1)
+    transition_speech: Optional[str] = None
 
 
 class RFEdgeDTO(BaseModel):

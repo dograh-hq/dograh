@@ -251,18 +251,18 @@ async def create_user_configuration_with_mps_key(
                 configuration = {
                     "llm": {
                         "provider": ServiceProviders.DOGRAH.value,
-                        "api_key": service_key,
+                        "api_key": [service_key],
                         "model": "default",
                     },
                     "tts": {
                         "provider": ServiceProviders.DOGRAH.value,
-                        "api_key": service_key,
+                        "api_key": [service_key],
                         "model": "default",
                         "voice": "default",
                     },
                     "stt": {
                         "provider": ServiceProviders.DOGRAH.value,
-                        "api_key": service_key,
+                        "api_key": [service_key],
                         "model": "default",
                     },
                 }

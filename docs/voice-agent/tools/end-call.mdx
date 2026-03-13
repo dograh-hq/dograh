@@ -1,0 +1,37 @@
+---
+title: "End Call"
+description: "Allow your AI agent to terminate calls when conversations reach a natural conclusion or specific conditions are met."
+---
+
+The End Call tool enables your AI agent to terminate calls programmatically when conversations reach a natural conclusion, specific conditions are met, or when instructed by the caller.
+
+## How It Works
+
+The End Call tool provides a clean way to terminate conversations:
+
+1. **Agent Decision**: Your AI agent determines the call should end based on conversation context
+2. **Optional Message**: Agent can provide a closing message before ending the call
+3. **Clean Termination**: Call is terminated gracefully through the telephony provider
+4. **Call Disposition**: Call disposition is updated in the system
+
+## Configuration
+
+### Basic Settings
+
+- **End Message**: Optional closing message played before termination
+- **Reason**: Optional reason code for call termination tracking
+
+## Agent Usage
+
+Your AI agent can end calls during conversations:
+
+```
+end_call(message="Thank you for calling. Have a great day!", reason="conversation_complete")
+```
+
+Common scenarios:
+- Conversation has reached natural conclusion
+- User explicitly requests to end the call
+- Agent has completed all requested tasks
+- Call timeout or error conditions
+

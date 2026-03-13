@@ -1,5 +1,8 @@
 "use client";
 
+import { AlertCircle } from "lucide-react";
+import {useState } from "react";
+
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -37,20 +40,46 @@ export function TransferCallToolConfig({
     timeout,
     onTimeoutChange,
 }: TransferCallToolConfigProps) {
-    // Basic E.164 validation pattern
+    const [sipMode, setSipMode] = useState(() => /^(PJSIP|SIP)\//i.test(destination));
+
+    // Validation patterns
     const isValidPhoneNumber = (phone: string): boolean => {
         const e164Pattern = /^\+[1-9]\d{1,14}$/;
         return e164Pattern.test(phone);
     };
 
-    const phoneNumberError = destination && !isValidPhoneNumber(destination);
+    const isValidSipEndpoint = (endpoint: string): boolean => {
+        const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
+        return sipPattern.test(endpoint);
+    };
+
+    const getValidationError = (): string | null => {
+        if (!destination) return null;
+
+        if (sipMode) {
+            return isValidSipEndpoint(destination)
+                ? null
+                : "Please enter a valid SIP endpoint (e.g., PJSIP/1234 or SIP/extension@domain.com)";
+        } else {
+            return isValidPhoneNumber(destination)
+                ? null
+                : "Please enter a valid phone number in E.164 format (e.g., +1234567890)";
+        }
+    };
+
+    const destinationError = getValidationError();
+
+    const handleSipModeToggle = () => {
+        setSipMode(!sipMode);
+        onDestinationChange(""); // Clear destination when switching modes
+    };
 
     return (
         <Card>
             <CardHeader>
                 <CardTitle>Transfer Call Configuration</CardTitle>
                 <CardDescription>
-                    Configure call transfer settings (Twilio only)
+                    Configure call transfer settings. Supports phone numbers (Twilio) and SIP endpoints (Asterisk ARI).
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -80,21 +109,31 @@ export function TransferCallToolConfig({
                 </div>
 
                 <div className="grid gap-2 pt-4 border-t">
-                    <Label>Destination Phone Number</Label>
+                    <Label>Transfer Destination</Label>
                     <Label className="text-xs text-muted-foreground">
-                        Phone number to transfer the call to (E.164 format with country code)
+                        {sipMode
+                            ? "SIP endpoint to transfer the call to (e.g., PJSIP/1234 or SIP/extension@domain.com)"
+                            : "Phone number to transfer the call to (E.164 format with country code)"
+                        }
                     </Label>
                     <Input
                         value={destination}
                         onChange={(e) => onDestinationChange(e.target.value)}
-                        placeholder="+1234567890"
-                        className={phoneNumberError ? "border-red-500 focus:border-red-500" : ""}
+                        placeholder={sipMode ? "PJSIP/1234 or SIP/extension@domain.com" : "+1234567890"}
+                        className={destinationError ? "border-red-500 focus:border-red-500" : ""}
                     />
-                    {phoneNumberError && (
+                    {destinationError && (
                         <Label className="text-xs text-red-500">
-                            Please enter a valid phone number in E.164 format (e.g., +1234567890)
+                            {destinationError}
                         </Label>
                     )}
+                    <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-foreground underline w-fit"
+                        onClick={handleSipModeToggle}
+                    >
+                        {sipMode ? "Use phone number instead" : "Use SIP endpoint instead"}
+                    </button>
                 </div>
 
                 <div className="grid gap-4 pt-4 border-t">
@@ -129,7 +168,11 @@ export function TransferCallToolConfig({
                             </label>
                         </div>
                         {messageType === "custom" && (
-                            <div className="pl-8">
+                            <div className="pl-8 space-y-2">
+                                <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
+                                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                                    <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
+                                </div>
                                 <Textarea
                                     value={customMessage}
                                     onChange={(e) => onCustomMessageChange(e.target.value)}

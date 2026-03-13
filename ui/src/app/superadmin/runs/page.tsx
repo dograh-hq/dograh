@@ -363,7 +363,7 @@ export default function RunsPage() {
                                                         )}
                                                     </div>
                                                 </TableHead>
-                                                <TableHead className="font-semibold">Dograh Token</TableHead>
+                                                <TableHead className="font-semibold">Details</TableHead>
                                                 <TableHead
                                                     className="font-semibold cursor-pointer hover:bg-muted/50 select-none"
                                                     onClick={() => handleSort('created_at')}
@@ -440,22 +440,34 @@ export default function RunsPage() {
                                                     </TableCell>
                                                     <TableCell className="text-sm">
                                                         <div className="flex items-center space-x-1">
-                                                            <span>
-                                                                {typeof run.cost_info?.total_cost_usd === 'number'
-                                                                    ? `${Number(run.cost_info.total_cost_usd * 100).toFixed(2)}`
-                                                                    : '-'}
-                                                            </span>
-                                                            {(run.usage_info || run.cost_info) && (
+                                                            {run.gathered_context && (
+                                                                <Tooltip>
+                                                                    <TooltipTrigger asChild>
+                                                                        <Info className="h-4 w-4 text-blue-500 cursor-pointer" />
+                                                                    </TooltipTrigger>
+                                                                    <TooltipContent sideOffset={4} className="max-w-sm whitespace-pre-wrap break-words">
+                                                                        <p className="font-semibold text-xs mb-1">Gathered Context</p>
+                                                                        <pre className="max-w-sm whitespace-pre-wrap break-words text-xs">
+                                                                            {JSON.stringify(run.gathered_context, null, 2)}
+                                                                        </pre>
+                                                                    </TooltipContent>
+                                                                </Tooltip>
+                                                            )}
+                                                            {run.usage_info && (
                                                                 <Tooltip>
                                                                     <TooltipTrigger asChild>
                                                                         <Info className="h-4 w-4 text-muted-foreground cursor-pointer" />
                                                                     </TooltipTrigger>
-                                                                    <TooltipContent sideOffset={4} className="max-w-xs whitespace-pre-wrap break-words">
-                                                                        <pre className="max-w-xs whitespace-pre-wrap break-words">
-                                                                            {`Usage Info: ${JSON.stringify(run.usage_info ?? {}, null, 2)}\n\nCost Info: ${JSON.stringify(run.cost_info ?? {}, null, 2)}`}
+                                                                    <TooltipContent sideOffset={4} className="max-w-sm whitespace-pre-wrap break-words">
+                                                                        <p className="font-semibold text-xs mb-1">Usage Info</p>
+                                                                        <pre className="max-w-sm whitespace-pre-wrap break-words text-xs">
+                                                                            {JSON.stringify(run.usage_info, null, 2)}
                                                                         </pre>
                                                                     </TooltipContent>
                                                                 </Tooltip>
+                                                            )}
+                                                            {!run.gathered_context && !run.usage_info && (
+                                                                <span className="text-muted-foreground">-</span>
                                                             )}
                                                         </div>
                                                     </TableCell>

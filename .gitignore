@@ -8,10 +8,10 @@ __pycache__
 /logs/
 /run/
 infrastructure/
-nginx/
 prd/
 .vercel
 
 venv/
 .venv/
 .playwright-mcp
+coturn/

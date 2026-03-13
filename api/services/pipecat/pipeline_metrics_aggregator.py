@@ -14,7 +14,6 @@ from pipecat.frames.frames import (
 from pipecat.metrics.metrics import (
     LLMTokenUsage,
     LLMUsageMetricsData,
-    STTUsageMetricsData,
     TTSUsageMetricsData,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -49,8 +48,6 @@ class PipelineMetricsAggregator(FrameProcessor):
                     await self._handle_llm_usage_metrics(data)
                 elif isinstance(data, TTSUsageMetricsData):
                     await self._handle_tts_usage_metrics(data)
-                elif isinstance(data, STTUsageMetricsData):
-                    await self._handle_stt_usage_metrics(data)
 
         await self.push_frame(frame, direction)
 
@@ -103,11 +100,6 @@ class PipelineMetricsAggregator(FrameProcessor):
         key = f"{data.processor}|||{data.model}"
         self._tts_usage_metrics[key] += data.value
         # logger.debug(f"TTS usage metrics: {self._tts_usage_metrics}")
-
-    async def _handle_stt_usage_metrics(self, data: STTUsageMetricsData):
-        key = f"{data.processor}|||{data.model}"
-        self._stt_usage_metrics[key] += data.value
-        logger.debug(f"STT usage metrics: {self._stt_usage_metrics}")
 
     def get_llm_usage_metrics(self) -> Dict[str, LLMTokenUsage]:
         """Get the aggregated LLM usage metrics grouped by processor|||model."""

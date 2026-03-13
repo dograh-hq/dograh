@@ -11,6 +11,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
+    TTSSpeakFrame,
 )
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -49,7 +50,6 @@ from api.services.workflow.tools.timezone import (
     get_current_time,
     get_time_tools,
 )
-from pipecat.utils.tracing.context_registry import get_current_turn_context
 
 
 class PipecatEngine:
@@ -95,6 +95,10 @@ class PipecatEngine:
         # Controls whether user input should be muted
         self._mute_pipeline: bool = False
 
+        # Mute state for queued TTSSpeakFrames (transition speech, custom tool messages)
+        # "idle" = not muting, "waiting" = speech queued, "playing" = bot speaking it
+        self._queued_speech_mute_state: str = "idle"
+
         # Tracks whether the bot is currently speaking (for allow_interrupt logic)
         self._bot_is_speaking: bool = False
 
@@ -115,6 +119,17 @@ class PipecatEngine:
             return await self._custom_tool_manager.get_organization_id()
         # Fallback for when manager is not yet initialized
         return await get_organization_id_from_workflow_run(self._workflow_run_id)
+
+    def _get_otel_context(self):
+        """Extract the OTel Context from the task's TracingContext.
+
+        Returns the turn-level context if available, otherwise the
+        conversation-level context, or None.
+        """
+        tracing_ctx = getattr(self.task, "_tracing_context", None)
+        if not tracing_ctx:
+            return None
+        return tracing_ctx.get_turn_context() or tracing_ctx.get_conversation_context()
 
     @property
     def builtin_function_schemas(self) -> list[dict]:
@@ -194,7 +209,12 @@ class PipecatEngine:
 
         return render_template(prompt, self._call_context_vars)
 
-    async def _create_transition_func(self, name: str, transition_to_node: str):
+    async def _create_transition_func(
+        self,
+        name: str,
+        transition_to_node: str,
+        transition_speech: Optional[str] = None,
+    ):
         async def transition_func(function_call_params: FunctionCallParams) -> None:
             """Inner function that handles the node change tool calls"""
             logger.info(f"LLM Function Call EXECUTED: {name}")
@@ -206,6 +226,14 @@ class PipecatEngine:
             try:
                 # Perform variable extraction before transitioning to new node
                 await self._perform_variable_extraction_if_needed(self._current_node)
+
+                # Queue transition speech before switching nodes
+                if transition_speech:
+                    logger.info(f"Playing transition speech: {transition_speech}")
+                    self._queued_speech_mute_state = "waiting"
+                    await self.task.queue_frame(
+                        TTSSpeakFrame(transition_speech, append_to_context=False)
+                    )
 
                 # Set context for the new node, so that when the function call result
                 # frame is received by LLMContextAggregator and an LLM generation
@@ -250,14 +278,19 @@ class PipecatEngine:
         return transition_func
 
     async def _register_transition_function_with_llm(
-        self, name: str, transition_to_node: str
+        self,
+        name: str,
+        transition_to_node: str,
+        transition_speech: Optional[str] = None,
     ):
         logger.debug(
             f"Registering function {name} to transition to node {transition_to_node} with LLM"
         )
 
         # Create transition function
-        transition_func = await self._create_transition_func(name, transition_to_node)
+        transition_func = await self._create_transition_func(
+            name, transition_to_node, transition_speech
+        )
 
         # Register function with LLM
         self.llm.register_function(
@@ -356,6 +389,7 @@ class PipecatEngine:
                     embeddings_api_key=self._embeddings_api_key,
                     embeddings_model=self._embeddings_model,
                     embeddings_base_url=self._embeddings_base_url,
+                    tracing_context=self._get_otel_context(),
                 )
 
                 await function_call_params.result_callback(result)
@@ -383,8 +417,8 @@ class PipecatEngine:
             return
 
         # Capture the current turn context for otel tracing
-        # before creating the background task
-        parent_context = get_current_turn_context()
+        # before creating the background task.
+        parent_context = self._get_otel_context()
 
         extraction_prompt = self._format_prompt(node.extraction_prompt)
         extraction_variables = node.extraction_variables
@@ -416,17 +450,19 @@ class PipecatEngine:
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
-        # Set node name for tracing
+        # Set OTel span name for tracing
         try:
-            self.context.set_node_name(node.name)
+            self.context.set_otel_span_name(f"llm-{node.name}")
         except AttributeError:
-            logger.warning(f"context has no set_node_name method")
+            logger.warning(f"context has no set_otel_span_name method")
 
         # Register transition functions if not an end node
         if not node.is_end:
             for outgoing_edge in node.out_edges:
                 await self._register_transition_function_with_llm(
-                    outgoing_edge.get_function_name(), outgoing_edge.target
+                    outgoing_edge.get_function_name(),
+                    outgoing_edge.target,
+                    outgoing_edge.transition_speech,
                 )
 
         # Register custom tool handlers for this node
@@ -536,10 +572,11 @@ class PipecatEngine:
         # Mute the pipeline
         self._mute_pipeline = True
 
-        # Perform final variable extraction synchronously before ending
-        await self._perform_variable_extraction_if_needed(
-            self._current_node, run_in_background=False
-        )
+        if reason != EndTaskReason.PIPELINE_ERROR.value:
+            # Perform final variable extraction synchronously before ending
+            await self._perform_variable_extraction_if_needed(
+                self._current_node, run_in_background=False
+            )
 
         frame_to_push = (
             CancelFrame(reason=reason) if abort_immediately else EndFrame(reason=reason)
@@ -643,11 +680,18 @@ class PipecatEngine:
         # Track bot speaking state from frames
         if isinstance(frame, BotStartedSpeakingFrame):
             self._bot_is_speaking = True
+            if self._queued_speech_mute_state == "waiting":
+                self._queued_speech_mute_state = "playing"
         elif isinstance(frame, BotStoppedSpeakingFrame):
             self._bot_is_speaking = False
+            self._queued_speech_mute_state = "idle"
 
         # Always mute if pipeline is shutting down
         if self._mute_pipeline:
+            return True
+
+        # Mute while queued speech (transition/tool message) is pending or playing
+        if self._queued_speech_mute_state != "idle":
             return True
 
         # Mute if bot is speaking and current node doesn't allow interruption

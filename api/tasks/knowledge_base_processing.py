@@ -69,6 +69,16 @@ async def process_knowledge_base_document(
         file_size = os.path.getsize(temp_file_path)
         logger.info(f"Downloaded file size: {file_size} bytes")
 
+        # Validate file size (max 5MB)
+        max_file_size = 5 * 1024 * 1024
+        if file_size > max_file_size:
+            error_message = f"File size ({file_size / (1024 * 1024):.1f}MB) exceeds the maximum allowed size of 5MB."
+            logger.warning(f"Document {document_id}: {error_message}")
+            await db_client.update_document_status(
+                document_id, "failed", error_message=error_message
+            )
+            return
+
         # Compute file hash and get mime type
         file_hash = db_client.compute_file_hash(temp_file_path)
         mime_type = db_client.get_mime_type(temp_file_path)

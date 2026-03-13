@@ -17,7 +17,7 @@ interface DocumentUploadProps {
   onUploadSuccess: () => void;
 }
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ACCEPTED_FILE_TYPES = ['.pdf', '.docx', '.doc', '.txt'];
 
 export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps) {
@@ -36,7 +36,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
 
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
-      toast.error('File size must be less than 100MB');
+      toast.error('File size must be less than 5MB');
       return false;
     }
 
@@ -44,7 +44,13 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
   };
 
   const uploadFile = async (file: File) => {
-    if (!validateFile(file)) return;
+    if (!validateFile(file)) {
+      // Reset file input so the same file can be re-selected
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      return;
+    }
 
     setUploading(true);
     setUploadProgress(0);
@@ -182,7 +188,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
           or click to browse
         </p>
         <p className="text-xs text-muted-foreground">
-          Supported formats: {ACCEPTED_FILE_TYPES.join(', ')} (Max 100MB)
+          Supported formats: {ACCEPTED_FILE_TYPES.join(', ')} (Max 5MB)
         </p>
       </div>
 

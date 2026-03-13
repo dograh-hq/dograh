@@ -142,7 +142,7 @@ export default function WorkflowRunPage() {
         returnValue = (
             <div className="flex h-screen w-full overflow-hidden">
                 {/* Main content - 2/3 width */}
-                <div className="w-2/3 h-full flex items-center justify-center overflow-y-auto">
+                <div className="w-2/3 h-full overflow-y-auto">
                     <div className="w-full max-w-4xl space-y-6 p-6">
                     <Card className="border-border">
                         <CardHeader className="flex flex-row items-center justify-between">

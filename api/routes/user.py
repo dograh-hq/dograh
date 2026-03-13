@@ -4,7 +4,7 @@ from typing_extensions import TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from api.db import db_client
 from api.db.models import (
@@ -16,7 +16,7 @@ from api.services.configuration.check_validity import (
     UserConfigurationValidator,
 )
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
-from api.services.configuration.masking import mask_user_config
+from api.services.configuration.masking import check_for_masked_keys, mask_user_config
 from api.services.configuration.merge import merge_user_configurations
 from api.services.configuration.registry import REGISTRY, ServiceType
 from api.services.mps_service_key_client import mps_service_key_client
@@ -72,10 +72,10 @@ async def get_auth_user(
 
 
 class UserConfigurationRequestResponseSchema(BaseModel):
-    llm: dict[str, Union[str, float]] | None = None
-    tts: dict[str, Union[str, float]] | None = None
-    stt: dict[str, Union[str, float]] | None = None
-    embeddings: dict[str, Union[str, float]] | None = None
+    llm: dict[str, Union[str, float, list[str]]] | None = None
+    tts: dict[str, Union[str, float, list[str]]] | None = None
+    stt: dict[str, Union[str, float, list[str]]] | None = None
+    embeddings: dict[str, Union[str, float, list[str]]] | None = None
     test_phone_number: str | None = None
     timezone: str | None = None
     organization_pricing: dict[str, Union[float, str, bool]] | None = None
@@ -114,7 +114,15 @@ async def update_user_configurations(
     incoming_dict.pop("organization_pricing", None)
 
     # Merge via helper
-    user_configurations = merge_user_configurations(existing_config, incoming_dict)
+    try:
+        user_configurations = merge_user_configurations(existing_config, incoming_dict)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    try:
+        check_for_masked_keys(user_configurations)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     try:
         validator = UserConfigurationValidator()

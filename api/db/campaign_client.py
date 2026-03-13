@@ -22,6 +22,7 @@ class CampaignClient(BaseDBClient):
         retry_config: Optional[dict] = None,
         max_concurrency: Optional[int] = None,
         schedule_config: Optional[dict] = None,
+        circuit_breaker: Optional[dict] = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -31,6 +32,8 @@ class CampaignClient(BaseDBClient):
                 orchestrator_metadata["max_concurrency"] = max_concurrency
             if schedule_config is not None:
                 orchestrator_metadata["schedule_config"] = schedule_config
+            if circuit_breaker is not None:
+                orchestrator_metadata["circuit_breaker"] = circuit_breaker
 
             campaign = CampaignModel(
                 name=name,
@@ -67,6 +70,21 @@ class CampaignClient(BaseDBClient):
 
             result = await session.execute(query)
             return list(result.scalars().all())
+
+    async def get_latest_campaign(
+        self,
+        organization_id: int,
+    ) -> Optional[CampaignModel]:
+        """Get the most recently created campaign for an organization"""
+        async with self.async_session() as session:
+            query = (
+                select(CampaignModel)
+                .where(CampaignModel.organization_id == organization_id)
+                .order_by(CampaignModel.created_at.desc())
+                .limit(1)
+            )
+            result = await session.execute(query)
+            return result.scalars().first()
 
     async def get_campaign(
         self,
@@ -343,6 +361,29 @@ class CampaignClient(BaseDBClient):
                 select(WorkflowRunModel)
                 .where(WorkflowRunModel.campaign_id == campaign_id)
                 .order_by(WorkflowRunModel.created_at)
+            )
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def get_completed_runs_for_report(
+        self, campaign_id: int
+    ) -> list[WorkflowRunModel]:
+        """Get completed workflow runs with call duration for campaign report CSV."""
+        async with self.async_session() as session:
+            query = (
+                select(WorkflowRunModel)
+                .where(
+                    WorkflowRunModel.campaign_id == campaign_id,
+                    WorkflowRunModel.is_completed.is_(True),
+                    WorkflowRunModel.cost_info["call_duration_seconds"]
+                    .as_string()
+                    .isnot(None),
+                )
+                .order_by(
+                    WorkflowRunModel.cost_info["call_duration_seconds"]
+                    .as_float()
+                    .desc()
+                )
             )
             result = await session.execute(query)
             return list(result.scalars().all())

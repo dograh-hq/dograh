@@ -77,7 +77,6 @@ from pipecat.turns.user_stop import (
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
 from pipecat.utils.run_context import set_current_run_id
-from pipecat.utils.tracing.context_registry import ContextProviderRegistry
 
 # Setup tracing if enabled
 setup_tracing_exporter()
@@ -668,7 +667,8 @@ async def _run_pipeline(
         voicemail_llm = create_llm_service(user_config)
         voicemail_detector = VoicemailDetector(
             llm=voicemail_llm,
-            voicemail_response_delay=2.0,
+            voicemail_response_delay=1.0,
+            long_speech_timeout=8.0,
         )
 
         # Register event handler to end task when voicemail is detected
@@ -766,5 +766,4 @@ async def _run_pipeline(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
-        ContextProviderRegistry.remove_providers(str(workflow_run_id))
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

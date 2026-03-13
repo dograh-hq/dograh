@@ -82,10 +82,11 @@ export type AuthUserResponse = {
 
 export type CallType = 'inbound' | 'outbound';
 
-export type CampaignLimitsResponse = {
+export type CampaignDefaultsResponse = {
     concurrent_call_limit: number;
     from_numbers_count: number;
     default_retry_config: RetryConfigResponse;
+    last_campaign_settings?: LastCampaignSettingsResponse | null;
 };
 
 export type CampaignProgressResponse = {
@@ -120,6 +121,7 @@ export type CampaignResponse = {
     retry_config: RetryConfigResponse;
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigResponse | null;
+    circuit_breaker?: CircuitBreakerConfigResponse | null;
 };
 
 /**
@@ -192,6 +194,20 @@ export type ChunkSearchResponseSchema = {
     total_results: number;
 };
 
+export type CircuitBreakerConfigRequest = {
+    enabled?: boolean;
+    failure_threshold?: number;
+    window_seconds?: number;
+    min_calls_in_window?: number;
+};
+
+export type CircuitBreakerConfigResponse = {
+    enabled?: boolean;
+    failure_threshold?: number;
+    window_seconds?: number;
+    min_calls_in_window?: number;
+};
+
 /**
  * Request schema for Cloudonix configuration.
  */
@@ -241,6 +257,7 @@ export type CreateCampaignRequest = {
     retry_config?: RetryConfigRequest | null;
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
+    circuit_breaker?: CircuitBreakerConfigRequest | null;
 };
 
 /**
@@ -715,6 +732,13 @@ export type IntegrationResponse = {
 
 export type ItemKind = 'node' | 'edge' | 'workflow';
 
+export type LastCampaignSettingsResponse = {
+    retry_config?: RetryConfigResponse | null;
+    max_concurrency?: number | null;
+    schedule_config?: ScheduleConfigResponse | null;
+    circuit_breaker?: CircuitBreakerConfigResponse | null;
+};
+
 export type LoadTestStatsResponse = {
     total: number;
     pending: number;
@@ -949,7 +973,7 @@ export type ToolResponse = {
  */
 export type TransferCallConfig = {
     /**
-     * Phone number to transfer the call to (E.164 format, e.g., +1234567890)
+     * Phone number or SIP endpoint to transfer the call to (E.164 format e.g., +1234567890, or SIP endpoint e.g., PJSIP/1234)
      */
     destination: string;
     /**
@@ -1058,6 +1082,7 @@ export type UpdateCampaignRequest = {
     retry_config?: RetryConfigRequest | null;
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
+    circuit_breaker?: CircuitBreakerConfigRequest | null;
 };
 
 /**
@@ -1125,16 +1150,16 @@ export type UsageHistoryResponse = {
 
 export type UserConfigurationRequestResponseSchema = {
     llm?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     tts?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     stt?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     embeddings?: {
-        [key: string]: string | number;
+        [key: string]: string | number | Array<string>;
     } | null;
     test_phone_number?: string | null;
     timezone?: string | null;
@@ -3009,6 +3034,39 @@ export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrl
 
 export type GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponse = GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses[keyof GetCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGetResponses];
 
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        campaign_id: number;
+    };
+    query?: never;
+    url: '/api/v1/campaign/{campaign_id}/report';
+};
+
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetError = DownloadCampaignReportApiV1CampaignCampaignIdReportGetErrors[keyof DownloadCampaignReportApiV1CampaignCampaignIdReportGetErrors];
+
+export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type ListCredentialsApiV1CredentialsGetData = {
     body?: never;
     headers?: {
@@ -3593,7 +3651,7 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostRespo
     200: unknown;
 };
 
-export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetData = {
+export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetData = {
     body?: never;
     headers?: {
         authorization?: string | null;
@@ -3601,10 +3659,10 @@ export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetData = {
     };
     path?: never;
     query?: never;
-    url: '/api/v1/organizations/campaign-limits';
+    url: '/api/v1/organizations/campaign-defaults';
 };
 
-export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetErrors = {
+export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetErrors = {
     /**
      * Not found
      */
@@ -3615,16 +3673,16 @@ export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetErrors = {
     422: HttpValidationError;
 };
 
-export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetError = GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetErrors[keyof GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetErrors];
+export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetError = GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetErrors[keyof GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetErrors];
 
-export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponses = {
+export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses = {
     /**
      * Successful Response
      */
-    200: CampaignLimitsResponse;
+    200: CampaignDefaultsResponse;
 };
 
-export type GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponse = GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponses[keyof GetCampaignLimitsApiV1OrganizationsCampaignLimitsGetResponses];
+export type GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponse = GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses[keyof GetCampaignDefaultsApiV1OrganizationsCampaignDefaultsGetResponses];
 
 export type GetSignedUrlApiV1S3SignedUrlGetData = {
     body?: never;

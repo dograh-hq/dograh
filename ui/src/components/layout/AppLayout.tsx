@@ -1,11 +1,26 @@
 "use client";
 
+import { Menu } from "lucide-react";
 import { usePathname } from "next/navigation";
 import React, { ReactNode } from "react";
 
-import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 
 import { AppSidebar } from "./AppSidebar";
+
+function MobileHeader() {
+  const { toggleSidebar } = useSidebar();
+
+  return (
+    <header className="sticky top-0 z-50 flex items-center gap-3 border-b bg-background px-4 py-2 md:hidden">
+      <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu">
+        <Menu className="h-5 w-5" />
+      </Button>
+      <span className="text-lg font-bold">Dograh</span>
+    </header>
+  );
+}
 
 interface AppLayoutProps {
   children: ReactNode;
@@ -36,6 +51,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
         <div className="flex min-h-screen w-full">
           <AppSidebar />
           <SidebarInset className="flex-1">
+            <MobileHeader />
             {/* Optional header area for specific pages */}
             {headerActions && (
               <header className="sticky top-0 z-50 w-full border-b bg-background">

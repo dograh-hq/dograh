@@ -18,7 +18,7 @@ interface UseWebSocketRTCProps {
 
 export interface FeedbackMessage {
     id: string;
-    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric';
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error';
     text: string;
     final?: boolean;
     timestamp: string;
@@ -31,6 +31,8 @@ export interface FeedbackMessage {
     ttfbSeconds?: number;
     processor?: string;
     model?: string;
+    // Pipeline error fields
+    fatal?: boolean;
 }
 
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables }: UseWebSocketRTCProps) => {
@@ -395,6 +397,19 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                                 ttfbSeconds: ttfb_seconds,
                                 processor,
                                 model,
+                                timestamp: new Date().toISOString(),
+                            }]);
+                            break;
+                        }
+
+                        case 'rtf-pipeline-error': {
+                            const { error, fatal, processor: errorProcessor } = message.payload;
+                            setFeedbackMessages(prev => [...prev, {
+                                id: `error-${Date.now()}`,
+                                type: 'pipeline-error',
+                                text: error,
+                                fatal,
+                                processor: errorProcessor,
                                 timestamp: new Date().toISOString(),
                             }]);
                             break;

@@ -1,10 +1,9 @@
 ---
-title: "Tools"
+title: "HTTP API"
+description: "Create REST API tools that your AI agent can invoke during conversations to integrate with external systems."
 ---
 
-Dograh AI lets you attach multiple tools (e.g. API calls) directly to workflow nodes. This allows your voice agents to call any internal or external system during a live conversation-based on LLM judgment and your prompts.
-
-This works similar to a tool call on any agentic platforms and is 100% open source and fully customizable.
+HTTP API tools allow you to attach extrernal REST API calls directly to workflow nodes, enabling your voice agents to call any internal or external system during live conversations based on LLM judgment and your prompts. This works similar to function calling on any agentic platform and is 100% open source and fully customizable.
 
 ## Video Tutorial
 
@@ -19,9 +18,9 @@ This works similar to a tool call on any agentic platforms and is 100% open sour
   allowFullScreen
 ></iframe>
 
-## What Are Tools?
+## What is an HTTP API Tool?
 
-A tool is a REST API definition that the LLM can invoke at runtime.
+An HTTP API Tool is a REST API definition that the LLM can invoke at runtime.
 
 **Typical use cases:**
 - Call your own backend endpoints
@@ -44,7 +43,7 @@ A tool is a REST API definition that the LLM can invoke at runtime.
 <br/>
 <div style={{ borderBottom: '2px solid #e5e5e5', margin: '20px 0' }}></div>
 
-## Defining Tools
+## Defining an HTTP API Tool
 
 ### 1. Tool Name
 
@@ -103,7 +102,7 @@ Guidelines:
 
 Example:
 - interest (string):
-  “Set to true if the user clearly shows intent to buy or wants follow-up. Otherwise false.”
+  "Set to true if the user clearly shows intent to buy or wants follow-up. Otherwise false."
 
 ![Parameter Example](/images/tool%20params.png)
 
@@ -121,7 +120,7 @@ Inside the node, guide the LLM using **simple English instructions**.
 
 Example:
 
-“If the user shows interest in speaking to sales or wants a callback, immediately call the capture_lead_interest tool and set interest to true.”
+"If the user shows interest in speaking to sales or wants a callback, immediately call the capture_lead_interest tool and set interest to true."
 This instruction is often the deciding factor for correct tool usage.
 
 This instruction is often the **deciding factor** for correct tool usage.

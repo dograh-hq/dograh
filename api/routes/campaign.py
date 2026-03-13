@@ -1,12 +1,19 @@
+import csv
+import io
 import json
 from datetime import datetime
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
+from api.constants import (
+    BACKEND_API_ENDPOINT,
+    DEFAULT_CAMPAIGN_RETRY_CONFIG,
+    DEFAULT_ORG_CONCURRENCY_LIMIT,
+)
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
@@ -15,6 +22,7 @@ from api.services.campaign.runner import campaign_runner_service
 from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import check_dograh_quota
 from api.services.storage import storage_fs
+from api.utils.transcript import generate_transcript_text
 
 router = APIRouter(prefix="/campaign")
 
@@ -126,6 +134,20 @@ class ScheduleConfigResponse(BaseModel):
     slots: List[TimeSlotResponse]
 
 
+class CircuitBreakerConfigRequest(BaseModel):
+    enabled: bool = True
+    failure_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    window_seconds: int = Field(default=120, ge=30, le=600)
+    min_calls_in_window: int = Field(default=5, ge=1, le=100)
+
+
+class CircuitBreakerConfigResponse(BaseModel):
+    enabled: bool = False
+    failure_threshold: float = 0.5
+    window_seconds: int = 120
+    min_calls_in_window: int = 5
+
+
 class CreateCampaignRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     workflow_id: int
@@ -134,6 +156,7 @@ class CreateCampaignRequest(BaseModel):
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
+    circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -141,6 +164,7 @@ class UpdateCampaignRequest(BaseModel):
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
+    circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 
 
 class CampaignResponse(BaseModel):
@@ -160,6 +184,7 @@ class CampaignResponse(BaseModel):
     retry_config: RetryConfigResponse
     max_concurrency: Optional[int] = None
     schedule_config: Optional[ScheduleConfigResponse] = None
+    circuit_breaker: Optional[CircuitBreakerConfigResponse] = None
 
 
 class CampaignsResponse(BaseModel):
@@ -209,9 +234,10 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         else DEFAULT_CAMPAIGN_RETRY_CONFIG
     )
 
-    # Get max_concurrency and schedule_config from orchestrator_metadata
+    # Get max_concurrency, schedule_config, circuit_breaker from orchestrator_metadata
     max_concurrency = None
     schedule_config = None
+    circuit_breaker_config = CircuitBreakerConfigResponse()
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
         sc = campaign.orchestrator_metadata.get("schedule_config")
@@ -221,6 +247,9 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
                 timezone=sc.get("timezone", "UTC"),
                 slots=[TimeSlotResponse(**slot) for slot in sc.get("slots", [])],
             )
+        cb = campaign.orchestrator_metadata.get("circuit_breaker")
+        if cb:
+            circuit_breaker_config = CircuitBreakerConfigResponse(**cb)
 
     return CampaignResponse(
         id=campaign.id,
@@ -239,6 +268,7 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         retry_config=RetryConfigResponse(**retry_config),
         max_concurrency=max_concurrency,
         schedule_config=schedule_config,
+        circuit_breaker=circuit_breaker_config,
     )
 
 
@@ -276,6 +306,11 @@ async def create_campaign(
     if request.schedule_config:
         schedule_config = request.schedule_config.model_dump()
 
+    # Build circuit_breaker dict if provided
+    circuit_breaker_config = None
+    if request.circuit_breaker:
+        circuit_breaker_config = request.circuit_breaker.model_dump()
+
     campaign = await db_client.create_campaign(
         name=request.name,
         workflow_id=request.workflow_id,
@@ -286,6 +321,7 @@ async def create_campaign(
         retry_config=retry_config,
         max_concurrency=request.max_concurrency,
         schedule_config=schedule_config,
+        circuit_breaker=circuit_breaker_config,
     )
 
     return _build_campaign_response(campaign, workflow_name)
@@ -434,6 +470,10 @@ async def update_campaign(
 
     if request.schedule_config is not None:
         metadata["schedule_config"] = request.schedule_config.model_dump()
+        metadata_changed = True
+
+    if request.circuit_breaker is not None:
+        metadata["circuit_breaker"] = request.circuit_breaker.model_dump()
         metadata_changed = True
 
     if metadata_changed:
@@ -627,3 +667,78 @@ async def get_campaign_source_download_url(
         raise HTTPException(
             status_code=500, detail=f"Failed to generate download URL: {str(e)}"
         )
+
+
+def _transcript_from_logs(logs: dict | None) -> str:
+    """Extract transcript text from workflow run logs JSON."""
+    if not logs:
+        return ""
+    events = logs.get("realtime_feedback_events", [])
+    return generate_transcript_text(events).strip()
+
+
+@router.get("/{campaign_id}/report")
+async def download_campaign_report(
+    campaign_id: int,
+    user: UserModel = Depends(get_user),
+) -> StreamingResponse:
+    """Download a CSV report of completed campaign runs."""
+    campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    runs = await db_client.get_completed_runs_for_report(campaign_id)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "Run ID",
+            "Created At",
+            "Customer Name",
+            "Phone Number",
+            "Call Disposition",
+            "Call Tags",
+            "Call Duration (s)",
+            "Transcript",
+            "Recording URL",
+        ]
+    )
+
+    for run in runs:
+        initial = run.initial_context or {}
+        gathered = run.gathered_context or {}
+        cost = run.cost_info or {}
+
+        recording_url = ""
+        if run.public_access_token:
+            recording_url = (
+                f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow"
+                f"/{run.public_access_token}/recording"
+            )
+
+        call_tags = gathered.get("call_tags", [])
+        if isinstance(call_tags, list):
+            call_tags = ", ".join(str(t) for t in call_tags)
+
+        writer.writerow(
+            [
+                run.id,
+                run.created_at.isoformat() if run.created_at else "",
+                initial.get("first_name", ""),
+                initial.get("phone_number", ""),
+                gathered.get("mapped_call_disposition", ""),
+                call_tags,
+                cost.get("call_duration_seconds", ""),
+                _transcript_from_logs(run.logs),
+                recording_url,
+            ]
+        )
+
+    output.seek(0)
+    filename = f"campaign_{campaign_id}_report.csv"
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -1,4 +1,5 @@
-from typing import Dict, Optional, TypedDict
+from typing import Dict, Optional
+from typing_extensions import TypedDict
 
 import openai
 from deepgram import DeepgramClient

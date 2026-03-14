@@ -294,7 +294,6 @@ class ARIConnection:
                         if "=" in pair:
                             key, value = pair.split("=", 1)
                             args_dict[key.strip()] = value.strip()
-
                 workflow_run_id = args_dict.get("workflow_run_id")
                 workflow_id = args_dict.get("workflow_id")
                 user_id = args_dict.get("user_id")
@@ -455,6 +454,15 @@ class ARIConnection:
         )
         return bridge_id
 
+    async def _get_channel_variable(self, channel_id: str, variable: str) -> Optional[str]:
+        """Fetch a channel variable via ARI REST GET /channels/{channelId}/variable."""
+        result = await self._ari_request(
+            "GET",
+            f"/channels/{channel_id}/variable",
+            params={"variable": variable},
+        )
+        return result.get("value") if result else None
+
     async def _handle_inbound_stasis_start(
         self, channel_id: str, channel_state: str, event: dict
     ):
@@ -465,25 +473,53 @@ class ARIConnection:
         """
         channel = event.get("channel", {})
         caller_number = channel.get("caller", {}).get("number", "unknown")
-        called_number = channel.get("dialplan", {}).get("exten", "unknown")
+        # The dialplan may Goto a generic context (e.g. "s") before calling Stasis,
+        # so dialplan.exten would be "s" rather than the actual DID.
+        # Read the "did" channel variable set explicitly in the dialplan instead.
+        called_number = await self._get_channel_variable(channel_id, "did")
+        if not called_number:
+            called_number = channel.get("dialplan", {}).get("exten", "unknown")
 
         try:
-            # 1. Check inbound_workflow_id is configured
-            if not self.inbound_workflow_id:
+            # 1. Resolve workflow using a 3-level priority chain:
+            #    a) DB DID mapping (managed from UI)
+            #    b) wfid channel variable set directly by the dialplan
+            #    c) static inbound_workflow_id on the ARI connection
+            workflow_id_to_use = await db_client.get_workflow_id_for_did(
+                self.organization_id, called_number
+            )
+            if workflow_id_to_use:
+                logger.info(
+                    f"[ARI org={self.organization_id}] DID mapping found: "
+                    f"{called_number} → workflow {workflow_id_to_use}"
+                )
+            else:
+                # Try wfid channel variable set by the dialplan (e.g. Set(wfid=3))
+                wfid_str = await self._get_channel_variable(channel_id, "wfid")
+                if wfid_str and wfid_str.isdigit():
+                    workflow_id_to_use = int(wfid_str)
+                    logger.info(
+                        f"[ARI org={self.organization_id}] Using wfid channel variable: "
+                        f"{called_number} → workflow {workflow_id_to_use}"
+                    )
+                else:
+                    workflow_id_to_use = self.inbound_workflow_id
+
+            if not workflow_id_to_use:
                 logger.warning(
                     f"[ARI org={self.organization_id}] Inbound call on channel {channel_id} "
-                    f"but no inbound_workflow_id configured — hanging up"
+                    f"(DID={called_number}) — no DID mapping or inbound_workflow_id configured, hanging up"
                 )
                 await self._delete_channel(channel_id)
                 return
 
             # 2. Load workflow to get user_id and verify organization
             workflow = await db_client.get_workflow(
-                self.inbound_workflow_id, organization_id=self.organization_id
+                workflow_id_to_use, organization_id=self.organization_id
             )
             if not workflow:
                 logger.warning(
-                    f"[ARI org={self.organization_id}] Workflow {self.inbound_workflow_id} "
+                    f"[ARI org={self.organization_id}] Workflow {workflow_id_to_use} "
                     f"not found or doesn't belong to this organization — hanging up"
                 )
                 await self._delete_channel(channel_id)
@@ -505,7 +541,7 @@ class ARIConnection:
             call_id = channel_id
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
-                workflow_id=self.inbound_workflow_id,
+                workflow_id=workflow_id_to_use,
                 mode=WorkflowRunMode.ARI.value,
                 user_id=user_id,
                 call_type=CallType.INBOUND,
@@ -523,7 +559,7 @@ class ARIConnection:
             logger.info(
                 f"[ARI org={self.organization_id}] Created inbound workflow run "
                 f"{workflow_run.id} for channel {channel_id} "
-                f"(caller={caller_number}, called={called_number})"
+                f"(caller={caller_number}, called={called_number}, workflow={workflow_id_to_use})"
             )
 
             # 5. Answer the inbound channel
@@ -534,7 +570,7 @@ class ARIConnection:
                 channel_id,
                 channel_state,
                 str(workflow_run.id),
-                str(self.inbound_workflow_id),
+                str(workflow_id_to_use),
                 str(user_id),
             )
         except Exception as e:

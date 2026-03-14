@@ -1083,3 +1083,28 @@ class KnowledgeBaseChunkModel(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+class DIDWorkflowMappingModel(Base):
+    """Maps DID (phone numbers) to workflows for inbound ARI call routing."""
+
+    __tablename__ = "did_workflow_mappings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    did_number = Column(String, nullable=False)
+    workflow_id = Column(
+        Integer, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    # Relationships
+    organization = relationship("OrganizationModel")
+    workflow = relationship("WorkflowModel")
+
+    __table_args__ = (
+        UniqueConstraint("organization_id", "did_number", name="_org_did_uc"),
+    )

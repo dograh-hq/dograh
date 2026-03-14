@@ -3,7 +3,8 @@ Route for 3rd party integrations. Currently being backed by nango.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional
+from typing_extensions import TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from loguru import logger

@@ -1,6 +1,7 @@
 from api.db.agent_trigger_client import AgentTriggerClient
 from api.db.api_key_client import APIKeyClient
 from api.db.campaign_client import CampaignClient
+from api.db.did_workflow_mapping_client import DIDWorkflowMappingClient
 from api.db.embed_token_client import EmbedTokenClient
 from api.db.integration_client import IntegrationClient
 from api.db.knowledge_base_client import KnowledgeBaseClient
@@ -35,6 +36,7 @@ class DBClient(
     WebhookCredentialClient,
     ToolClient,
     KnowledgeBaseClient,
+    DIDWorkflowMappingClient,
 ):
     """
     Unified database client that combines all specialized database operations.

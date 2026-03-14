@@ -1,0 +1,197 @@
+---
+title: "Workflow Definition Schema"
+description: "Schema reference for the workflow_definition object used in the Agents API"
+---
+
+The `workflow_definition` object passed to [Create from Definition](/api-reference/agents/create-from-definition) and [Update Agent](/api-reference/agents/update) defines the full conversation graph. It is the same structure the dashboard's visual workflow builder reads and writes — building an agent in the UI produces a `workflow_definition` under the hood, and anything you can configure visually can equally be expressed here as JSON.
+
+```json
+{
+  "nodes": [...],
+  "edges": [...]
+}
+```
+
+---
+
+## Nodes
+
+Each node represents a step in the conversation.
+
+```json
+{
+  "id": "uuid-string",
+  "type": "agentNode",
+  "position": { "x": 100, "y": 200 },
+  "data": { ... }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Unique node ID (UUID recommended) |
+| `type` | string | One of the node types below |
+| `position` | object | Visual coordinates in the workflow builder |
+| `data` | object | Node configuration — fields vary by type |
+
+### Node types
+
+| Type | Description |
+|---|---|
+| `startCall` | Entry point for telephony calls |
+| `endCall` | Terminates the call |
+| `agentNode` | LLM-powered conversation step |
+| `globalNode` | Global configuration applied across all agent nodes |
+| `trigger` | Entry point for API-triggered (non-telephony) runs |
+| `webhook` | Sends an HTTP request when reached |
+| `qa` | Runs quality analysis on the completed call |
+
+---
+
+## Node data fields
+
+### Common fields (all node types)
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `name` | string | required | Display name for the node |
+| `prompt` | string | required* | LLM system prompt. *Not required for `trigger`, `webhook`, `qa` nodes |
+| `allow_interrupt` | boolean | `false` | Allow the caller to interrupt the agent mid-speech |
+| `wait_for_user_response` | boolean | `false` | Pause and wait for caller input before continuing |
+| `wait_for_user_response_timeout` | number | `null` | Seconds to wait for input before timing out |
+| `detect_voicemail` | boolean | `false` | Detect and handle voicemail on outbound calls |
+| `delayed_start` | boolean | `false` | Delay execution of this node |
+| `delayed_start_duration` | number | `null` | Delay in seconds |
+| `add_global_prompt` | boolean | `true` | Merge the `globalNode` prompt into this node's prompt |
+
+### agentNode — data extraction
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `extraction_enabled` | boolean | `false` | Extract structured data from the conversation |
+| `extraction_prompt` | string | `null` | Custom prompt to guide extraction |
+| `extraction_variables` | array | `[]` | Variables to extract (see below) |
+
+**Extraction variable schema:**
+
+```json
+{
+  "name": "customer_intent",
+  "type": "string",
+  "prompt": "What did the customer want to achieve?"
+}
+```
+
+`type` is one of `string`, `number`, or `boolean`.
+
+### agentNode — tools
+
+| Field | Type | Description |
+|---|---|---|
+| `tool_uuids` | string[] | IDs of tools (HTTP API, call transfer, etc.) to attach to this node |
+| `document_uuids` | string[] | IDs of knowledge base documents available to this node |
+
+### trigger node
+
+| Field | Type | Description |
+|---|---|---|
+| `trigger_path` | string | Unique UUID that becomes the API trigger endpoint path |
+
+### webhook node
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | boolean | `true` | Whether this webhook fires when reached |
+| `http_method` | string | — | `GET`, `POST`, `PUT`, `PATCH`, or `DELETE` |
+| `endpoint_url` | string | — | Target URL |
+| `credential_uuid` | string | `null` | UUID of a stored auth credential |
+| `custom_headers` | array | `[]` | Additional request headers `[{"key": "...", "value": "..."}]` |
+| `payload_template` | object | `null` | Request body template (supports context variables) |
+
+### qa node
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `qa_enabled` | boolean | `true` | Enable QA analysis |
+| `qa_system_prompt` | string | `null` | Custom evaluation prompt |
+| `qa_model` | string | `null` | LLM model to use for evaluation |
+| `qa_min_call_duration` | integer | `15` | Minimum call duration in seconds to run QA |
+| `qa_voicemail_calls` | boolean | `false` | Include voicemail calls in QA |
+| `qa_sample_rate` | integer | `100` | Percentage of calls to analyse (1–100) |
+
+---
+
+## Edges
+
+Each edge connects two nodes and defines when the transition fires.
+
+```json
+{
+  "id": "edge-uuid",
+  "source": "node-uuid-a",
+  "target": "node-uuid-b",
+  "data": {
+    "label": "Customer confirms",
+    "condition": "The customer has confirmed their appointment",
+    "transition_speech": "Great, I've got that noted."
+  }
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | string | Unique edge ID |
+| `source` | string | ID of the originating node |
+| `target` | string | ID of the destination node |
+| `data.label` | string | Short label shown in the workflow builder |
+| `data.condition` | string | Natural language condition the LLM evaluates to trigger this edge |
+| `data.transition_speech` | string | Optional speech the agent says before transitioning |
+
+---
+
+## Validation rules
+
+- All `source` and `target` IDs in edges must reference existing node IDs
+- All nodes except `trigger`, `webhook`, and `qa` must have a non-empty `prompt`
+- Node IDs must be unique within the workflow
+- Each workflow must have exactly one `startCall` or `trigger` node as the entry point
+
+---
+
+## Minimal example
+
+```json
+{
+  "nodes": [
+    {
+      "id": "start-1",
+      "type": "startCall",
+      "position": { "x": 0, "y": 0 },
+      "data": {
+        "name": "Start",
+        "prompt": "You are a friendly assistant. Greet the caller and ask how you can help."
+      }
+    },
+    {
+      "id": "end-1",
+      "type": "endCall",
+      "position": { "x": 400, "y": 0 },
+      "data": {
+        "name": "End",
+        "prompt": "Thank the caller and say goodbye."
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "source": "start-1",
+      "target": "end-1",
+      "data": {
+        "label": "Done",
+        "condition": "The caller's question has been answered and they want to end the call"
+      }
+    }
+  ]
+}
+```

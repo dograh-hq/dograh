@@ -1,0 +1,7 @@
+---
+title: "Download Recordings and Transcripts"
+description: "Download a recording or transcript using a time-limited public URL"
+openapi: "GET /api/v1/public/download/workflow/{token}/{artifact_type}"
+---
+
+`artifact_type` is either `recording` or `transcript`. The `token` is a time-limited download token — generate one from the run details before calling this endpoint.

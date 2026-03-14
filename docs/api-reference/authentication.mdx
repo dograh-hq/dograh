@@ -1,0 +1,49 @@
+---
+title: "Authentication"
+description: "How to authenticate requests to the Dograh API"
+---
+
+## API key authentication
+
+API keys are the recommended way to authenticate programmatic requests. Pass your key in the `X-API-Key` request header.
+
+```bash
+curl https://your-dograh-instance/api/v1/workflow/fetch \
+  -H "X-API-Key: dg_your_api_key"
+```
+
+API keys are scoped to an organization. All resources created or accessed using a key belong to that organization.
+
+### Create an API key
+
+Create keys in the dashboard under **Settings → API Keys**. The full key is shown **only once** at creation time — store it immediately in a secrets manager or environment variable.
+
+<Note>
+For self-hosted deployments using local auth, sign up and log in via the dashboard first, then create an API key there before making API calls.
+</Note>
+
+### Manage API keys
+
+| Action | Method | Path |
+|---|---|---|
+| List keys | `GET` | `/user/api-keys` |
+| Create key | `POST` | `/user/api-keys` |
+| Archive key | `DELETE` | `/user/api-keys/{api_key_id}` |
+| Reactivate key | `PUT` | `/user/api-keys/{api_key_id}/reactivate` |
+
+Archiving a key immediately revokes it. All subsequent requests using that key return `401`.
+
+---
+
+## Error responses
+
+| Status | Cause |
+|---|---|
+| `401 Unauthorized` | Missing, invalid, or expired credentials |
+| `403 Forbidden` | Valid credentials but insufficient permissions for the resource |
+
+```json
+{
+  "detail": "Invalid or expired API key"
+}
+```

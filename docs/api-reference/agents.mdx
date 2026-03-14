@@ -1,0 +1,20 @@
+---
+title: "Overview"
+description: "Create and manage voice agents (workflows) via the API"
+---
+
+In Dograh, a **voice agent** is called a **workflow** in the API. A workflow defines the conversation flow, LLM configuration, voice settings, and tools available to your agent.
+
+| Method | Endpoint | Quick Link |
+|---|---|---|
+| `POST` | `/workflow/create/definition` | [Create from definition](/api-reference/agents/create-from-definition) |
+| `POST` | `/workflow/create/template` | [Create from template](/api-reference/agents/create-from-template) |
+| `GET` | `/workflow/fetch` | [List agents](/api-reference/agents/list) |
+| `GET` | `/workflow/count` | [Get agent count](/api-reference/agents/count) |
+| `GET` | `/workflow/fetch/{workflow_id}` | [Get an agent](/api-reference/agents/get) |
+| `PUT` | `/workflow/{workflow_id}` | [Update an agent](/api-reference/agents/update) |
+| `PUT` | `/workflow/{workflow_id}/status` | [Archive an agent](/api-reference/agents/archive) |
+| `POST` | `/workflow/{workflow_id}/validate` | [Validate a workflow](/api-reference/agents/validate) |
+| `POST` | `/workflow/{workflow_id}/runs` | [Create test run](/api-reference/agents/runs/create) |
+| `GET` | `/workflow/{workflow_id}/runs` | [List runs](/api-reference/agents/runs/list) |
+| `GET` | `/workflow/{workflow_id}/runs/{run_id}` | [Get a run](/api-reference/agents/runs/get) |

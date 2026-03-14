@@ -1,0 +1,71 @@
+---
+title: "Overview"
+description: "Interact with Dograh programmatically via the REST API"
+---
+
+## Base URL
+
+All API requests are made to:
+
+```
+https://your-dograh-instance/api/v1
+```
+
+If you are using the hosted version, the base URL is `https://app.dograh.com/api/v1`.
+
+## Versioning
+
+The current API version is `v1`. The version is included in the URL path.
+
+## Request format
+
+All request bodies must be sent as JSON with the `Content-Type: application/json` header.
+
+```bash
+curl -X POST https://your-dograh-instance/api/v1/workflow/create/definition \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dg_your_api_key" \
+  -d '{"name": "My Agent", "workflow_definition": {}}'
+```
+
+## Response format
+
+All responses are JSON. Successful responses return the relevant resource object. Error responses follow a consistent shape:
+
+```json
+{
+  "detail": "Error message describing what went wrong"
+}
+```
+
+For validation errors (422), the detail may be a list:
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "name"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
+
+## Health check
+
+Verify your instance is reachable before making API calls.
+
+```bash
+curl https://your-dograh-instance/api/v1/health
+```
+
+```json
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "backend_api_endpoint": "https://your-dograh-instance",
+  "deployment_mode": "oss",
+  "auth_provider": "local"
+}
+```

@@ -1,0 +1,9 @@
+---
+title: "Create from Definition"
+description: "Create a voice agent from an explicit workflow definition"
+openapi: "POST /api/v1/workflow/create/definition"
+---
+
+Creates an agent from a node and edge graph you provide directly. Use this when you want full control over the workflow structure, or when programmatically generating agents.
+
+The `workflow_definition` object contains `nodes` (the steps in the conversation) and `edges` (transitions between steps). See [Editing a Workflow](/voice-agent/editing-a-workflow) for the full schema.

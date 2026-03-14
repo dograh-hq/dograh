@@ -1,0 +1,9 @@
+---
+title: "Inbound Call Webhook"
+description: "Webhook endpoint that routes inbound calls to a specific agent"
+openapi: "POST /api/v1/telephony/inbound/{workflow_id}"
+---
+
+Configure this URL in your telephony provider's dashboard (Twilio, Vonage, etc.) to route inbound calls to a specific agent. The `workflow_id` determines which agent handles the call.
+
+See [Inbound Calls](/integrations/telephony/inbound) for full setup instructions per provider.

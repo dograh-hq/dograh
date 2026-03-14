@@ -1,0 +1,33 @@
+---
+title: "Upload Contacts CSV"
+description: "Get a presigned S3 URL to upload a contacts CSV for a campaign"
+openapi: "POST /api/v1/s3/presigned-upload-url"
+---
+
+Uploading contacts is a two-step process. First call this endpoint to get a presigned upload URL, then PUT your CSV directly to that URL.
+
+```bash
+# Step 1: Get upload URL
+curl -X POST https://your-dograh-instance/api/v1/s3/presigned-upload-url \
+  -H "X-API-Key: dg_your_api_key"
+
+# Response:
+# { "upload_url": "https://...", "s3_key": "campaigns/..." }
+
+# Step 2: Upload the CSV
+curl -X PUT "https://presigned-url..." \
+  -H "Content-Type: text/csv" \
+  --data-binary @contacts.csv
+```
+
+Use the `s3_key` from the response as the `source_url` when [creating a campaign](/api-reference/campaigns/create).
+
+### CSV format
+
+The CSV must include a `phone_number` column. Any additional columns are passed as `initial_context` to each call, making them available as template variables in the workflow.
+
+```csv
+phone_number,customer_name,plan
++14155550100,Jane Smith,premium
++14155550101,Bob Jones,basic
+```

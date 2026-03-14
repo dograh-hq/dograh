@@ -4,7 +4,7 @@ description: "You can use Template Variables in your prompts for your Agent node
 ---
 
 ### Template Rendering
-You can reference template variables which is passed as `initial_context` either using the API Trigger or when uploading a Sheet for a campaign. You can also use any extracted variable as `gathered_context`
+You can reference template variables which is passed as [`initial_context`](/core-concepts/context-and-variables#initial_context) either using the [API Trigger](/voice-agent/api-trigger) or when uploading a Sheet for a [campaign](/core-concepts/campaigns). You can also use any extracted variable as [`gathered_context`](/core-concepts/context-and-variables#gathered_context)
 
 The template rendering can take nested values. 
 
@@ -25,4 +25,4 @@ You can write your prompt to access the user's name as below
 Prompt: `You are Alice, who is talking to {{initial_context.user.name}}.`
 
 ### Nodes
-Dograh Voice Agents are composed of various nodes. These nodes can provide instructions to the voice agent, help you setup a trigger where you can trigger the voice agent to call someone, or help you setup a webhook, where you can update the results of the call in your CRM or trigger a downstream workflow in n8n. In the next steps, we will be documenting the nodes that you can use in building the voice agent.
+Dograh Voice Agents are composed of various nodes. These nodes can provide instructions to the voice agent, help you setup a [trigger](/voice-agent/api-trigger) where you can trigger the voice agent to call someone, or help you setup a [webhook](/voice-agent/webhook), where you can update the results of the call in your CRM or trigger a downstream workflow in n8n. In the next steps, we will be documenting the nodes that you can use in building the voice agent.

@@ -12,6 +12,7 @@
     "tabs": [
       {
         "tab": "Guides",
+        "icon": "book-open",
         "groups": [
           {
             "group": "Getting started",
@@ -24,6 +25,16 @@
                   "getting-started/troubleshooting"
                 ]
               }
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core-concepts/how-dograh-works",
+              "core-concepts/workflows-and-agents",
+              "core-concepts/calls-and-runs",
+              "core-concepts/context-and-variables",
+              "core-concepts/campaigns"
             ]
           },
           {
@@ -75,10 +86,31 @@
             ]
           },
           {
-            "group": "Contribution",
+            "group": "Telephony",
             "pages": [
-              "contribution/introduction",
-              "contribution/setup"
+              "integrations/telephony/overview",
+              "integrations/telephony/inbound",
+              "integrations/telephony/twilio",
+              "integrations/telephony/vonage",
+              "integrations/telephony/cloudonix",
+              "integrations/telephony/vobiz",
+              "integrations/telephony/asterisk-ari",
+              "integrations/telephony/webhooks",
+              "integrations/telephony/custom"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer",
+        "icon": "code",
+        "groups": [
+          {
+            "group": "Guides",
+            "pages": [
+              "developer/workflow-schema",
+              "developer/webhooks",
+              "developer/environment-variables"
             ]
           },
           {
@@ -92,24 +124,88 @@
             ]
           },
           {
-            "group": "Features",
+            "group": "Contribution",
             "pages": [
-              "features/campaigns",
-              "features/looptalk"
+              "contribution/introduction",
+              "contribution/setup"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "icon": "square-terminal",
+        "groups": [
+          {
+            "group": "Resources",
+            "pages": [
+              {
+                "group": "API Keys",
+                "pages": [
+                  "api-reference/api-keys",
+                  "api-reference/api-keys/create",
+                  "api-reference/api-keys/list",
+                  "api-reference/api-keys/archive",
+                  "api-reference/api-keys/reactivate"
+                ]
+              },
+              {
+                "group": "Agents",
+                "pages": [
+                  "api-reference/agents",
+                  "api-reference/agents/create-from-definition",
+                  "api-reference/agents/create-from-template",
+                  "api-reference/agents/list",
+                  "api-reference/agents/count",
+                  "api-reference/agents/get",
+                  "api-reference/agents/update",
+                  "api-reference/agents/archive",
+                  "api-reference/agents/validate",
+                  {
+                    "group": "Runs",
+                    "pages": [
+                      "api-reference/agents/runs/create",
+                      "api-reference/agents/runs/list",
+                      "api-reference/agents/runs/get"
+                    ]
+                  }
+                ]
+              },
+              {
+                "group": "Calls",
+                "pages": [
+                  "api-reference/calls",
+                  "api-reference/calls/trigger",
+                  "api-reference/calls/initiate",
+                  "api-reference/calls/get-run",
+                  "api-reference/calls/download",
+                  "api-reference/calls/inbound"
+                ]
+              },
+              {
+                "group": "Campaigns",
+                "pages": [
+                  "api-reference/campaigns",
+                  "api-reference/campaigns/upload-contacts",
+                  "api-reference/campaigns/create",
+                  "api-reference/campaigns/list",
+                  "api-reference/campaigns/get",
+                  "api-reference/campaigns/update",
+                  "api-reference/campaigns/start",
+                  "api-reference/campaigns/pause",
+                  "api-reference/campaigns/resume",
+                  "api-reference/campaigns/progress",
+                  "api-reference/campaigns/runs"
+                ]
+              }
             ]
           },
           {
-            "group": "Telephony",
+            "group": "Authentication & Errors",
             "pages": [
-              "integrations/telephony/overview",
-              "integrations/telephony/inbound",
-              "integrations/telephony/twilio",
-              "integrations/telephony/vonage",
-              "integrations/telephony/cloudonix",
-              "integrations/telephony/vobiz",
-              "integrations/telephony/asterisk-ari",
-              "integrations/telephony/webhooks",
-              "integrations/telephony/custom"
+              "api-reference/overview",
+              "api-reference/authentication",
+              "api-reference/errors"
             ]
           }
         ]
@@ -137,18 +233,19 @@
   "search": {
     "prompt": "Search for Tools, Webhook, Deployment, etc..."
   },
+  "openapi": "/api-reference/openapi.json",
   "customCSS": "/custom.css",
   "contextual": {
     "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "perplexity",
+      "mcp",
+      "cursor",
+      "vscode"
+    ]
   },
   "footer": {
     "socials": {

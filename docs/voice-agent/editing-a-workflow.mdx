@@ -29,7 +29,7 @@ Contains instructions applicable across the entire call:
 ## Node-Level Toggles
 
 ### Add Global Prompt
-- Recommended to inject Global Node instructions into most nodes
+- Recommended to inject [Global Node](/voice-agent/global) instructions into most nodes
 
 ### Allow Interruption
 - **Default "On"**: Bot stops and responds to user interruption
@@ -46,7 +46,7 @@ Supported in Agent and End Call Nodes:
 - Define name, type, and description
 - Examples: customer name, budget, interest
 
-## Webhook Node
+## [Webhook Node](/voice-agent/webhook)
 
 - Executed at call end
 - Sends payload to specific endpoint
@@ -63,5 +63,5 @@ Supported in Agent and End Call Nodes:
 ## Pathways and Tool Calls
 
 - Define agent node movement
-- Use tool calls to transition between nodes
+- Use [tool calls](/voice-agent/tools/http-api) to transition between nodes
 - **"tool"** is a reserved keyword for function calls and actions

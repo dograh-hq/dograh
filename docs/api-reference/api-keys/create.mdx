@@ -1,0 +1,34 @@
+---
+title: "Create API Key"
+description: "Create a new API key for programmatic access"
+openapi: "POST /api/v1/user/api-keys"
+---
+
+<Warning>
+The full key is only returned once at creation. Store it immediately in a secrets manager or environment variable — it cannot be retrieved again.
+</Warning>
+
+## Authentication
+
+This endpoint requires a valid user session token. If you do not yet have an API key, obtain a session token by logging in first and pass it as a `Bearer` token in the `Authorization` header.
+
+**Step 1 — Log in to get a session token**
+
+```bash
+curl -X POST https://your-dograh-instance/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "you@example.com", "password": "your-password"}'
+```
+
+The response contains a `token` field. Use it in the next step.
+
+**Step 2 — Create an API key**
+
+```bash
+curl -X POST https://your-dograh-instance/api/v1/user/api-keys \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-api-key"}'
+```
+
+Once you have an API key, you can use `X-API-Key: <key>` in place of `Authorization: Bearer` for all subsequent requests.

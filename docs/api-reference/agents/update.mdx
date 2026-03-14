@@ -1,0 +1,7 @@
+---
+title: "Update Agent"
+description: "Update an agent's name, workflow definition, or configuration"
+openapi: "PUT /api/v1/workflow/{workflow_id}"
+---
+
+All fields are optional — only include the fields you want to change. Updating `workflow_definition` creates a new versioned definition while preserving the history of previous versions.

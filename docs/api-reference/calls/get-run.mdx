@@ -1,0 +1,9 @@
+---
+title: "Retrieve Call Details"
+description: "Get the details, transcript, and recording for a call"
+openapi: "GET /api/v1/workflow/{workflow_id}/runs/{run_id}"
+---
+
+Returns the full run record including call status, duration, transcript URL, recording URL, gathered context, and usage/cost info.
+
+Use the `recording_url` and `transcript_url` directly, or use the [Download endpoint](/api-reference/calls/download) to generate time-limited public URLs for sharing.

@@ -1,0 +1,7 @@
+---
+title: "Archive Agent"
+description: "Archive or restore a voice agent"
+openapi: "PUT /api/v1/workflow/{workflow_id}/status"
+---
+
+Send `{"status": "archived"}` to deactivate an agent, or `{"status": "active"}` to restore it. Archived agents cannot receive calls but their history and definition are preserved.

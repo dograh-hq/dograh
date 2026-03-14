@@ -1,0 +1,7 @@
+---
+title: "Archive API Key"
+description: "Deactivate an API key by ID"
+openapi: "DELETE /api/v1/user/api-keys/{api_key_id}"
+---
+
+Archiving immediately revokes the key. Any request using the key after archiving returns `401`. Use [Reactivate](/api-reference/api-keys/reactivate) to restore access.

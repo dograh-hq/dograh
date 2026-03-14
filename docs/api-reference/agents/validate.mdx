@@ -1,0 +1,9 @@
+---
+title: "Validate Workflow"
+description: "Validate a workflow definition without executing it"
+openapi: "POST /api/v1/workflow/{workflow_id}/validate"
+---
+
+Checks the current workflow definition for structural errors — missing required fields, invalid node configurations, broken edge references — without placing a call or creating a run.
+
+If invalid, the response includes a list of errors each with a `kind` (`node`, `edge`, or `workflow`), the offending `id`, the `field`, and a human-readable `message`. See [Errors](/api-reference/errors) for the full error schema.

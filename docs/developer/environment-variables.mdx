@@ -1,0 +1,144 @@
+---
+title: "Environment Variables"
+description: "Complete reference for all environment variables used by the Dograh backend"
+---
+
+Core environment variables are centralized in `api/constants.py`. Variables marked **Required** in the description must be explicitly set — the application will either fail to boot or behave insecurely without them.
+
+## Deployment Modes
+
+Dograh supports two deployment modes, set via `DEPLOYMENT_MODE`:
+
+- **OSS**: The default mode. Designed for self-hosted deployments using [Docker Compose](/deployment/docker) — the fastest way to get Dograh running. Uses local JWT authentication and MinIO for storage.
+- **SaaS**: Intended for customised deployments outside of Docker. Authentication and API key management are handled through Dograh Managed Platform Services (MPS), allowing greater flexibility in how the platform is hosted and integrated.
+
+The relevant required variables for each mode are noted in the descriptions below.
+
+---
+
+## Application
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENVIRONMENT` | `local` | Runtime environment. Affects logging and behaviour. One of `local`, `production`, `test` |
+| `DEPLOYMENT_MODE` | `oss` | Deployment mode. Use `oss` for self-hosted |
+| `AUTH_PROVIDER` | `local` | Authentication provider. Use `local` for OSS |
+| `ENABLE_TRACING` | `false` | Enable distributed tracing via [Langfuse](/configurations/tracing) |
+
+---
+
+## Database
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATABASE_URL` | N/A | **Required.** PostgreSQL connection string. e.g. `postgresql+asyncpg://user:pass@host:5432/dbname` |
+| `REDIS_URL` | N/A | **Required.** Redis connection string. e.g. `redis://localhost:6379` |
+
+---
+
+## Authentication (OSS)
+
+| Variable | Default | Description |
+|---|---|---|
+| `OSS_JWT_SECRET` | N/A | **Required for OSS deployments.** Secret used to sign JWT tokens. Must be set to a strong random value in production |
+| `OSS_JWT_EXPIRY_HOURS` | `720` | JWT token lifetime in hours (default: 30 days) |
+
+<Warning>
+Never use the placeholder `OSS_JWT_SECRET` in a production deployment. Generate a strong random secret and store it securely.
+</Warning>
+
+---
+
+## URLs
+
+| Variable | Default | Description |
+|---|---|---|
+| `BACKEND_API_ENDPOINT` | `http://localhost:8000` | Internal URL of the backend API |
+| `UI_APP_URL` | `http://localhost:3010` | URL of the frontend application |
+| `MPS_API_URL` | `https://services.dograh.com` | Dograh Managed Platform Services URL |
+| `DOGRAH_MPS_SECRET_KEY` | `null` | **Required for non-OSS deployments.** Secret key for authenticating with MPS |
+
+---
+
+## Storage
+
+Dograh uses **MinIO by default**, which is bundled with the self-hosted deployment and requires no external setup. Set `ENABLE_AWS_S3=true` to switch to AWS S3 — typically used for cloud or managed deployments where S3 is already part of the infrastructure.
+
+### MinIO (OSS default)
+
+| Variable | Default | Description |
+|---|---|---|
+| `MINIO_ENDPOINT` | `localhost:9000` | MinIO server host and port |
+| `MINIO_PUBLIC_ENDPOINT` | `null` | Publicly accessible MinIO URL (for download links) |
+| `MINIO_ACCESS_KEY` | N/A | **Required for OSS deployments.** MinIO access key. Must be set to a secure value in production |
+| `MINIO_SECRET_KEY` | N/A | **Required for OSS deployments.** MinIO secret key. Must be set to a secure value in production |
+| `MINIO_BUCKET` | `voice-audio` | Bucket name for audio files |
+| `MINIO_SECURE` | `false` | Use HTTPS for MinIO connections |
+
+### AWS S3 (alternative)
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENABLE_AWS_S3` | `false` | Set to `true` to use AWS S3 instead of MinIO |
+| `S3_BUCKET` | `null` | S3 bucket name |
+| `S3_REGION` | `us-east-1` | AWS region |
+
+---
+
+## WebRTC
+
+| Variable | Default | Description |
+|---|---|---|
+| `TURN_HOST` | `localhost` | TURN server hostname for WebRTC NAT traversal |
+| `TURN_PORT` | `3478` | TURN server port |
+| `TURN_TLS_PORT` | `5349` | TURN server TLS port |
+| `TURN_SECRET` | `null` | **Required for WebRTC.** Shared secret for TURN credential generation |
+| `TURN_CREDENTIAL_TTL` | `86400` | TURN credential validity in seconds (default: 24h) |
+
+---
+
+## Tracing (Langfuse)
+
+| Variable | Default | Description |
+|---|---|---|
+| `LANGFUSE_HOST` | `null` | Langfuse server URL |
+| `LANGFUSE_PUBLIC_KEY` | `null` | Langfuse public key |
+| `LANGFUSE_SECRET_KEY` | `null` | Langfuse secret key |
+
+Set `ENABLE_TRACING=true` alongside these to activate LLM call tracing. See the [Tracing guide](/configurations/tracing) for setup instructions.
+
+---
+
+## Monitoring
+
+| Variable | Default | Description |
+|---|---|---|
+| `SENTRY_DSN` | `null` | Sentry DSN for error tracking |
+| `ENABLE_TELEMETRY` | `false` | Enable anonymous telemetry collection |
+
+---
+
+## Logging
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOG_LEVEL` | `DEBUG` | Log level: `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `LOG_FILE_PATH` | `null` | Write logs to this file path (in addition to stdout) |
+| `LOG_ROTATION_SIZE` | `100 MB` | Rotate log file when it reaches this size |
+| `LOG_RETENTION` | `7 days` | How long to keep rotated log files |
+| `LOG_COMPRESSION` | `gz` | Compression format for rotated logs |
+| `SERIALIZE_LOG_OUTPUT` | `false` | Output logs as JSON (useful for log aggregation) |
+
+---
+
+## Campaigns
+
+| Variable | Default | Description |
+|---|---|---|
+| `DEFAULT_ORG_CONCURRENCY_LIMIT` | `2` | Maximum concurrent outbound calls per organization |
+
+---
+
+## Further Customisation
+
+The variables documented here cover the standard configuration surface. For advanced customisation — such as integrating additional services or tuning internal behaviour — consult the relevant module alongside `api/constants.py` to understand how each variable is consumed.

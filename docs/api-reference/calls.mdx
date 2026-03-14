@@ -1,0 +1,36 @@
+---
+title: "Overview"
+description: "Initiate outbound calls and trigger agents via the API"
+---
+
+| Method | Endpoint | Quick Link |
+|---|---|---|
+| `POST` | `/public/agent/{uuid}` | [Trigger an outbound call](/api-reference/calls/trigger) |
+| `POST` | `/telephony/initiate-call` | [Initiate a call (authenticated)](/api-reference/calls/initiate) |
+| `GET` | `/workflow/{workflow_id}/runs/{run_id}` | [Retrieve call details](/api-reference/calls/get-run) |
+| `GET` | `/public/download/workflow/{token}/{artifact_type}` | [Download recordings and transcripts](/api-reference/calls/download) |
+| `POST` | `/telephony/inbound/{workflow_id}` | [Inbound call webhook](/api-reference/calls/inbound) |
+
+## Using initial context
+
+`initial_context` passes runtime data into the agent at call time. Values are available as template variables in your agent's prompt using double-brace syntax.
+
+```json
+{
+  "initial_context": {
+    "customer_name": "Jane",
+    "appointment_date": "March 15"
+  }
+}
+```
+
+Your agent prompt can then reference `{{customer_name}}` and `{{appointment_date}}` and they will be substituted when the call starts.
+
+## Run status values
+
+| Status | Description |
+|---|---|
+| `pending` | Call queued but not yet connected |
+| `in_progress` | Call is live |
+| `completed` | Call ended normally |
+| `failed` | Call failed before or during execution |

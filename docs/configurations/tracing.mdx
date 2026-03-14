@@ -68,7 +68,7 @@ The tool descriptions shown in traces match the descriptions you set in your pat
 
 ### Custom Tools
 
-Any external tools you've attached to the node (e.g. any custom tools you created for API endpoints for booking, order submission, etc.) will appear here. See custom tools documentation here: https://docs.dograh.com/voice-agent/tools.
+Any external tools you've attached to the node (e.g. any custom tools you created for API endpoints for booking, order submission, etc.) will appear here. See the [custom tools documentation](/voice-agent/tools/http-api).
 
 ## Tool Calls in Traces
 
@@ -115,7 +115,7 @@ We provide seamless integration with Langfuse for self-hosted Dograh deployments
 **Setup steps:**
 
 1. Sign up at [Langfuse](https://langfuse.com) and create API credentials
-2. Add the following environment variables (in `docker-compose.yaml` for Docker deployments):
+2. Add the following [environment variables](/developer/environment-variables#tracing-langfuse) (in `docker-compose.yaml` for Docker deployments):
 
 ```
 ENABLE_TRACING="true"

@@ -1,0 +1,7 @@
+---
+title: "Update Campaign"
+description: "Update campaign settings"
+openapi: "PATCH /api/v1/campaign/{campaign_id}"
+---
+
+You can update name, concurrency, time slots, and retry config. Updates are only allowed on campaigns in `draft` or `paused` status — [pause the campaign](/api-reference/campaigns/pause) first if it is currently running.

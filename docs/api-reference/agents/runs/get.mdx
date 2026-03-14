@@ -1,0 +1,7 @@
+---
+title: "Get Run"
+description: "Retrieve a single workflow run by ID"
+openapi: "GET /api/v1/workflow/{workflow_id}/runs/{run_id}"
+---
+
+Returns the full run record including status, transcript, recording URL, gathered context, and usage/cost info. Use `recording_url` and `transcript_url` to download artifacts, or use the [Download endpoint](/api-reference/calls/download) for time-limited public URLs.

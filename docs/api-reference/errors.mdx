@@ -1,0 +1,106 @@
+---
+title: "Errors"
+description: "HTTP status codes and error formats returned by the Dograh API"
+---
+
+## Error format
+
+All errors return a JSON body with a `detail` field:
+
+```json
+{
+  "detail": "Human-readable error message"
+}
+```
+
+For request validation failures (status `422`), `detail` is an array of field-level errors:
+
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "phone_number"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+```
+
+---
+
+## HTTP status codes
+
+| Status | Meaning | Common causes |
+|---|---|---|
+| `400` | Bad Request | Missing required fields, invalid parameter values, unsupported operation |
+| `401` | Unauthorized | Missing auth header, invalid or expired API key or JWT token |
+| `403` | Forbidden | Valid credentials but the resource belongs to a different organization |
+| `404` | Not Found | Resource ID does not exist or is not accessible to your organization |
+| `409` | Conflict | Duplicate resource (e.g., email already registered) |
+| `422` | Unprocessable Entity | Request body or query parameter failed schema validation |
+| `500` | Internal Server Error | Unexpected server-side failure |
+| `501` | Not Implemented | Feature not supported in the current deployment |
+
+---
+
+## Workflow validation errors
+
+When validating a workflow (or creating one with invalid nodes), the API returns structured errors that reference specific nodes, edges, or fields:
+
+```json
+{
+  "errors": [
+    {
+      "kind": "node",
+      "id": "agent-1",
+      "field": "data.prompt",
+      "message": "Prompt cannot be empty"
+    },
+    {
+      "kind": "edge",
+      "id": "edge-3",
+      "field": null,
+      "message": "Edge target node does not exist"
+    },
+    {
+      "kind": "workflow",
+      "id": null,
+      "field": null,
+      "message": "Workflow must have exactly one Start Call node"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `kind` | `"node" \| "edge" \| "workflow"` | What the error applies to |
+| `id` | string or null | Node or edge ID from the workflow definition |
+| `field` | string or null | Dot-notation path to the specific field (e.g. `data.prompt`) |
+| `message` | string | Human-readable description of the problem |
+
+---
+
+## Telephony errors
+
+Telephony operations may fail with one of these named error types returned in the `detail` field:
+
+| Error | Description |
+|---|---|
+| `PROVIDER_MISMATCH` | The request was routed to the wrong telephony provider |
+| `WORKFLOW_NOT_FOUND` | The workflow ID in the inbound URL does not exist |
+| `ACCOUNT_VALIDATION_FAILED` | Your telephony provider credentials are invalid |
+| `PHONE_NUMBER_NOT_CONFIGURED` | The phone number is not set up in your telephony account |
+| `SIGNATURE_VALIDATION_FAILED` | Webhook signature verification failed (possible spoofed request) |
+| `QUOTA_EXCEEDED` | Your organization has exceeded its usage quota |
+| `GENERAL_AUTH_FAILED` | Generic authentication failure with the telephony provider |
+
+---
+
+## Tips for handling errors
+
+- **Retry on `500`** with exponential backoff — transient server errors can resolve on retry.
+- **Do not retry `4xx`** — these indicate problems with your request that will not self-resolve.
+- **Check `detail` carefully on `422`** — the `loc` array pinpoints exactly which field failed validation.
+- **Store API keys securely** — a `401` on a previously working key likely means the key was archived.

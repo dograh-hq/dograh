@@ -1,0 +1,7 @@
+---
+title: "Create Test Run"
+description: "Execute a workflow without placing a real phone call"
+openapi: "POST /api/v1/workflow/{workflow_id}/runs"
+---
+
+Creates a test execution of the workflow. No outbound call is placed — this is useful for validating agent behavior, checking prompt outputs, and testing tool integrations before going live.

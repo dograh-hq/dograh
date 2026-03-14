@@ -1,0 +1,7 @@
+---
+title: "Start Campaign"
+description: "Start dialing contacts in a campaign"
+openapi: "POST /api/v1/campaign/{campaign_id}/start"
+---
+
+Transitions the campaign from `draft` or `paused` to `running`. Dograh begins dialing contacts up to the configured `max_concurrency`.

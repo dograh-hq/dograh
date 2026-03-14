@@ -1,0 +1,20 @@
+---
+title: "Create Campaign"
+description: "Create a new outbound calling campaign"
+openapi: "POST /api/v1/campaign/create"
+---
+
+Before creating a campaign, [upload your contacts CSV](/api-reference/campaigns/upload-contacts) to get a `source_url`.
+
+The `time_slots` field controls when Dograh is allowed to place calls. If omitted, calls can be placed at any time. The `timezone` field applies to all time slot windows.
+
+```json
+{
+  "time_slots": [
+    { "day": "monday", "start": "09:00", "end": "17:00" },
+    { "day": "tuesday", "start": "09:00", "end": "17:00" }
+  ]
+}
+```
+
+Once created, the campaign is in `draft` status. Call [Start](/api-reference/campaigns/start) to begin dialing.

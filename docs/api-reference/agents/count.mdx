@@ -1,0 +1,15 @@
+---
+title: "Get Agent Count"
+description: "Get the total number of agents broken down by status"
+openapi: "GET /api/v1/workflow/count"
+---
+
+Returns totals broken down by status — useful for dashboards or quota checks.
+
+```json
+{
+  "total": 5,
+  "active": 4,
+  "archived": 1
+}
+```

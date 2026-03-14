@@ -1,0 +1,21 @@
+---
+title: "Overview"
+description: "Create and manage API keys for programmatic access"
+---
+
+API keys authenticate requests from your applications and services. Each key is scoped to your organization — all API calls made with a key create and access resources within that organization.
+
+| Method | Endpoint | Quick Link |
+|---|---|---|
+| `POST` | `/user/api-keys` | [Create an API key](/api-reference/api-keys/create) |
+| `GET` | `/user/api-keys` | [List API keys](/api-reference/api-keys/list) |
+| `DELETE` | `/user/api-keys/{api_key_id}` | [Archive an API key](/api-reference/api-keys/archive) |
+| `PUT` | `/user/api-keys/{api_key_id}/reactivate` | [Reactivate an API key](/api-reference/api-keys/reactivate) |
+
+## Best practices
+
+- **Use one key per environment** — separate keys for development, staging, and production make rotation easy and limit blast radius if a key is compromised.
+- **Use one key per service** — this allows you to revoke a single service's access without affecting others.
+- **Rotate keys regularly** — create a new key, update your secret store, then archive the old key.
+- **Never hardcode keys** — use environment variables or a secrets manager. Never commit keys to version control.
+- **Monitor `last_used_at`** — keys with no recent activity may be safe to archive.

@@ -1,0 +1,16 @@
+---
+title: "Get Campaign Progress"
+description: "Get the current progress of a campaign"
+openapi: "GET /api/v1/campaign/{campaign_id}/progress"
+---
+
+Returns a real-time snapshot of how many contacts have been processed.
+
+| Field | Description |
+|---|---|
+| `total` | Total number of contacts in the campaign |
+| `processed` | Contacts that have been attempted at least once |
+| `completed` | Contacts with a successful call outcome |
+| `failed` | Contacts that exhausted all retry attempts without success |
+| `pending` | Contacts not yet attempted |
+| `completion_percentage` | `processed / total × 100` |

@@ -1,0 +1,7 @@
+---
+title: "List API Keys"
+description: "Retrieve all API keys for your organization"
+openapi: "GET /api/v1/user/api-keys"
+---
+
+The `key` field is never returned in list responses — only `key_prefix` (the first 8 characters) is shown for identification. To include archived keys, pass `?include_archived=true`.

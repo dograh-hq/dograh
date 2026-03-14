@@ -1,0 +1,110 @@
+---
+title: "Webhook Payloads"
+description: "Context variables available in webhook nodes and the data Dograh sends after a call"
+---
+
+Dograh executes **webhook nodes** asynchronously after a workflow run completes. You configure the target URL, HTTP method, headers, and payload template directly in the workflow definition.
+
+---
+
+## How webhooks work
+
+1. A call completes (or a run finishes)
+2. Dograh executes any `webhook` nodes in the workflow asynchronously
+3. The payload template is rendered with the run's context and sent as a JSON `POST` (or your configured method) to your endpoint
+4. Non-200 responses are logged but do not block or retry by default (configure `retry_config` to change this)
+
+---
+
+## Payload context variables
+
+The following variables are available in your `payload_template` using double-brace syntax (e.g. `{{workflow_run_id}}`):
+
+| Variable | Type | Description |
+|---|---|---|
+| `workflow_run_id` | integer | ID of the completed run |
+| `workflow_run_name` | string | Name of the run |
+| `workflow_id` | integer | ID of the workflow |
+| `workflow_name` | string | Name of the workflow |
+| `initial_context` | object | Context passed when the call was initiated |
+| `gathered_context` | object | Data extracted during the call by agent nodes |
+| `cost_info` | object | Call cost breakdown |
+| `annotations` | object | QA analysis results (if a `qa` node is configured) |
+| `recording_url` | string \| null | Public download URL for the call recording |
+| `transcript_url` | string \| null | Public download URL for the call transcript |
+
+### Example payload template
+
+```json
+{
+  "run_id": "{{workflow_run_id}}",
+  "customer": "{{initial_context.customer_name}}",
+  "outcome": "{{gathered_context.resolution}}",
+  "recording": "{{recording_url}}"
+}
+```
+
+---
+
+## Authentication
+
+Webhook requests support the following authentication methods, configured via a stored credential:
+
+| Type | Description |
+|---|---|
+| `NONE` | No authentication |
+| `API_KEY` | Sends the key in a custom header (e.g. `X-API-Key`) |
+| `BEARER_TOKEN` | Sends `Authorization: Bearer <token>` |
+| `BASIC_AUTH` | HTTP Basic authentication (username + password) |
+| `CUSTOM_HEADER` | Any custom header key-value pair |
+
+---
+
+## Receiving webhooks
+
+Your endpoint should:
+
+- Accept `POST` requests with `Content-Type: application/json`
+- Respond with a `2xx` status code promptly (within 30 seconds)
+- Handle duplicate deliveries idempotently (retries may deliver the same payload more than once)
+
+### Minimal example receiver (Python)
+
+```python
+from fastapi import FastAPI, Request
+
+app = FastAPI()
+
+@app.post("/webhook/dograh")
+async def handle_dograh_webhook(request: Request):
+    payload = await request.json()
+    run_id = payload.get("run_id")
+    outcome = payload.get("outcome")
+    # process the call result...
+    return {"status": "ok"}
+```
+
+---
+
+## Webhook node in a workflow definition
+
+See [Workflow Definition Schema](/developer/workflow-schema#webhook-node) for the full configuration reference.
+
+```json
+{
+  "id": "webhook-1",
+  "type": "webhook",
+  "position": { "x": 600, "y": 0 },
+  "data": {
+    "name": "Notify CRM",
+    "enabled": true,
+    "http_method": "POST",
+    "endpoint_url": "https://your-service.com/webhook/dograh",
+    "payload_template": {
+      "run_id": "{{workflow_run_id}}",
+      "customer": "{{initial_context.customer_name}}",
+      "outcome": "{{gathered_context.resolution}}"
+    }
+  }
+}
+```

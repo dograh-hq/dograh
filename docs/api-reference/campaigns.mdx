@@ -1,0 +1,29 @@
+---
+title: "Overview"
+description: "Create and manage outbound calling campaigns"
+---
+
+A **campaign** runs a workflow against a list of contacts. You upload a CSV of phone numbers, configure retry logic and scheduling, then start the campaign. Dograh dials contacts automatically up to your configured concurrency limit.
+
+| Method | Endpoint | Quick Link |
+|---|---|---|
+| `POST` | `/s3/presigned-upload-url` | [Upload contacts CSV](/api-reference/campaigns/upload-contacts) |
+| `POST` | `/campaign/create` | [Create a campaign](/api-reference/campaigns/create) |
+| `GET` | `/campaign/` | [List campaigns](/api-reference/campaigns/list) |
+| `GET` | `/campaign/{campaign_id}` | [Get a campaign](/api-reference/campaigns/get) |
+| `PATCH` | `/campaign/{campaign_id}` | [Update a campaign](/api-reference/campaigns/update) |
+| `POST` | `/campaign/{campaign_id}/start` | [Start](/api-reference/campaigns/start) |
+| `POST` | `/campaign/{campaign_id}/pause` | [Pause](/api-reference/campaigns/pause) |
+| `POST` | `/campaign/{campaign_id}/resume` | [Resume](/api-reference/campaigns/resume) |
+| `GET` | `/campaign/{campaign_id}/progress` | [Get campaign progress](/api-reference/campaigns/progress) |
+| `GET` | `/campaign/{campaign_id}/runs` | [Get campaign call runs](/api-reference/campaigns/runs) |
+
+## Campaign status values
+
+| Status | Description |
+|---|---|
+| `draft` | Created but not started |
+| `running` | Actively dialing contacts |
+| `paused` | Temporarily stopped; can be resumed |
+| `completed` | All contacts processed |
+| `failed` | Campaign encountered a fatal error |

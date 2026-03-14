@@ -1,0 +1,7 @@
+---
+title: "Pause Campaign"
+description: "Temporarily stop a running campaign"
+openapi: "POST /api/v1/campaign/{campaign_id}/pause"
+---
+
+Stops dispatching new calls. In-flight calls are not interrupted — they run to completion. Use [Resume](/api-reference/campaigns/resume) to continue from where the campaign paused.

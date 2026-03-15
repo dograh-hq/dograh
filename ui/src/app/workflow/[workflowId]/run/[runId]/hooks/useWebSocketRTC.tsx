@@ -319,18 +319,10 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             setFeedbackMessages(prev => {
                                 const last = prev[prev.length - 1];
                                 if (last && last.type === 'bot-text' && !last.final) {
-                                    // Append to existing bot message with space if needed
-                                    const existingText = last.text;
-                                    const newText = message.payload.text;
-                                    // Add space between chunks if previous doesn't end with space
-                                    // and new doesn't start with space or punctuation
-                                    const needsSpace = existingText.length > 0 &&
-                                        !existingText.endsWith(' ') &&
-                                        !newText.startsWith(' ') &&
-                                        !/^[.,!?;:]/.test(newText);
+                                    // Append to existing bot message
                                     return [
                                         ...prev.slice(0, -1),
-                                        { ...last, text: existingText + (needsSpace ? ' ' : '') + newText }
+                                        { ...last, text: last.text + message.payload.text }
                                     ];
                                 }
                                 // Start new bot message

@@ -37,10 +37,10 @@ from pipecat.frames.frames import (
     FunctionCallResultFrame,
     InterimTranscriptionFrame,
     InterruptionFrame,
+    LLMTextFrame,
     MetricsFrame,
     StopFrame,
     TranscriptionFrame,
-    TTSTextFrame,
 )
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
@@ -207,7 +207,7 @@ class RealtimeFeedbackObserver(BaseObserver):
             )
         # Handle bot TTS text - respect pts timing, WebSocket only
         # Complete turn text is persisted via register_turn_handlers
-        elif isinstance(frame, TTSTextFrame):
+        elif isinstance(frame, LLMTextFrame):
             message = {
                 "type": RealtimeFeedbackType.BOT_TEXT.value,
                 "payload": {

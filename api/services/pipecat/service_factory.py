@@ -5,25 +5,32 @@ from loguru import logger
 
 from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
-from pipecat.services.azure.llm import AzureLLMService
+from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
 from pipecat.services.cartesia.stt import CartesiaSTTService
-from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-from pipecat.services.deepgram.stt import DeepgramSTTService, LiveOptions
-from pipecat.services.deepgram.tts import DeepgramTTSService
+from pipecat.services.cartesia.tts import CartesiaTTSService, CartesiaTTSSettings
+from pipecat.services.deepgram.flux.stt import (
+    DeepgramFluxSTTService,
+    DeepgramFluxSTTSettings,
+)
+from pipecat.services.deepgram.stt import DeepgramSTTService, DeepgramSTTSettings
+from pipecat.services.deepgram.tts import DeepgramTTSService, DeepgramTTSSettings
 from pipecat.services.dograh.llm import DograhLLMService
-from pipecat.services.dograh.stt import DograhSTTService
-from pipecat.services.dograh.tts import DograhTTSService
-from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
-from pipecat.services.google.llm import GoogleLLMService
-from pipecat.services.groq.llm import GroqLLMService
+from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
+from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
+from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
+from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
+from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
+from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.services.openai.stt import OpenAISTTService
-from pipecat.services.openai.tts import OpenAITTSService
-from pipecat.services.openrouter.llm import OpenRouterLLMService
-from pipecat.services.sarvam.stt import SarvamSTTService
-from pipecat.services.sarvam.tts import SarvamTTSService
-from pipecat.services.speechmatics.stt import SpeechmaticsSTTService
+from pipecat.services.openai.stt import OpenAISTTService, OpenAISTTSettings
+from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
+from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
+from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
+from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
+from pipecat.services.speechmatics.stt import (
+    SpeechmaticsSTTService,
+    SpeechmaticsSTTSettings,
+)
 from pipecat.transcriptions.language import Language
 from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
@@ -49,8 +56,8 @@ def create_stt_service(
             logger.debug("Using DeepGram Flux Model")
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
-                model=user_config.stt.model,
-                params=DeepgramFluxSTTService.InputParams(
+                settings=DeepgramFluxSTTSettings(
+                    model=user_config.stt.model,
                     eot_timeout_ms=3000,
                     eot_threshold=0.7,
                     eager_eot_threshold=0.5,
@@ -63,23 +70,23 @@ def create_stt_service(
         # Other models than flux
         # Use language from user config, defaulting to "multi" for multilingual support
         language = getattr(user_config.stt, "language", None) or "multi"
-        live_options = LiveOptions(
-            language=language,
-            profanity_filter=False,
-            endpointing=100,
-            model=user_config.stt.model,
-            keyterm=keyterms or [],
-        )
         logger.debug(f"Using DeepGram Model - {user_config.stt.model}")
         return DeepgramSTTService(
-            live_options=live_options,
             api_key=user_config.stt.api_key,
+            settings=DeepgramSTTSettings(
+                language=language,
+                profanity_filter=False,
+                endpointing=100,
+                model=user_config.stt.model,
+                keyterm=keyterms or [],
+            ),
             should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
         return OpenAISTTService(
-            api_key=user_config.stt.api_key, model=user_config.stt.model
+            api_key=user_config.stt.api_key,
+            settings=OpenAISTTSettings(model=user_config.stt.model),
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
         return CartesiaSTTService(
@@ -92,8 +99,10 @@ def create_stt_service(
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
-            model=user_config.stt.model,
-            language=language,
+            settings=DograhSTTSettings(
+                model=user_config.stt.model,
+                language=language,
+            ),
             keyterms=keyterms,
             sample_rate=audio_config.transport_in_sample_rate,
         )
@@ -117,8 +126,10 @@ def create_stt_service(
         pipecat_language = language_mapping.get(language, Language.HI_IN)
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
-            model=user_config.stt.model,
-            params=SarvamSTTService.InputParams(language=pipecat_language),
+            settings=SarvamSTTSettings(
+                model=user_config.stt.model,
+                language=pipecat_language,
+            ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
@@ -140,7 +151,7 @@ def create_stt_service(
             additional_vocab = [AdditionalVocabEntry(content=term) for term in keyterms]
         return SpeechmaticsSTTService(
             api_key=user_config.stt.api_key,
-            params=SpeechmaticsSTTService.InputParams(
+            settings=SpeechmaticsSTTSettings(
                 language=language,
                 operating_point=operating_point,
                 additional_vocab=additional_vocab,
@@ -168,14 +179,16 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
     if user_config.tts.provider == ServiceProviders.DEEPGRAM.value:
         return DeepgramTTSService(
             api_key=user_config.tts.api_key,
-            voice=user_config.tts.voice,
+            settings=DeepgramTTSSettings(voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
+            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
-            model=user_config.tts.model,
+            settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
+            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
         # Backward compatible with older configuration "Name - voice_id"
@@ -186,19 +199,25 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         return ElevenLabsTTSService(
             reconnect_on_error=False,
             api_key=user_config.tts.api_key,
-            voice_id=voice_id,
-            model=user_config.tts.model,
-            params=ElevenLabsTTSService.InputParams(
-                stability=0.8, speed=user_config.tts.speed, similarity_boost=0.75
+            settings=ElevenLabsTTSSettings(
+                voice=voice_id,
+                model=user_config.tts.model,
+                stability=0.8,
+                speed=user_config.tts.speed,
+                similarity_boost=0.75,
             ),
             text_filters=[xml_function_tag_filter],
+            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.CARTESIA.value:
         return CartesiaTTSService(
             api_key=user_config.tts.api_key,
-            voice_id=user_config.tts.voice,
-            model=user_config.tts.model,
+            settings=CartesiaTTSSettings(
+                voice=user_config.tts.voice,
+                model=user_config.tts.model,
+            ),
             text_filters=[xml_function_tag_filter],
+            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.DOGRAH.value:
         # Convert HTTP URL to WebSocket URL for TTS
@@ -206,10 +225,13 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         return DograhTTSService(
             base_url=base_url,
             api_key=user_config.tts.api_key,
-            model=user_config.tts.model,
-            voice=user_config.tts.voice,
-            params=DograhTTSService.InputParams(speed=user_config.tts.speed),
+            settings=DograhTTSSettings(
+                model=user_config.tts.model,
+                voice=user_config.tts.voice,
+                speed=user_config.tts.speed,
+            ),
             text_filters=[xml_function_tag_filter],
+            silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum for TTS
@@ -232,10 +254,13 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         voice = getattr(user_config.tts, "voice", None) or "anushka"
         return SarvamTTSService(
             api_key=user_config.tts.api_key,
-            model=user_config.tts.model,
-            voice_id=voice,
-            params=SarvamTTSService.InputParams(language=pipecat_language),
+            settings=SarvamTTSSettings(
+                model=user_config.tts.model,
+                voice=voice,
+                language=pipecat_language,
+            ),
             text_filters=[xml_function_tag_filter],
+            silence_time_s=1.0,
         )
     else:
         raise HTTPException(
@@ -253,16 +278,15 @@ def create_llm_service(user_config):
         if "gpt-5" in model:
             return OpenAILLMService(
                 api_key=user_config.llm.api_key,
-                model=model,
-                params=OpenAILLMService.InputParams(
-                    reasoning_effort="minimal", verbosity="low"
+                settings=OpenAILLMSettings(
+                    model=model,
+                    extra={"reasoning_effort": "minimal", "verbosity": "low"},
                 ),
             )
         else:
             return OpenAILLMService(
                 api_key=user_config.llm.api_key,
-                model=model,
-                params=OpenAILLMService.InputParams(temperature=0.1),
+                settings=OpenAILLMSettings(model=model, temperature=0.1),
             )
     elif user_config.llm.provider == ServiceProviders.GROQ.value:
         print(
@@ -270,36 +294,30 @@ def create_llm_service(user_config):
         )
         return GroqLLMService(
             api_key=user_config.llm.api_key,
-            model=model,
-            params=OpenAILLMService.InputParams(temperature=0.1),
+            settings=GroqLLMSettings(model=model, temperature=0.1),
         )
     elif user_config.llm.provider == ServiceProviders.OPENROUTER.value:
         return OpenRouterLLMService(
             api_key=user_config.llm.api_key,
-            model=model,
             base_url=user_config.llm.base_url,
-            params=OpenAILLMService.InputParams(temperature=0.1),
+            settings=OpenRouterLLMSettings(model=model, temperature=0.1),
         )
     elif user_config.llm.provider == ServiceProviders.GOOGLE.value:
-        # Use the correct InputParams class for Google to avoid propagating OpenAI-specific
-        # NOT_GIVEN sentinels that break Pydantic validation in GoogleLLMService.
         return GoogleLLMService(
             api_key=user_config.llm.api_key,
-            model=model,
-            params=GoogleLLMService.InputParams(temperature=0.1),
+            settings=GoogleLLMSettings(model=model, temperature=0.1),
         )
     elif user_config.llm.provider == ServiceProviders.AZURE.value:
         return AzureLLMService(
             api_key=user_config.llm.api_key,
             endpoint=user_config.llm.endpoint,
-            model=model,  # Azure uses deployment name as model
-            params=AzureLLMService.InputParams(temperature=0.1),
+            settings=AzureLLMSettings(model=model, temperature=0.1),
         )
     elif user_config.llm.provider == ServiceProviders.DOGRAH.value:
         return DograhLLMService(
             base_url=f"{MPS_API_URL}/api/v1/llm",
             api_key=user_config.llm.api_key,
-            model=model,
+            settings=OpenAILLMSettings(model=model),
         )
     else:
         raise HTTPException(status_code=400, detail="Invalid LLM provider")

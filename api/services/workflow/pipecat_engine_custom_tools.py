@@ -10,7 +10,7 @@ import asyncio
 import re
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
 
@@ -23,7 +23,6 @@ from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.disposition_mapper import (
     get_organization_id_from_workflow_run,
 )
-from api.services.workflow.pipecat_engine_utils import get_function_schema
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
@@ -40,6 +39,29 @@ from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
+
+
+def get_function_schema(
+    function_name: str,
+    description: str,
+    *,
+    properties: Dict[str, Any] | None = None,
+    required: List[str] | None = None,
+) -> FunctionSchema:
+    """Create a FunctionSchema definition that can later be transformed into
+    the provider-specific format (OpenAI, Gemini, etc.).
+
+    The helper keeps the public signature backward-compatible – callers that
+    only pass ``function_name`` and ``description`` continue to work and will
+    define a parameter-less function.
+    """
+
+    return FunctionSchema(
+        name=function_name,
+        description=description,
+        properties=properties or {},
+        required=required or [],
+    )
 
 
 class CustomToolManager:

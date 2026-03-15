@@ -16,5 +16,5 @@ import type { ClientOptions } from './types.gen';
 export type CreateClientConfig<T extends DefaultClientOptions = ClientOptions> = (override?: Config<DefaultClientOptions & T>) => Config<Required<DefaultClientOptions> & T>;
 
 export const client = createClient(createClientConfig(createConfig<ClientOptions>({
-    baseUrl: 'http://127.0.0.1:8000'
+    baseUrl: 'https://app.dograh.com'
 })));

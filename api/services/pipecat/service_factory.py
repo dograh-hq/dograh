@@ -211,6 +211,20 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             params=DograhTTSService.InputParams(speed=user_config.tts.speed),
             text_filters=[xml_function_tag_filter],
         )
+    elif user_config.tts.provider == ServiceProviders.CAMB.value:
+        from pipecat.services.camb.tts import CambTTSService
+
+        voice_id = int(getattr(user_config.tts, "voice", None) or "147320")
+        language = getattr(user_config.tts, "language", None) or "en-us"
+        tts = CambTTSService(
+            api_key=user_config.tts.api_key,
+            voice_id=voice_id,
+            model=user_config.tts.model,
+            text_filters=[xml_function_tag_filter],
+        )
+        # Set language directly as BCP-47 code (bypasses Language enum conversion)
+        tts._settings.language = language
+        return tts
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum for TTS
         language_mapping = {

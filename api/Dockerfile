@@ -25,11 +25,10 @@ RUN pip install --user --no-cache-dir -r requirements.txt && \
 
 # Copy and install pipecat from local submodule
 COPY pipecat /tmp/pipecat
-RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,local-smart-turn-v3,speechmatics,openrouter]' && \
+RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,local-smart-turn-v3,speechmatics,openrouter,camb]' && \
     # Clean up pip cache and temporary pipecat directory
     rm -rf /root/.cache/pip /tmp/pipecat
 
-    
 # Remove unnecessary Python cache files from installed packages
 RUN find /root/.local -type f -name '*.pyc' -delete && \
     find /root/.local -type d -name '__pycache__' -delete && \

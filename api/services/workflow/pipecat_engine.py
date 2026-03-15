@@ -5,6 +5,7 @@ from api.services.workflow.disposition_mapper import (
     get_organization_id_from_workflow_run,
 )
 from api.services.workflow.workflow import Node, WorkflowGraph
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -16,6 +17,7 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.services.settings import LLMSettings
 from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
@@ -31,18 +33,19 @@ import asyncio
 from loguru import logger
 
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
-from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
-from api.services.workflow.pipecat_engine_utils import (
+from api.services.workflow.pipecat_engine_context_composer import (
+    compose_functions_for_node,
+    compose_system_prompt_for_node,
+)
+from api.services.workflow.pipecat_engine_custom_tools import (
+    CustomToolManager,
     get_function_schema,
-    render_template,
-    update_llm_context,
 )
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.knowledge_base import (
-    get_knowledge_base_tool,
     retrieve_from_knowledge_base,
 )
 from api.services.workflow.tools.timezone import (
@@ -50,6 +53,7 @@ from api.services.workflow.tools.timezone import (
     get_current_time,
     get_time_tools,
 )
+from api.utils.template_renderer import render_template
 
 
 class PipecatEngine:
@@ -68,6 +72,7 @@ class PipecatEngine:
         embeddings_api_key: Optional[str] = None,
         embeddings_model: Optional[str] = None,
         embeddings_base_url: Optional[str] = None,
+        has_recordings: bool = False,
     ):
         self.task = task
         self.llm = llm
@@ -112,6 +117,10 @@ class PipecatEngine:
 
         # Audio configuration (set via set_audio_config from _run_pipeline)
         self._audio_config = None
+
+        # True when the workflow has active recordings; enables recording
+        # response mode instructions on all nodes for in-context learning.
+        self._has_recordings: bool = has_recordings
 
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -194,15 +203,14 @@ class PipecatEngine:
             logger.error(f"Error initializing {self.__class__.__name__}: {e}")
             raise
 
-    def _get_function_schema(self, function_name: str, description: str):
-        """Thin wrapper around utils.get_function_schema for backwards compatibility."""
+    async def _update_llm_context(self, system_prompt: str, functions: list[dict]):
+        """Update LLM settings with the composed system prompt and tool list."""
 
-        return get_function_schema(function_name, description)
+        await self.llm._update_settings(LLMSettings(system_instruction=system_prompt))
 
-    async def _update_llm_context(self, system_message: dict, functions: list[dict]):
-        """Delegate context update to the shared workflow.utils implementation."""
-
-        update_llm_context(self.context, system_message, functions)
+        if functions:
+            tools_schema = ToolsSchema(standard_tools=functions)
+            self.context.set_tools(tools_schema)
 
     def _format_prompt(self, prompt: str) -> str:
         """Delegate prompt formatting to the shared workflow.utils implementation."""
@@ -473,12 +481,19 @@ class PipecatEngine:
         if node.document_uuids:
             await self._register_knowledge_base_function(node.document_uuids)
 
-        # Set up system message and functions
-        (
-            system_message,
-            functions,
-        ) = await self._compose_system_message_functions_for_node(node)
-        await self._update_llm_context(system_message, functions)
+        # Compose prompt and functions via the context composer module
+        system_prompt = compose_system_prompt_for_node(
+            node=node,
+            workflow=self.workflow,
+            format_prompt=self._format_prompt,
+            has_recordings=self._has_recordings,
+        )
+        functions = await compose_functions_for_node(
+            node=node,
+            builtin_function_schemas=self.builtin_function_schemas,
+            custom_tool_manager=self._custom_tool_manager,
+        )
+        await self._update_llm_context(system_prompt, functions)
 
     async def set_node(self, node_id: str):
         """
@@ -609,62 +624,6 @@ class PipecatEngine:
             f"Finishing run with reason: {reason}, disposition: {mapped_disposition} queueing frame {frame_to_push}"
         )
         await self.task.queue_frame(frame_to_push)
-
-    async def _compose_system_message_functions_for_node(
-        self, node: "Node"
-    ) -> tuple[list[dict], list[dict]]:
-        """Generate the system messages and function schemas for the given node.
-
-        This performs the same formatting logic used when entering a node but
-        does **not** register the functions with the LLM; callers are
-        responsible for that.
-        """
-
-        global_prompt = ""
-        if self.workflow.global_node_id and node.add_global_prompt:
-            global_node = self.workflow.nodes[self.workflow.global_node_id]
-            global_prompt = self._format_prompt(global_node.prompt)
-
-        functions: list[dict] = []
-
-        # Add built-in function schemas (calculator and timezone tools)
-        functions.extend(self.builtin_function_schemas)
-
-        # Add knowledge base retrieval tool if node has documents
-        if node.document_uuids:
-            kb_tool_def = get_knowledge_base_tool(node.document_uuids)
-            kb_schema = get_function_schema(
-                kb_tool_def["function"]["name"],
-                kb_tool_def["function"]["description"],
-                properties=kb_tool_def["function"]["parameters"].get("properties", {}),
-                required=kb_tool_def["function"]["parameters"].get("required", []),
-            )
-            functions.append(kb_schema)
-
-        # Add custom tools from node.tool_uuids
-        if node.tool_uuids and self._custom_tool_manager:
-            custom_tool_schemas = await self._custom_tool_manager.get_tool_schemas(
-                node.tool_uuids
-            )
-            functions.extend(custom_tool_schemas)
-
-        # Transition functions (schema only; registration handled elsewhere)
-        for outgoing_edge in node.out_edges:
-            function_schema = self._get_function_schema(
-                outgoing_edge.get_function_name(), outgoing_edge.condition
-            )
-            functions.append(function_schema)
-
-        formatted_node_prompt = self._format_prompt(node.prompt)
-
-        system_message = {
-            "role": "system",
-            "content": "\n\n".join(
-                p for p in (global_prompt, formatted_node_prompt) if p
-            ),
-        }
-
-        return system_message, functions
 
     async def should_mute_user(self, frame: "Frame") -> bool:
         """

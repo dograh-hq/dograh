@@ -24,6 +24,7 @@ from api.routes.user import router as user_router
 from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
 from api.routes.workflow_embed import router as workflow_embed_router
+from api.routes.workflow_recording import router as workflow_recording_router
 
 router = APIRouter(
     tags=["main"],
@@ -51,6 +52,7 @@ router.include_router(public_agent_router)
 router.include_router(public_download_router)
 router.include_router(workflow_embed_router)
 router.include_router(knowledge_base_router)
+router.include_router(workflow_recording_router)
 router.include_router(auth_router)
 
 

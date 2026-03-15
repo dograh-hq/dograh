@@ -6,11 +6,11 @@ import {
     Panel,
     ReactFlow,
 } from "@xyflow/react";
-import { BookA, BrushCleaning, Maximize2, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
+import { BookA, BrushCleaning, Maximize2, Mic, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 
-import { listDocumentsApiV1KnowledgeBaseDocumentsGet, listToolsApiV1ToolsGet } from '@/client';
-import type { DocumentResponseSchema, ToolResponse } from '@/client/types.gen';
+import { listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
+import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } from '@/client/types.gen';
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -23,6 +23,7 @@ import { ConfigurationsDialog } from './components/ConfigurationsDialog';
 import { DictionaryDialog } from './components/DictionaryDialog';
 import { EmbedDialog } from './components/EmbedDialog';
 import { PhoneCallDialog } from './components/PhoneCallDialog';
+import { RecordingsDialog } from './components/RecordingsDialog';
 import { TemplateContextVariablesDialog } from './components/TemplateContextVariablesDialog';
 import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
 import { WorkflowProvider } from "./contexts/WorkflowContext";
@@ -67,8 +68,10 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     const [isDictionaryDialogOpen, setIsDictionaryDialogOpen] = useState(false);
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
+    const [isRecordingsDialogOpen, setIsRecordingsDialogOpen] = useState(false);
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
+    const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
 
     const {
         rfInstance,
@@ -102,7 +105,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         user,
     });
 
-    // Fetch documents and tools once for the entire workflow
+    // Fetch documents, tools, and recordings once for the entire workflow
     useEffect(() => {
         const fetchData = async () => {
             try {
@@ -119,13 +122,25 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                 if (toolsResponse.data) {
                     setTools(toolsResponse.data);
                 }
+
+                // Fetch recordings for this workflow
+                try {
+                    const recordingsResponse = await listRecordingsApiV1WorkflowRecordingsGet({
+                        query: { workflow_id: workflowId },
+                    });
+                    if (recordingsResponse.data) {
+                        setRecordings(recordingsResponse.data.recordings);
+                    }
+                } catch {
+                    // Recordings API may not be available yet; silently ignore
+                }
             } catch (error) {
                 console.error('Failed to fetch documents and tools:', error);
             }
         };
 
         fetchData();
-    }, []);
+    }, [workflowId]);
 
     // Memoize defaultEdgeOptions to prevent unnecessary re-renders
     const defaultEdgeOptions = useMemo(() => ({
@@ -137,8 +152,9 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     const workflowContextValue = useMemo(() => ({
         saveWorkflow,
         documents,
-        tools
-    }), [saveWorkflow, documents, tools]);
+        tools,
+        recordings,
+    }), [saveWorkflow, documents, tools, recordings]);
 
     return (
         <WorkflowProvider value={workflowContextValue}>
@@ -248,6 +264,22 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                                         </TooltipTrigger>
                                         <TooltipContent side="left">
                                             <p>Dictionary</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                onClick={() => setIsRecordingsDialogOpen(true)}
+                                                className="bg-white shadow-sm hover:shadow-md"
+                                            >
+                                                <Mic className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="left">
+                                            <p>Recordings</p>
                                         </TooltipContent>
                                     </Tooltip>
 
@@ -388,6 +420,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     onOpenChange={setIsPhoneCallDialogOpen}
                     workflowId={workflowId}
                     user={user}
+                />
+
+                <RecordingsDialog
+                    open={isRecordingsDialogOpen}
+                    onOpenChange={setIsRecordingsDialogOpen}
+                    workflowId={workflowId}
+                    onRecordingsChange={setRecordings}
                 />
             </div>
         </WorkflowProvider>

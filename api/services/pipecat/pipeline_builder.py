@@ -39,6 +39,7 @@ def build_pipeline(
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
     voicemail_detector=None,
+    recording_router=None,
 ):
     """Build the main pipeline with all components.
 
@@ -47,6 +48,9 @@ def build_pipeline(
         voicemail_detector: Optional native pipecat VoicemailDetector. When provided,
             inserts voicemail detection after STT. Note: We don't use the TTS gate
             to avoid blocking TTS frames during classification.
+        recording_router: Optional RecordingRouterProcessor. When provided,
+            inserts between callback processor and TTS to route between
+            pre-recorded audio playback and dynamic TTS.
     """
     # Build processors list with optional voicemail detection
     processors = [
@@ -66,11 +70,15 @@ def build_pipeline(
         processors.append(voicemail_detector.detector())
 
     # Continue with the rest of the pipeline
+    post_llm = [pipeline_engine_callback_processor]
+    if recording_router:
+        post_llm.append(recording_router)
+
     processors.extend(
         [
             user_context_aggregator,
             llm,  # LLM
-            pipeline_engine_callback_processor,
+            *post_llm,
             tts,  # TTS
             transport.output(),  # Transport bot output
             audio_buffer,  # AudioBufferProcessor - records both input and output audio

@@ -13,6 +13,7 @@ from api.db.tool_client import ToolClient
 from api.db.user_client import UserClient
 from api.db.webhook_credential_client import WebhookCredentialClient
 from api.db.workflow_client import WorkflowClient
+from api.db.workflow_recording_client import WorkflowRecordingClient
 from api.db.workflow_run_client import WorkflowRunClient
 from api.db.workflow_template_client import WorkflowTemplateClient
 
@@ -35,6 +36,7 @@ class DBClient(
     WebhookCredentialClient,
     ToolClient,
     KnowledgeBaseClient,
+    WorkflowRecordingClient,
 ):
     """
     Unified database client that combines all specialized database operations.

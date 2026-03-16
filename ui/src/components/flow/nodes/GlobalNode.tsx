@@ -3,11 +3,12 @@ import { Edit, Headset, Trash2Icon } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import type { RecordingResponseSchema } from "@/client/types.gen";
+import { MentionTextarea } from "@/components/flow/MentionTextarea";
 import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 import { NodeContent } from "./common/NodeContent";
@@ -20,6 +21,7 @@ interface GlobalNodeEditFormProps {
     setPrompt: (value: string) => void;
     name: string;
     setName: (value: string) => void;
+    recordings: RecordingResponseSchema[];
 }
 
 interface GlobalNodeProps extends NodeProps {
@@ -28,7 +30,7 @@ interface GlobalNodeProps extends NodeProps {
 
 export const GlobalNode = memo(({ data, selected, id }: GlobalNodeProps) => {
     const { open, setOpen, handleSaveNodeData, handleDeleteNode } = useNodeHandlers({ id });
-    const { saveWorkflow } = useWorkflow();
+    const { saveWorkflow, recordings } = useWorkflow();
 
     // Form state
     const [prompt, setPrompt] = useState(data.prompt);
@@ -118,6 +120,7 @@ export const GlobalNode = memo(({ data, selected, id }: GlobalNodeProps) => {
                         setPrompt={setPrompt}
                         name={name}
                         setName={setName}
+                        recordings={recordings ?? []}
                     />
                 )}
             </NodeEditDialog>
@@ -129,7 +132,8 @@ const GlobalNodeEditForm = ({
     prompt,
     setPrompt,
     name,
-    setName
+    setName,
+    recordings,
 }: GlobalNodeEditFormProps) => {
     return (
         <div className="grid gap-2">
@@ -146,13 +150,12 @@ const GlobalNodeEditForm = ({
             <Label className="text-xs text-muted-foreground">
                 This is the global prompt. This will be added to the system prompt of all the agents.
             </Label>
-            <Textarea
+            <MentionTextarea
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                className="min-h-[100px] max-h-[300px] resize-none"
-                style={{
-                    overflowY: 'auto'
-                }}
+                onChange={setPrompt}
+                className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
+                placeholder="Enter a prompt"
+                recordings={recordings}
             />
         </div>
     );

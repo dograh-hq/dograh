@@ -173,9 +173,8 @@ async def _download_and_convert(
     Returns the processed PCM bytes, or None on failure.
     """
     ext = _ext_from_key(recording.storage_key)
-    tmp_path = os.path.join(
-        tempfile.gettempdir(), f"dograh_dl_{recording.recording_id}{ext}"
-    )
+    fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix=f"dograh_dl_{recording.recording_id}_")
+    os.close(fd)
     try:
         storage = get_storage_fn(recording.storage_backend)
         success = await storage.adownload_file(recording.storage_key, tmp_path)
@@ -191,7 +190,8 @@ async def _download_and_convert(
 
         # Write to disk cache atomically (write to tmp then rename)
         cached = _cache_path(recording.recording_id, sample_rate)
-        tmp_cache = cached + ".tmp"
+        fd, tmp_cache = tempfile.mkstemp(dir=_CACHE_DIR, suffix=".pcm.tmp")
+        os.close(fd)
         _write_file(tmp_cache, pcm_data)
         os.replace(tmp_cache, cached)
 

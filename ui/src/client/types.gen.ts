@@ -755,6 +755,12 @@ export type LoginRequest = {
     password: string;
 };
 
+export type MpsCreditsResponse = {
+    total_credits_used: number;
+    remaining_credits: number;
+    total_quota: number;
+};
+
 export type PresignedUploadUrlRequest = {
     /**
      * CSV filename
@@ -4377,6 +4383,39 @@ export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponse
 };
 
 export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponse = GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses[keyof GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses];
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/usage/mps-credits';
+};
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetError = GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors[keyof GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors];
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MpsCreditsResponse;
+};
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponse = GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses[keyof GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses];
 
 export type GetUsageHistoryApiV1OrganizationsUsageRunsGetData = {
     body?: never;

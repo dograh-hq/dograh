@@ -334,7 +334,7 @@ const StartCallEditForm = ({
                 value={prompt}
                 onChange={setPrompt}
                 className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
-                placeholder="Enter a prompt (type @ to insert recordings)"
+                placeholder="Enter a prompt"
                 recordings={recordings}
             />
             <div className="flex items-center space-x-2">

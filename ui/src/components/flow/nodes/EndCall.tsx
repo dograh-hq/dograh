@@ -3,6 +3,8 @@ import { Edit, OctagonX, PlusIcon, Trash2Icon } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import type { RecordingResponseSchema } from "@/client/types.gen";
+import { MentionTextarea } from "@/components/flow/MentionTextarea";
 import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +31,7 @@ interface EndCallEditFormProps {
     setVariables: (vars: ExtractionVariable[]) => void;
     addGlobalPrompt: boolean;
     setAddGlobalPrompt: (value: boolean) => void;
+    recordings: RecordingResponseSchema[];
 }
 
 interface EndCallNodeProps extends NodeProps {
@@ -40,7 +43,7 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
         id,
         additionalData: { is_end: true }
     });
-    const { saveWorkflow } = useWorkflow();
+    const { saveWorkflow, recordings } = useWorkflow();
 
     // Form state
     const [prompt, setPrompt] = useState(data.prompt);
@@ -157,6 +160,7 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
                         setVariables={setVariables}
                         addGlobalPrompt={addGlobalPrompt}
                         setAddGlobalPrompt={setAddGlobalPrompt}
+                        recordings={recordings ?? []}
                     />
                 )}
             </NodeEditDialog>
@@ -177,6 +181,7 @@ const EndCallEditForm = ({
     setVariables,
     addGlobalPrompt,
     setAddGlobalPrompt,
+    recordings,
 }: EndCallEditFormProps) => {
     const handleVariableNameChange = (idx: number, value: string) => {
         const newVars = [...variables];
@@ -216,14 +221,12 @@ const EndCallEditForm = ({
             <Label className="text-xs text-muted-foreground">
                 Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
             </Label>
-            <Textarea
+            <MentionTextarea
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                className="min-h-[100px] max-h-[300px] resize-none"
-                style={{
-                    overflowY: 'auto'
-                }}
-                placeholder="Enter a dynamic prompt"
+                onChange={setPrompt}
+                className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
+                placeholder="Enter a prompt"
+                recordings={recordings}
             />
             <div className="flex items-center space-x-2">
                 <Switch id="add-global-prompt" checked={addGlobalPrompt} onCheckedChange={setAddGlobalPrompt} />

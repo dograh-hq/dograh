@@ -1,12 +1,12 @@
 "use client";
 
-import { Calendar, ChevronLeft, ChevronRight, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Globe } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
 
-import { getCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet,getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
-import type { CurrentUsageResponse, DailyUsageBreakdownResponse,UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
+import { getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
+import type { DailyUsageBreakdownResponse, MpsCreditsResponse, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
@@ -37,9 +37,9 @@ export default function UsagePage() {
     const { userConfig, saveUserConfig, loading: userConfigLoading, organizationPricing } = useUserConfig();
     const auth = useAuth();
 
-    // Current usage state
-    const [currentUsage, setCurrentUsage] = useState<CurrentUsageResponse | null>(null);
-    const [isLoadingCurrent, setIsLoadingCurrent] = useState(true);
+    // MPS credits state
+    const [mpsCredits, setMpsCredits] = useState<MpsCreditsResponse | null>(null);
+    const [isLoadingCredits, setIsLoadingCredits] = useState(true);
 
     // Usage history state
     const [usageHistory, setUsageHistory] = useState<UsageHistoryResponse | null>(null);
@@ -68,19 +68,18 @@ export default function UsagePage() {
     const [savingTimezone, setSavingTimezone] = useState(false);
     const timezoneSelectId = useId(); // Stable ID for react-select to prevent hydration mismatch
 
-    // Fetch current usage
-    const fetchCurrentUsage = useCallback(async () => {
+    // Fetch MPS credits
+    const fetchMpsCredits = useCallback(async () => {
         if (!auth.isAuthenticated) return;
         try {
-            const response = await getCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGet();
-
+            const response = await getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet();
             if (response.data) {
-                setCurrentUsage(response.data);
+                setMpsCredits(response.data);
             }
         } catch (error) {
-            console.error('Failed to fetch current usage:', error);
+            console.error('Failed to fetch MPS credits:', error);
         } finally {
-            setIsLoadingCurrent(false);
+            setIsLoadingCredits(false);
         }
     }, [auth.isAuthenticated]);
 
@@ -195,10 +194,10 @@ export default function UsagePage() {
     // Initial load - fetch when auth becomes available
     useEffect(() => {
         if (auth.isAuthenticated) {
-            fetchCurrentUsage();
+            fetchMpsCredits();
             fetchUsageHistory(currentPage, activeFilters);
         }
-    }, [auth.isAuthenticated, currentPage, activeFilters, fetchUsageHistory, fetchCurrentUsage]);
+    }, [auth.isAuthenticated, currentPage, activeFilters, fetchUsageHistory, fetchMpsCredits]);
 
     // Fetch daily usage when organizationPricing becomes available
     useEffect(() => {
@@ -257,20 +256,6 @@ export default function UsagePage() {
     // Handle row click to navigate to workflow run
     const handleRowClick = (run: WorkflowRunUsageResponse) => {
         router.push(`/workflow/${run.workflow_id}/run/${run.id}`);
-    };
-
-    // Format date for display with timezone support
-    const formatDate = (dateString: string) => {
-        const date = new Date(dateString);
-        const tzValue = typeof selectedTimezone === 'string' ? selectedTimezone : selectedTimezone.value;
-        // Use local timezone if none selected (during loading)
-        const effectiveTz = tzValue || localTimezone;
-        return date.toLocaleDateString('en-US', {
-            timeZone: effectiveTz,
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
     };
 
     // Format datetime for display with timezone support
@@ -383,68 +368,42 @@ export default function UsagePage() {
                     </div>
                 </div>
 
-                {/* Current Period Card */}
+                {/* MPS Credits Card */}
                 <Card className="mb-6">
                     <CardHeader>
-                        <CardTitle>Current Billing Period</CardTitle>
+                        <CardTitle>Dograh Model Credits</CardTitle>
                         <CardDescription>
-                            {currentUsage && `${formatDate(currentUsage.period_start)} - ${formatDate(currentUsage.period_end)}`}
+                            These track usage of Dograh models using Dograh Service Keys.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isLoadingCurrent ? (
+                        {isLoadingCredits ? (
                             <div className="animate-pulse space-y-4">
                                 <div className="h-4 bg-muted rounded w-1/4"></div>
                                 <div className="h-8 bg-muted rounded"></div>
                                 <div className="h-4 bg-muted rounded w-1/3"></div>
                             </div>
-                        ) : currentUsage ? (
+                        ) : mpsCredits ? (
                             <div className="space-y-4">
                                 <div className="flex justify-between items-baseline">
                                     <div>
-                                        {organizationPricing?.price_per_second_usd ? (
-                                            <>
-                                                <p className="text-2xl font-bold">
-                                                    ${(currentUsage.used_amount_usd || 0).toFixed(2)}
-                                                </p>
-                                                <p className="text-sm text-muted-foreground">Total Cost (USD)</p>
-                                                <p className="text-xs text-muted-foreground mt-1">
-                                                    Rate: ${(organizationPricing.price_per_second_usd * 60).toFixed(4)}/minute
-                                                </p>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <p className="text-2xl font-bold">
-                                                    {currentUsage.used_dograh_tokens.toLocaleString()} / {currentUsage.quota_dograh_tokens.toLocaleString()}
-                                                </p>
-                                                <p className="text-sm text-muted-foreground">Dograh Tokens</p>
-                                            </>
-                                        )}
+                                        <p className="text-2xl font-bold">
+                                            {mpsCredits.total_credits_used.toFixed(2)} <span className="text-lg font-normal text-muted-foreground">/ {mpsCredits.total_quota.toFixed(2)}</span>
+                                        </p>
+                                        <p className="text-sm text-muted-foreground">Credits Used</p>
                                     </div>
-                                    {!organizationPricing?.price_per_second_usd && (
-                                        <div className="text-right">
-                                            <p className="text-lg font-semibold">{currentUsage.percentage_used}%</p>
-                                            <p className="text-sm text-muted-foreground">Used</p>
-                                        </div>
-                                    )}
+                                    <div className="text-right">
+                                        <p className="text-lg font-semibold">{mpsCredits.remaining_credits.toFixed(2)}</p>
+                                        <p className="text-sm text-muted-foreground">Remaining</p>
+                                    </div>
                                 </div>
 
-                                {!organizationPricing?.price_per_second_usd && (
-                                    <Progress value={currentUsage.percentage_used} className="h-3" />
+                                {mpsCredits.total_quota > 0 && (
+                                    <Progress value={(mpsCredits.total_credits_used / mpsCredits.total_quota) * 100} className="h-3" />
                                 )}
-
-                                <div className="flex justify-between items-center text-sm text-muted-foreground">
-                                    <div className="flex items-center">
-                                        <Calendar className="h-4 w-4 mr-1" />
-                                        Next refresh: {formatDate(currentUsage.next_refresh_date)}
-                                    </div>
-                                    <div>
-                                        Total Duration: <span className="font-medium text-foreground">{formatDuration(currentUsage.total_duration_seconds)}</span>
-                                    </div>
-                                </div>
                             </div>
                         ) : (
-                            <p className="text-muted-foreground">Unable to load usage data</p>
+                            <p className="text-muted-foreground">No Dograh service keys configured. Set up a service key in your model configuration to see usage.</p>
                         )}
                     </CardContent>
                 </Card>

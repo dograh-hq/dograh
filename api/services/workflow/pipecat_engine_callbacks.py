@@ -47,14 +47,14 @@ class UserIdleHandler:
 
         if self._retry_count == 1:
             message = {
-                "role": "system",
+                "role": "user",
                 "content": "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far.",
             }
             await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
             return
 
         message = {
-            "role": "system",
+            "role": "user",
             "content": "The user has been quiet. We will be disconnecting the call now. Wish them a good day in the language that the user has been speaking so far.",
         }
         await aggregator.push_frame(LLMMessagesAppendFrame([message], run_llm=True))

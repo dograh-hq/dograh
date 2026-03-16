@@ -3,11 +3,14 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from loguru import logger
 from pydantic import BaseModel
 
+from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user
+from api.services.mps_service_key_client import mps_service_key_client
 
 router = APIRouter(prefix="/organizations")
 
@@ -26,6 +29,12 @@ class CurrentUsageResponse(BaseModel):
     quota_amount_usd: Optional[float] = None
     currency: Optional[str] = None
     price_per_second_usd: Optional[float] = None
+
+
+class MPSCreditsResponse(BaseModel):
+    total_credits_used: float
+    remaining_credits: float
+    total_quota: float
 
 
 class WorkflowRunUsageResponse(BaseModel):
@@ -82,6 +91,42 @@ async def get_current_period_usage(user: UserModel = Depends(get_user)):
         usage = await db_client.get_current_usage(user.selected_organization_id)
         return usage
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/usage/mps-credits", response_model=MPSCreditsResponse)
+async def get_mps_credits(user: UserModel = Depends(get_user)):
+    """Get aggregated usage and quota from MPS.
+
+    OSS users: queries by provider_id (created_by).
+    Hosted users: queries by organization_id.
+    """
+    try:
+        if DEPLOYMENT_MODE == "oss":
+            usage = await mps_service_key_client.get_usage_by_created_by(
+                str(user.provider_id)
+            )
+        else:
+            if not user.selected_organization_id:
+                raise HTTPException(
+                    status_code=400, detail="No organization selected"
+                )
+            usage = await mps_service_key_client.get_usage_by_organization(
+                user.selected_organization_id
+            )
+
+        total_used = usage.get("total_credits_used", 0.0)
+        total_remaining = usage.get("remaining_credits", 0.0)
+
+        return MPSCreditsResponse(
+            total_credits_used=total_used,
+            remaining_credits=total_remaining,
+            total_quota=total_used + total_remaining,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch MPS credits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

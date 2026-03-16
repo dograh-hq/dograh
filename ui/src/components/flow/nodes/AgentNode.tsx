@@ -3,9 +3,10 @@ import { Edit, FileText, Headset, PlusIcon, Trash2Icon, Wrench } from "lucide-re
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
-import type { DocumentResponseSchema, ToolResponse } from "@/client/types.gen";
+import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } from "@/client/types.gen";
 import { DocumentBadges } from "@/components/flow/DocumentBadges";
 import { DocumentSelector } from "@/components/flow/DocumentSelector";
+import { MentionTextarea } from "@/components/flow/MentionTextarea";
 import { ToolBadges } from "@/components/flow/ToolBadges";
 import { ToolSelector } from "@/components/flow/ToolSelector";
 import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
@@ -42,6 +43,7 @@ interface AgentNodeEditFormProps {
     setDocumentUuids: (value: string[]) => void;
     tools: ToolResponse[];
     documents: DocumentResponseSchema[];
+    recordings: RecordingResponseSchema[];
 }
 
 interface AgentNodeProps extends NodeProps {
@@ -50,7 +52,7 @@ interface AgentNodeProps extends NodeProps {
 
 export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
     const { open, setOpen, handleSaveNodeData, handleDeleteNode } = useNodeHandlers({ id });
-    const { saveWorkflow, tools, documents } = useWorkflow();
+    const { saveWorkflow, tools, documents, recordings } = useWorkflow();
 
     // Form state
     const [prompt, setPrompt] = useState(data.prompt);
@@ -229,6 +231,7 @@ export const AgentNode = memo(({ data, selected, id }: AgentNodeProps) => {
                         setDocumentUuids={setDocumentUuids}
                         tools={tools ?? []}
                         documents={documents ?? []}
+                        recordings={recordings ?? []}
                     />
                 )}
             </NodeEditDialog>
@@ -257,6 +260,7 @@ const AgentNodeEditForm = ({
     setDocumentUuids,
     tools,
     documents,
+    recordings,
 }: AgentNodeEditFormProps) => {
     const handleVariableNameChange = (idx: number, value: string) => {
         const newVars = [...variables];
@@ -318,13 +322,12 @@ const AgentNodeEditForm = ({
                 <Label className="text-xs text-muted-foreground">
                     Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
                 </Label>
-                <Textarea
+                <MentionTextarea
                     value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    className="min-h-[100px] max-h-[300px] resize-none"
-                    style={{
-                        overflowY: 'auto'
-                    }}
+                    onChange={setPrompt}
+                    className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
+                    placeholder="Enter a prompt"
+                    recordings={recordings}
                 />
             </div>
 

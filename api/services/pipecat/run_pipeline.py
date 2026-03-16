@@ -27,6 +27,11 @@ from api.services.pipecat.realtime_feedback_observer import (
     RealtimeFeedbackObserver,
     register_turn_log_handlers,
 )
+from api.services.pipecat.recording_audio_cache import (
+    create_recording_audio_fetcher,
+    warm_recording_cache,
+)
+from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_stt_service,
@@ -558,6 +563,12 @@ async def _run_pipeline(
         embeddings_model = user_config.embeddings.model
         embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
 
+    # Check if the workflow has any active recordings so the engine can
+    # include recording response mode instructions in all node prompts.
+    has_recordings = await db_client.has_active_recordings(
+        workflow_id, workflow.organization_id
+    )
+
     engine = PipecatEngine(
         llm=llm,
         workflow=workflow_graph,
@@ -567,6 +578,7 @@ async def _run_pipeline(
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
         embeddings_base_url=embeddings_base_url,
+        has_recordings=has_recordings,
     )
 
     # Create pipeline components
@@ -680,6 +692,27 @@ async def _run_pipeline(
                 abort_immediately=True,
             )
 
+    # Create recording router if workflow has active recordings
+    recording_router = None
+    if has_recordings:
+        fetch_audio = create_recording_audio_fetcher(
+            organization_id=workflow.organization_id,
+            pipeline_sample_rate=audio_config.pipeline_sample_rate,
+        )
+        recording_router = RecordingRouterProcessor(
+            audio_sample_rate=audio_config.pipeline_sample_rate,
+            fetch_recording_audio=fetch_audio,
+        )
+        # Warm the recording cache in the background so audio is ready
+        # before the first playback request.
+        asyncio.create_task(
+            warm_recording_cache(
+                workflow_id=workflow_id,
+                organization_id=workflow.organization_id,
+                pipeline_sample_rate=audio_config.pipeline_sample_rate,
+            )
+        )
+
     # Build the pipeline with the STT mute filter and context controller
     pipeline = build_pipeline(
         transport,
@@ -692,6 +725,7 @@ async def _run_pipeline(
         pipeline_engine_callback_processor,
         pipeline_metrics_aggregator,
         voicemail_detector=voicemail_detector,
+        recording_router=recording_router,
     )
 
     # Create pipeline task with audio configuration

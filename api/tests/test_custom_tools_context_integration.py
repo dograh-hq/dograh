@@ -1,8 +1,8 @@
-"""Integration tests for CustomToolManager with update_llm_context.
+"""Integration tests for CustomToolManager with LLM context updates.
 
 This module tests the full flow of:
 1. CustomToolManager fetching and converting tool schemas
-2. update_llm_context setting those tools on the LLM context
+2. Setting those tools on the LLM context
 3. Verifying the context is properly configured for LLM generation
 """
 
@@ -10,14 +10,30 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
-from api.services.workflow.pipecat_engine_utils import (
+from api.services.workflow.pipecat_engine_custom_tools import (
+    CustomToolManager,
     get_function_schema,
-    update_llm_context,
 )
 from api.tests.conftest import MockToolModel
 from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.processors.aggregators.llm_context import LLMContext
+
+
+def _update_llm_context(context, system_message, functions):
+    """Inline helper replicating the update_llm_context logic for tests."""
+    tools_schema = ToolsSchema(standard_tools=functions)
+    previous_interactions = context.messages
+
+    if previous_interactions and previous_interactions[0]["role"] == "system":
+        messages = [system_message] + previous_interactions[1:]
+    else:
+        messages = [system_message] + previous_interactions
+
+    context.set_messages(messages)
+
+    if functions:
+        context.set_tools(tools_schema)
 
 
 class TestCustomToolManagerContextIntegration:
@@ -69,7 +85,7 @@ class TestCustomToolManagerContextIntegration:
                     "role": "system",
                     "content": "You are a scheduling assistant with access to weather and booking tools.",
                 }
-                update_llm_context(context, new_system, schemas)
+                _update_llm_context(context, new_system, schemas)
 
                 # Verify context was updated correctly
                 messages = context.messages
@@ -195,7 +211,7 @@ class TestCustomToolManagerContextIntegration:
                     "role": "system",
                     "content": "Assistant with calculator and weather tools",
                 }
-                update_llm_context(context, new_system, all_functions)
+                _update_llm_context(context, new_system, all_functions)
 
                 # Verify all tools are present
                 tools = context.tools
@@ -259,7 +275,7 @@ class TestCustomToolManagerContextIntegration:
                 )
 
                 new_system = {"role": "system", "content": "Updated weather assistant"}
-                update_llm_context(context, new_system, schemas)
+                _update_llm_context(context, new_system, schemas)
 
                 messages = context.messages
                 # System + user + assistant(tool_call) + tool + assistant = 5
@@ -296,7 +312,7 @@ class TestCustomToolManagerContextIntegration:
                 context.set_messages([{"role": "system", "content": "Old"}])
 
                 new_system = {"role": "system", "content": "No tools available"}
-                update_llm_context(context, new_system, [])
+                _update_llm_context(context, new_system, [])
 
                 # Context should have updated message but no tools set
                 assert context.messages[0]["content"] == "No tools available"
@@ -362,7 +378,7 @@ class TestCustomToolManagerContextIntegration:
                 # Update context - pass schema directly
                 context = LLMContext()
                 context.set_messages([{"role": "system", "content": "Old"}])
-                update_llm_context(
+                _update_llm_context(
                     context, {"role": "system", "content": "Order assistant"}, schemas
                 )
 

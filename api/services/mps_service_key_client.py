@@ -285,6 +285,90 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def get_usage_by_created_by(self, created_by: str) -> dict:
+        """
+        Get aggregated usage for all service keys created by a user (OSS mode).
+
+        Args:
+            created_by: The user's provider ID
+
+        Returns:
+            Dictionary containing total_credits_used and remaining_credits
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/service-keys/usage/created-by",
+                json={"created_by": created_by},
+                headers=self._get_headers(created_by=created_by),
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "total_credits_used": data.get("total_credits_used", 0.0),
+                    "remaining_credits": data.get("remaining_credits", 0.0),
+                }
+            else:
+                logger.error(
+                    f"Failed to get usage by created_by: {response.status_code} - {response.text}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Failed to get usage by created_by: {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+
+    async def get_usage_by_organization(self, organization_id: int) -> dict:
+        """
+        Get aggregated usage for all service keys belonging to an organization (hosted mode).
+
+        Args:
+            organization_id: The organization's ID
+
+        Returns:
+            Dictionary containing total_credits_used and remaining_credits
+        """
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/service-keys/usage/organization",
+                json={"organization_id": organization_id},
+                headers=self._get_headers(organization_id=organization_id),
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "total_credits_used": data.get("total_credits_used", 0.0),
+                    "remaining_credits": data.get("remaining_credits", 0.0),
+                }
+            else:
+                logger.error(
+                    f"Failed to get usage by organization: {response.status_code} - {response.text}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Failed to get usage by organization: {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+
+    def validate_service_key(self, service_key: str) -> bool:
+        """
+        Synchronously validate a Dograh service key by checking usage via MPS.
+
+        Returns True if the key is valid, False otherwise.
+        """
+        try:
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(
+                    f"{self.base_url}/api/v1/service-keys/usage",
+                    json={"service_key": service_key},
+                    headers=self._get_headers(),
+                )
+                return response.status_code == 200
+        except Exception:
+            logger.warning("Failed to validate Dograh service key via MPS")
+            return False
+
     async def get_voices(
         self,
         provider: str,

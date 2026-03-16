@@ -2,6 +2,8 @@ import { StackHandler } from "@stackframe/stack";
 
 import { getAuthProvider } from "@/lib/auth/config";
 
+import { BackButton } from "./BackButton";
+
 export default async function Handler(props: unknown) {
   const authProvider = await getAuthProvider();
 
@@ -18,9 +20,16 @@ export default async function Handler(props: unknown) {
   const { getStackServerApp } = await import("@/lib/auth/server");
   const app = await getStackServerApp();
 
-  return <StackHandler
-    fullPage
-    app={app!}
-    routeProps={props}
-  />;
+  return (
+    <div className="flex flex-col h-screen">
+      <BackButton />
+      <div className="flex-1 overflow-auto">
+        <StackHandler
+          fullPage
+          app={app!}
+          routeProps={props}
+        />
+      </div>
+    </div>
+  );
 }

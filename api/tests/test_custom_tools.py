@@ -13,14 +13,12 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from api.services.workflow.pipecat_engine_utils import (
-    get_function_schema,
-    update_llm_context,
-)
+from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
@@ -862,11 +860,27 @@ class TestCustomToolManagerUnit:
             assert result_received["status"] == "success"
 
 
+def _update_llm_context(context, system_message, functions):
+    """Inline helper replicating the old update_llm_context for tests."""
+    tools_schema = ToolsSchema(standard_tools=functions)
+    previous_interactions = context.messages
+
+    if previous_interactions and previous_interactions[0]["role"] == "system":
+        messages = [system_message] + previous_interactions[1:]
+    else:
+        messages = [system_message] + previous_interactions
+
+    context.set_messages(messages)
+
+    if functions:
+        context.set_tools(tools_schema)
+
+
 class TestUpdateLLMContext:
-    """Tests for update_llm_context function."""
+    """Tests for _update_llm_context inline logic."""
 
     def test_replaces_system_message(self):
-        """Test that update_llm_context replaces existing system messages."""
+        """Test that _update_llm_context replaces existing system messages."""
         context = LLMContext()
         context.set_messages(
             [
@@ -877,7 +891,7 @@ class TestUpdateLLMContext:
         )
 
         new_system = {"role": "system", "content": "New system message"}
-        update_llm_context(context, new_system, [])
+        _update_llm_context(context, new_system, [])
 
         messages = context.messages
         # Should have new system message at the start
@@ -902,7 +916,7 @@ class TestUpdateLLMContext:
         )
 
         new_system = {"role": "system", "content": "New prompt"}
-        update_llm_context(context, new_system, [])
+        _update_llm_context(context, new_system, [])
 
         messages = context.messages
         assert len(messages) == 5
@@ -923,7 +937,7 @@ class TestUpdateLLMContext:
         ]
 
         new_system = {"role": "system", "content": "New prompt with tools"}
-        update_llm_context(context, new_system, functions)
+        _update_llm_context(context, new_system, functions)
 
         # Verify tools were set
         tools = context.tools
@@ -936,7 +950,7 @@ class TestUpdateLLMContext:
         context.set_messages([{"role": "system", "content": "Old"}])
 
         new_system = {"role": "system", "content": "New prompt without tools"}
-        update_llm_context(context, new_system, [])
+        _update_llm_context(context, new_system, [])
 
         # Tools should not be set (or remain None)
         # Note: The function only calls set_tools if functions is truthy
@@ -952,7 +966,7 @@ class TestUpdateLLMContext:
         new_system = {"role": "system", "content": "Initial prompt"}
         functions = [get_function_schema("test_func", "A test function")]
 
-        update_llm_context(context, new_system, functions)
+        _update_llm_context(context, new_system, functions)
 
         messages = context.messages
         assert len(messages) == 1

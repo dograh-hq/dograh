@@ -186,7 +186,7 @@ class TestPipecatEngineToolCalls:
         )
 
         # Assert that the context was updated with END_CALL_SYSTEM_PROMPT
-        assert context.messages[0]["content"] == END_CALL_SYSTEM_PROMPT
+        assert llm._settings.system_instruction == END_CALL_SYSTEM_PROMPT
 
     @pytest.mark.asyncio
     async def test_parallel_builtin_and_transition_calls_through_engine_1(
@@ -233,7 +233,7 @@ class TestPipecatEngineToolCalls:
         )
 
         # Assert that the context was updated with END_CALL_SYSTEM_PROMPT
-        assert context.messages[0]["content"] == END_CALL_SYSTEM_PROMPT
+        assert llm._settings.system_instruction == END_CALL_SYSTEM_PROMPT
 
     @pytest.mark.asyncio
     async def test_parallel_builtin_and_transition_calls_through_engine_with_text(
@@ -281,7 +281,7 @@ class TestPipecatEngineToolCalls:
         )
 
         # Assert that the context was updated with END_CALL_SYSTEM_PROMPT
-        assert context.messages[0]["content"] == END_CALL_SYSTEM_PROMPT
+        assert llm._settings.system_instruction == END_CALL_SYSTEM_PROMPT
 
     @pytest.mark.asyncio
     async def test_single_transition_call_through_engine(
@@ -315,4 +315,4 @@ class TestPipecatEngineToolCalls:
         )
 
         # Assert that the context was updated with END_CALL_SYSTEM_PROMPT
-        assert context.messages[0]["content"] == END_CALL_SYSTEM_PROMPT
+        assert llm._settings.system_instruction == END_CALL_SYSTEM_PROMPT

@@ -1,11 +1,13 @@
 import { createContext, useContext } from 'react';
 
 import type { DocumentResponseSchema, ToolResponse } from '@/client/types.gen';
+import type { RecordingResponseSchema } from '@/client/types.gen';
 
 interface WorkflowContextType {
     saveWorkflow: (updateWorkflowDefinition?: boolean) => Promise<void>;
     documents?: DocumentResponseSchema[];
     tools?: ToolResponse[];
+    recordings?: RecordingResponseSchema[];
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);

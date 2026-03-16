@@ -1,4 +1,4 @@
-from typing import Dict, Optional, TypedDict
+from typing import Optional, TypedDict
 
 import openai
 from deepgram import DeepgramClient
@@ -12,6 +12,7 @@ from api.schemas.user_configuration import (
     UserConfiguration,
 )
 from api.services.configuration.registry import ServiceConfig, ServiceProviders
+from api.services.mps_service_key_client import mps_service_key_client
 
 
 class APIKeyStatus(TypedDict):
@@ -25,7 +26,6 @@ class APIKeyStatusResponse(TypedDict):
 
 class UserConfigurationValidator:
     def __init__(self):
-        self._provider_api_key_validity_status: Dict[str, bool] = {}
         self._validator_map = {
             ServiceProviders.OPENAI.value: self._check_openai_api_key,
             ServiceProviders.DEEPGRAM.value: self._check_deepgram_api_key,
@@ -73,8 +73,13 @@ class UserConfigurationValidator:
         provider = service_config.provider
         api_key = service_config.api_key
 
-        if not self._check_api_key(provider, api_key):
-            return [{"model": service_name, "message": f"Invalid {provider} API key"}]
+        try:
+            if not self._check_api_key(provider, api_key):
+                return [
+                    {"model": service_name, "message": f"Invalid {provider} API key"}
+                ]
+        except ValueError as e:
+            return [{"model": service_name, "message": str(e)}]
 
         return []
 
@@ -87,40 +92,28 @@ class UserConfigurationValidator:
         return validator(provider, api_key)
 
     def _check_openai_api_key(self, model: str, api_key: str) -> bool:
-        if model in self._provider_api_key_validity_status:
-            return self._provider_api_key_validity_status[model]
-
         client = openai.OpenAI(api_key=api_key)
         try:
             client.models.list()
-            self._provider_api_key_validity_status[model] = True
+            return True
         except openai.AuthenticationError:
-            self._provider_api_key_validity_status[model] = False
-        return self._provider_api_key_validity_status[model]
+            return False
 
     def _check_deepgram_api_key(self, model: str, api_key: str) -> bool:
-        if model in self._provider_api_key_validity_status:
-            return self._provider_api_key_validity_status[model]
-
         try:
             deepgram = DeepgramClient(api_key=api_key)
             deepgram.manage.v1.projects.list()
-            self._provider_api_key_validity_status[model] = True
+            return True
         except Exception:
-            self._provider_api_key_validity_status[model] = False
-        return self._provider_api_key_validity_status[model]
+            return False
 
     def _check_groq_api_key(self, model: str, api_key: str) -> bool:
-        if model in self._provider_api_key_validity_status:
-            return self._provider_api_key_validity_status[model]
-
         client = Groq(api_key=api_key)
         try:
             client.models.list()
-            self._provider_api_key_validity_status[model] = True
+            return True
         except Exception:
-            self._provider_api_key_validity_status[model] = False
-        return self._provider_api_key_validity_status[model]
+            return False
 
     def _validate_elevenlabs_api_key(self, model: str, api_key: str) -> bool:
         return True
@@ -135,7 +128,12 @@ class UserConfigurationValidator:
         return True
 
     def _check_dograh_api_key(self, model: str, api_key: str) -> bool:
-        return True
+        if api_key.startswith("dgr"):
+            raise ValueError(
+                "You provided a Dograh API key (dgr...) instead of a service key. "
+                "Please use a service key (mps...)."
+            )
+        return mps_service_key_client.validate_service_key(api_key)
 
     def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
         return True

@@ -996,6 +996,77 @@ class KnowledgeBaseDocumentModel(Base):
     )
 
 
+class WorkflowRecordingModel(Base):
+    """Model for storing audio recordings scoped to a workflow and TTS configuration.
+
+    Recordings are used in hybrid prompts where parts of the output are pre-recorded
+    audio rather than dynamically generated TTS.
+    """
+
+    __tablename__ = "workflow_recordings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Short globally unique ID (e.g. "xbhfha3k") used in prompts
+    recording_id = Column(String(16), unique=True, nullable=False, index=True)
+
+    # Scoping
+    workflow_id = Column(
+        Integer, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # TTS configuration scope
+    tts_provider = Column(String, nullable=False)
+    tts_model = Column(String, nullable=False)
+    tts_voice_id = Column(String, nullable=False)
+
+    # Content
+    transcript = Column(Text, nullable=False)
+
+    # Storage
+    storage_key = Column(String, nullable=False)
+    storage_backend = Column(
+        Enum("s3", "minio", name="recording_storage_backend"),
+        nullable=False,
+        default="s3",
+        server_default=text("'s3'::recording_storage_backend"),
+    )
+
+    # Extra metadata (file_size_bytes, duration_seconds, original_filename, mime_type, etc.)
+    recording_metadata = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+
+    # Audit
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    # Soft delete
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    # Relationships
+    workflow = relationship("WorkflowModel")
+    organization = relationship("OrganizationModel")
+    created_by_user = relationship("UserModel")
+
+    # Indexes
+    __table_args__ = (
+        Index("ix_workflow_recordings_workflow_id", "workflow_id"),
+        Index("ix_workflow_recordings_org_id", "organization_id"),
+        Index("ix_workflow_recordings_recording_id", "recording_id"),
+        Index(
+            "ix_workflow_recordings_tts_scope",
+            "workflow_id",
+            "tts_provider",
+            "tts_model",
+            "tts_voice_id",
+        ),
+    )
+
+
 class KnowledgeBaseChunkModel(Base):
     """Model for storing document chunks with vector embeddings.
 

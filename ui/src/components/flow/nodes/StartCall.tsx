@@ -4,8 +4,10 @@ import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import type { DocumentResponseSchema, ToolResponse } from "@/client/types.gen";
+import type { RecordingResponseSchema } from "@/client/types.gen";
 import { DocumentBadges } from "@/components/flow/DocumentBadges";
 import { DocumentSelector } from "@/components/flow/DocumentSelector";
+import { MentionTextarea } from "@/components/flow/MentionTextarea";
 import { ToolBadges } from "@/components/flow/ToolBadges";
 import { ToolSelector } from "@/components/flow/ToolSelector";
 import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
@@ -48,6 +50,7 @@ interface StartCallEditFormProps {
     setDocumentUuids: (value: string[]) => void;
     tools: ToolResponse[];
     documents: DocumentResponseSchema[];
+    recordings: RecordingResponseSchema[];
 }
 
 interface StartCallNodeProps extends NodeProps {
@@ -59,7 +62,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
         id,
         additionalData: { is_start: true }
     });
-    const { saveWorkflow, tools, documents } = useWorkflow();
+    const { saveWorkflow, tools, documents, recordings } = useWorkflow();
 
     // Form state
     const [prompt, setPrompt] = useState(data.prompt ?? "");
@@ -248,6 +251,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                         setDocumentUuids={setDocumentUuids}
                         tools={tools ?? []}
                         documents={documents ?? []}
+                        recordings={recordings ?? []}
                     />
                 )}
             </NodeEditDialog>
@@ -282,6 +286,7 @@ const StartCallEditForm = ({
     setDocumentUuids,
     tools,
     documents,
+    recordings,
 }: StartCallEditFormProps) => {
     const handleVariableNameChange = (idx: number, value: string) => {
         const newVars = [...variables];
@@ -325,14 +330,12 @@ const StartCallEditForm = ({
             <Label className="text-xs text-muted-foreground">
                 Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
             </Label>
-            <Textarea
+            <MentionTextarea
                 value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                className="min-h-[100px] max-h-[300px] resize-none"
-                style={{
-                    overflowY: 'auto'
-                }}
+                onChange={setPrompt}
+                className="min-h-[100px] max-h-[300px] resize-none overflow-y-auto"
                 placeholder="Enter a prompt"
+                recordings={recordings}
             />
             <div className="flex items-center space-x-2">
                 <Switch id="allow-interrupt" checked={allowInterrupt} onCheckedChange={setAllowInterrupt} />

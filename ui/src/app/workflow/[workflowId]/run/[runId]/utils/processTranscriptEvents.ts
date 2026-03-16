@@ -69,7 +69,7 @@ export function processTranscriptEvents(events: TranscriptEvent[]): ProcessedMes
         } else if (event.type === 'bot-text') {
             // Combine consecutive bot-text from the same turn
             if (currentBotText && currentBotText.event.turn === event.turn) {
-                currentBotText.text = currentBotText.text + ' ' + event.text;
+                currentBotText.text = currentBotText.text + event.text;
             } else {
                 flushBotText();
                 currentBotText = { event, text: event.text };

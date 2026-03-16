@@ -755,6 +755,12 @@ export type LoginRequest = {
     password: string;
 };
 
+export type MpsCreditsResponse = {
+    total_credits_used: number;
+    remaining_credits: number;
+    total_quota: number;
+};
+
 export type PresignedUploadUrlRequest = {
     /**
      * CSV filename
@@ -788,6 +794,116 @@ export type ProcessDocumentRequestSchema = {
      * S3 key of the uploaded file
      */
     s3_key: string;
+};
+
+/**
+ * Request schema for creating a recording record after upload.
+ */
+export type RecordingCreateRequestSchema = {
+    /**
+     * Short recording ID from upload step
+     */
+    recording_id: string;
+    /**
+     * Workflow ID
+     */
+    workflow_id: number;
+    /**
+     * TTS provider (e.g. elevenlabs)
+     */
+    tts_provider: string;
+    /**
+     * TTS model name
+     */
+    tts_model: string;
+    /**
+     * TTS voice identifier
+     */
+    tts_voice_id: string;
+    /**
+     * User-provided transcript of the recording
+     */
+    transcript: string;
+    /**
+     * Storage key from upload step
+     */
+    storage_key: string;
+    /**
+     * Optional metadata (file_size, duration, etc.)
+     */
+    metadata?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * Response schema for list of recordings.
+ */
+export type RecordingListResponseSchema = {
+    recordings: Array<RecordingResponseSchema>;
+    total: number;
+};
+
+/**
+ * Response schema for a single recording.
+ */
+export type RecordingResponseSchema = {
+    id: number;
+    recording_id: string;
+    workflow_id: number;
+    organization_id: number;
+    tts_provider: string;
+    tts_model: string;
+    tts_voice_id: string;
+    transcript: string;
+    storage_key: string;
+    storage_backend: string;
+    metadata: {
+        [key: string]: unknown;
+    };
+    created_by: number;
+    created_at: string;
+    is_active: boolean;
+};
+
+/**
+ * Request schema for getting a presigned upload URL.
+ */
+export type RecordingUploadRequestSchema = {
+    /**
+     * Workflow ID this recording belongs to
+     */
+    workflow_id: number;
+    /**
+     * Original filename of the audio file
+     */
+    filename: string;
+    /**
+     * MIME type of the audio file
+     */
+    mime_type?: string;
+    /**
+     * File size in bytes (max 5MB)
+     */
+    file_size: number;
+};
+
+/**
+ * Response schema with presigned upload URL.
+ */
+export type RecordingUploadResponseSchema = {
+    /**
+     * Presigned URL for uploading the audio
+     */
+    upload_url: string;
+    /**
+     * Short unique recording ID
+     */
+    recording_id: string;
+    /**
+     * Storage key where file will be uploaded
+     */
+    storage_key: string;
 };
 
 export type RetryConfigRequest = {
@@ -4268,6 +4384,39 @@ export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponse
 
 export type GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponse = GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses[keyof GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses];
 
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/usage/mps-credits';
+};
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetError = GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors[keyof GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetErrors];
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MpsCreditsResponse;
+};
+
+export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponse = GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses[keyof GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses];
+
 export type GetUsageHistoryApiV1OrganizationsUsageRunsGetData = {
     body?: never;
     headers?: {
@@ -5065,6 +5214,155 @@ export type SearchChunksApiV1KnowledgeBaseSearchPostResponses = {
 
 export type SearchChunksApiV1KnowledgeBaseSearchPostResponse = SearchChunksApiV1KnowledgeBaseSearchPostResponses[keyof SearchChunksApiV1KnowledgeBaseSearchPostResponses];
 
+export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostData = {
+    body: RecordingUploadRequestSchema;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow-recordings/upload-url';
+};
+
+export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostError = GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostErrors[keyof GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostErrors];
+
+export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RecordingUploadResponseSchema;
+};
+
+export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponse = GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponses[keyof GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponses];
+
+export type ListRecordingsApiV1WorkflowRecordingsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query: {
+        /**
+         * Workflow ID
+         */
+        workflow_id: number;
+        /**
+         * Filter by TTS provider
+         */
+        tts_provider?: string | null;
+        /**
+         * Filter by TTS model
+         */
+        tts_model?: string | null;
+        /**
+         * Filter by TTS voice ID
+         */
+        tts_voice_id?: string | null;
+    };
+    url: '/api/v1/workflow-recordings/';
+};
+
+export type ListRecordingsApiV1WorkflowRecordingsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListRecordingsApiV1WorkflowRecordingsGetError = ListRecordingsApiV1WorkflowRecordingsGetErrors[keyof ListRecordingsApiV1WorkflowRecordingsGetErrors];
+
+export type ListRecordingsApiV1WorkflowRecordingsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RecordingListResponseSchema;
+};
+
+export type ListRecordingsApiV1WorkflowRecordingsGetResponse = ListRecordingsApiV1WorkflowRecordingsGetResponses[keyof ListRecordingsApiV1WorkflowRecordingsGetResponses];
+
+export type CreateRecordingApiV1WorkflowRecordingsPostData = {
+    body: RecordingCreateRequestSchema;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow-recordings/';
+};
+
+export type CreateRecordingApiV1WorkflowRecordingsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateRecordingApiV1WorkflowRecordingsPostError = CreateRecordingApiV1WorkflowRecordingsPostErrors[keyof CreateRecordingApiV1WorkflowRecordingsPostErrors];
+
+export type CreateRecordingApiV1WorkflowRecordingsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RecordingResponseSchema;
+};
+
+export type CreateRecordingApiV1WorkflowRecordingsPostResponse = CreateRecordingApiV1WorkflowRecordingsPostResponses[keyof CreateRecordingApiV1WorkflowRecordingsPostResponses];
+
+export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        recording_id: string;
+    };
+    query?: never;
+    url: '/api/v1/workflow-recordings/{recording_id}';
+};
+
+export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteError = DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteErrors[keyof DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteErrors];
+
+export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type SignupApiV1AuthSignupPostData = {
     body: SignupRequest;
     path?: never;
@@ -5180,5 +5478,5 @@ export type HealthApiV1HealthGetResponses = {
 export type HealthApiV1HealthGetResponse = HealthApiV1HealthGetResponses[keyof HealthApiV1HealthGetResponses];
 
 export type ClientOptions = {
-    baseUrl: 'http://127.0.0.1:8000' | (string & {});
+    baseUrl: 'https://app.dograh.com' | 'http://localhost:8000' | (string & {});
 };

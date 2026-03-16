@@ -68,9 +68,7 @@ class ContextCapturingMockLLM(MockLLMService):
             {
                 "step": self._current_step,
                 "messages": messages_snapshot,
-                "system_prompt": messages_snapshot[0]["content"]
-                if messages_snapshot
-                else None,
+                "system_prompt": self._settings.system_instruction,
             }
         )
 
@@ -101,12 +99,10 @@ class ContextCapturingMockLLM(MockLLMService):
         return False
 
     def get_system_prompt_at_step(self, step: int) -> str:
-        """Get the system prompt from context at a specific step."""
+        """Get the system prompt from settings at a specific step."""
         ctx = self.get_context_at_step(step)
-        if ctx and ctx["messages"]:
-            first_msg = ctx["messages"][0]
-            if first_msg.get("role") == "system":
-                return first_msg.get("content", "")
+        if ctx:
+            return ctx.get("system_prompt") or ""
         return ""
 
 

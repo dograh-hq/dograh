@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.17.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.16.0...dograh-v1.17.0) (2026-03-17)
+
+
+### Features
+
+* add early voicemail detection ([7717810](https://github.com/dograh-hq/dograh/commit/771781096e959d00580d46f6b71fa6fa0709e9cb))
+* add hybrid text + recording functionality in agents ([#191](https://github.com/dograh-hq/dograh/issues/191)) ([494c60d](https://github.com/dograh-hq/dograh/commit/494c60d774c074020f8edf240a62d5bc316c6438))
+* add message before tool calls ([#185](https://github.com/dograh-hq/dograh/issues/185)) ([ec58356](https://github.com/dograh-hq/dograh/commit/ec5835627697757bd0d53a8b6c82a782d2b1f868))
+* allow multiple API keys ([#186](https://github.com/dograh-hq/dograh/issues/186)) ([57e8768](https://github.com/dograh-hq/dograh/commit/57e8768e0ba927a519162f8186513db9ba361b4d))
+* download campaign report ([4d80726](https://github.com/dograh-hq/dograh/commit/4d807266a71e1f0657b2bb7be73b5114a778403f))
+* hang up cloudonix machine answered call if feature flag enabled ([#182](https://github.com/dograh-hq/dograh/issues/182)) ([3c5bc68](https://github.com/dograh-hq/dograh/commit/3c5bc688eddde55395611fd0345229c524b33301))
+
+
+### Bug Fixes
+
+* add cloudonix call hangup strategy ([#181](https://github.com/dograh-hq/dograh/issues/181)) ([7b77721](https://github.com/dograh-hq/dograh/commit/7b777219645b73ea28d778932e0d8f3b8cc963f1))
+* cold start for gemini ([a381b36](https://github.com/dograh-hq/dograh/commit/a381b36c95df93bce449bea891ff6d67f3f22771))
+* fix npm run build ([ff92c6a](https://github.com/dograh-hq/dograh/commit/ff92c6ae5c46fd0e551b2df278b2b9638d57d862))
+* handle delayed transcription in ExternalTurnStopStrategy ([77a55fc](https://github.com/dograh-hq/dograh/commit/77a55fcfe3405e6f2c10bc5c21e180da47cadc48))
+
+
+### Documentation
+
+* add developer and api reference tabs ([#190](https://github.com/dograh-hq/dograh/issues/190)) ([f075bcb](https://github.com/dograh-hq/dograh/commit/f075bcb623bb089b6073e1f71c43f36d15e32f77))
+* add documentation links to nodes & tools ([#184](https://github.com/dograh-hq/dograh/issues/184)) ([5698338](https://github.com/dograh-hq/dograh/commit/56983382153a4fa6009c0bf701ce32f564ffa522))
+* update dograh overview link ([1b03191](https://github.com/dograh-hq/dograh/commit/1b03191cf80e9d8b60dfed35dbb018c0ff6dfc47))
+
 ## [1.16.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.15.0...dograh-v1.16.0) (2026-03-05)
 
 

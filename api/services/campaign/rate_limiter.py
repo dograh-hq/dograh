@@ -297,15 +297,19 @@ class RateLimiter:
             redis.call('ZADD', key, 0, member)
         end
 
-        -- Find an available number (score == 0)
-        local available = redis.call('ZRANGEBYSCORE', key, 0, 0, 'LIMIT', 0, 1)
+        -- Find all available numbers (score == 0)
+        local available = redis.call('ZRANGEBYSCORE', key, 0, 0)
         if #available == 0 then
             return nil
         end
 
+        -- Pick a random number from the available pool for uniform distribution
+        local idx = math.random(#available)
+        local chosen = available[idx]
+
         -- Mark as in-use with current timestamp
-        redis.call('ZADD', key, now, available[1])
-        return available[1]
+        redis.call('ZADD', key, now, chosen)
+        return chosen
         """
 
         try:

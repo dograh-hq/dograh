@@ -594,7 +594,10 @@ class PipecatEngine:
         # Mute the pipeline
         self._mute_pipeline = True
 
-        if reason != EndTaskReason.PIPELINE_ERROR.value:
+        if reason not in (
+            EndTaskReason.PIPELINE_ERROR.value,
+            EndTaskReason.VOICEMAIL_DETECTED.value,
+        ):
             # Perform final variable extraction synchronously before ending
             await self._perform_variable_extraction_if_needed(
                 self._current_node, run_in_background=False

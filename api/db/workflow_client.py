@@ -206,7 +206,7 @@ class WorkflowClient(BaseDBClient):
     async def update_workflow(
         self,
         workflow_id: int,
-        name: str,
+        name: str | None,
         workflow_definition: dict | None,
         template_context_variables: dict | None,
         workflow_configurations: dict | None,
@@ -249,7 +249,8 @@ class WorkflowClient(BaseDBClient):
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
-            workflow.name = name
+            if name is not None:
+                workflow.name = name
 
             if template_context_variables is not None:
                 workflow.template_context_variables = template_context_variables

@@ -12,7 +12,7 @@ from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggr
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
-from pipecat.frames.frames import Frame, LLMContextFrame
+from pipecat.frames.frames import Frame, LLMContextFrame, TTSSpeakFrame
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.enums import EndTaskReason
@@ -47,32 +47,44 @@ def register_event_handlers(
         sample_rate=sample_rate,
         num_channels=num_channels,
     )
-    # Track both events to ensure LLM is only triggered after both occur
+    # Track both events to ensure the initial response is only triggered after both occur
     ready_state = {
         "pipeline_started": False,
         "client_connected": False,
-        "llm_triggered": False,
+        "initial_response_triggered": False,
     }
 
-    async def maybe_trigger_llm():
-        """Trigger LLM only after both pipeline_started and client_connected events."""
+    async def maybe_trigger_initial_response():
+        """Start the conversation after both pipeline_started and client_connected events.
+
+        If the start node has a greeting configured, play it directly via TTS.
+        Otherwise, trigger an LLM generation for the opening message.
+        """
         if (
             ready_state["pipeline_started"]
             and ready_state["client_connected"]
-            and not ready_state["llm_triggered"]
+            and not ready_state["initial_response_triggered"]
         ):
-            ready_state["llm_triggered"] = True
-            logger.debug(
-                "Both pipeline_started and client_connected received - triggering initial LLM generation"
-            )
-            await engine.llm.queue_frame(LLMContextFrame(engine.context))
+            ready_state["initial_response_triggered"] = True
+
+            greeting = engine.get_start_greeting()
+            if greeting:
+                logger.debug(
+                    "Both pipeline_started and client_connected received - playing greeting via TTS"
+                )
+                await task.queue_frame(TTSSpeakFrame(greeting))
+            else:
+                logger.debug(
+                    "Both pipeline_started and client_connected received - triggering initial LLM generation"
+                )
+                await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _participant):
         logger.debug("In on_client_connected callback handler")
         await audio_buffer.start_recording()
         ready_state["client_connected"] = True
-        await maybe_trigger_llm()
+        await maybe_trigger_initial_response()
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(_transport, _participant):
@@ -93,7 +105,7 @@ def register_event_handlers(
     async def on_pipeline_started(_task: PipelineTask, _frame: Frame):
         logger.debug("In on_pipeline_started callback handler")
         ready_state["pipeline_started"] = True
-        await maybe_trigger_llm()
+        await maybe_trigger_initial_response()
 
     @task.event_handler("on_pipeline_error")
     async def on_pipeline_error(_task: PipelineTask, frame: Frame):

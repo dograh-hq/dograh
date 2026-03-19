@@ -554,6 +554,13 @@ class PipecatEngine:
             # Setup LLM Context with Prompts and Functions
             await self._setup_llm_context(node)
 
+    def get_start_greeting(self) -> Optional[str]:
+        """Return the rendered greeting for the start node, or None if not configured."""
+        start_node = self.workflow.nodes.get(self.workflow.start_node_id)
+        if start_node and start_node.greeting:
+            return self._format_prompt(start_node.greeting)
+        return None
+
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""
         if node.is_static:

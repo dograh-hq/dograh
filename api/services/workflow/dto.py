@@ -53,6 +53,7 @@ class NodeDataDTO(BaseModel):
     extraction_prompt: Optional[str] = None
     extraction_variables: Optional[list[ExtractionVariableDTO]] = None
     add_global_prompt: bool = True
+    greeting: Optional[str] = None
     wait_for_user_response: bool = False
     wait_for_user_response_timeout: Optional[float] = None
     detect_voicemail: bool = False

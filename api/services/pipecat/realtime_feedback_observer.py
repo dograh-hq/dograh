@@ -41,6 +41,7 @@ from pipecat.frames.frames import (
     MetricsFrame,
     StopFrame,
     TranscriptionFrame,
+    TTSSpeakFrame,
 )
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
@@ -202,6 +203,17 @@ class RealtimeFeedbackObserver(BaseObserver):
                         "final": True,
                         "user_id": frame.user_id,
                         "timestamp": frame.timestamp,
+                    },
+                }
+            )
+        # Handle TTSSpeakFrame (e.g. greeting) - send immediately via WS only
+        # Final turn text is persisted via on_assistant_turn_stopped to avoid duplication
+        elif isinstance(frame, TTSSpeakFrame):
+            await self._send_ws(
+                {
+                    "type": RealtimeFeedbackType.BOT_TEXT.value,
+                    "payload": {
+                        "text": frame.text,
                     },
                 }
             )

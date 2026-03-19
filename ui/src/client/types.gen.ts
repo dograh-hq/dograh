@@ -1238,7 +1238,7 @@ export type UpdateToolRequest = {
 };
 
 export type UpdateWorkflowRequest = {
-    name: string;
+    name?: string | null;
     workflow_definition?: {
         [key: string]: unknown;
     } | null;
@@ -1266,16 +1266,16 @@ export type UsageHistoryResponse = {
 
 export type UserConfigurationRequestResponseSchema = {
     llm?: {
-        [key: string]: string | number | Array<string>;
+        [key: string]: string | number | Array<string> | null;
     } | null;
     tts?: {
-        [key: string]: string | number | Array<string>;
+        [key: string]: string | number | Array<string> | null;
     } | null;
     stt?: {
-        [key: string]: string | number | Array<string>;
+        [key: string]: string | number | Array<string> | null;
     } | null;
     embeddings?: {
-        [key: string]: string | number | Array<string>;
+        [key: string]: string | number | Array<string> | null;
     } | null;
     test_phone_number?: string | null;
     timezone?: string | null;

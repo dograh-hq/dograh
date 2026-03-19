@@ -6,7 +6,7 @@ import {
     Panel,
     ReactFlow,
 } from "@xyflow/react";
-import { BookA, BrushCleaning, Maximize2, Mic, Minus, Plus, Rocket, Settings, Variable } from 'lucide-react';
+import { BookA, BrushCleaning, Maximize2, Mic, Minus, PhoneOff, Plus, Rocket, Settings, Variable } from 'lucide-react';
 import React, { useEffect, useMemo, useState } from 'react';
 
 import { listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
@@ -25,6 +25,7 @@ import { EmbedDialog } from './components/EmbedDialog';
 import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { RecordingsDialog } from './components/RecordingsDialog';
 import { TemplateContextVariablesDialog } from './components/TemplateContextVariablesDialog';
+import { VoicemailDetectionDialog } from './components/VoicemailDetectionDialog';
 import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
@@ -69,6 +70,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [isRecordingsDialogOpen, setIsRecordingsDialogOpen] = useState(false);
+    const [isVoicemailDialogOpen, setIsVoicemailDialogOpen] = useState(false);
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -288,6 +290,22 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                                             <Button
                                                 variant="outline"
                                                 size="icon"
+                                                onClick={() => setIsVoicemailDialogOpen(true)}
+                                                className="bg-white shadow-sm hover:shadow-md"
+                                            >
+                                                <PhoneOff className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="left">
+                                            <p>Voicemail Detection</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
                                                 onClick={() => setIsEmbedDialogOpen(true)}
                                                 className="bg-white shadow-sm hover:shadow-md"
                                             >
@@ -427,6 +445,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     onOpenChange={setIsRecordingsDialogOpen}
                     workflowId={workflowId}
                     onRecordingsChange={setRecordings}
+                />
+
+                <VoicemailDetectionDialog
+                    open={isVoicemailDialogOpen}
+                    onOpenChange={setIsVoicemailDialogOpen}
+                    workflowConfigurations={workflowConfigurations}
+                    onSave={saveWorkflowConfigurations}
                 />
             </div>
         </WorkflowProvider>

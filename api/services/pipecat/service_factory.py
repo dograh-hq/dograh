@@ -5,6 +5,7 @@ from loguru import logger
 
 from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
+from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
 from pipecat.services.cartesia.stt import CartesiaSTTService
 from pipecat.services.cartesia.tts import CartesiaTTSService, CartesiaTTSSettings
@@ -268,56 +269,91 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         )
 
 
-def create_llm_service(user_config):
-    """Create and return appropriate LLM service based on user configuration"""
-    model = user_config.llm.model
-    logger.info(
-        f"Creating LLM service: provider={user_config.llm.provider}, model={model}"
-    )
-    if user_config.llm.provider == ServiceProviders.OPENAI.value:
+def create_llm_service_from_provider(
+    provider: str,
+    model: str,
+    api_key: str,
+    *,
+    base_url: str | None = None,
+    endpoint: str | None = None,
+    aws_access_key: str | None = None,
+    aws_secret_key: str | None = None,
+    aws_region: str | None = None,
+):
+    """Create an LLM service from explicit provider/model/api_key.
+
+    Also used by create_llm_service which extracts these from user_config.
+    """
+    logger.info(f"Creating LLM service: provider={provider}, model={model}")
+    if provider == ServiceProviders.OPENAI.value:
         if "gpt-5" in model:
             return OpenAILLMService(
-                api_key=user_config.llm.api_key,
+                api_key=api_key,
                 settings=OpenAILLMSettings(
                     model=model,
                     extra={"reasoning_effort": "minimal", "verbosity": "low"},
                 ),
             )
-        else:
-            return OpenAILLMService(
-                api_key=user_config.llm.api_key,
-                settings=OpenAILLMSettings(model=model, temperature=0.1),
-            )
-    elif user_config.llm.provider == ServiceProviders.GROQ.value:
-        print(
-            f"Creating Groq LLM service with API key: {user_config.llm.api_key} and model: {model}"
+        return OpenAILLMService(
+            api_key=api_key,
+            settings=OpenAILLMSettings(model=model, temperature=0.1),
         )
+    elif provider == ServiceProviders.GROQ.value:
         return GroqLLMService(
-            api_key=user_config.llm.api_key,
+            api_key=api_key,
             settings=GroqLLMSettings(model=model, temperature=0.1),
         )
-    elif user_config.llm.provider == ServiceProviders.OPENROUTER.value:
+    elif provider == ServiceProviders.OPENROUTER.value:
+        kwargs = {}
+        if base_url:
+            kwargs["base_url"] = base_url
         return OpenRouterLLMService(
-            api_key=user_config.llm.api_key,
-            base_url=user_config.llm.base_url,
+            api_key=api_key,
             settings=OpenRouterLLMSettings(model=model, temperature=0.1),
+            **kwargs,
         )
-    elif user_config.llm.provider == ServiceProviders.GOOGLE.value:
+    elif provider == ServiceProviders.GOOGLE.value:
         return GoogleLLMService(
-            api_key=user_config.llm.api_key,
+            api_key=api_key,
             settings=GoogleLLMSettings(model=model, temperature=0.1),
         )
-    elif user_config.llm.provider == ServiceProviders.AZURE.value:
+    elif provider == ServiceProviders.AZURE.value:
         return AzureLLMService(
-            api_key=user_config.llm.api_key,
-            endpoint=user_config.llm.endpoint,
+            api_key=api_key,
+            endpoint=endpoint,
             settings=AzureLLMSettings(model=model, temperature=0.1),
         )
-    elif user_config.llm.provider == ServiceProviders.DOGRAH.value:
+    elif provider == ServiceProviders.DOGRAH.value:
         return DograhLLMService(
             base_url=f"{MPS_API_URL}/api/v1/llm",
-            api_key=user_config.llm.api_key,
+            api_key=api_key,
             settings=OpenAILLMSettings(model=model),
         )
+    elif provider == ServiceProviders.AWS_BEDROCK.value:
+        return AWSBedrockLLMService(
+            aws_access_key=aws_access_key,
+            aws_secret_key=aws_secret_key,
+            aws_region=aws_region,
+            settings=AWSBedrockLLMSettings(model=model),
+        )
     else:
-        raise HTTPException(status_code=400, detail="Invalid LLM provider")
+        raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
+
+
+def create_llm_service(user_config):
+    """Create and return appropriate LLM service based on user configuration."""
+    provider = user_config.llm.provider
+    model = user_config.llm.model
+    api_key = user_config.llm.api_key
+
+    kwargs = {}
+    if provider == ServiceProviders.OPENROUTER.value:
+        kwargs["base_url"] = user_config.llm.base_url
+    elif provider == ServiceProviders.AZURE.value:
+        kwargs["endpoint"] = user_config.llm.endpoint
+    elif provider == ServiceProviders.AWS_BEDROCK.value:
+        kwargs["aws_access_key"] = user_config.llm.aws_access_key
+        kwargs["aws_secret_key"] = user_config.llm.aws_secret_key
+        kwargs["aws_region"] = user_config.llm.aws_region
+
+    return create_llm_service_from_provider(provider, model, api_key, **kwargs)

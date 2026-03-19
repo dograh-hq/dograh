@@ -34,6 +34,7 @@ from api.services.pipecat.recording_audio_cache import (
 from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
 from api.services.pipecat.service_factory import (
     create_llm_service,
+    create_llm_service_from_provider,
     create_stt_service,
     create_tts_service,
 )
@@ -669,18 +670,31 @@ async def _run_pipeline(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
-    # Create voicemail detector if enabled in the workflow's start node
+    # Create voicemail detector if enabled in workflow configurations
     voicemail_detector = None
-    start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
-    if start_node and start_node.detect_voicemail:
+    voicemail_config = (workflow.workflow_configurations or {}).get(
+        "voicemail_detection", {}
+    )
+    if voicemail_config.get("enabled", False):
         logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
         # Create a separate LLM instance for the voicemail sub-pipeline
         # (can't share with main pipeline as it would mess up frame linking)
-        voicemail_llm = create_llm_service(user_config)
+        if voicemail_config.get("use_workflow_llm", True):
+            voicemail_llm = create_llm_service(user_config)
+        else:
+            voicemail_llm = create_llm_service_from_provider(
+                provider=voicemail_config.get("provider", "openai"),
+                model=voicemail_config.get("model", "gpt-4.1"),
+                api_key=voicemail_config.get("api_key", ""),
+            )
+
+        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
+        custom_system_prompt = voicemail_config.get("system_prompt") or None
+
         voicemail_detector = VoicemailDetector(
             llm=voicemail_llm,
-            voicemail_response_delay=1.0,
-            long_speech_timeout=8.0,
+            long_speech_timeout=long_speech_timeout,
+            custom_system_prompt=custom_system_prompt,
         )
 
         # Register event handler to end task when voicemail is detected

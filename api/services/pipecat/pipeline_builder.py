@@ -74,9 +74,16 @@ def build_pipeline(
     if recording_router:
         post_llm.append(recording_router)
 
+    processors.append(user_context_aggregator)
+
+    # Insert LLM gate before the main LLM when voicemail detection is enabled.
+    # This prevents the main LLM from being triggered until classification
+    # determines whether a human or voicemail answered the call.
+    if voicemail_detector:
+        processors.append(voicemail_detector.llm_gate())
+
     processors.extend(
         [
-            user_context_aggregator,
             llm,  # LLM
             *post_llm,
             tts,  # TTS

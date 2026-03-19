@@ -108,9 +108,7 @@ async def get_mps_credits(user: UserModel = Depends(get_user)):
             )
         else:
             if not user.selected_organization_id:
-                raise HTTPException(
-                    status_code=400, detail="No organization selected"
-                )
+                raise HTTPException(status_code=400, detail="No organization selected")
             usage = await mps_service_key_client.get_usage_by_organization(
                 user.selected_organization_id
             )

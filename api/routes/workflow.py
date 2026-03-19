@@ -138,7 +138,7 @@ class DuplicateTemplateRequest(BaseModel):
 
 
 class UpdateWorkflowRequest(BaseModel):
-    name: str
+    name: str | None = None
     workflow_definition: dict | None = None
     template_context_variables: dict | None = None
     workflow_configurations: dict | None = None

@@ -18,11 +18,11 @@ def generate_transcript_text(events: List[dict]) -> str:
             event_type == RealtimeFeedbackType.USER_TRANSCRIPTION.value
             and payload.get("final") is True
         ):
-            timestamp = payload.get("timestamp", "")
+            timestamp = payload.get("timestamp") or event.get("timestamp", "")
             prefix = f"[{timestamp}] " if timestamp else ""
             lines.append(f"{prefix}user: {payload.get('text', '')}\n")
         elif event_type == RealtimeFeedbackType.BOT_TEXT.value:
-            timestamp = payload.get("timestamp", "")
+            timestamp = payload.get("timestamp") or event.get("timestamp", "")
             prefix = f"[{timestamp}] " if timestamp else ""
             lines.append(f"{prefix}assistant: {payload.get('text', '')}\n")
 

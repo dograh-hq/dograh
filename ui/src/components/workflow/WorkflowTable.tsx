@@ -72,6 +72,7 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
             <Table>
                 <TableHeader>
                     <TableRow>
+                        <TableHead className="font-semibold">ID</TableHead>
                         <TableHead className="font-semibold">Agent Name</TableHead>
                         <TableHead className="font-semibold">Created At</TableHead>
                         <TableHead className="font-semibold text-center">Total Runs</TableHead>
@@ -84,6 +85,9 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
                             key={workflow.id}
                             className={`hover:bg-accent transition-colors ${showArchived ? 'opacity-60' : ''}`}
                         >
+                            <TableCell className="text-muted-foreground">
+                                {workflow.id}
+                            </TableCell>
                             <TableCell className="font-medium">
                                 {workflow.name}
                             </TableCell>

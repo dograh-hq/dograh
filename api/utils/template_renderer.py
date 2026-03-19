@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any, Dict, Union
 
+from api.services.workflow.workflow import TEMPLATE_VAR_PATTERN
+
 
 def get_nested_value(obj: Any, path: str) -> Any:
     """
@@ -97,9 +99,6 @@ def _render_string(template_str: str, context: Dict[str, Any]) -> str:
     if not template_str:
         return template_str
 
-    # Pattern: {{ path }} or {{ path | filter }} or {{ path | filter:default }}
-    pattern = r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\}\}"
-
     def _replace(match: re.Match[str]) -> str:  # type: ignore[type-arg]
         variable_path = match.group(1).strip()
         filter_name = match.group(2).strip() if match.group(2) else None
@@ -123,7 +122,7 @@ def _render_string(template_str: str, context: Dict[str, Any]) -> str:
         return str(value)
 
     # Replace template variables
-    result = re.sub(pattern, _replace, template_str)
+    result = re.sub(TEMPLATE_VAR_PATTERN, _replace, template_str)
 
     # Handle line breaks (convert literal \n to actual newlines)
     result = result.replace("\\n", "\n")

@@ -19,6 +19,7 @@ from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
 from api.services.auth.depends import get_user
 from api.services.campaign.runner import campaign_runner_service
+from api.services.campaign.source_sync import CampaignSourceSyncService
 from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import check_dograh_quota
 from api.services.storage import storage_fs
@@ -290,6 +291,41 @@ async def create_campaign(
     )
     if not validation_result.is_valid:
         raise HTTPException(status_code=400, detail=validation_result.error.message)
+
+    # Validate template variables against source data columns
+    workflow = await db_client.get_workflow_by_id(request.workflow_id)
+    if workflow:
+        from api.services.workflow.dto import ReactFlowDTO
+        from api.services.workflow.workflow import WorkflowGraph
+
+        workflow_def = workflow.workflow_definition_with_fallback
+        if workflow_def:
+            try:
+                dto = ReactFlowDTO(**workflow_def)
+                graph = WorkflowGraph(dto)
+                required_vars = graph.get_required_template_variables()
+
+                if (
+                    required_vars
+                    and validation_result.headers
+                    and validation_result.rows
+                ):
+                    template_validation = (
+                        CampaignSourceSyncService.validate_template_columns(
+                            validation_result.headers,
+                            validation_result.rows,
+                            required_vars,
+                        )
+                    )
+                    if not template_validation.is_valid:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=template_validation.error.message,
+                        )
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # Don't block campaign creation if template extraction fails
 
     if request.max_concurrency is not None:
         await _validate_max_concurrency(

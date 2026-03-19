@@ -298,12 +298,14 @@ export default function NewCampaignPage() {
     // Handle sheet selection
     const handleSheetSelected = (sheetUrl: string) => {
         setSourceId(sheetUrl);
+        setCreateError(null);
     };
 
     // Handle CSV file upload
     const handleFileUploaded = (fileKey: string, fileName: string) => {
         setSourceId(fileKey);
         setSelectedFileName(fileName);
+        setCreateError(null);
     };
 
     return (

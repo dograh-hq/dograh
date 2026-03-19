@@ -447,12 +447,14 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     onRecordingsChange={setRecordings}
                 />
 
-                <VoicemailDetectionDialog
-                    open={isVoicemailDialogOpen}
-                    onOpenChange={setIsVoicemailDialogOpen}
-                    workflowConfigurations={workflowConfigurations}
-                    onSave={saveWorkflowConfigurations}
-                />
+                {workflowConfigurations && (
+                    <VoicemailDetectionDialog
+                        open={isVoicemailDialogOpen}
+                        onOpenChange={setIsVoicemailDialogOpen}
+                        workflowConfigurations={workflowConfigurations}
+                        onSave={(configurations) => saveWorkflowConfigurations(configurations, workflowName)}
+                    />
+                )}
             </div>
         </WorkflowProvider>
     );

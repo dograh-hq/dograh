@@ -67,7 +67,7 @@ class PipecatEngine:
         call_context_vars: dict,
         workflow_run_id: Optional[int] = None,
         node_transition_callback: Optional[
-            Callable[[str, str, Optional[str], Optional[str]], Awaitable[None]]
+            Callable[[str, str, Optional[str], Optional[str], bool], Awaitable[None]]
         ] = None,
         embeddings_api_key: Optional[str] = None,
         embeddings_model: Optional[str] = None,
@@ -521,7 +521,11 @@ class PipecatEngine:
         if self._node_transition_callback:
             try:
                 await self._node_transition_callback(
-                    node_id, node.name, previous_node_id, previous_node_name
+                    node_id,
+                    node.name,
+                    previous_node_id,
+                    previous_node_name,
+                    node.allow_interrupt,
                 )
             except Exception as e:
                 # Log but don't fail - feedback is non-critical

@@ -1,16 +1,17 @@
 'use client';
 
-import { AlertTriangle, Brain, GitBranch, Wrench } from 'lucide-react';
+import { AlertTriangle, Brain, ExternalLink, GitBranch, MicOff, Wrench } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 
 export interface TranscriptMessageData {
     id: string;
-    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error';
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error' | 'interrupt-warning';
     text: string;
     final?: boolean;
     functionName?: string;
     nodeName?: string;
+    allowInterrupt?: boolean;
     ttfbSeconds?: number;
     fatal?: boolean;
 }
@@ -33,6 +34,31 @@ export function TranscriptMessage({ message, nextMessage }: TranscriptMessagePro
                     </span>
                 </div>
                 <div className="flex-1 h-px bg-border"></div>
+            </div>
+        );
+    }
+
+    // Interrupt warning - show as an amber alert (one-time)
+    if (message.type === 'interrupt-warning') {
+        return (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <MicOff className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                <div className="flex-1 min-w-0">
+                    <div className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                        Interruption Disabled
+                    </div>
+                    <div className="text-sm text-amber-600 dark:text-amber-300 mt-0.5">
+                        {message.text}
+                    </div>
+                    <a
+                        href="https://docs.dograh.com/configurations/interruption"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline mt-1"
+                    >
+                        Learn more <ExternalLink className="h-3 w-3" />
+                    </a>
+                </div>
             </div>
         );
     }

@@ -48,6 +48,7 @@ export const UnifiedTranscript = ({
         functionName: msg.functionName,
         status: msg.status,
         nodeName: msg.nodeName,
+        allowInterrupt: msg.allowInterrupt,
         ttfbSeconds: msg.ttfbSeconds,
         fatal: msg.fatal,
     }));

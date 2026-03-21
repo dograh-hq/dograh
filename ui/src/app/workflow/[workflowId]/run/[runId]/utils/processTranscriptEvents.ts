@@ -4,7 +4,7 @@
  */
 
 export interface TranscriptEvent {
-    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error';
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error' | 'interrupt-warning';
     text: string;
     final?: boolean;
     timestamp: string;
@@ -13,6 +13,7 @@ export interface TranscriptEvent {
     status?: 'running' | 'completed';
     nodeName?: string;
     previousNode?: string;
+    allowInterrupt?: boolean;
     ttfbSeconds?: number;
     processor?: string;
     model?: string;
@@ -28,6 +29,7 @@ export interface ProcessedMessage {
     functionName?: string;
     status?: 'running' | 'completed';
     nodeName?: string;
+    allowInterrupt?: boolean;
     ttfbSeconds?: number;
     fatal?: boolean;
 }
@@ -69,7 +71,7 @@ export function processTranscriptEvents(events: TranscriptEvent[]): ProcessedMes
         } else if (event.type === 'bot-text') {
             // Combine consecutive bot-text from the same turn
             if (currentBotText && currentBotText.event.turn === event.turn) {
-                currentBotText.text = currentBotText.text + event.text;
+                currentBotText.text = currentBotText.text + ' ' + event.text;
             } else {
                 flushBotText();
                 currentBotText = { event, text: event.text };
@@ -144,6 +146,7 @@ function convertToProcessedMessage(event: TranscriptEvent, overrideText?: string
         functionName: event.functionName,
         status: event.status,
         nodeName: event.nodeName,
+        allowInterrupt: event.allowInterrupt,
         ttfbSeconds: event.ttfbSeconds,
         fatal: event.fatal,
     };

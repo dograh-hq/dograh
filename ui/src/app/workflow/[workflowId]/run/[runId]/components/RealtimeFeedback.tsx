@@ -17,6 +17,7 @@ interface RealtimeFeedbackEvent {
         result?: string;
         node_name?: string;
         previous_node?: string;
+        allow_interrupt?: boolean;
         ttfb_seconds?: number;
         processor?: string;
         model?: string;
@@ -79,6 +80,9 @@ function convertLogEventsToTranscriptEvents(events: RealtimeFeedbackEvent[]): Tr
             case 'rtf-pipeline-error':
                 type = 'pipeline-error';
                 break;
+            case 'rtf-interrupt-warning':
+                type = 'interrupt-warning';
+                break;
             default:
                 type = 'bot-text';
         }
@@ -93,6 +97,7 @@ function convertLogEventsToTranscriptEvents(events: RealtimeFeedbackEvent[]): Tr
             status,
             nodeName: event.payload.node_name,
             previousNode: event.payload.previous_node,
+            allowInterrupt: event.payload.allow_interrupt,
             ttfbSeconds: event.payload.ttfb_seconds,
             processor: event.payload.processor,
             model: event.payload.model,
@@ -114,6 +119,7 @@ function convertLiveMessagesToTranscriptEvents(messages: FeedbackMessage[]): Tra
         status: msg.status,
         nodeName: msg.nodeName,
         previousNode: msg.previousNode,
+        allowInterrupt: msg.allowInterrupt,
         ttfbSeconds: msg.ttfbSeconds,
         processor: msg.processor,
         model: msg.model,

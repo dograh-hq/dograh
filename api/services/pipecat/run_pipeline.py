@@ -526,6 +526,7 @@ async def _run_pipeline(
         node_name: str,
         previous_node_id: Optional[str],
         previous_node_name: Optional[str],
+        allow_interrupt: bool = False,
     ) -> None:
         """Send node transition event to logs buffer and optionally via WebSocket."""
         # Update current node on the buffer so subsequent events are tagged
@@ -538,6 +539,7 @@ async def _run_pipeline(
                 "node_name": node_name,
                 "previous_node_id": previous_node_id,
                 "previous_node_name": previous_node_name,
+                "allow_interrupt": allow_interrupt,
             },
         }
         # Send via WebSocket if available

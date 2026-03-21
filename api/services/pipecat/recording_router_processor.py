@@ -29,6 +29,7 @@ from pipecat.frames.frames import (
     TTSAudioRawFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
+    TTSTextFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -98,11 +99,9 @@ class RecordingRouterProcessor(FrameProcessor):
             await self.push_frame(frame, direction)
             return
 
-        # --- Recording mode: buffer recording_id, suppress TTS ---
+        # --- Recording mode: accumulate recording_id silently ---
         if self._mode == "recording":
             self._recording_id_buffer += frame.text
-            frame.skip_tts = True
-            await self.push_frame(frame, direction)
             return
 
         # --- Detection mode: buffer until marker found ---
@@ -114,13 +113,11 @@ class RecordingRouterProcessor(FrameProcessor):
             self._mode = "recording"
             marker_end = buffered_text.index(RECORDING_MARKER) + len(RECORDING_MARKER)
 
-            # Push buffered frames with skip_tts, extract recording_id from post-marker text
+            # Extract recording_id from post-marker text (don't push frames)
             cumulative = 0
             for buf_frame, buf_dir in self._frame_buffer:
-                buf_frame.skip_tts = True
                 frame_start = cumulative
                 cumulative += len(buf_frame.text)
-                await self.push_frame(buf_frame, buf_dir)
 
                 # Capture any recording_id text after the marker
                 if cumulative > marker_end:
@@ -183,6 +180,13 @@ class RecordingRouterProcessor(FrameProcessor):
         if self._mode == "recording":
             recording_id = self._recording_id_buffer.strip()
             if recording_id:
+                # Push accumulated text as TTSTextFrame for UI feedback via observer
+                await self.push_frame(
+                    TTSTextFrame(
+                        text=RECORDING_MARKER + self._recording_id_buffer,
+                        aggregated_by="recording_router",
+                    )
+                )
                 await self._play_recording(recording_id)
             else:
                 logger.warning(

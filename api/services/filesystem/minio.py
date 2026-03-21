@@ -182,3 +182,20 @@ class MinioFileSystem(BaseFileSystem):
             return True
         except S3Error:
             return False
+
+    async def acopy_file(self, source_path: str, destination_path: str) -> bool:
+        """Copy a file within MinIO (server-side copy)."""
+        try:
+            from minio.commonconfig import CopySource
+
+            def _copy():
+                self.client.copy_object(
+                    self.bucket_name,
+                    destination_path,
+                    CopySource(self.bucket_name, source_path),
+                )
+
+            await asyncio.to_thread(_copy)
+            return True
+        except S3Error:
+            return False

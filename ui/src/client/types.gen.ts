@@ -2278,6 +2278,41 @@ export type UpdateWorkflowApiV1WorkflowWorkflowIdPutResponses = {
 
 export type UpdateWorkflowApiV1WorkflowWorkflowIdPutResponse = UpdateWorkflowApiV1WorkflowWorkflowIdPutResponses[keyof UpdateWorkflowApiV1WorkflowWorkflowIdPutResponses];
 
+export type DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/duplicate';
+};
+
+export type DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostError = DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostErrors[keyof DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostErrors];
+
+export type DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowResponse;
+};
+
+export type DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostResponse = DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostResponses[keyof DuplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePostResponses];
+
 export type GetWorkflowRunsApiV1WorkflowWorkflowIdRunsGetData = {
     body?: never;
     headers?: {

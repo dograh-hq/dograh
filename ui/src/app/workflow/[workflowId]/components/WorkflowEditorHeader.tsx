@@ -1,10 +1,12 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, ChevronDown, Download, History, LoaderCircle, MoreVertical, Phone } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, History, LoaderCircle, MoreVertical, Phone } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 
+import { duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost } from "@/client/sdk.gen";
 import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
@@ -45,6 +47,7 @@ export const WorkflowEditorHeader = ({
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
+    const [duplicating, setDuplicating] = useState(false);
 
     const hasValidationErrors = workflowValidationErrors.length > 0;
     const isCallDisabled = isDirty || hasValidationErrors;
@@ -57,6 +60,27 @@ export const WorkflowEditorHeader = ({
 
     const handleBack = () => {
         router.push("/workflow");
+    };
+
+    const handleDuplicate = async () => {
+        if (duplicating) return;
+        setDuplicating(true);
+        const promise = duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost({
+            path: { workflow_id: workflowId },
+        });
+        toast.promise(promise, {
+            loading: "Duplicating workflow...",
+            success: "Workflow duplicated successfully",
+            error: "Failed to duplicate workflow",
+        });
+        try {
+            const { data } = await promise;
+            if (data?.id) {
+                router.push(`/workflow/${data.id}`);
+            }
+        } finally {
+            setDuplicating(false);
+        }
     };
 
     const handleDownloadWorkflow = () => {
@@ -223,6 +247,18 @@ export const WorkflowEditorHeader = ({
                         >
                             <History className="w-4 h-4 mr-2" />
                             View Runs
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={handleDuplicate}
+                            disabled={duplicating}
+                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
+                        >
+                            {duplicating ? (
+                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                                <Copy className="w-4 h-4 mr-2" />
+                            )}
+                            {duplicating ? "Duplicating..." : "Duplicate Workflow"}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={handleDownloadWorkflow}

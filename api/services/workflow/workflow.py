@@ -1,9 +1,39 @@
 import re
 from collections import Counter
-from typing import Dict, List
+from typing import Dict, List, Set
 
 from api.services.workflow.dto import EdgeDataDTO, NodeDataDTO, NodeType, ReactFlowDTO
 from api.services.workflow.errors import ItemKind, WorkflowError
+
+# Regex for matching {{ variable }} template placeholders.
+# Captures: group(1) = variable path, group(2) = filter name, group(3) = filter value.
+# Shared with api.utils.template_renderer via import.
+TEMPLATE_VAR_PATTERN = r"\{\{\s*([^|\s}]+)(?:\s*\|\s*([^:}]+)(?::([^}]+))?)?\s*\}\}"
+
+# Variables injected by the system at runtime, not from source data.
+_SYSTEM_VARIABLES = {"campaign_id", "provider", "source_uuid"}
+
+
+def extract_template_variables(text: str) -> Set[str]:
+    """Extract template variable names from a string, excluding nested paths,
+    variables with a fallback filter, and system-injected variables."""
+    variables: Set[str] = set()
+    for match in re.finditer(TEMPLATE_VAR_PATTERN, text):
+        var_name = match.group(1).strip()
+        filter_name = match.group(2).strip() if match.group(2) else None
+
+        # Skip nested paths (runtime-resolved, e.g. gathered_context.city)
+        if "." in var_name:
+            continue
+        # Skip variables with a fallback (they have a default value)
+        if filter_name == "fallback":
+            continue
+        # Skip system-injected variables
+        if var_name in _SYSTEM_VARIABLES:
+            continue
+
+        variables.add(var_name)
+    return variables
 
 
 class Edge:
@@ -45,6 +75,7 @@ class Node:
         self.extraction_prompt = data.extraction_prompt
         self.extraction_variables = data.extraction_variables
         self.add_global_prompt = data.add_global_prompt
+        self.greeting = data.greeting
         self.detect_voicemail = data.detect_voicemail
         self.delayed_start = data.delayed_start
         self.delayed_start_duration = data.delayed_start_duration
@@ -97,6 +128,44 @@ class WorkflowGraph:
             ][0]
         except IndexError:
             self.global_node_id = None
+
+    # -----------------------------------------------------------
+    # template variable extraction
+    # -----------------------------------------------------------
+    def get_required_template_variables(self) -> Set[str]:
+        """Extract all template variables referenced in node prompts/greetings
+        and edge transition speeches.
+
+        Scans:
+          - Start node: prompt, greeting
+          - Agent / End / Global nodes: prompt
+          - All edges: transition_speech
+
+        Returns a set of top-level variable names that the workflow expects
+        from the source data (excluding nested paths, fallback vars, and
+        system-injected vars).
+        """
+        variables: Set[str] = set()
+
+        for node in self.nodes.values():
+            if node.node_type in (
+                NodeType.startNode,
+                NodeType.agentNode,
+                NodeType.endNode,
+                NodeType.globalNode,
+            ):
+                if node.prompt:
+                    variables |= extract_template_variables(node.prompt)
+
+            # greeting is only relevant on the start node
+            if node.node_type == NodeType.startNode and node.greeting:
+                variables |= extract_template_variables(node.greeting)
+
+        for edge in self.edges:
+            if edge.transition_speech:
+                variables |= extract_template_variables(edge.transition_speech)
+
+        return variables
 
     # -----------------------------------------------------------
     # validators

@@ -2,6 +2,7 @@ import hashlib
 import json
 from typing import Optional
 
+from loguru import logger
 from sqlalchemy import func, update
 from sqlalchemy.future import select
 from sqlalchemy.orm import load_only, selectinload
@@ -174,6 +175,16 @@ class WorkflowClient(BaseDBClient):
 
             return counts
 
+    async def get_workflow_organization_id(self, workflow_id: int) -> int | None:
+        """Fetch only the organization_id for a workflow. Lightweight query."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowModel.organization_id).where(
+                    WorkflowModel.id == workflow_id
+                )
+            )
+            return result.scalar_one_or_none()
+
     async def get_workflow(
         self, workflow_id: int, user_id: int = None, organization_id: int = None
     ) -> WorkflowModel | None:
@@ -206,7 +217,7 @@ class WorkflowClient(BaseDBClient):
     async def update_workflow(
         self,
         workflow_id: int,
-        name: str,
+        name: str | None,
         workflow_definition: dict | None,
         template_context_variables: dict | None,
         workflow_configurations: dict | None,
@@ -249,7 +260,8 @@ class WorkflowClient(BaseDBClient):
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
-            workflow.name = name
+            if name is not None:
+                workflow.name = name
 
             if template_context_variables is not None:
                 workflow.template_context_variables = template_context_variables
@@ -433,3 +445,38 @@ class WorkflowClient(BaseDBClient):
                 counts[workflow_id] = run_count
 
             return counts
+
+    async def add_call_disposition_code(
+        self, workflow_id: int, disposition_code: str
+    ) -> None:
+        """Add a disposition code to the workflow's call_disposition_codes if not already present.
+
+        The codes are stored as {"disposition_codes": ["code1", "code2", ...]}.
+        """
+        if not disposition_code:
+            return
+
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowModel).where(WorkflowModel.id == workflow_id)
+            )
+            workflow = result.scalars().first()
+            if not workflow:
+                return
+
+            existing = workflow.call_disposition_codes or {}
+            codes = existing.get("disposition_codes", [])
+            if disposition_code in codes:
+                return
+
+            codes.append(disposition_code)
+            workflow.call_disposition_codes = {"disposition_codes": codes}
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                logger.error(
+                    f"Failed to add disposition code '{disposition_code}' "
+                    f"to workflow {workflow_id}: {e}"
+                )

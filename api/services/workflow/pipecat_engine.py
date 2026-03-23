@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from pipecat.services.anthropic.llm import AnthropicLLMService
     from pipecat.services.google.llm import GoogleLLMService
     from pipecat.services.openai.llm import OpenAILLMService
+    from pipecat.utils.tracing.tracing_context import TracingContext
 
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
@@ -67,7 +68,7 @@ class PipecatEngine:
         call_context_vars: dict,
         workflow_run_id: Optional[int] = None,
         node_transition_callback: Optional[
-            Callable[[str, str, Optional[str], Optional[str]], Awaitable[None]]
+            Callable[[str, str, Optional[str], Optional[str], bool], Awaitable[None]]
         ] = None,
         embeddings_api_key: Optional[str] = None,
         embeddings_model: Optional[str] = None,
@@ -86,6 +87,7 @@ class PipecatEngine:
         self._current_node: Optional[Node] = None
         self._gathered_context: dict = {}
         self._user_response_timeout_task: Optional[asyncio.Task] = None
+        self._pending_extraction_tasks: set[asyncio.Task] = set()
 
         # Will be set later in initialize() when we have
         # access to _context
@@ -135,7 +137,9 @@ class PipecatEngine:
         Returns the turn-level context if available, otherwise the
         conversation-level context, or None.
         """
-        tracing_ctx = getattr(self.task, "_tracing_context", None)
+        tracing_ctx: TracingContext | None = getattr(
+            self.task, "_tracing_context", None
+        )
         if not tracing_ctx:
             return None
         return tracing_ctx.get_turn_context() or tracing_ctx.get_conversation_context()
@@ -433,28 +437,77 @@ class PipecatEngine:
 
         async def _do_extraction():
             try:
+                logger.debug(
+                    f"Starting variable extraction for node: {node.name}"
+                )
                 extracted_data = (
                     await self._variable_extraction_manager._perform_extraction(
                         extraction_variables, parent_context, extraction_prompt
                     )
                 )
                 self._gathered_context.update(extracted_data)
+                extracted_variables = self._gathered_context.setdefault(
+                    "extracted_variables", {}
+                )
+                extracted_variables.update(extracted_data)
                 logger.debug(
-                    f"Variable extraction completed. Extracted: {extracted_data}"
+                    f"Variable extraction completed for node: {node.name}. Extracted: {extracted_data}"
                 )
             except Exception as e:
-                logger.error(f"Error during variable extraction: {str(e)}")
+                logger.error(f"Error during variable extraction for node {node.name}: {str(e)}")
 
         if run_in_background:
             logger.debug(
                 f"Scheduling background variable extraction for node: {node.name}"
             )
-            asyncio.create_task(_do_extraction())
+            task = asyncio.create_task(
+                _do_extraction(), name=f"variable-extraction:{node.name}"
+            )
+            self._pending_extraction_tasks.add(task)
+            task.add_done_callback(self._pending_extraction_tasks.discard)
         else:
             logger.debug(
                 f"Performing synchronous variable extraction for node: {node.name}"
             )
             await _do_extraction()
+
+    async def _await_pending_extractions(self, timeout: float = 5.0) -> None:
+        """Await all in-flight background extraction tasks.
+
+        Args:
+            timeout: Maximum seconds to wait for pending extractions.
+        """
+        if not self._pending_extraction_tasks:
+            return
+
+        task_names = [t.get_name() for t in self._pending_extraction_tasks]
+        logger.debug(
+            f"Awaiting {len(self._pending_extraction_tasks)} pending extraction task(s): {task_names}"
+        )
+        start_time = asyncio.get_event_loop().time()
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*self._pending_extraction_tasks, return_exceptions=True),
+                timeout=timeout,
+            )
+            elapsed = asyncio.get_event_loop().time() - start_time
+            # Log any exceptions returned by gather
+            for task_name, result in zip(task_names, results):
+                if isinstance(result, Exception):
+                    logger.error(
+                        f"Pending extraction task '{task_name}' failed: {result}"
+                    )
+            logger.debug(
+                f"All pending extraction tasks completed in {elapsed:.2f}s"
+            )
+        except asyncio.TimeoutError:
+            incomplete = [
+                t.get_name() for t in self._pending_extraction_tasks if not t.done()
+            ]
+            logger.warning(
+                f"Timed out waiting for pending extraction tasks after {timeout}s. "
+                f"Incomplete: {incomplete}"
+            )
 
     async def _setup_llm_context(self, node: Node) -> None:
         """Common method to set up LLM context"""
@@ -521,7 +574,11 @@ class PipecatEngine:
         if self._node_transition_callback:
             try:
                 await self._node_transition_callback(
-                    node_id, node.name, previous_node_id, previous_node_name
+                    node_id,
+                    node.name,
+                    previous_node_id,
+                    previous_node_name,
+                    node.allow_interrupt,
                 )
             except Exception as e:
                 # Log but don't fail - feedback is non-critical
@@ -553,6 +610,13 @@ class PipecatEngine:
         else:
             # Setup LLM Context with Prompts and Functions
             await self._setup_llm_context(node)
+
+    def get_start_greeting(self) -> Optional[str]:
+        """Return the rendered greeting for the start node, or None if not configured."""
+        start_node = self.workflow.nodes.get(self.workflow.start_node_id)
+        if start_node and start_node.greeting:
+            return self._format_prompt(start_node.greeting)
+        return None
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""
@@ -587,7 +651,13 @@ class PipecatEngine:
         # Mute the pipeline
         self._mute_pipeline = True
 
-        if reason != EndTaskReason.PIPELINE_ERROR.value:
+        if reason not in (
+            EndTaskReason.PIPELINE_ERROR.value,
+            EndTaskReason.VOICEMAIL_DETECTED.value,
+        ):
+            # Await any in-flight background extractions from previous nodes
+            await self._await_pending_extractions()
+
             # Perform final variable extraction synchronously before ending
             await self._perform_variable_extraction_if_needed(
                 self._current_node, run_in_background=False

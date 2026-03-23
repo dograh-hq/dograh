@@ -362,20 +362,20 @@ export default function ServiceConfiguration() {
         const userConfig: Record<ServiceSegment, Record<string, string | number | string[]>> = {
             llm: {
                 provider: serviceProviders.llm,
-                api_key: getServiceApiKeys("llm"),
+                ...(getServiceApiKeys("llm").length > 0 && { api_key: getServiceApiKeys("llm") }),
                 model: data.llm_model as string
             },
             tts: {
                 provider: serviceProviders.tts,
-                api_key: getServiceApiKeys("tts"),
+                ...(getServiceApiKeys("tts").length > 0 && { api_key: getServiceApiKeys("tts") }),
             },
             stt: {
                 provider: serviceProviders.stt,
-                api_key: getServiceApiKeys("stt"),
+                ...(getServiceApiKeys("stt").length > 0 && { api_key: getServiceApiKeys("stt") }),
             },
             embeddings: {
                 provider: serviceProviders.embeddings,
-                api_key: getServiceApiKeys("embeddings"),
+                ...(getServiceApiKeys("embeddings").length > 0 && { api_key: getServiceApiKeys("embeddings") }),
                 model: data.embeddings_model as string
             }
         };

@@ -139,7 +139,6 @@ class TestVoicemailDetectorWithUserAggregator:
         # Create voicemail detector with the classification LLM
         voicemail_detector = VoicemailDetector(
             llm=voicemail_llm,
-            voicemail_response_delay=0,
         )
 
         # Set up frame counter to track UserStoppedSpeakingFrame in voicemail detector's user aggregator

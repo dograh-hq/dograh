@@ -173,7 +173,9 @@ async def _download_and_convert(
     Returns the processed PCM bytes, or None on failure.
     """
     ext = _ext_from_key(recording.storage_key)
-    fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix=f"dograh_dl_{recording.recording_id}_")
+    fd, tmp_path = tempfile.mkstemp(
+        suffix=ext, prefix=f"dograh_dl_{recording.recording_id}_"
+    )
     os.close(fd)
     try:
         storage = get_storage_fn(recording.storage_backend)

@@ -34,10 +34,13 @@ from api.services.pipecat.recording_audio_cache import (
 from api.services.pipecat.recording_router_processor import RecordingRouterProcessor
 from api.services.pipecat.service_factory import (
     create_llm_service,
+    create_llm_service_from_provider,
     create_stt_service,
     create_tts_service,
 )
-from api.services.pipecat.tracing_config import setup_tracing_exporter
+from api.services.pipecat.tracing_config import (
+    ensure_tracing,
+)
 from api.services.pipecat.transport_setup import (
     create_ari_transport,
     create_cloudonix_transport,
@@ -81,10 +84,10 @@ from pipecat.turns.user_stop import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
-from pipecat.utils.run_context import set_current_run_id
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 # Setup tracing if enabled
-setup_tracing_exporter()
+ensure_tracing()
 
 
 async def run_pipeline_twilio(
@@ -107,6 +110,11 @@ async def run_pipeline_twilio(
 
     # Get workflow to extract all pipeline configurations
     workflow = await db_client.get_workflow(workflow_id, user_id)
+
+    # Set org context early so tasks created by the transport inherit it
+    if workflow:
+        set_current_org_id(workflow.organization_id)
+
     vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
@@ -155,6 +163,7 @@ async def run_pipeline_vonage(
     """
     logger.info(f"Starting Vonage pipeline for workflow run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
+    set_current_org_id(organization_id)
 
     # Store call ID in cost_info for later cost calculation (provider-agnostic)
     cost_info = {"call_id": call_uuid}
@@ -225,6 +234,11 @@ async def run_pipeline_ari(
 
     # Get workflow to extract configurations
     workflow = await db_client.get_workflow(workflow_id, user_id)
+
+    # Set org context early so tasks created by the transport inherit it
+    if workflow:
+        set_current_org_id(workflow.organization_id)
+
     vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
@@ -280,6 +294,11 @@ async def run_pipeline_vobiz(
     await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
 
     workflow = await db_client.get_workflow(workflow_id, user_id)
+
+    # Set org context early so tasks created by the transport inherit it
+    if workflow:
+        set_current_org_id(workflow.organization_id)
+
     vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
@@ -349,6 +368,11 @@ async def run_pipeline_cloudonix(
 
     # Get workflow to extract all pipeline configurations
     workflow = await db_client.get_workflow(workflow_id, user_id)
+
+    # Set org context early so tasks created by the transport inherit it
+    if workflow:
+        set_current_org_id(workflow.organization_id)
+
     vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
@@ -396,6 +420,11 @@ async def run_pipeline_smallwebrtc(
 
     # Get workflow to extract all pipeline configurations
     workflow = await db_client.get_workflow(workflow_id, user_id)
+
+    # Set org context early so tasks created by the transport inherit it
+    if workflow:
+        set_current_org_id(workflow.organization_id)
+
     vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
@@ -525,6 +554,7 @@ async def _run_pipeline(
         node_name: str,
         previous_node_id: Optional[str],
         previous_node_name: Optional[str],
+        allow_interrupt: bool = False,
     ) -> None:
         """Send node transition event to logs buffer and optionally via WebSocket."""
         # Update current node on the buffer so subsequent events are tagged
@@ -537,6 +567,7 @@ async def _run_pipeline(
                 "node_name": node_name,
                 "previous_node_id": previous_node_id,
                 "previous_node_name": previous_node_name,
+                "allow_interrupt": allow_interrupt,
             },
         }
         # Send via WebSocket if available
@@ -669,18 +700,31 @@ async def _run_pipeline(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
-    # Create voicemail detector if enabled in the workflow's start node
+    # Create voicemail detector if enabled in workflow configurations
     voicemail_detector = None
-    start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
-    if start_node and start_node.detect_voicemail:
+    voicemail_config = (workflow.workflow_configurations or {}).get(
+        "voicemail_detection", {}
+    )
+    if voicemail_config.get("enabled", False):
         logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
         # Create a separate LLM instance for the voicemail sub-pipeline
         # (can't share with main pipeline as it would mess up frame linking)
-        voicemail_llm = create_llm_service(user_config)
+        if voicemail_config.get("use_workflow_llm", True):
+            voicemail_llm = create_llm_service(user_config)
+        else:
+            voicemail_llm = create_llm_service_from_provider(
+                provider=voicemail_config.get("provider", "openai"),
+                model=voicemail_config.get("model", "gpt-4.1"),
+                api_key=voicemail_config.get("api_key", ""),
+            )
+
+        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
+        custom_system_prompt = voicemail_config.get("system_prompt") or None
+
         voicemail_detector = VoicemailDetector(
             llm=voicemail_llm,
-            voicemail_response_delay=1.0,
-            long_speech_timeout=8.0,
+            long_speech_timeout=long_speech_timeout,
+            custom_system_prompt=custom_system_prompt,
         )
 
         # Register event handler to end task when voicemail is detected

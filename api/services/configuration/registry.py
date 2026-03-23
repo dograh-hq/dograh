@@ -26,6 +26,7 @@ class ServiceProviders(str, Enum):
     SARVAM = "sarvam"
     SPEECHMATICS = "speechmatics"
     CAMB = "camb"
+    AWS_BEDROCK = "aws_bedrock"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -38,6 +39,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
         ServiceProviders.DOGRAH,
+        ServiceProviders.AWS_BEDROCK,
         # ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
@@ -45,6 +47,8 @@ class BaseServiceConfiguration(BaseModel):
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v):
+        if v is None:
+            return v
         if isinstance(v, list) and len(v) == 0:
             raise ValueError("api_key list must not be empty")
         return v
@@ -52,6 +56,8 @@ class BaseServiceConfiguration(BaseModel):
     def __getattribute__(self, name: str):
         if name == "api_key":
             value = super().__getattribute__(name)
+            if value is None:
+                return value
             if isinstance(value, list):
                 return random.choice(value)
             return value
@@ -60,6 +66,8 @@ class BaseServiceConfiguration(BaseModel):
     def get_all_api_keys(self) -> list[str]:
         """Get all API keys as a list (bypasses random selection)."""
         value = super().__getattribute__("api_key")
+        if value is None:
+            return []
         if isinstance(value, list):
             return list(value)
         return [value]
@@ -168,6 +176,14 @@ OPENROUTER_MODELS = [
 ]
 AZURE_MODELS = ["gpt-4.1-mini"]
 DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen"]
+AWS_BEDROCK_MODELS = [
+    "us.amazon.nova-pro-v1:0",
+    "us.amazon.nova-lite-v1:0",
+    "us.amazon.nova-micro-v1:0",
+    "us.anthropic.claude-sonnet-4-20250514-v1:0",
+    "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+]
 
 
 @register_llm
@@ -220,6 +236,19 @@ class DograhLLMService(BaseLLMConfiguration):
     )
 
 
+@register_llm
+class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.AWS_BEDROCK] = ServiceProviders.AWS_BEDROCK
+    model: str = Field(
+        default="us.amazon.nova-pro-v1:0",
+        json_schema_extra={"examples": AWS_BEDROCK_MODELS},
+    )
+    aws_access_key: str = Field(default="")
+    aws_secret_key: str = Field(default="")
+    aws_region: str = Field(default="us-east-1")
+    api_key: str | list[str] | None = Field(default=None)
+
+
 LLMConfig = Annotated[
     Union[
         OpenAILLMService,
@@ -228,6 +257,7 @@ LLMConfig = Annotated[
         GoogleLLMService,
         AzureLLMService,
         DograhLLMService,
+        AWSBedrockLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]

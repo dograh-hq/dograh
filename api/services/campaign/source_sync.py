@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set
 
 from loguru import logger
 
@@ -19,6 +19,8 @@ class ValidationResult:
 
     is_valid: bool
     error: Optional[ValidationError] = None
+    headers: Optional[List[str]] = field(default=None, repr=False)
+    rows: Optional[List[List[str]]] = field(default=None, repr=False)
 
 
 class CampaignSourceSyncService(ABC):
@@ -112,6 +114,53 @@ class CampaignSourceSyncService(ABC):
                     invalid_rows=duplicate_rows,
                 ),
             )
+
+        return ValidationResult(is_valid=True, headers=normalized_headers, rows=rows)
+
+    @staticmethod
+    def validate_template_columns(
+        headers: List[str],
+        rows: List[List[str]],
+        required_columns: Set[str],
+    ) -> ValidationResult:
+        """Validate that template variable columns exist and are non-empty in all rows."""
+        normalized_headers = CampaignSourceSyncService.normalize_headers(headers)
+
+        # Check for missing columns
+        missing = required_columns - set(normalized_headers)
+        if missing:
+            missing_str = ", ".join(f"'{c}'" for c in sorted(missing))
+            return ValidationResult(
+                is_valid=False,
+                error=ValidationError(
+                    message=f"Workflow uses template variables that are missing from the source data: {missing_str}. "
+                    "Add the missing columns or remove them from the workflow."
+                ),
+            )
+
+        # Check for empty values in required columns
+        col_indices = {col: normalized_headers.index(col) for col in required_columns}
+
+        for col, idx in col_indices.items():
+            empty_rows = []
+            for row_idx, row in enumerate(rows, start=2):
+                if len(row) <= idx or not row[idx].strip():
+                    empty_rows.append(row_idx)
+
+            if empty_rows:
+                if len(empty_rows) > 5:
+                    rows_str = f"{', '.join(map(str, empty_rows[:5]))} and {len(empty_rows) - 5} more"
+                else:
+                    rows_str = ", ".join(map(str, empty_rows))
+
+                return ValidationResult(
+                    is_valid=False,
+                    error=ValidationError(
+                        message=f"Template variable '{col}' is empty in rows: {rows_str}. "
+                        "All template variables used in the workflow must have values in every row.",
+                        invalid_rows=empty_rows,
+                    ),
+                )
 
         return ValidationResult(is_valid=True)
 

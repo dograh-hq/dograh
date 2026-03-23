@@ -1,5 +1,6 @@
 import { StackHandler } from "@stackframe/stack";
 
+import { TelemetrySection } from "@/components/TelemetrySection";
 import { getAuthProvider } from "@/lib/auth/config";
 
 import { BackButton } from "./BackButton";
@@ -28,6 +29,18 @@ export default async function Handler(props: unknown) {
           fullPage
           app={app!}
           routeProps={props}
+          componentProps={{
+            AccountSettings: {
+              extraItems: [
+                {
+                  id: "telemetry",
+                  title: "Telemetry",
+                  iconName: "Key",
+                  content: <TelemetrySection />,
+                },
+              ],
+            },
+          }}
         />
       </div>
     </div>

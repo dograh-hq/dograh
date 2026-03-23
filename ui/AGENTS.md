@@ -38,7 +38,6 @@ ui/
 - Tailwind CSS with shadcn/ui components
 - Zustand for state management
 - @xyflow/react for workflow builder
-- LiveKit for WebRTC voice
 
 ## API Client
 

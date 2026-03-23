@@ -236,7 +236,7 @@ export const useWorkflowState = ({
             initialWorkflowConfigurations,
             initialWorkflowConfigurations?.dictionary ?? ''
         );
-    }, []);
+    }, [workflowId, initialWorkflowName, initialFlow?.nodes, initialFlow?.edges, initialTemplateContextVariables, initialWorkflowConfigurations, initializeWorkflow]);
 
     // Set up keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -494,7 +494,7 @@ export const useWorkflowState = ({
             logger.error(`Error saving workflow configurations: ${error}`);
             throw error;
         }
-    }, [workflowId, user, setWorkflowConfigurations, setWorkflowName]);
+    }, [workflowId, user, setWorkflowConfigurations]);
 
     // Save dictionary
     const saveDictionary = useCallback(async (newDictionary: string) => {
@@ -530,7 +530,7 @@ export const useWorkflowState = ({
     // Validate workflow on mount
     useEffect(() => {
         validateWorkflow();
-    }, []);
+    }, [validateWorkflow]);
 
     return {
         rfInstance,

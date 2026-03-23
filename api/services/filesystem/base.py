@@ -98,3 +98,16 @@ class BaseFileSystem(ABC):
             bool: True if file was downloaded successfully, False otherwise
         """
         pass
+
+    @abstractmethod
+    async def acopy_file(self, source_path: str, destination_path: str) -> bool:
+        """Copy a file within storage (server-side copy).
+
+        Args:
+            source_path: Path to the source file
+            destination_path: Path for the copied file
+
+        Returns:
+            bool: True if file was copied successfully, False otherwise
+        """
+        pass

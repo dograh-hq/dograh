@@ -45,6 +45,7 @@
               "configurations/voice",
               "configurations/transcriber",
               "configurations/api-keys",
+              "configurations/interruption",
               "configurations/tracing"
             ]
           },

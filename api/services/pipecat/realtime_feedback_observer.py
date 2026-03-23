@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame,
+    BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
     ErrorFrame,
@@ -37,10 +39,12 @@ from pipecat.frames.frames import (
     FunctionCallResultFrame,
     InterimTranscriptionFrame,
     InterruptionFrame,
-    LLMTextFrame,
     MetricsFrame,
     StopFrame,
     TranscriptionFrame,
+    TTSTextFrame,
+    UserMuteStartedFrame,
+    UserMuteStoppedFrame,
 )
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
@@ -173,6 +177,30 @@ class RealtimeFeedbackObserver(BaseObserver):
             await self._handle_interruption()
             return
 
+        # Bot speaking state - WS only (ephemeral state signals, not persisted)
+        if isinstance(frame, BotStartedSpeakingFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.BOT_STARTED_SPEAKING.value, "payload": {}}
+            )
+            return
+        if isinstance(frame, BotStoppedSpeakingFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.BOT_STOPPED_SPEAKING.value, "payload": {}}
+            )
+            return
+
+        # User mute state - WS only (ephemeral state signals, not persisted)
+        if isinstance(frame, UserMuteStartedFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.USER_MUTE_STARTED.value, "payload": {}}
+            )
+            return
+        if isinstance(frame, UserMuteStoppedFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.USER_MUTE_STOPPED.value, "payload": {}}
+            )
+            return
+
         # Skip already processed frames (frames can be observed multiple times)
         if frame.id in self._frames_seen:
             return
@@ -207,7 +235,7 @@ class RealtimeFeedbackObserver(BaseObserver):
             )
         # Handle bot TTS text - respect pts timing, WebSocket only
         # Complete turn text is persisted via register_turn_handlers
-        elif isinstance(frame, LLMTextFrame):
+        elif isinstance(frame, TTSTextFrame):
             message = {
                 "type": RealtimeFeedbackType.BOT_TEXT.value,
                 "payload": {

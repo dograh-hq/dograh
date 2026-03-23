@@ -44,7 +44,7 @@ from api.services.pipecat.ws_sender_registry import (
 )
 from api.services.quota_service import check_dograh_quota
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.utils.run_context import set_current_run_id
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 router = APIRouter(prefix="/ws")
 
@@ -213,8 +213,12 @@ class SignalingManager:
         type_ = payload.get("type")
         call_context_vars = payload.get("call_context_vars", {})
 
-        # Set run context for logging
+        # Set run context for logging and tracing. org_id must be set before
+        # pc.initialize() so that aiortc's internal tasks inherit it.
         set_current_run_id(workflow_run_id)
+        org_id = await db_client.get_workflow_organization_id(workflow_id)
+        if org_id:
+            set_current_org_id(org_id)
 
         # Check Dograh quota before initiating the call
         quota_result = await check_dograh_quota(user)

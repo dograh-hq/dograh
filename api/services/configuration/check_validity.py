@@ -39,6 +39,7 @@ class UserConfigurationValidator:
             ServiceProviders.SARVAM.value: self._check_sarvam_api_key,
             ServiceProviders.SPEECHMATICS.value: self._check_speechmatics_api_key,
             ServiceProviders.CAMB.value: self._check_camb_api_key,
+            ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
         }
 
     async def validate(self, configuration: UserConfiguration) -> APIKeyStatusResponse:
@@ -72,6 +73,21 @@ class UserConfigurationValidator:
             return []  # Optional service not configured is OK
 
         provider = service_config.provider
+
+        # AWS Bedrock uses AWS credentials instead of api_key
+        if provider == ServiceProviders.AWS_BEDROCK.value:
+            try:
+                if not self._check_aws_bedrock_api_key(provider, service_config):
+                    return [
+                        {
+                            "model": service_name,
+                            "message": f"Invalid {provider} credentials",
+                        }
+                    ]
+            except ValueError as e:
+                return [{"model": service_name, "message": str(e)}]
+            return []
+
         api_key = service_config.api_key
 
         try:
@@ -146,4 +162,9 @@ class UserConfigurationValidator:
         return True
 
     def _check_camb_api_key(self, model: str, api_key: str) -> bool:
+        return True
+      
+    def _check_aws_bedrock_api_key(self, model: str, service_config) -> bool:
+        if not service_config.aws_access_key or not service_config.aws_secret_key:
+            raise ValueError("AWS access key and secret key are required for Bedrock")
         return True

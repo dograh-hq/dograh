@@ -95,6 +95,26 @@ class OrganizationConfigurationClient(BaseDBClient):
         config = await self.get_configuration(organization_id, key)
         return config.value if config else default
 
+    async def get_all_configurations_by_key(self, key: str) -> list[dict[str, Any]]:
+        """Get all organization configurations for a given key.
+
+        Returns a list of dicts with organization_id and the config value.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(OrganizationConfigurationModel).where(
+                    OrganizationConfigurationModel.key == key,
+                )
+            )
+            return [
+                {
+                    "organization_id": config.organization_id,
+                    "value": config.value,
+                }
+                for config in result.scalars().all()
+                if config.value
+            ]
+
     async def get_configurations_by_provider(
         self, key: str, provider: str
     ) -> List[Dict[str, Any]]:

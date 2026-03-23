@@ -5,18 +5,21 @@ import re
 from loguru import logger
 
 from api.db.models import WorkflowRunModel
+from api.services.pipecat.tracing_config import get_trace_url
 
 
 def extract_trace_id(gathered_context: dict) -> str | None:
     """Extract Langfuse trace_id from gathered_context trace_url.
 
-    URL format: https://langfuse.dograh.com/project/<project_id>/traces/<trace_id>
+    Supports both URL formats:
+    - New: https://langfuse.dograh.com/trace/<trace_id>
+    - Legacy: https://langfuse.dograh.com/project/<project_id>/traces/<trace_id>
     """
     trace_url = gathered_context.get("trace_url")
     if not trace_url:
         return None
     try:
-        match = re.search(r"/traces/([a-fA-F0-9]+)$", trace_url)
+        match = re.search(r"/traces?/([a-fA-F0-9]+)$", trace_url)
         if match:
             return match.group(1)
     except Exception:
@@ -37,15 +40,10 @@ def setup_langfuse_parent_context(workflow_run: WorkflowRunModel):
             set_span_in_context,
         )
 
-        from api.services.pipecat.tracing_config import (
-            is_tracing_enabled,
-            setup_tracing_exporter,
-        )
+        from api.services.pipecat.tracing_config import ensure_tracing
 
-        if not is_tracing_enabled():
+        if not ensure_tracing():
             return None
-
-        setup_tracing_exporter()
 
         gathered_context = workflow_run.gathered_context or {}
         trace_id = extract_trace_id(gathered_context)
@@ -114,16 +112,11 @@ def create_node_summary_trace(
         from opentelemetry import trace as otel_trace
         from opentelemetry.context import Context
 
-        from api.services.pipecat.tracing_config import (
-            is_tracing_enabled,
-            setup_tracing_exporter,
-        )
+        from api.services.pipecat.tracing_config import ensure_tracing
         from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
-        if not is_tracing_enabled():
+        if not ensure_tracing():
             return None
-
-        setup_tracing_exporter()
 
         tracer = otel_trace.get_tracer("pipecat")
 
@@ -144,10 +137,7 @@ def create_node_summary_trace(
             )
             trace_id = format(span.get_span_context().trace_id, "032x")
 
-        from langfuse import get_client
-
-        langfuse = get_client()
-        return langfuse.get_trace_url(trace_id=trace_id)
+        return get_trace_url(trace_id)
 
     except Exception as e:
         logger.warning(f"Failed to create node summary trace for '{node_name}': {e}")

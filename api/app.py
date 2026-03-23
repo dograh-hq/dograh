@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from api.routes.main import router as main_router
+from api.services.pipecat.tracing_config import load_all_org_langfuse_credentials
 from api.tasks.arq import get_arq_redis
 
 API_PREFIX = "/api/v1"
@@ -36,6 +37,10 @@ API_PREFIX = "/api/v1"
 async def lifespan(app: FastAPI):
     # warmup arq pool
     await get_arq_redis()
+
+    # Pre-register all org-specific Langfuse exporters so they're ready
+    # before any pipeline runs, without per-call DB lookups.
+    await load_all_org_langfuse_credentials()
 
     yield  # Run app
 

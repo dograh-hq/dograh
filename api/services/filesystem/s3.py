@@ -137,3 +137,18 @@ class S3FileSystem(BaseFileSystem):
             return True
         except ClientError:
             return False
+
+    async def acopy_file(self, source_path: str, destination_path: str) -> bool:
+        """Copy a file within S3 (server-side copy)."""
+        try:
+            async with self.session.client(
+                "s3", region_name=self.region_name
+            ) as s3_client:
+                await s3_client.copy_object(
+                    Bucket=self.bucket_name,
+                    Key=destination_path,
+                    CopySource={"Bucket": self.bucket_name, "Key": source_path},
+                )
+            return True
+        except ClientError:
+            return False

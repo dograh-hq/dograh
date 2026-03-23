@@ -23,6 +23,7 @@ export type FlowNodeData = {
     extraction_prompt?: string;
     extraction_variables?: ExtractionVariable[];
     add_global_prompt?: boolean;
+    greeting?: string;
     wait_for_user_greeting?: boolean;
     detect_voicemail?: boolean;
     delayed_start?: boolean;

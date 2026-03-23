@@ -365,13 +365,22 @@ class CampaignClient(BaseDBClient):
             result = await session.execute(query)
             return list(result.scalars().all())
 
-    async def get_completed_runs_for_report(
-        self, campaign_id: int
-    ) -> list[WorkflowRunModel]:
-        """Get completed workflow runs with call duration for campaign report CSV."""
+    async def get_completed_runs_for_report(self, campaign_id: int) -> list:
+        """Get completed workflow runs for campaign report CSV.
+
+        Returns rows with only the columns needed for report generation.
+        """
         async with self.async_session() as session:
             query = (
-                select(WorkflowRunModel)
+                select(
+                    WorkflowRunModel.id,
+                    WorkflowRunModel.created_at,
+                    WorkflowRunModel.initial_context,
+                    WorkflowRunModel.gathered_context,
+                    WorkflowRunModel.cost_info,
+                    WorkflowRunModel.logs,
+                    WorkflowRunModel.public_access_token,
+                )
                 .where(
                     WorkflowRunModel.campaign_id == campaign_id,
                     WorkflowRunModel.is_completed.is_(True),
@@ -379,14 +388,10 @@ class CampaignClient(BaseDBClient):
                     .as_string()
                     .isnot(None),
                 )
-                .order_by(
-                    WorkflowRunModel.cost_info["call_duration_seconds"]
-                    .as_float()
-                    .desc()
-                )
+                .order_by(WorkflowRunModel.created_at.desc())
             )
             result = await session.execute(query)
-            return list(result.scalars().all())
+            return list(result.all())
 
     async def create_queued_run(
         self,

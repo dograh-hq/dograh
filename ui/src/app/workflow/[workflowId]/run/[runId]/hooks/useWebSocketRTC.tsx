@@ -18,7 +18,7 @@ interface UseWebSocketRTCProps {
 
 export interface FeedbackMessage {
     id: string;
-    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error';
+    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error' | 'interrupt-warning';
     text: string;
     final?: boolean;
     timestamp: string;
@@ -27,6 +27,7 @@ export interface FeedbackMessage {
     // Node transition fields
     nodeName?: string;
     previousNode?: string;
+    allowInterrupt?: boolean;
     // TTFB metric fields
     ttfbSeconds?: number;
     processor?: string;
@@ -81,6 +82,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     };
 
     const pc_id = useRef(generateSecureId());
+
+    // Mute/speaking state tracking refs (ephemeral signals, not rendered directly)
+    const userMutedRef = useRef(false);
+    const firstBotSpeechCompletedRef = useRef(false);
+    const currentAllowInterruptRef = useRef<boolean | undefined>(undefined);
+    const interruptWarningShownRef = useRef(false);
 
     // Get WebSocket URL from client configuration
     const getWebSocketUrl = useCallback(() => {
@@ -287,6 +294,24 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
                         case 'rtf-user-transcription': {
                             const transcription = message.payload;
+
+                            // Show one-time warning if user speaks while muted on a no-interrupt node
+                            // Skip during initial bot greeting (muted by MuteUntilFirstBotComplete strategy)
+                            if (
+                                !interruptWarningShownRef.current &&
+                                firstBotSpeechCompletedRef.current &&
+                                userMutedRef.current &&
+                                currentAllowInterruptRef.current === false
+                            ) {
+                                interruptWarningShownRef.current = true;
+                                setFeedbackMessages(prev => [...prev, {
+                                    id: `interrupt-warning-${Date.now()}`,
+                                    type: 'interrupt-warning',
+                                    text: 'Interruption is disabled for this step. The bot will finish speaking before processing your input. You can enable interruption in the workflow editor.',
+                                    timestamp: new Date().toISOString(),
+                                }]);
+                            }
+
                             setFeedbackMessages(prev => {
                                 // Step 1: Finalize the last bot message (user started speaking)
                                 const messagesWithBotFinalized = prev.map((msg, idx) => {
@@ -322,7 +347,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                                     // Append to existing bot message
                                     return [
                                         ...prev.slice(0, -1),
-                                        { ...last, text: last.text + message.payload.text }
+                                        { ...last, text: last.text + ' ' + message.payload.text }
                                     ];
                                 }
                                 // Start new bot message
@@ -368,13 +393,15 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                         }
 
                         case 'rtf-node-transition': {
-                            const { node_name, previous_node } = message.payload;
+                            const { node_name, previous_node_name, allow_interrupt } = message.payload;
+                            currentAllowInterruptRef.current = allow_interrupt;
                             setFeedbackMessages(prev => [...prev, {
                                 id: `node-${Date.now()}`,
                                 type: 'node-transition',
                                 text: node_name,
                                 nodeName: node_name,
-                                previousNode: previous_node,
+                                previousNode: previous_node_name,
+                                allowInterrupt: allow_interrupt,
                                 timestamp: new Date().toISOString(),
                             }]);
                             break;
@@ -406,6 +433,24 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             }]);
                             break;
                         }
+
+                        // Ephemeral state signals — update refs only, no UI messages
+                        case 'rtf-bot-started-speaking':
+                            break;
+
+                        case 'rtf-bot-stopped-speaking':
+                            if (!firstBotSpeechCompletedRef.current) {
+                                firstBotSpeechCompletedRef.current = true;
+                            }
+                            break;
+
+                        case 'rtf-user-mute-started':
+                            userMutedRef.current = true;
+                            break;
+
+                        case 'rtf-user-mute-stopped':
+                            userMutedRef.current = false;
+                            break;
 
                         default:
                             logger.warn('Unknown message type:', message.type);

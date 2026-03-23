@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { getCampaignRunsApiV1CampaignCampaignIdRunsGet } from "@/client/sdk.gen";
+import { getCampaignRunsApiV1CampaignCampaignIdRunsGet, getWorkflowApiV1WorkflowFetchWorkflowIdGet } from "@/client/sdk.gen";
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
 import { WorkflowRunsTable } from "@/components/workflow-runs";
 import { useAuth } from "@/lib/auth";
@@ -48,6 +48,41 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
     const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
         return searchParams ? decodeFiltersFromURL(searchParams, availableAttributes) : [];
     });
+
+    const [configuredAttributes, setConfiguredAttributes] = useState<FilterAttribute[]>(availableAttributes);
+
+    // Load disposition codes from workflow configuration
+    const loadDispositionCodes = useCallback(async () => {
+        if (!isAuthenticated) return;
+        try {
+            const response = await getWorkflowApiV1WorkflowFetchWorkflowIdGet({
+                path: { workflow_id: workflowId },
+            });
+
+            const workflow = response.data;
+            const codes = workflow?.call_disposition_codes?.disposition_codes;
+            if (codes && codes.length > 0) {
+                setConfiguredAttributes(prev => prev.map(attr => {
+                    if (attr.id === 'dispositionCode') {
+                        return {
+                            ...attr,
+                            config: {
+                                ...attr.config,
+                                options: codes,
+                            }
+                        };
+                    }
+                    return attr;
+                }));
+            }
+        } catch (err) {
+            console.error("Failed to load disposition codes:", err);
+        }
+    }, [workflowId, isAuthenticated]);
+
+    useEffect(() => {
+        loadDispositionCodes();
+    }, [loadDispositionCodes]);
 
     const fetchCampaignRuns = useCallback(async (
         page: number,
@@ -176,7 +211,7 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
     }, [fetchCampaignRuns, currentPage, appliedFilters, sortBy, sortOrder]);
 
     // Use a subset of filter attributes relevant for campaigns
-    const campaignFilterAttributes: FilterAttribute[] = availableAttributes.filter(
+    const campaignFilterAttributes: FilterAttribute[] = configuredAttributes.filter(
         attr => ['dateRange', 'dispositionCode', 'duration', 'status', 'tokenUsage'].includes(attr.id)
     );
 

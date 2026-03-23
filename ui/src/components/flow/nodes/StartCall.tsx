@@ -24,6 +24,8 @@ import { useNodeHandlers } from "./common/useNodeHandlers";
 
 interface StartCallEditFormProps {
     nodeData: FlowNodeData;
+    greeting: string;
+    setGreeting: (value: string) => void;
     prompt: string;
     setPrompt: (value: string) => void;
     name: string;
@@ -32,8 +34,6 @@ interface StartCallEditFormProps {
     setAllowInterrupt: (value: boolean) => void;
     addGlobalPrompt: boolean;
     setAddGlobalPrompt: (value: boolean) => void;
-    detectVoicemail: boolean;
-    setDetectVoicemail: (value: boolean) => void;
     delayedStart: boolean;
     setDelayedStart: (value: boolean) => void;
     delayedStartDuration: number;
@@ -65,11 +65,11 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const { saveWorkflow, tools, documents, recordings } = useWorkflow();
 
     // Form state
+    const [greeting, setGreeting] = useState(data.greeting ?? "");
     const [prompt, setPrompt] = useState(data.prompt ?? "");
     const [name, setName] = useState(data.name);
     const [allowInterrupt, setAllowInterrupt] = useState(data.allow_interrupt ?? true);
     const [addGlobalPrompt, setAddGlobalPrompt] = useState(data.add_global_prompt ?? true);
-    const [detectVoicemail, setDetectVoicemail] = useState(data.detect_voicemail ?? false);
     const [delayedStart, setDelayedStart] = useState(data.delayed_start ?? false);
     const [delayedStartDuration, setDelayedStartDuration] = useState(data.delayed_start_duration ?? 2);
     const [extractionEnabled, setExtractionEnabled] = useState(data.extraction_enabled ?? false);
@@ -78,22 +78,23 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const [toolUuids, setToolUuids] = useState<string[]>(data.tool_uuids ?? []);
     const [documentUuids, setDocumentUuids] = useState<string[]>(data.document_uuids ?? []);
 
-    // Compute if form has unsaved changes (only check prompt, name)
+    // Compute if form has unsaved changes (only check prompt, name, greeting)
     const isDirty = useMemo(() => {
         return (
+            greeting !== (data.greeting ?? "") ||
             prompt !== (data.prompt ?? "") ||
             name !== (data.name ?? "")
         );
-    }, [prompt, name, data]);
+    }, [greeting, prompt, name, data]);
 
     const handleSave = async () => {
         handleSaveNodeData({
             ...data,
+            greeting: greeting || undefined,
             prompt,
             name,
             allow_interrupt: allowInterrupt,
             add_global_prompt: addGlobalPrompt,
-            detect_voicemail: detectVoicemail,
             delayed_start: delayedStart,
             delayed_start_duration: delayedStart ? delayedStartDuration : undefined,
             extraction_enabled: extractionEnabled,
@@ -112,11 +113,11 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     // Reset form state when dialog opens
     const handleOpenChange = (newOpen: boolean) => {
         if (newOpen) {
+            setGreeting(data.greeting ?? "");
             setPrompt(data.prompt ?? "");
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
-            setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
             setExtractionEnabled(data.extraction_enabled ?? false);
@@ -131,11 +132,11 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     // Update form state when data changes (e.g., from undo/redo)
     useEffect(() => {
         if (open) {
+            setGreeting(data.greeting ?? "");
             setPrompt(data.prompt ?? "");
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
             setAddGlobalPrompt(data.add_global_prompt ?? true);
-            setDetectVoicemail(data.detect_voicemail ?? false);
             setDelayedStart(data.delayed_start ?? false);
             setDelayedStartDuration(data.delayed_start_duration ?? 3);
             setExtractionEnabled(data.extraction_enabled ?? false);
@@ -225,6 +226,8 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                 {open && (
                     <StartCallEditForm
                         nodeData={data}
+                        greeting={greeting}
+                        setGreeting={setGreeting}
                         prompt={prompt}
                         setPrompt={setPrompt}
                         name={name}
@@ -233,8 +236,6 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                         setAllowInterrupt={setAllowInterrupt}
                         addGlobalPrompt={addGlobalPrompt}
                         setAddGlobalPrompt={setAddGlobalPrompt}
-                        detectVoicemail={detectVoicemail}
-                        setDetectVoicemail={setDetectVoicemail}
                         delayedStart={delayedStart}
                         setDelayedStart={setDelayedStart}
                         delayedStartDuration={delayedStartDuration}
@@ -260,6 +261,8 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
 });
 
 const StartCallEditForm = ({
+    greeting,
+    setGreeting,
     prompt,
     setPrompt,
     name,
@@ -268,8 +271,6 @@ const StartCallEditForm = ({
     setAllowInterrupt,
     addGlobalPrompt,
     setAddGlobalPrompt,
-    detectVoicemail,
-    setDetectVoicemail,
     delayedStart,
     setDelayedStart,
     delayedStartDuration,
@@ -326,6 +327,18 @@ const StartCallEditForm = ({
                 onChange={(e) => setName(e.target.value)}
             />
 
+            <Label>Greeting</Label>
+            <Label className="text-xs text-muted-foreground">
+                Optional greeting message played via TTS when the call starts. If set, this will be spoken directly instead of generating a response from the LLM. Supports template variables like {"{{variable_name}}"}.
+            </Label>
+            <MentionTextarea
+                value={greeting}
+                onChange={setGreeting}
+                className="min-h-[60px] max-h-[200px] resize-none overflow-y-auto"
+                placeholder="e.g. Hello {{first_name}}, this is Sarah calling from Acme Corp."
+                recordings={recordings}
+            />
+
             <Label>Prompt</Label>
             <Label className="text-xs text-muted-foreground">
                 Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
@@ -352,19 +365,6 @@ const StartCallEditForm = ({
                 />
                 <Label htmlFor="add-global-prompt">
                     Add Global Prompt
-                </Label>
-            </div>
-            <div className="flex items-center space-x-2">
-                <Switch
-                    id="detect-voicemail"
-                    checked={detectVoicemail}
-                    onCheckedChange={setDetectVoicemail}
-                />
-                <Label htmlFor="detect-voicemail">
-                    Detect Voicemail
-                </Label>
-                <Label className="text-xs text-muted-foreground">
-                    Automatically detect and end call if voicemail is reached.
                 </Label>
             </div>
             <div className="flex flex-col space-y-2">

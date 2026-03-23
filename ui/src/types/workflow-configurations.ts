@@ -12,6 +12,22 @@ export interface AmbientNoiseConfiguration {
 
 export type TurnStopStrategy = 'transcription' | 'turn_analyzer';
 
+export interface VoicemailDetectionConfiguration {
+    enabled: boolean;
+    use_workflow_llm: boolean;
+    provider?: string;
+    model?: string;
+    api_key?: string;
+    system_prompt?: string;
+    long_speech_timeout: number;  // seconds cutoff for long speech detection
+}
+
+export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfiguration = {
+    enabled: false,
+    use_workflow_llm: true,
+    long_speech_timeout: 8.0,
+};
+
 export interface WorkflowConfigurations {
     vad_configuration?: VADConfiguration;
     ambient_noise_configuration: AmbientNoiseConfiguration;
@@ -20,6 +36,7 @@ export interface WorkflowConfigurations {
     smart_turn_stop_secs: number;  // Timeout in seconds for incomplete turn detection
     turn_stop_strategy: TurnStopStrategy;  // Strategy for detecting end of user turn
     dictionary?: string;  // Comma-separated words for voice agent to listen for
+    voicemail_detection?: VoicemailDetectionConfiguration;
     [key: string]: unknown;  // Allow additional properties for future configurations
 }
 

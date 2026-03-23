@@ -1,63 +1,50 @@
 """LLM configuration resolution and token usage accumulation."""
 
-from api.constants import MPS_API_URL
 from api.db import db_client
 from api.db.models import WorkflowRunModel
 
 
-def _provider_base_url(provider: str | None, endpoint: str = "") -> str | None:
-    """Return the base URL for a given LLM provider."""
-    if provider == "openrouter":
-        return "https://openrouter.ai/api/v1"
-    if provider == "groq":
-        return "https://api.groq.com/openai/v1"
-    if provider == "google":
-        return "https://generativelanguage.googleapis.com/v1beta/openai/"
-    if provider == "azure":
-        return endpoint or None
-    if provider == "dograh":
-        return f"{MPS_API_URL}/api/v1/llm"
-    return None
-
-
 async def resolve_llm_config(
     qa_node_data: dict, workflow_run: WorkflowRunModel
-) -> tuple[str, str, str | None]:
-    """Resolve the LLM model, API key, and base URL for QA analysis.
+) -> tuple[str, str, str, dict]:
+    """Resolve the LLM provider, model, API key, and extra kwargs for QA analysis.
 
     If the QA node has its own LLM configuration (qa_use_workflow_llm=False),
     use those settings directly. Otherwise, fall back to the user's configured LLM.
 
     Returns:
-        (model, api_key, base_url) tuple
+        (provider, model, api_key, service_kwargs) tuple — service_kwargs can be
+        passed directly to create_llm_service_from_provider as keyword arguments.
     """
     if not qa_node_data.get("qa_use_workflow_llm", True):
+        provider = qa_node_data.get("qa_provider", "openai")
+        kwargs = {}
+        if provider == "azure":
+            kwargs["endpoint"] = qa_node_data.get("qa_endpoint", "")
         return (
+            provider,
             qa_node_data.get("qa_model"),
             qa_node_data.get("qa_api_key"),
-            _provider_base_url(
-                qa_node_data.get("qa_provider"),
-                qa_node_data.get("qa_endpoint", ""),
-            ),
+            kwargs,
         )
 
     # Fall back to user's configured LLM
-    model, api_key, base_url = await resolve_user_llm_config(workflow_run)
+    provider, model, api_key, kwargs = await resolve_user_llm_config(workflow_run)
 
     qa_model = qa_node_data.get("qa_model", "default")
     if qa_model and qa_model != "default":
         model = qa_model
 
-    return model, api_key, base_url
+    return provider, model, api_key, kwargs
 
 
 async def resolve_user_llm_config(
     workflow_run: WorkflowRunModel,
-) -> tuple[str, str, str | None]:
+) -> tuple[str, str, str, dict]:
     """Resolve the user's configured LLM (from UserConfiguration).
 
     Returns:
-        (model, api_key, base_url) tuple
+        (provider, model, api_key, service_kwargs) tuple
     """
     user_id = None
     if workflow_run.workflow and workflow_run.workflow.user:
@@ -71,11 +58,14 @@ async def resolve_user_llm_config(
     provider = llm_config.get("provider", "openai")
     api_key = llm_config.get("api_key", "")
     model = llm_config.get("model", "gpt-4.1")
-    base_url = _provider_base_url(provider, llm_config.get("endpoint", ""))
-    if provider == "openrouter" and llm_config.get("base_url"):
-        base_url = llm_config["base_url"]
 
-    return model, api_key, base_url
+    kwargs = {}
+    if provider == "azure":
+        kwargs["endpoint"] = llm_config.get("endpoint", "")
+    elif provider == "openrouter" and llm_config.get("base_url"):
+        kwargs["base_url"] = llm_config["base_url"]
+
+    return provider, model, api_key, kwargs
 
 
 def accumulate_token_usage(total: dict, response) -> None:

@@ -3,13 +3,14 @@
 from typing import Any
 
 from loguru import logger
-from openai import AsyncOpenAI
 
 from api.db import db_client
 from api.db.models import WorkflowRunModel
+from api.services.pipecat.service_factory import create_llm_service_from_provider
 from api.services.workflow.dto import NodeType
 from api.services.workflow.qa.llm_config import resolve_llm_config
 from api.services.workflow.qa.tracing import create_node_summary_trace
+from pipecat.processors.aggregators.llm_context import LLMContext
 
 NODE_SUMMARY_SYSTEM_PROMPT = (
     "You are analyzing a voice AI agent script. This is only a part of a larger script. "
@@ -67,15 +68,14 @@ async def ensure_node_summaries(
     if not nodes_needing_summary:
         return existing_summaries
 
-    model, api_key, base_url = await resolve_llm_config(qa_node_data, workflow_run)
+    provider, model, api_key, service_kwargs = await resolve_llm_config(
+        qa_node_data, workflow_run
+    )
     if not api_key:
         logger.warning("No API key for node summary generation, skipping")
         return existing_summaries
 
-    client_kwargs: dict[str, Any] = {"api_key": api_key}
-    if base_url:
-        client_kwargs["base_url"] = base_url
-    client = AsyncOpenAI(**client_kwargs)
+    llm = create_llm_service_from_provider(provider, model, api_key, **service_kwargs)
 
     updated_summaries = dict(existing_summaries)
 
@@ -153,12 +153,9 @@ async def ensure_node_summaries(
         ]
 
         try:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=0,
-            )
-            summary_text = response.choices[0].message.content or ""
+            context = LLMContext()
+            context.set_messages(messages)
+            summary_text = await llm.run_inference(context) or ""
         except Exception as e:
             logger.warning(f"Failed to generate summary for node {node_id}: {e}")
             updated_summaries[node_id] = {"summary": ""}

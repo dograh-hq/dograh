@@ -83,6 +83,9 @@ class OrganizationConfigurationKey(Enum):
     TWILIO_CONFIGURATION = (
         "TWILIO_CONFIGURATION"  # Deprecated - for backward compatibility
     )
+    LANGFUSE_CREDENTIALS = (
+        "LANGFUSE_CREDENTIALS"  # Org-level Langfuse tracing credentials
+    )
 
 
 class WorkflowStatus(Enum):

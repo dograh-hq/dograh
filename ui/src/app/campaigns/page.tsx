@@ -125,6 +125,7 @@ export default function CampaignsPage() {
                                 <Table>
                                     <TableHeader>
                                         <TableRow>
+                                            <TableHead>ID</TableHead>
                                             <TableHead>Name</TableHead>
                                             <TableHead>Workflow</TableHead>
                                             <TableHead>State</TableHead>
@@ -139,6 +140,7 @@ export default function CampaignsPage() {
                                                 className="cursor-pointer hover:bg-muted/50"
                                                 onClick={() => handleRowClick(campaign.id)}
                                             >
+                                                <TableCell>{campaign.id}</TableCell>
                                                 <TableCell className="font-medium">{campaign.name}</TableCell>
                                                 <TableCell>{campaign.workflow_name}</TableCell>
                                                 <TableCell>

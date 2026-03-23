@@ -21,6 +21,7 @@ from api.services.configuration.masking import (
 )
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.workflow.dto import ReactFlowDTO
+from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.workflow import WorkflowGraph
 
@@ -88,6 +89,10 @@ class ValidateWorkflowResponse(BaseModel):
     errors: list[WorkflowError]
 
 
+class CallDispositionCodes(BaseModel):
+    disposition_codes: list[str] = []
+
+
 class WorkflowResponse(BaseModel):
     id: int
     name: str
@@ -96,7 +101,7 @@ class WorkflowResponse(BaseModel):
     workflow_definition: dict
     current_definition_id: int | None
     template_context_variables: dict | None = None
-    call_disposition_codes: dict | None = None
+    call_disposition_codes: CallDispositionCodes | None = None
     total_runs: int | None = None
     workflow_configurations: dict | None = None
 
@@ -138,7 +143,7 @@ class DuplicateTemplateRequest(BaseModel):
 
 
 class UpdateWorkflowRequest(BaseModel):
-    name: str
+    name: str | None = None
     workflow_definition: dict | None = None
     template_context_variables: dict | None = None
     workflow_configurations: dict | None = None
@@ -603,6 +608,38 @@ async def update_workflow(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{workflow_id}/duplicate")
+async def duplicate_workflow_endpoint(
+    workflow_id: int,
+    user: UserModel = Depends(get_user),
+) -> WorkflowResponse:
+    """Duplicate a workflow including its definition, configuration, recordings, and triggers."""
+    try:
+        workflow = await duplicate_workflow(
+            workflow_id=workflow_id,
+            organization_id=user.selected_organization_id,
+            user_id=user.id,
+        )
+        return {
+            "id": workflow.id,
+            "name": workflow.name,
+            "status": workflow.status,
+            "created_at": workflow.created_at,
+            "workflow_definition": mask_workflow_definition(
+                workflow.workflow_definition_with_fallback
+            ),
+            "current_definition_id": workflow.current_definition_id,
+            "template_context_variables": workflow.template_context_variables,
+            "call_disposition_codes": workflow.call_disposition_codes,
+            "workflow_configurations": workflow.workflow_configurations,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error duplicating workflow {workflow_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

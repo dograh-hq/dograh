@@ -80,6 +80,10 @@ export type AuthUserResponse = {
     is_superuser: boolean;
 };
 
+export type CallDispositionCodes = {
+    disposition_codes?: Array<string>;
+};
+
 export type CallType = 'inbound' | 'outbound';
 
 export type CampaignDefaultsResponse = {
@@ -1447,9 +1451,7 @@ export type WorkflowResponse = {
     template_context_variables?: {
         [key: string]: unknown;
     } | null;
-    call_disposition_codes?: {
-        [key: string]: unknown;
-    } | null;
+    call_disposition_codes?: CallDispositionCodes | null;
     total_runs?: number | null;
     workflow_configurations?: {
         [key: string]: unknown;

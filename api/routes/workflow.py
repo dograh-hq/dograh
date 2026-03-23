@@ -89,6 +89,10 @@ class ValidateWorkflowResponse(BaseModel):
     errors: list[WorkflowError]
 
 
+class CallDispositionCodes(BaseModel):
+    disposition_codes: list[str] = []
+
+
 class WorkflowResponse(BaseModel):
     id: int
     name: str
@@ -97,7 +101,7 @@ class WorkflowResponse(BaseModel):
     workflow_definition: dict
     current_definition_id: int | None
     template_context_variables: dict | None = None
-    call_disposition_codes: dict | None = None
+    call_disposition_codes: CallDispositionCodes | None = None
     total_runs: int | None = None
     workflow_configurations: dict | None = None
 

@@ -22,6 +22,7 @@ from api.schemas.telephony_config import (
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
+from api.services.pipecat.tracing_config import unregister_org_langfuse_credentials
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -246,6 +247,107 @@ def preserve_masked_fields(request, existing_config, config_value):
                 field_value, existing_config.value.get(field_name, "")
             ):
                 config_value[field_name] = existing_config.value[field_name]
+
+
+class LangfuseCredentialsRequest(BaseModel):
+    host: str
+    public_key: str
+    secret_key: str
+
+
+class LangfuseCredentialsResponse(BaseModel):
+    host: str = ""
+    public_key: str = ""
+    secret_key: str = ""
+    configured: bool = False
+
+
+@router.get("/langfuse-credentials", response_model=LangfuseCredentialsResponse)
+async def get_langfuse_credentials(user: UserModel = Depends(get_user)):
+    """Get Langfuse credentials for the user's organization with masked sensitive fields."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    config = await db_client.get_configuration(
+        user.selected_organization_id,
+        OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
+    )
+
+    if not config or not config.value:
+        return LangfuseCredentialsResponse()
+
+    return LangfuseCredentialsResponse(
+        host=config.value.get("host", ""),
+        public_key=mask_key(config.value.get("public_key", "")),
+        secret_key=mask_key(config.value.get("secret_key", "")),
+        configured=True,
+    )
+
+
+@router.post("/langfuse-credentials")
+async def save_langfuse_credentials(
+    request: LangfuseCredentialsRequest,
+    user: UserModel = Depends(get_user),
+):
+    """Save Langfuse credentials for the user's organization."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    existing_config = await db_client.get_configuration(
+        user.selected_organization_id,
+        OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
+    )
+
+    config_value = {
+        "host": request.host,
+        "public_key": request.public_key,
+        "secret_key": request.secret_key,
+    }
+
+    # Preserve masked fields
+    if existing_config and existing_config.value:
+        if is_mask_of(request.public_key, existing_config.value.get("public_key", "")):
+            config_value["public_key"] = existing_config.value["public_key"]
+        if is_mask_of(request.secret_key, existing_config.value.get("secret_key", "")):
+            config_value["secret_key"] = existing_config.value["secret_key"]
+
+    await db_client.upsert_configuration(
+        user.selected_organization_id,
+        OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
+        config_value,
+    )
+
+    # Update the in-memory OTEL exporter so new traces route immediately
+    from api.services.pipecat.tracing_config import register_org_langfuse_credentials
+
+    register_org_langfuse_credentials(
+        org_id=user.selected_organization_id,
+        host=config_value["host"],
+        public_key=config_value["public_key"],
+        secret_key=config_value["secret_key"],
+    )
+
+    return {"message": "Langfuse credentials saved successfully"}
+
+
+@router.delete("/langfuse-credentials")
+async def delete_langfuse_credentials(user: UserModel = Depends(get_user)):
+    """Delete Langfuse credentials for the user's organization."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    deleted = await db_client.delete_configuration(
+        user.selected_organization_id,
+        OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
+    )
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No Langfuse credentials found")
+
+    # Remove the in-memory OTEL exporter so traces fall back to default
+    unregister_org_langfuse_credentials(user.selected_organization_id)
+
+    return {"message": "Langfuse credentials deleted successfully"}
 
 
 class RetryConfigResponse(BaseModel):

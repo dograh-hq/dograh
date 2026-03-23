@@ -6,7 +6,6 @@ import { useCallback, useEffect, useState } from "react";
 import { getWorkflowApiV1WorkflowFetchWorkflowIdGet, getWorkflowRunsApiV1WorkflowWorkflowIdRunsGet } from "@/client/sdk.gen";
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
 import { WorkflowRunsTable } from "@/components/workflow-runs";
-import { DISPOSITION_CODES } from "@/constants/dispositionCodes";
 import { useAuth } from '@/lib/auth';
 import { decodeFiltersFromURL, encodeFiltersToURL } from "@/lib/filters";
 import { ActiveFilter, availableAttributes, FilterAttribute } from "@/types/filters";
@@ -60,17 +59,15 @@ export function WorkflowExecutions({ workflowId, searchParams }: WorkflowExecuti
             });
 
             const workflow = response.data;
-            if (workflow?.call_disposition_codes) {
-                // Update the disposition code attribute with actual options
+            const codes = workflow?.call_disposition_codes?.disposition_codes;
+            if (codes && codes.length > 0) {
                 setConfiguredAttributes(prev => prev.map(attr => {
                     if (attr.id === 'dispositionCode') {
                         return {
                             ...attr,
                             config: {
                                 ...attr.config,
-                                options: Object.keys(workflow.call_disposition_codes || {}).length > 0
-                                                    ? Object.keys(workflow.call_disposition_codes || {})
-                                                    : [...DISPOSITION_CODES]
+                                options: codes,
                             }
                         };
                     }

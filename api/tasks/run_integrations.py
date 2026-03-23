@@ -9,11 +9,13 @@ from loguru import logger
 from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
 from api.db.models import WorkflowRunModel
+from api.enums import OrganizationConfigurationKey
+from api.services.pipecat.tracing_config import register_org_langfuse_credentials
 from api.services.workflow.qa import run_per_node_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 from pipecat.utils.enums import EndTaskReason
-from pipecat.utils.run_context import set_current_run_id
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 
 def _should_skip_qa(
@@ -168,6 +170,22 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         if not organization_id:
             logger.warning("No organization found, skipping integrations")
             return
+
+        # Set org context for tracing and register org-specific Langfuse credentials
+        # FIXME: If an org removes langfuse credentials during an exisitng deployment
+        # we should unregister an existing langfuse credentials for that org.
+        set_current_org_id(organization_id)
+        langfuse_config = await db_client.get_configuration_value(
+            organization_id,
+            OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value,
+        )
+        if langfuse_config:
+            register_org_langfuse_credentials(
+                org_id=organization_id,
+                host=langfuse_config.get("host"),
+                public_key=langfuse_config.get("public_key"),
+                secret_key=langfuse_config.get("secret_key"),
+            )
 
         # Step 2: Get workflow definition (prefer the run-specific definition)
         if workflow_run.definition:

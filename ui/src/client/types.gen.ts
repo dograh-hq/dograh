@@ -732,6 +732,19 @@ export type IntegrationResponse = {
 
 export type ItemKind = 'node' | 'edge' | 'workflow';
 
+export type LangfuseCredentialsRequest = {
+    host: string;
+    public_key: string;
+    secret_key: string;
+};
+
+export type LangfuseCredentialsResponse = {
+    host?: string;
+    public_key?: string;
+    secret_key?: string;
+    configured?: boolean;
+};
+
 export type LastCampaignSettingsResponse = {
     retry_config?: RetryConfigResponse | null;
     max_concurrency?: number | null;
@@ -3796,6 +3809,101 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostError
 export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostError = SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostErrors[keyof SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostErrors];
 
 export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/langfuse-credentials';
+};
+
+export type DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteError = DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteErrors[keyof DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteErrors];
+
+export type DeleteLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetData = {
+    body?: never;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/langfuse-credentials';
+};
+
+export type GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetError = GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetErrors[keyof GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetErrors];
+
+export type GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: LangfuseCredentialsResponse;
+};
+
+export type GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetResponse = GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetResponses[keyof GetLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsGetResponses];
+
+export type SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostData = {
+    body: LangfuseCredentialsRequest;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/langfuse-credentials';
+};
+
+export type SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostError = SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostErrors[keyof SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostErrors];
+
+export type SaveLangfuseCredentialsApiV1OrganizationsLangfuseCredentialsPostResponses = {
     /**
      * Successful Response
      */

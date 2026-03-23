@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from pipecat.services.anthropic.llm import AnthropicLLMService
     from pipecat.services.google.llm import GoogleLLMService
     from pipecat.services.openai.llm import OpenAILLMService
+    from pipecat.utils.tracing.tracing_context import TracingContext
 
     LLMService = Union[OpenAILLMService, AnthropicLLMService, GoogleLLMService]
 
@@ -135,7 +136,9 @@ class PipecatEngine:
         Returns the turn-level context if available, otherwise the
         conversation-level context, or None.
         """
-        tracing_ctx = getattr(self.task, "_tracing_context", None)
+        tracing_ctx: TracingContext | None = getattr(
+            self.task, "_tracing_context", None
+        )
         if not tracing_ctx:
             return None
         return tracing_ctx.get_turn_context() or tracing_ctx.get_conversation_context()
@@ -439,6 +442,10 @@ class PipecatEngine:
                     )
                 )
                 self._gathered_context.update(extracted_data)
+                extracted_variables = self._gathered_context.setdefault(
+                    "extracted_variables", {}
+                )
+                extracted_variables.update(extracted_data)
                 logger.debug(
                     f"Variable extraction completed. Extracted: {extracted_data}"
                 )

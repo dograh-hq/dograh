@@ -14,7 +14,7 @@ from opentelemetry import trace
 
 from api.db import db_client
 from api.services.gen_ai import OpenAIEmbeddingService
-from api.services.pipecat.tracing_config import is_tracing_enabled
+from api.services.pipecat.tracing_config import ensure_tracing
 
 
 async def retrieve_from_knowledge_base(
@@ -51,7 +51,7 @@ async def retrieve_from_knowledge_base(
         - total_results: Number of results returned
     """
     # Create span for retrieval operation if tracing is enabled
-    if is_tracing_enabled():
+    if ensure_tracing():
         try:
             parent_context = tracing_context
 

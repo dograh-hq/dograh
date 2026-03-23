@@ -7,7 +7,7 @@ from loguru import logger
 from opentelemetry import trace
 
 from api.services.gen_ai.json_parser import parse_llm_json
-from api.services.pipecat.tracing_config import is_tracing_enabled
+from api.services.pipecat.tracing_config import ensure_tracing
 from api.services.workflow.dto import ExtractionVariableDTO
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
@@ -206,7 +206,7 @@ class VariableExtractionManager:
         # Get model name for tracing
         model_name = getattr(self._engine.llm, "model_name", "unknown")
 
-        if is_tracing_enabled():
+        if ensure_tracing():
             tracer = trace.get_tracer("pipecat")
             with tracer.start_as_current_span(
                 "llm-variable-extraction", context=parent_ctx

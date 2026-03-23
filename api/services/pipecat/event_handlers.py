@@ -9,6 +9,7 @@ from api.services.pipecat.in_memory_buffers import (
     InMemoryLogsBuffer,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
+from api.services.pipecat.tracing_config import get_trace_url
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
@@ -139,10 +140,12 @@ def register_event_handlers(
 
         # Add trace URL if available (must be done before conversation tracing ends)
         if task.turn_trace_observer:
-            trace_url = task.turn_trace_observer.get_trace_url()
-            if trace_url:
-                gathered_context["trace_url"] = trace_url
-                logger.debug(f"Added trace URL to gathered_context: {trace_url}")
+            trace_id = task.turn_trace_observer.get_trace_id()
+            if trace_id:
+                trace_url = get_trace_url(trace_id)
+                if trace_url:
+                    gathered_context["trace_url"] = trace_url
+                    logger.debug(f"Added trace URL to gathered_context: {trace_url}")
 
         # also consider existing gathered context in workflow_run
         gathered_context = {**gathered_context, **workflow_run.gathered_context}
@@ -164,6 +167,19 @@ def register_event_handlers(
                 call_tags.append(gathered_context[key])
 
         gathered_context["call_tags"] = call_tags
+
+        # Store disposition code in workflow for dynamic filtering
+        disposition_code = gathered_context.get("mapped_call_disposition")
+        if disposition_code and workflow_run:
+            try:
+                await db_client.add_call_disposition_code(
+                    workflow_run.workflow_id, disposition_code
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error storing disposition code in workflow: {e}",
+                    exc_info=True,
+                )
 
         # Clean up engine resources (including voicemail detector)
         await engine.cleanup()

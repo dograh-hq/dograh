@@ -61,6 +61,7 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
 
             const workflow = response.data;
             const codes = workflow?.call_disposition_codes?.disposition_codes;
+            if (codes && codes.length > 0) {
                 setConfiguredAttributes(prev => prev.map(attr => {
                     if (attr.id === 'dispositionCode') {
                         return {

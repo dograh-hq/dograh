@@ -145,7 +145,7 @@ def register_event_handlers(
                 logger.debug(f"Added trace URL to gathered_context: {trace_url}")
 
         # also consider existing gathered context in workflow_run
-        gathered_context = {**gathered_context, **workflow_run.gathered_context}
+        gathered_context = {**workflow_run.gathered_context, **gathered_context}
 
         # Set user_speech call tag
         call_tags = gathered_context.get("call_tags", [])

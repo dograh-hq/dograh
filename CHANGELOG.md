@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.18.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.17.0...dograh-v1.18.0) (2026-03-23)
+
+
+### Features
+
+* add AWS Bedrock support ([fe84f08](https://github.com/dograh-hq/dograh/commit/fe84f086bab48b9a5a9fc181df1b16dea25a32eb))
+* add rtf log when user speaks when muted ([1967a71](https://github.com/dograh-hq/dograh/commit/1967a719353d721184baf56f5366899eb54b4b79))
+* add tool response in variable extraction llm ([#196](https://github.com/dograh-hq/dograh/issues/196)) ([522e696](https://github.com/dograh-hq/dograh/commit/522e69688a1de2cf8c7908713a4b9b625b1abc9c))
+* campaign create error on missing template variables ([e513e56](https://github.com/dograh-hq/dograh/commit/e513e563ee24fdb665c41e764cb2d1b7d408718e))
+* custom telemetry configuration ([affb39e](https://github.com/dograh-hq/dograh/commit/affb39e57f36ffc6bd0b016d0c175afe958c37bc))
+* distribute calling CLIs randomly ([c61a384](https://github.com/dograh-hq/dograh/commit/c61a3843a509f2d921b04b1ef143a8b2a3a0e053))
+* enable duplicate workflow feature ([93c4558](https://github.com/dograh-hq/dograh/commit/93c45580e79a9326d91371d6c35c4a2850d0c46f))
+
+
+### Bug Fixes
+
+* await pending variable extraction tasks before pipeline finishes ([#198](https://github.com/dograh-hq/dograh/issues/198)) ([d42c52d](https://github.com/dograh-hq/dograh/commit/d42c52dc8788d4a8df6a43a2f48c8b83a8d3979d))
+* workflow set dirty after config update ([d996547](https://github.com/dograh-hq/dograh/commit/d996547f1964e067dc9f6d5b03268b44d1a00863))
+
+
+### Documentation
+
+* add video tutorial for local and remote deployment ([#194](https://github.com/dograh-hq/dograh/issues/194)) ([1604e30](https://github.com/dograh-hq/dograh/commit/1604e306ecfabe36b9dd692893981510f566685c))
+
 ## [1.17.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.16.0...dograh-v1.17.0) (2026-03-17)
 
 

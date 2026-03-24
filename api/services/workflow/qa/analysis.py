@@ -28,11 +28,11 @@ from api.utils.template_renderer import render_template
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 
-async def _run_llm_inference(llm, messages: list[dict]) -> str | None:
+async def _run_llm_inference(llm, messages: list[dict], system_prompt: str) -> str | None:
     """Run a one-shot LLM inference using the pipecat service."""
     context = LLMContext()
     context.set_messages(messages)
-    return await llm.run_inference(context)
+    return await llm.run_inference(context, system_instruction=system_prompt)
 
 
 async def _generate_conversation_summary(
@@ -47,12 +47,11 @@ async def _generate_conversation_summary(
     Traced to Langfuse as conversation-summary-before-{node_name}.
     """
     messages = [
-        {"role": "system", "content": CONVERSATION_SUMMARY_SYSTEM_PROMPT},
         {"role": "user", "content": f"## Conversation\n{transcript}"},
     ]
 
     try:
-        summary = await _run_llm_inference(llm, messages) or ""
+        summary = await _run_llm_inference(llm, messages, CONVERSATION_SUMMARY_SYSTEM_PROMPT) or ""
 
         span_name = f"conversation-summary-before-{node_name}"
         add_qa_span_to_trace(parent_ctx, model, messages, summary, span_name)
@@ -163,13 +162,12 @@ async def run_per_node_qa_analysis(
         system_content = render_template(system_prompt, template_context)
 
         messages = [
-            {"role": "system", "content": system_content},
             {"role": "user", "content": f"## Transcript\n{node_transcript}"},
         ]
 
         # Call QA LLM
         try:
-            raw_response = await _run_llm_inference(llm, messages)
+            raw_response = await _run_llm_inference(llm, messages, system_content)
         except Exception as e:
             logger.error(
                 f"QA LLM call failed for node '{node_name}' on run {workflow_run_id}: {e}"
@@ -266,7 +264,6 @@ async def _run_whole_call_qa_analysis(
     }
     system_content = render_template(system_prompt, template_context)
     messages = [
-        {"role": "system", "content": system_content},
         {"role": "user", "content": f"## Transcript\n{transcript}"},
     ]
 
@@ -274,7 +271,7 @@ async def _run_whole_call_qa_analysis(
     llm = create_llm_service_from_provider(provider, model, api_key, **service_kwargs)
 
     try:
-        raw_response = await _run_llm_inference(llm, messages)
+        raw_response = await _run_llm_inference(llm, messages, system_content)
     except Exception as e:
         logger.error(f"QA LLM call failed for run {workflow_run_id}: {e}")
         return {"error": str(e), "node_results": {}}

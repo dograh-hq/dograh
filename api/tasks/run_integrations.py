@@ -11,7 +11,6 @@ from api.db import db_client
 from api.db.models import WorkflowRunModel
 from api.enums import OrganizationConfigurationKey
 from api.services.pipecat.tracing_config import register_org_langfuse_credentials
-from api.services.workflow.qa import run_per_node_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
 from pipecat.utils.enums import EndTaskReason
@@ -81,6 +80,11 @@ async def _run_qa_nodes(
             continue
 
         try:
+            # Import the QA analyzer only when we actually need it. That keeps
+            # startup light for local development and avoids loading the docling
+            # stack until QA is explicitly executed.
+            from api.services.workflow.qa import run_per_node_qa_analysis
+
             logger.info(f"Running QA analysis for node '{node_name}' (#{node_id})")
             result = await run_per_node_qa_analysis(
                 node_data,

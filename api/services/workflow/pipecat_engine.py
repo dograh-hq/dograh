@@ -46,9 +46,6 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
-from api.services.workflow.tools.knowledge_base import (
-    retrieve_from_knowledge_base,
-)
 from api.services.workflow.tools.timezone import (
     convert_time,
     get_current_time,
@@ -374,6 +371,10 @@ class PipecatEngine:
             f"Registering knowledge base retrieval function with {len(document_uuids)} document(s)"
         )
 
+        from api.services.workflow.tools.knowledge_base import (
+            retrieve_from_knowledge_base,
+        )
+
         async def retrieve_kb_func(function_call_params: FunctionCallParams) -> None:
             logger.info("LLM Function Call EXECUTED: retrieve_from_knowledge_base")
             logger.info(f"Arguments: {function_call_params.arguments}")
@@ -692,7 +693,6 @@ class PipecatEngine:
             f"Finishing run with reason: {reason}, disposition: {mapped_disposition} queueing frame {frame_to_push}"
         )
         await self.task.queue_frame(frame_to_push)
-
     async def should_mute_user(self, frame: "Frame") -> bool:
         """
         Callback for CallbackUserMuteStrategy to determine if the user should be muted.

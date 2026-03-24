@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-minio
+    env: prod
+spec:
+  type: ClusterIP
+  selector:
+    app: zoren-voice-minio
+    env: prod
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+    - name: console
+      port: 9001
+      targetPort: 9001
+      protocol: TCP

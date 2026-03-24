@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-ui
+    env: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zoren-voice-ui
+      env: prod
+  template:
+    metadata:
+      labels:
+        app: zoren-voice-ui
+        env: prod
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: agentpool
+      containers:
+        - name: ui
+          image: ashtraregistry.azurecr.io/zoren-voice-ui:__IMAGE_TAG__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3010
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: zoren-voice-ui-config-prod
+          readinessProbe:
+            httpGet:
+              path: /auth/login
+              port: 3010
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /auth/login
+              port: 3010
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 5m
+              memory: 64Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi

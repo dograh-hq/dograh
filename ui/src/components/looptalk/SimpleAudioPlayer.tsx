@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { useAppConfig } from '@/context/AppConfigContext';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
 
@@ -18,6 +19,7 @@ export function SimpleAudioPlayer({ testSessionId }: SimpleAudioPlayerProps) {
     const wsRef = useRef<WebSocket | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const [bufferedDuration, setBufferedDuration] = useState(0);
+    const { config } = useAppConfig();
     const { user, getAccessToken } = useAuth();
     const audioQueueRef = useRef<AudioBufferSourceNode[]>([]);
     const nextStartTimeRef = useRef(0);
@@ -29,8 +31,9 @@ export function SimpleAudioPlayer({ testSessionId }: SimpleAudioPlayerProps) {
                 // Get auth token
                 const accessToken = await getAccessToken();
 
-                // Create WebSocket connection - pass token as query param since WebSocket doesn't support headers
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:8000';
+                // Prefer the backend endpoint advertised by the app config so
+                // local development and the Azure ingress both work.
+                const baseUrl = (config?.backendApiEndpoint || window.location.origin).replace(/^http/, 'ws');
                 const wsUrl = `${baseUrl}/api/v1/looptalk/test-sessions/${testSessionId}/audio-stream?role=${audioRole}&token=${encodeURIComponent(accessToken || '')}`;
                 const ws = new WebSocket(wsUrl);
                 wsRef.current = ws;
@@ -138,7 +141,7 @@ export function SimpleAudioPlayer({ testSessionId }: SimpleAudioPlayerProps) {
                 audioContextRef.current.close();
             }
         };
-    }, [testSessionId, audioRole, user, getAccessToken]);
+        }, [testSessionId, audioRole, user, getAccessToken, config?.backendApiEndpoint]);
 
     return (
         <Card>

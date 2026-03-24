@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: voice-postgres
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-postgres
+    env: prod
+spec:
+  type: ClusterIP
+  selector:
+    app: zoren-voice-postgres
+    env: prod
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+      protocol: TCP

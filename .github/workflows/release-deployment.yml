@@ -1,65 +1,233 @@
-name: Deploy to Vercel Production
+name: Deploy Zoren Voice to Azure
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to deploy, for example v1.15.0 or dograh-v1.15.0
+        required: true
+        type: string
+
+concurrency:
+  group: zoren-voice-release-deploy-${{ github.event.release.tag_name || inputs.release_tag }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
+  id-token: write
+
+env:
+  AKS_CLUSTER_NAME: ashtra-aks-stg
+  AKS_RESOURCE_GROUP: ashtra-rg
+  ACR_NAME: ashtraregistry
+  ACR_LOGIN_SERVER: ashtraregistry.azurecr.io
+  APP_HOST: zoren-voice.ashtra.ai
+  K8S_NAMESPACE: zoren-voice-prod
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: production
+    timeout-minutes: 120
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-      
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+
+      - name: Azure login
+        uses: azure/login@v2.2.0
         with:
-          node-version: '20'
-      
-      - name: Install Vercel CLI
-        run: npm install --global vercel@latest
-      
-      - name: Pull Vercel Environment Information
-        run: vercel pull --yes --environment=production --token=$VERCEL_TOKEN
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      
-      - name: Build Project Artifacts
-        run: vercel build --prod --token=$VERCEL_TOKEN
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      
-      - name: Deploy to Vercel Production
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          auth-type: SERVICE_PRINCIPAL
+
+      - name: Set up kubelogin for non-interactive login
+        uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.0.25
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Get K8s context
+        uses: azure/aks-set-context@v4
+        with:
+          resource-group: ${{ env.AKS_RESOURCE_GROUP }}
+          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+          admin: "false"
+          use-kubelogin: "true"
+          resource-type: Microsoft.ContainerService/managedClusters
+
+      - name: Ensure namespace exists
+        shell: bash
         run: |
-          DEPLOYMENT_URL=$(vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN)
-          echo "Deployed to: $DEPLOYMENT_URL"
-          echo "deployment_url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
-        id: deploy
+          set -euo pipefail
+
+          kubectl create namespace "$K8S_NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Determine deployment version
+        id: vars
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ github.event.release.tag_name || inputs.release_tag }}"
+          version="${version#dograh-}"
+          version="${version#v}"
+
+          if [ -z "$version" ]; then
+            echo "Unable to derive a release version from tag: ${{ github.event.release.tag_name }}"
+            exit 1
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Validate required secrets
+        shell: bash
         env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      
-      - name: Comment on Release
+          POSTGRES_PASSWORD: ${{ secrets.VOICE_POSTGRES_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.VOICE_REDIS_PASSWORD }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.VOICE_MINIO_PASSWORD }}
+          OSS_JWT_SECRET: ${{ secrets.VOICE_OSS_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          for name in POSTGRES_PASSWORD REDIS_PASSWORD MINIO_ROOT_PASSWORD OSS_JWT_SECRET; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required secret: $name"
+              exit 1
+            fi
+          done
+
+      - name: Wait for ACR images
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${{ steps.vars.outputs.version }}"
+          timeout_seconds=3600
+
+          wait_for_image() {
+            local repository="$1"
+            local deadline=$((SECONDS + timeout_seconds))
+
+            echo "Waiting for ${repository}:${version} in ${ACR_LOGIN_SERVER}"
+            while true; do
+              if az acr repository show-tags \
+                --name "$ACR_NAME" \
+                --repository "$repository" \
+                --output tsv 2>/dev/null | grep -Fxq "$version"; then
+                echo "Found ${repository}:${version}"
+                return 0
+              fi
+
+              if [ "$SECONDS" -ge "$deadline" ]; then
+                echo "Timed out waiting for ${repository}:${version}"
+                az acr repository show-tags \
+                  --name "$ACR_NAME" \
+                  --repository "$repository" \
+                  --output table || true
+                return 1
+              fi
+
+              sleep 20
+            done
+          }
+
+          wait_for_image zoren-voice-api
+          wait_for_image zoren-voice-ui
+
+      - name: Render manifests
+        id: render
+        shell: bash
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          POSTGRES_PASSWORD: ${{ secrets.VOICE_POSTGRES_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.VOICE_REDIS_PASSWORD }}
+          MINIO_ROOT_PASSWORD: ${{ secrets.VOICE_MINIO_PASSWORD }}
+          OSS_JWT_SECRET: ${{ secrets.VOICE_OSS_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          rendered_dir="$(mktemp -d)"
+
+          for file in manifests/prod/*.yaml; do
+            cp "$file" "$rendered_dir/"
+          done
+
+          while IFS= read -r -d '' file; do
+            sed -i "s/__IMAGE_TAG__/${VERSION}/g" "$file"
+          done < <(find "$rendered_dir" -maxdepth 1 -type f -name '*.yaml' -print0)
+
+          database_url="postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@voice-postgres:5432/postgres"
+          redis_url="redis://:${REDIS_PASSWORD}@voice-redis:6379"
+
+          kubectl create secret generic zoren-voice-api-secrets-prod \
+            --namespace "$K8S_NAMESPACE" \
+            --from-literal=DATABASE_URL="$database_url" \
+            --from-literal=REDIS_URL="$redis_url" \
+            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+            --from-literal=REDIS_PASSWORD="$REDIS_PASSWORD" \
+            --from-literal=MINIO_ROOT_PASSWORD="$MINIO_ROOT_PASSWORD" \
+            --from-literal=MINIO_SECRET_KEY="$MINIO_ROOT_PASSWORD" \
+            --from-literal=OSS_JWT_SECRET="$OSS_JWT_SECRET" \
+            --dry-run=client -o yaml > "$rendered_dir/zoren-voice-api-secrets-prod.yaml"
+
+          echo "rendered_dir=$rendered_dir" >> "$GITHUB_OUTPUT"
+
+      - name: Apply manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl apply -f "${{ steps.render.outputs.rendered_dir }}"
+
+      - name: Wait for rollouts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          kubectl rollout status deployment/api -n "$K8S_NAMESPACE" --timeout=20m
+          kubectl rollout status deployment/ui -n "$K8S_NAMESPACE" --timeout=20m
+          kubectl rollout status deployment/voice-redis -n "$K8S_NAMESPACE" --timeout=20m
+          kubectl rollout status deployment/minio -n "$K8S_NAMESPACE" --timeout=20m
+          kubectl rollout status statefulset/voice-postgres -n "$K8S_NAMESPACE" --timeout=20m
+
+      - name: Verify public endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS "https://${APP_HOST}/api/v1/health" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"ok"' \
+              && curl -fsS "https://${APP_HOST}/auth/login" >/dev/null; then
+              echo "Public endpoint is healthy."
+              exit 0
+            fi
+
+            echo "Public endpoint not ready yet; retrying (${attempt}/30)..."
+            sleep 20
+          done
+
+          echo "Public endpoint did not become healthy in time."
+          exit 1
+
+      - name: Update release body
+        if: github.event_name == 'release'
         uses: actions/github-script@v7
         with:
           script: |
-            const deployment_url = '${{ steps.deploy.outputs.deployment_url }}';
-            const { owner, repo } = context.repo;
-            const release_id = context.payload.release.id;
-            
+            const appUrl = `https://${process.env.APP_HOST}`;
+            const marker = `Deployed to zoren-voice-prod: ${appUrl}`;
+            const currentBody = context.payload.release.body || "";
+            const nextBody = currentBody.includes("Deployed to zoren-voice-prod:")
+              ? currentBody.replace(/Deployed to zoren-voice-prod: .*$/m, marker)
+              : `${currentBody ? `${currentBody}\n\n` : ""}${marker}`;
+
             await github.rest.repos.updateRelease({
-              owner,
-              repo,
-              release_id,
-              body: context.payload.release.body + 
-                    '\n\n---\n🚀 **Deployed to Production:** ' + deployment_url
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: context.payload.release.id,
+              body: nextBody,
             });

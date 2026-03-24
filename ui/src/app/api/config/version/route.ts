@@ -37,11 +37,14 @@ export async function GET() {
     apiVersion = "unavailable";
   }
 
-  // For the API client base URL: prefer BACKEND_URL env, fall back to
-  // health endpoint value. Skip internal/Docker-only URLs (e.g. http://api:8000)
-  // that aren't reachable from the browser — the client will keep using
-  // window.location.origin via the Next.js proxy instead.
-  const clientCandidate = process.env.BACKEND_URL || backendApiEndpoint;
+  // For the API client base URL: prefer BACKEND_URL env, but if it points at
+  // an internal service name (for example http://api:8000), fall back to the
+  // backend-advertised public endpoint so browser-side WebSocket URLs and
+  // direct API links stay reachable outside the cluster.
+  const configuredBackendUrl = process.env.BACKEND_URL;
+  const clientCandidate = !isInternalUrl(configuredBackendUrl)
+    ? configuredBackendUrl
+    : backendApiEndpoint;
   const clientApiBaseUrl = isInternalUrl(clientCandidate) ? 'http://localhost:8000' : clientCandidate;
 
   return NextResponse.json({

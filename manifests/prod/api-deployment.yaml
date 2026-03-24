@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-api
+    env: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zoren-voice-api
+      env: prod
+  template:
+    metadata:
+      labels:
+        app: zoren-voice-api
+        env: prod
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: agentpool
+      containers:
+        - name: api
+          image: ashtraregistry.azurecr.io/zoren-voice-api:__IMAGE_TAG__
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: zoren-voice-api-config-prod
+            - secretRef:
+                name: zoren-voice-api-secrets-prod
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+              scheme: HTTP
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8000
+              scheme: HTTP
+            initialDelaySeconds: 75
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 5m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi

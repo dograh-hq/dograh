@@ -43,12 +43,43 @@ from api.tasks.campaign_tasks import (
     process_campaign_batch,
     sync_campaign_source,
 )
-from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
 from api.tasks.s3_upload import (
     process_workflow_completion,
     upload_voicemail_audio_to_s3,
 )
+
+
+async def process_knowledge_base_document(
+    ctx,
+    document_id: int,
+    s3_key: str,
+    organization_id: int,
+    max_tokens: int = 128,
+):
+    """Lazy wrapper around the knowledge-base processor.
+
+    Importing the docling stack at module load time makes the API startup path
+    much heavier than it needs to be for local development. Deferring the import
+    keeps the app bootable without the optional OCR/document-processing deps
+    until a knowledge-base job is actually executed.
+    """
+    try:
+        from api.tasks.knowledge_base_processing import (
+            process_knowledge_base_document as _process_knowledge_base_document,
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            "Knowledge-base processing requires the optional docling dependencies"
+        ) from exc
+
+    return await _process_knowledge_base_document(
+        ctx,
+        document_id,
+        s3_key,
+        organization_id,
+        max_tokens,
+    )
 
 
 class WorkerSettings:

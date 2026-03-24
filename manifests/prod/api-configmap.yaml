@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zoren-voice-api-config-prod
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-api
+    env: prod
+data:
+  ENVIRONMENT: production
+  DEPLOYMENT_MODE: oss
+  AUTH_PROVIDER: local
+  LOG_LEVEL: INFO
+  LOG_TO_STDOUT: "true"
+  ENABLE_TELEMETRY: "false"
+  ENABLE_AWS_S3: "false"
+  BACKEND_API_ENDPOINT: https://zoren-voice.ashtra.ai
+  UI_APP_URL: https://zoren-voice.ashtra.ai
+  BACKEND_CORS_ORIGINS: https://zoren-voice.ashtra.ai
+  MINIO_ENDPOINT: minio:9000
+  MINIO_PUBLIC_ENDPOINT: zoren-voice.ashtra.ai
+  MINIO_ACCESS_KEY: minioadmin
+  MINIO_BUCKET: voice-audio
+  MINIO_SECURE: "false"
+  FASTAPI_WORKERS: "2"
+  ARQ_WORKERS: "1"
+  PROJECT_NAME: Zoren Voice AI
+  EMAILS_FROM_NAME: Zoren Voice AI
+  MFA_ISSUER: Zoren Voice AI

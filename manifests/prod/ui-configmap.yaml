@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zoren-voice-ui-config-prod
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-ui
+    env: prod
+data:
+  BACKEND_URL: http://api:8000
+  NEXT_PUBLIC_API_URL: https://zoren-voice.ashtra.ai
+  NEXT_PUBLIC_APP_NAME: Zoren Voice AI
+  NODE_ENV: production
+  PORT: "3010"
+  ENABLE_TELEMETRY: "false"

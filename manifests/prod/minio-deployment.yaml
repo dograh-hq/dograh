@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-minio
+    env: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zoren-voice-minio
+      env: prod
+  template:
+    metadata:
+      labels:
+        app: zoren-voice-minio
+        env: prod
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: production
+      tolerations:
+        - key: production
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - minio
+            - server
+            - /data
+            - --console-address
+            - :9001
+          env:
+            - name: MINIO_ROOT_USER
+              value: minioadmin
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zoren-voice-api-secrets-prod
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_API_CORS_ALLOW_ORIGIN
+              value: https://zoren-voice.ashtra.ai
+          ports:
+            - containerPort: 9000
+              protocol: TCP
+            - containerPort: 9001
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: 300m
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data

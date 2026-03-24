@@ -87,9 +87,10 @@ def do_run_migrations(connection):
         render_item=render_item,
         compare_type=True,
         compare_server_default=True,
+        transaction_per_migration=True,  # Each migration in its own transaction
     )
-    with context.begin_transaction():
-        context.run_migrations()
+    # Run without wrapping transaction - let each migration handle its own
+    context.run_migrations()
 
 
 async def run_migrations_online():

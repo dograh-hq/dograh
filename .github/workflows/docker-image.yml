@@ -14,12 +14,19 @@ jobs:
     runs-on: ubuntu-latest
     env:
       COMMIT_SHA: ${{ github.sha }}
+      ACR_LOGIN_SERVER: ashtraregistry.azurecr.io
 
     strategy:
       matrix:
-        service:
-          - "dograh-api|api/Dockerfile|."
-          - "dograh-ui|ui/Dockerfile|."
+        include:
+          - image_name: dograh-api
+            acr_image_name: zoren-voice-api
+            dockerfile: api/Dockerfile
+            context: .
+          - image_name: dograh-ui
+            acr_image_name: zoren-voice-ui
+            dockerfile: ui/Dockerfile
+            context: .
 
     steps:
       - name: Free Disk Space
@@ -57,11 +64,16 @@ jobs:
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_TOKEN }}
 
+      - name: Log in to Azure Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
       - name: Set build variables
         id: build-vars
         run: |
-          SERVICE="${{ matrix.service }}"
-          IMAGE_NAME=$(echo "$SERVICE" | cut -d '|' -f1)
           SHORT_SHA=${COMMIT_SHA::8}
 
           # Get version from release tag (removes 'dograh-' and 'v' prefixes if present)
@@ -69,21 +81,23 @@ jobs:
           VERSION="${VERSION#dograh-}"
           VERSION="${VERSION#v}"
 
-          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "image_name=${{ matrix.image_name }}" >> $GITHUB_OUTPUT
+          echo "acr_image_name=${{ matrix.acr_image_name }}" >> $GITHUB_OUTPUT
           echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
-      - name: Build and Push ${{ matrix.service }}
+      - name: Build and Push ${{ matrix.image_name }}
         id: docker-build
         run: |
-          SERVICE="${{ matrix.service }}"
-          IMAGE_NAME=$(echo "$SERVICE" | cut -d '|' -f1)
-          DOCKERFILE=$(echo "$SERVICE" | cut -d '|' -f2)
-          CONTEXT=$(echo "$SERVICE" | cut -d '|' -f3)
+          IMAGE_NAME="${{ matrix.image_name }}"
+          ACR_IMAGE_NAME="${{ matrix.acr_image_name }}"
+          DOCKERFILE="${{ matrix.dockerfile }}"
+          CONTEXT="${{ matrix.context }}"
           SHORT_SHA=${COMMIT_SHA::8}
           VERSION="${{ steps.build-vars.outputs.version }}"
 
           echo "Building and pushing image: $IMAGE_NAME"
+          echo "ACR image name: $ACR_IMAGE_NAME"
           echo "Dockerfile: $DOCKERFILE"
           echo "Context: $CONTEXT"
           echo "Version: $VERSION"
@@ -102,6 +116,9 @@ jobs:
             --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:$VERSION \
             --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:$SHORT_SHA \
             --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:latest \
+            --tag $ACR_LOGIN_SERVER/$ACR_IMAGE_NAME:$VERSION \
+            --tag $ACR_LOGIN_SERVER/$ACR_IMAGE_NAME:$SHORT_SHA \
+            --tag $ACR_LOGIN_SERVER/$ACR_IMAGE_NAME:latest \
             --push "$CONTEXT"
 
       - name: Send Slack notification - Success

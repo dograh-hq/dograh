@@ -9,6 +9,18 @@ from minio.error import S3Error
 from .base import BaseFileSystem
 
 
+def _infer_url_scheme(endpoint: str) -> str:
+    """Infer a browser-facing URL scheme for a storage endpoint."""
+    if "://" in endpoint:
+        return endpoint.split("://", 1)[0]
+
+    normalized = endpoint.lower()
+    if normalized.startswith(("localhost", "127.0.0.1", "minio:", "host.docker.internal:")):
+        return "http"
+
+    return "https"
+
+
 class MinioFileSystem(BaseFileSystem):
     """MinIO implementation of the filesystem interface for OSS users.
 
@@ -117,10 +129,10 @@ class MinioFileSystem(BaseFileSystem):
         try:
             # For MinIO in local development, return unsigned URLs
             # This avoids signature mismatch issues when endpoint differs
-            # MinIO must be configured to allow anonymous read access
-            protocol = "https" if self.secure else "http"
             endpoint = self.endpoint if use_internal_endpoint else self.public_endpoint
-            url = f"{protocol}://{endpoint}/{self.bucket_name}/{file_path}"
+            protocol = _infer_url_scheme(endpoint)
+            clean_endpoint = endpoint.split("://", 1)[1] if "://" in endpoint else endpoint
+            url = f"{protocol}://{clean_endpoint}/{self.bucket_name}/{file_path}"
             return url
         except Exception as e:
             logger.error(f"Error generating MinIO URL: {e}")
@@ -163,8 +175,13 @@ class MinioFileSystem(BaseFileSystem):
         """
         try:
             # Return unsigned URL for anonymous upload
-            protocol = "https" if self.secure else "http"
-            url = f"{protocol}://{self.public_endpoint}/{self.bucket_name}/{file_path}"
+            protocol = _infer_url_scheme(self.public_endpoint)
+            clean_endpoint = (
+                self.public_endpoint.split("://", 1)[1]
+                if "://" in self.public_endpoint
+                else self.public_endpoint
+            )
+            url = f"{protocol}://{clean_endpoint}/{self.bucket_name}/{file_path}"
             logger.debug(f"Generated unsigned upload URL: {url}")
             return url
         except Exception as e:

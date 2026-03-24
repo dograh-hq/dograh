@@ -1,0 +1,88 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: voice-postgres
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-postgres
+    env: prod
+spec:
+  serviceName: voice-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zoren-voice-postgres
+      env: prod
+  template:
+    metadata:
+      labels:
+        app: zoren-voice-postgres
+        env: prod
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: production
+      tolerations:
+        - key: production
+          operator: Equal
+          value: "true"
+          effect: NoSchedule
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:pg17
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: postgres
+            - name: POSTGRES_USER
+              value: postgres
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zoren-voice-api-secrets-prod
+                  key: POSTGRES_PASSWORD
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U postgres -d postgres
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U postgres -d postgres
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: default
+        resources:
+          requests:
+            storage: 20Gi

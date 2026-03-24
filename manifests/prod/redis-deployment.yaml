@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: voice-redis
+  namespace: zoren-voice-prod
+  labels:
+    app: zoren-voice-redis
+    env: prod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zoren-voice-redis
+      env: prod
+  template:
+    metadata:
+      labels:
+        app: zoren-voice-redis
+        env: prod
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        agentpool: agentpool
+      containers:
+        - name: redis
+          image: redis:7
+          imagePullPolicy: IfNotPresent
+          command:
+            - sh
+            - -c
+            - redis-server --requirepass "$REDIS_PASSWORD"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zoren-voice-api-secrets-prod
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+              protocol: TCP
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep PONG
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" ping | grep PONG
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 5
+          resources:
+            requests:
+              cpu: 2m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi

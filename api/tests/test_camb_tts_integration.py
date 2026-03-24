@@ -9,7 +9,7 @@ Covers:
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -17,12 +17,11 @@ from pydantic import ValidationError
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
     CAMB_TTS_MODELS,
-    CambTTSConfiguration,
     REGISTRY,
+    CambTTSConfiguration,
     ServiceProviders,
     ServiceType,
 )
-
 
 # ---------------------------------------------------------------------------
 # 1. CambTTSConfiguration model tests

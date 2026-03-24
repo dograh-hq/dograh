@@ -18,14 +18,12 @@ export const layoutNodes = (
     // Separate nodes by type
     const triggerNodes = nodes.filter(n => n.type === NodeType.TRIGGER);
     const webhookNodes = nodes.filter(n => n.type === NodeType.WEBHOOK);
-    const globalNodes = nodes.filter(n => n.type === NodeType.GLOBAL_NODE || n.type === 'global');
+    const qaNodes = nodes.filter(n => n.type === NodeType.QA);
+    const globalNodes = nodes.filter(n => n.type === NodeType.GLOBAL_NODE);
     const workflowNodes = nodes.filter(n =>
         n.type === NodeType.START_CALL ||
         n.type === NodeType.AGENT_NODE ||
-        n.type === NodeType.END_CALL ||
-        n.type === 'startCall' ||
-        n.type === 'agentNode' ||
-        n.type === 'endCall'
+        n.type === NodeType.END_CALL
     );
 
     // If no workflow nodes, just return original nodes
@@ -161,12 +159,26 @@ export const layoutNodes = (
         };
     });
 
+    // Position QA nodes below webhook nodes on the right side
+    const qaStartY = webhookNodes.length > 0
+        ? workflowCenterY - (webhookNodes.length * NODE_HEIGHT + (webhookNodes.length - 1) * VERTICAL_SPACING) / 2
+            + webhookNodes.length * (NODE_HEIGHT + VERTICAL_SPACING) + VERTICAL_SPACING
+        : workflowCenterY;
+    const positionedQaNodes = qaNodes.map((node, index) => ({
+        ...node,
+        position: {
+            x: webhookNodesX,
+            y: qaStartY + index * (NODE_HEIGHT + VERTICAL_SPACING)
+        }
+    }));
+
     // Combine all positioned nodes
     const allPositionedNodes = [
         ...positionedTriggerNodes,
         ...positionedGlobalNodes,
         ...positionedWorkflowNodes,
-        ...positionedWebhookNodes
+        ...positionedWebhookNodes,
+        ...positionedQaNodes
     ];
 
     // Create a map for quick lookup

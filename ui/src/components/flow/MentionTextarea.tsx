@@ -15,6 +15,7 @@ export interface MentionItem {
     id: string;
     name: string;
     description: string;
+    filename: string;
 }
 
 interface MentionTextareaProps {
@@ -46,6 +47,7 @@ export function MentionTextarea({
                 id: r.recording_id,
                 name: r.transcript,
                 description: r.transcript,
+                filename: (r.metadata?.original_filename as string) || r.recording_id,
             })),
         [recordings]
     );
@@ -195,7 +197,7 @@ export function MentionTextarea({
                         >
                             <div className="flex items-center gap-2">
                                 <code className="text-xs bg-muted px-1 py-0.5 rounded font-mono">
-                                    {item.id}
+                                    {item.filename}
                                 </code>
                                 <span className="font-medium truncate">{item.name}</span>
                             </div>

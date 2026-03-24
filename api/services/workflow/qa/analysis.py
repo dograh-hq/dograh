@@ -28,7 +28,9 @@ from api.utils.template_renderer import render_template
 from pipecat.processors.aggregators.llm_context import LLMContext
 
 
-async def _run_llm_inference(llm, messages: list[dict], system_prompt: str) -> str | None:
+async def _run_llm_inference(
+    llm, messages: list[dict], system_prompt: str
+) -> str | None:
     """Run a one-shot LLM inference using the pipecat service."""
     context = LLMContext()
     context.set_messages(messages)
@@ -51,7 +53,10 @@ async def _generate_conversation_summary(
     ]
 
     try:
-        summary = await _run_llm_inference(llm, messages, CONVERSATION_SUMMARY_SYSTEM_PROMPT) or ""
+        summary = (
+            await _run_llm_inference(llm, messages, CONVERSATION_SUMMARY_SYSTEM_PROMPT)
+            or ""
+        )
 
         span_name = f"conversation-summary-before-{node_name}"
         add_qa_span_to_trace(parent_ctx, model, messages, summary, span_name)

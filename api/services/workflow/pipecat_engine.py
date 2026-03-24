@@ -437,9 +437,7 @@ class PipecatEngine:
 
         async def _do_extraction():
             try:
-                logger.debug(
-                    f"Starting variable extraction for node: {node.name}"
-                )
+                logger.debug(f"Starting variable extraction for node: {node.name}")
                 extracted_data = (
                     await self._variable_extraction_manager._perform_extraction(
                         extraction_variables, parent_context, extraction_prompt
@@ -454,7 +452,9 @@ class PipecatEngine:
                     f"Variable extraction completed for node: {node.name}. Extracted: {extracted_data}"
                 )
             except Exception as e:
-                logger.error(f"Error during variable extraction for node {node.name}: {str(e)}")
+                logger.error(
+                    f"Error during variable extraction for node {node.name}: {str(e)}"
+                )
 
         if run_in_background:
             logger.debug(
@@ -497,9 +497,7 @@ class PipecatEngine:
                     logger.error(
                         f"Pending extraction task '{task_name}' failed: {result}"
                     )
-            logger.debug(
-                f"All pending extraction tasks completed in {elapsed:.2f}s"
-            )
+            logger.debug(f"All pending extraction tasks completed in {elapsed:.2f}s")
         except asyncio.TimeoutError:
             incomplete = [
                 t.get_name() for t in self._pending_extraction_tasks if not t.done()

@@ -236,11 +236,21 @@ export default function ServiceConfiguration() {
                         }
                     });
                     selectedProviders[service] = userConfig?.[service]?.provider as string;
+                    // Fill in schema defaults for fields not present in userConfig
+                    const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
+                    if (properties) {
+                        Object.entries(properties).forEach(([field, schema]) => {
+                            const key = `${service}_${field}`;
+                            if (field !== "provider" && field !== "api_key" && schema.default !== undefined && !(key in defaultValues)) {
+                                defaultValues[key] = schema.default;
+                            }
+                        });
+                    }
                 } else {
                     const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
                     if (properties) {
                         Object.entries(properties).forEach(([field, schema]) => {
-                            if (field !== "provider" && schema.default) {
+                            if (field !== "provider" && schema.default !== undefined) {
                                 defaultValues[`${service}_${field}`] = schema.default;
                             }
                         });

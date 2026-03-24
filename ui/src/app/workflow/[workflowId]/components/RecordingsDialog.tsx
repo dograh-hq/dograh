@@ -216,7 +216,7 @@ export const RecordingsDialog = ({
                         <Label className="text-xs text-muted-foreground">
                             Audio File
                         </Label>
-                        <Input
+                        <input
                             ref={fileInputRef}
                             type="file"
                             accept="audio/*"
@@ -233,11 +233,24 @@ export const RecordingsDialog = ({
                                 setError(null);
                                 setSelectedFile(file);
                             }}
-                            className="text-sm"
+                            className="hidden"
                         />
-                        <p className="text-xs text-muted-foreground mt-1">
-                            Max 5MB
-                        </p>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="w-full justify-start text-sm font-normal"
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <Upload className="w-4 h-4 mr-2 shrink-0" />
+                            {selectedFile ? (
+                                <span className="truncate">
+                                    {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(1)}MB)
+                                </span>
+                            ) : (
+                                <span className="text-muted-foreground">Choose audio file (max 5MB)</span>
+                            )}
+                        </Button>
                     </div>
                     <div>
                         <Label className="text-xs text-muted-foreground">
@@ -289,8 +302,8 @@ export const RecordingsDialog = ({
                             >
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
-                                            {rec.recording_id}
+                                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate max-w-[300px]">
+                                            {(rec.metadata?.original_filename as string) || rec.recording_id}
                                         </code>
                                     </div>
                                     <p className="text-sm text-muted-foreground mt-1 break-all line-clamp-2">

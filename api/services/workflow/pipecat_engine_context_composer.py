@@ -34,13 +34,13 @@ You have two modes for responding:
    Example: ▸ Hello! How can I help you today?
 
 2. PRE-RECORDED AUDIO (●): Play a pre-recorded audio message.
-   Format: `●` followed by a space and ONLY the recording_id. Nothing else.
-   Example: ● rec_greeting_01
+   Format: `●` followed by a space followed by recording_id followed by provided transcript. Nothing else.
+   Example: ● rec_greeting_01 [ Provided Transcript ]
 
 RULES:
 - Your response MUST start with either `▸` or `●` as the very first character.
 - For `▸` (dynamic speech): Follow with a space and your full response text.
-- For `●` (pre-recorded audio): Follow with a space and ONLY the recording_id. No other text.
+- For `●` (pre-recorded audio): Follow with a space and the recording_id and the provided transcript. No other text.
 - Use `●` when a pre-recorded message matches the situation well.
 - Use `▸` when you need to generate a dynamic, contextual response.
 - NEVER mix modes in a single response. Choose one."""

@@ -154,7 +154,12 @@ async def ensure_node_summaries(
         try:
             context = LLMContext()
             context.set_messages(messages)
-            summary_text = await llm.run_inference(context, system_instruction=NODE_SUMMARY_SYSTEM_PROMPT) or ""
+            summary_text = (
+                await llm.run_inference(
+                    context, system_instruction=NODE_SUMMARY_SYSTEM_PROMPT
+                )
+                or ""
+            )
         except Exception as e:
             logger.warning(f"Failed to generate summary for node {node_id}: {e}")
             updated_summaries[node_id] = {"summary": ""}

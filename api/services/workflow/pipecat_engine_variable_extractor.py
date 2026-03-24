@@ -193,15 +193,19 @@ class VariableExtractionManager:
 
         extraction_context = LLMContext()
         extraction_messages = [
-            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
         extraction_context.set_messages(extraction_messages)
 
         # ------------------------------------------------------------------
-        # Use engine's LLM for out-of-band inference (no pipeline frames)
+        # Use engine's LLM for out-of-band inference (no pipeline frames).
+        # Pass system_prompt via system_instruction so it overrides the
+        # current node's system prompt that build_chat_completion_params
+        # would otherwise prepend.
         # ------------------------------------------------------------------
-        llm_response = await self._engine.llm.run_inference(extraction_context)
+        llm_response = await self._engine.llm.run_inference(
+            extraction_context, system_instruction=system_prompt
+        )
 
         # Get model name for tracing
         model_name = getattr(self._engine.llm, "model_name", "unknown")

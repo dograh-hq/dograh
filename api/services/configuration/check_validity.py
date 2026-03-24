@@ -38,6 +38,7 @@ class UserConfigurationValidator:
             ServiceProviders.DOGRAH.value: self._check_dograh_api_key,
             ServiceProviders.SARVAM.value: self._check_sarvam_api_key,
             ServiceProviders.SPEECHMATICS.value: self._check_speechmatics_api_key,
+            ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
         }
 
@@ -160,6 +161,9 @@ class UserConfigurationValidator:
     def _check_speechmatics_api_key(self, model: str, api_key: str) -> bool:
         return True
 
+    def _check_camb_api_key(self, model: str, api_key: str) -> bool:
+        return True
+      
     def _check_aws_bedrock_api_key(self, model: str, service_config) -> bool:
         if not service_config.aws_access_key or not service_config.aws_secret_key:
             raise ValueError("AWS access key and secret key are required for Bedrock")

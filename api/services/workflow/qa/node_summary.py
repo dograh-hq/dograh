@@ -148,14 +148,13 @@ async def ensure_node_summaries(
             node_info_parts.append("Available tools:\n" + "\n".join(tool_descriptions))
         node_info = "\n".join(node_info_parts)
         messages = [
-            {"role": "system", "content": NODE_SUMMARY_SYSTEM_PROMPT},
             {"role": "user", "content": node_info},
         ]
 
         try:
             context = LLMContext()
             context.set_messages(messages)
-            summary_text = await llm.run_inference(context) or ""
+            summary_text = await llm.run_inference(context, system_instruction=NODE_SUMMARY_SYSTEM_PROMPT) or ""
         except Exception as e:
             logger.warning(f"Failed to generate summary for node {node_id}: {e}")
             updated_summaries[node_id] = {"summary": ""}

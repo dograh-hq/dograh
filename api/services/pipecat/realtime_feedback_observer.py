@@ -121,6 +121,10 @@ class RealtimeFeedbackObserver(BaseObserver):
         self._clock_start_time = None
         self._pts_start_time = None
 
+    async def cleanup(self):
+        """Clean up resources. Must be called when the observer is no longer needed."""
+        await self._cancel_clock_task()
+
     async def _handle_interruption(self):
         """Handle interruption by clearing queued bot text.
 

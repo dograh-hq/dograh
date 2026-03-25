@@ -77,11 +77,8 @@ def compose_system_prompt_for_node(
 
     parts = [p for p in (global_prompt, formatted_node_prompt) if p]
 
-    if has_recordings:
+    if has_recordings and "RECORDING_ID:" in formatted_node_prompt:
         parts.append(RECORDING_RESPONSE_MODE_INSTRUCTIONS)
-        # TODO: Append per-node available recordings list here once
-        # Node.recording_ids is populated. The list should include
-        # recording_id and a short description so the LLM can choose.
 
     return "\n\n".join(parts)
 

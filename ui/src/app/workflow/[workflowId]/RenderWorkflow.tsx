@@ -14,6 +14,7 @@ import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } fr
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useUserConfig } from '@/context/UserConfigContext';
 import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
 import AddNodePanel from "../../../components/flow/AddNodePanel";
@@ -64,6 +65,11 @@ interface RenderWorkflowProps {
 }
 
 function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, user }: RenderWorkflowProps) {
+    const { userConfig } = useUserConfig();
+    const ttsProvider = (userConfig?.tts?.provider as string) ?? "";
+    const ttsModel = (userConfig?.tts?.model as string) ?? "";
+    const ttsVoiceId = (userConfig?.tts?.voice as string) ?? "";
+
     const [isContextVarsDialogOpen, setIsContextVarsDialogOpen] = useState(false);
     const [isConfigurationsDialogOpen, setIsConfigurationsDialogOpen] = useState(false);
     const [isDictionaryDialogOpen, setIsDictionaryDialogOpen] = useState(false);
@@ -125,10 +131,15 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     setTools(toolsResponse.data);
                 }
 
-                // Fetch recordings for this workflow
+                // Fetch recordings for this workflow filtered by active TTS config
                 try {
                     const recordingsResponse = await listRecordingsApiV1WorkflowRecordingsGet({
-                        query: { workflow_id: workflowId },
+                        query: {
+                            workflow_id: workflowId,
+                            tts_provider: ttsProvider || undefined,
+                            tts_model: ttsModel || undefined,
+                            tts_voice_id: ttsVoiceId || undefined,
+                        },
                     });
                     if (recordingsResponse.data) {
                         setRecordings(recordingsResponse.data.recordings);
@@ -142,7 +153,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         };
 
         fetchData();
-    }, [workflowId]);
+    }, [workflowId, ttsProvider, ttsModel, ttsVoiceId]);
 
     // Memoize defaultEdgeOptions to prevent unnecessary re-renders
     const defaultEdgeOptions = useMemo(() => ({

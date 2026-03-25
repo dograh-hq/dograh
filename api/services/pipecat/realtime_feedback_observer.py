@@ -165,49 +165,39 @@ class RealtimeFeedbackObserver(BaseObserver):
         frame = data.frame
         frame_direction = data.direction
 
-        logger.trace(f"{self} Received Frame: {frame} Direction: {frame_direction}")
-
-        # Handle pipeline termination - stop clock task
-        if isinstance(frame, (EndFrame, CancelFrame, StopFrame)):
-            await self._cancel_clock_task()
-            return
-
-        # Handle interruptions - clear any queued bot text
-        if isinstance(frame, InterruptionFrame):
-            await self._handle_interruption()
-            return
-
-        # Bot speaking state - WS only (ephemeral state signals, not persisted)
-        if isinstance(frame, BotStartedSpeakingFrame):
-            await self._send_ws(
-                {"type": RealtimeFeedbackType.BOT_STARTED_SPEAKING.value, "payload": {}}
-            )
-            return
-        if isinstance(frame, BotStoppedSpeakingFrame):
-            await self._send_ws(
-                {"type": RealtimeFeedbackType.BOT_STOPPED_SPEAKING.value, "payload": {}}
-            )
-            return
-
-        # User mute state - WS only (ephemeral state signals, not persisted)
-        if isinstance(frame, UserMuteStartedFrame):
-            await self._send_ws(
-                {"type": RealtimeFeedbackType.USER_MUTE_STARTED.value, "payload": {}}
-            )
-            return
-        if isinstance(frame, UserMuteStoppedFrame):
-            await self._send_ws(
-                {"type": RealtimeFeedbackType.USER_MUTE_STOPPED.value, "payload": {}}
-            )
-            return
-
         # Skip already processed frames (frames can be observed multiple times)
         if frame.id in self._frames_seen:
             return
         self._frames_seen.add(frame.id)
 
+        logger.trace(f"{self} Received Frame: {frame} Direction: {frame_direction}")
+
+        # Handle pipeline termination - stop clock task
+        if isinstance(frame, (EndFrame, CancelFrame, StopFrame)):
+            await self._cancel_clock_task()
+        # Handle interruptions - clear any queued bot text
+        elif isinstance(frame, InterruptionFrame):
+            await self._handle_interruption()
+        # Bot speaking state - WS only (ephemeral state signals, not persisted)
+        elif isinstance(frame, BotStartedSpeakingFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.BOT_STARTED_SPEAKING.value, "payload": {}}
+            )
+        elif isinstance(frame, BotStoppedSpeakingFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.BOT_STOPPED_SPEAKING.value, "payload": {}}
+            )
+        # User mute state - WS only (ephemeral state signals, not persisted)
+        elif isinstance(frame, UserMuteStartedFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.USER_MUTE_STARTED.value, "payload": {}}
+            )
+        elif isinstance(frame, UserMuteStoppedFrame):
+            await self._send_ws(
+                {"type": RealtimeFeedbackType.USER_MUTE_STOPPED.value, "payload": {}}
+            )
         # Handle user transcriptions (interim) - WebSocket only
-        if isinstance(frame, InterimTranscriptionFrame):
+        elif isinstance(frame, InterimTranscriptionFrame):
             await self._send_ws(
                 {
                     "type": RealtimeFeedbackType.USER_TRANSCRIPTION.value,

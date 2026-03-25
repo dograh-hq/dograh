@@ -86,9 +86,7 @@ export const WebhookNode = memo(({ data, selected, id }: WebhookNodeProps) => {
             payload_template: validation.parsed as Record<string, unknown>,
         });
         setOpen(false);
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     };
 
     const handleOpenChange = (newOpen: boolean) => {

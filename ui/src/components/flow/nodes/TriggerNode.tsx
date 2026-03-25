@@ -61,10 +61,7 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
             trigger_path: triggerPath,
         });
         setOpen(false);
-        // Save the workflow after updating node data
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     };
 
     // Reset form state when dialog opens

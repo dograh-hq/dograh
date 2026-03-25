@@ -66,9 +66,7 @@ export const QANode = memo(({ data, selected, id }: QANodeProps) => {
             qa_sample_rate: qaSampleRate,
         });
         setOpen(false);
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     };
 
     const resetFormState = () => {

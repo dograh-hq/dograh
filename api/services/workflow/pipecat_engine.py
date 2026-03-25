@@ -471,7 +471,7 @@ class PipecatEngine:
             )
             await _do_extraction()
 
-    async def _await_pending_extractions(self, timeout: float = 5.0) -> None:
+    async def _await_pending_extractions(self, timeout: float = 30.0) -> None:
         """Await all in-flight background extraction tasks.
 
         Args:

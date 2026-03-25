@@ -1030,6 +1030,36 @@ export type TelephonyConfigurationResponse = {
     vobiz?: VobizConfigurationResponse | null;
     cloudonix?: CloudonixConfigurationResponse | null;
     ari?: AriConfigurationResponse | null;
+    telnyx?: TelnyxConfigurationResponse | null;
+};
+
+/**
+ * Request schema for Telnyx configuration.
+ */
+export type TelnyxConfigurationRequest = {
+    provider?: string;
+    /**
+     * Telnyx API Key
+     */
+    api_key: string;
+    /**
+     * Telnyx Call Control Application ID (connection_id)
+     */
+    connection_id: string;
+    /**
+     * List of Telnyx phone numbers (E.164 format)
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * Response schema for Telnyx configuration with masked sensitive fields.
+ */
+export type TelnyxConfigurationResponse = {
+    provider: string;
+    api_key: string;
+    connection_id: string;
+    from_numbers: Array<string>;
 };
 
 export type TestSessionResponse = {
@@ -1611,6 +1641,35 @@ export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflow
     200: unknown;
 };
 
+export type HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/telnyx/events/{workflow_run_id}';
+};
+
+export type HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostError = HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostErrors[keyof HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostErrors];
+
+export type HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostData = {
     body?: never;
     path: {
@@ -1775,6 +1834,7 @@ export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
         'x-vobiz-signature'?: string | null;
         'x-vobiz-timestamp'?: string | null;
         'x-cx-apikey'?: string | null;
+        'telnyx-signature-ed25519'?: string | null;
     };
     path: {
         workflow_id: number;
@@ -3792,7 +3852,7 @@ export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetRespons
 export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponse = GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses[keyof GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetResponses];
 
 export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData = {
-    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest | AriConfigurationRequest;
+    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest | AriConfigurationRequest | TelnyxConfigurationRequest;
     headers?: {
         authorization?: string | null;
         'X-API-Key'?: string | null;

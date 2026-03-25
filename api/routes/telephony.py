@@ -318,6 +318,7 @@ async def _validate_inbound_request(
     x_vobiz_signature: str = None,
     x_vobiz_timestamp: str = None,
     x_cx_apikey: str = None,
+    telnyx_signature: str = None,
 ) -> tuple[bool, TelephonyError, dict, object]:
     """
     Validate all aspects of inbound request.
@@ -351,7 +352,7 @@ async def _validate_inbound_request(
 
     # Verify webhook signature/API key if provided
     provider_instance = None
-    if x_twilio_signature or x_vobiz_signature or x_cx_apikey:
+    if x_twilio_signature or x_vobiz_signature or x_cx_apikey or telnyx_signature:
         backend_endpoint, _ = await get_backend_endpoints()
         webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
 
@@ -376,6 +377,11 @@ async def _validate_inbound_request(
             logger.info(f"Verifying Cloudonix API key for URL: {webhook_url}")
             signature_valid = await provider_instance.verify_inbound_signature(
                 webhook_url, webhook_data, x_cx_apikey
+            )
+        elif provider_class.PROVIDER_NAME == "telnyx" and telnyx_signature:
+            logger.info(f"Verifying Telnyx signature for URL: {webhook_url}")
+            signature_valid = await provider_instance.verify_inbound_signature(
+                webhook_url, webhook_data, telnyx_signature
             )
         else:
             logger.warning(
@@ -816,6 +822,63 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
         logger.warning(
             f"[run {workflow_run_id}] Unexpected status update: {status.status}"
         )
+
+
+@router.post("/telnyx/events/{workflow_run_id}")
+async def handle_telnyx_events(
+    request: Request,
+    workflow_run_id: int,
+):
+    """Handle Telnyx Call Control webhook events.
+
+    Telnyx sends all call lifecycle events (call.initiated, call.answered,
+    call.hangup, streaming.started, streaming.stopped) as JSON POST requests.
+    """
+    set_current_run_id(workflow_run_id)
+
+    event_data = await request.json()
+    logger.info(
+        f"[run {workflow_run_id}] Received Telnyx event: {json.dumps(event_data)}"
+    )
+
+    # Extract event type from Telnyx envelope
+    data = event_data.get("data", {})
+    event_type = data.get("event_type", "")
+
+    # Skip streaming events — they're informational only
+    if event_type in ("streaming.started", "streaming.stopped"):
+        logger.debug(f"[run {workflow_run_id}] Telnyx streaming event: {event_type}")
+        return {"status": "success"}
+
+    # Get workflow run and provider
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    if not workflow_run:
+        logger.warning(f"Workflow run {workflow_run_id} not found for Telnyx event")
+        return {"status": "ignored", "reason": "workflow_run_not_found"}
+
+    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
+    if not workflow:
+        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
+        return {"status": "ignored", "reason": "workflow_not_found"}
+
+    provider = await get_telephony_provider(workflow.organization_id)
+
+    # Parse the callback data into generic format
+    parsed_data = provider.parse_status_callback(event_data)
+
+    status_update = StatusCallbackRequest(
+        call_id=parsed_data["call_id"],
+        status=parsed_data["status"],
+        from_number=parsed_data.get("from_number"),
+        to_number=parsed_data.get("to_number"),
+        direction=parsed_data.get("direction"),
+        duration=parsed_data.get("duration"),
+        extra=parsed_data.get("extra", {}),
+    )
+
+    await _process_status_update(workflow_run_id, status_update)
+
+    return {"status": "success"}
 
 
 @router.post("/vonage/events/{workflow_run_id}")
@@ -1355,6 +1418,7 @@ async def handle_inbound_telephony(
     x_vobiz_signature: Optional[str] = Header(None),
     x_vobiz_timestamp: Optional[str] = Header(None),
     x_cx_apikey: Optional[str] = Header(None),
+    telnyx_signature: Optional[str] = Header(None, alias="telnyx-signature-ed25519"),
 ):
     """Handle inbound telephony calls from any supported provider with common processing"""
     logger.info(f"Inbound call received for workflow_id: {workflow_id}")
@@ -1409,6 +1473,7 @@ async def handle_inbound_telephony(
             x_vobiz_signature,
             x_vobiz_timestamp,
             x_cx_apikey,
+            telnyx_signature,
         )
 
         if not is_valid:
@@ -1436,8 +1501,38 @@ async def handle_inbound_telephony(
         )
 
         # Generate response URLs
-        _, wss_backend_endpoint = await get_backend_endpoints()
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         websocket_url = f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
+
+        # Telnyx requires answering the call via REST API (not via webhook response)
+        if provider_class.PROVIDER_NAME == "telnyx":
+            # Get provider instance with credentials if not already loaded
+            if not provider_instance:
+                provider_instance = await get_telephony_provider(
+                    workflow_context["organization_id"]
+                )
+
+            events_url = (
+                f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
+            )
+
+            try:
+                await provider_instance.answer_and_stream(
+                    call_control_id=normalized_data.call_id,
+                    stream_url=websocket_url,
+                    webhook_url=events_url,
+                )
+            except Exception as e:
+                logger.error(f"Failed to answer Telnyx inbound call: {e}")
+                return provider_class.generate_error_response(
+                    "ANSWER_FAILED", "Failed to answer call"
+                )
+
+            logger.info(
+                f"Answered Telnyx inbound call {normalized_data.call_id} for workflow_run {workflow_run_id}"
+            )
+            return {"status": "ok"}
+
         response = await provider_class.generate_inbound_response(
             websocket_url, workflow_run_id
         )

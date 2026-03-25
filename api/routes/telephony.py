@@ -114,42 +114,6 @@ class StatusCallbackRequest(BaseModel):
         )
 
     @classmethod
-    def from_telnyx(cls, data: dict):
-        """Convert Telnyx event to generic format"""
-        event_data = data.get("data", data)
-        event_type = event_data.get("event_type", "")
-        payload = event_data.get("payload", {})
-
-        status_map = {
-            "call.initiated": "initiated",
-            "call.answered": "in-progress",
-            "call.hangup": "completed",
-        }
-
-        status = status_map.get(event_type, event_type)
-
-        if event_type == "call.hangup":
-            hangup_cause = payload.get("hangup_cause", "")
-            if hangup_cause == "busy":
-                status = "busy"
-            elif hangup_cause in ("no_answer", "timeout"):
-                status = "no-answer"
-            elif hangup_cause in ("call_rejected", "unallocated_number"):
-                status = "failed"
-
-        return cls(
-            call_id=payload.get("call_control_id", ""),
-            status=status,
-            from_number=payload.get("from"),
-            to_number=payload.get("to"),
-            direction=payload.get("direction"),
-            duration=str(payload.get("duration_secs", ""))
-            if payload.get("duration_secs")
-            else None,
-            extra=data,
-        )
-
-    @classmethod
     def from_cloudonix_cdr(cls, data: dict):
         """Convert Cloudonix CDR to generic format"""
         # Map Cloudonix disposition to common format

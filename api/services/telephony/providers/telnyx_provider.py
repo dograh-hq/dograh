@@ -180,27 +180,28 @@ class TelnyxProvider(TelephonyProvider):
         }
 
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Parse Telnyx webhook event data into generic format.
-
-        Telnyx sends events in a nested envelope:
-        {
-          "data": {
-            "event_type": "call.hangup",
-            "payload": {
-              "call_control_id": "...",
-              "from": "+1...",
-              "to": "+1...",
-              ...
-            }
-          }
-        }
-        """
+        """Parse Telnyx webhook event data into generic format."""
         event_data = data.get("data", data)
         event_type = event_data.get("event_type", "")
         payload = event_data.get("payload", {})
 
-        # Map Telnyx event types to normalized statuses
-        status_map = {
+        status = self._resolve_status(event_type, payload)
+
+        duration_secs = payload.get("duration_secs")
+        return {
+            "call_id": payload.get("call_control_id", ""),
+            "status": status,
+            "from_number": payload.get("from"),
+            "to_number": payload.get("to"),
+            "direction": payload.get("direction"),
+            "duration": str(duration_secs) if duration_secs else None,
+            "extra": data,
+        }
+
+    @staticmethod
+    def _resolve_status(event_type: str, payload: Dict[str, Any]) -> str:
+        """Map a Telnyx event type (and hangup cause) to a normalized status."""
+        EVENT_STATUS = {
             "call.initiated": "initiated",
             "call.answered": "in-progress",
             "call.hangup": "completed",
@@ -209,29 +210,21 @@ class TelnyxProvider(TelephonyProvider):
             "streaming.stopped": "streaming-stopped",
         }
 
-        status = status_map.get(event_type, event_type)
+        HANGUP_STATUS = {
+            "busy": "busy",
+            "no_answer": "no-answer",
+            "timeout": "no-answer",
+            "call_rejected": "failed",
+            "unallocated_number": "failed",
+        }
 
-        # For hangup events, check hangup_cause to determine more specific status
+        status = EVENT_STATUS.get(event_type, event_type)
+
         if event_type == "call.hangup":
             hangup_cause = payload.get("hangup_cause", "")
-            if hangup_cause == "busy":
-                status = "busy"
-            elif hangup_cause in ("no_answer", "timeout"):
-                status = "no-answer"
-            elif hangup_cause in ("call_rejected", "unallocated_number"):
-                status = "failed"
+            status = HANGUP_STATUS.get(hangup_cause, status)
 
-        return {
-            "call_id": payload.get("call_control_id", ""),
-            "status": status,
-            "from_number": payload.get("from"),
-            "to_number": payload.get("to"),
-            "direction": payload.get("direction"),
-            "duration": str(payload.get("duration_secs", ""))
-            if payload.get("duration_secs")
-            else None,
-            "extra": data,
-        }
+        return status
 
     async def handle_websocket(
         self,
@@ -410,17 +403,9 @@ class TelnyxProvider(TelephonyProvider):
     @staticmethod
     def normalize_phone_number(phone_number: str) -> str:
         """Normalize phone number to E.164 format.
-        Telnyx already provides numbers in E.164 format.
+        Telnyx already provides numbers in E.164 format
         """
-        if not phone_number:
-            return ""
-        if phone_number.startswith("+"):
-            return phone_number
-        if phone_number.startswith("1") and len(phone_number) == 11:
-            return f"+{phone_number}"
-        elif len(phone_number) == 10:
-            return f"+1{phone_number}"
-        return phone_number
+        return phone_number or ""
 
     async def verify_inbound_signature(
         self, url: str, webhook_data: Dict[str, Any], signature: str

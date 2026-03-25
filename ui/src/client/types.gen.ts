@@ -80,6 +80,11 @@ export type AuthUserResponse = {
     is_superuser: boolean;
 };
 
+export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
+    file: Blob | File;
+    language?: string;
+};
+
 export type CallDispositionCodes = {
     disposition_codes?: Array<string>;
 };
@@ -4019,6 +4024,10 @@ export type GetSignedUrlApiV1S3SignedUrlGetData = {
         key: string;
         expires_in?: number;
         inline?: boolean;
+        /**
+         * Storage backend to use (e.g. 'minio', 's3'). When omitted the backend is inferred from the resource.
+         */
+        storage_backend?: string | null;
     };
     url: '/api/v1/s3/signed-url';
 };
@@ -5562,6 +5571,37 @@ export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteErrors = {
 export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteError = DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteErrors[keyof DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteErrors];
 
 export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostData = {
+    body: BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost;
+    headers?: {
+        authorization?: string | null;
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow-recordings/transcribe';
+};
+
+export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostError = TranscribeAudioApiV1WorkflowRecordingsTranscribePostErrors[keyof TranscribeAudioApiV1WorkflowRecordingsTranscribePostErrors];
+
+export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses = {
     /**
      * Successful Response
      */

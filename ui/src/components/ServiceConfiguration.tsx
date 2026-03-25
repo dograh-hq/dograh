@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoiceSelector } from "@/components/VoiceSelector";
+import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
 
 type ServiceSegment = "llm" | "tts" | "stt" | "embeddings";
@@ -45,105 +46,6 @@ const TAB_CONFIG: { key: ServiceSegment; label: string }[] = [
     { key: "stt", label: "Transcriber" },
     { key: "embeddings", label: "Embedding" },
 ];
-
-// Display names for language codes (Deepgram + Sarvam)
-const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
-    "multi": "Multilingual (Auto-detect)",
-    // Arabic
-    "ar": "Arabic",
-    "ar-AE": "Arabic (UAE)",
-    "ar-SA": "Arabic (Saudi Arabia)",
-    "ar-QA": "Arabic (Qatar)",
-    "ar-KW": "Arabic (Kuwait)",
-    "ar-SY": "Arabic (Syria)",
-    "ar-LB": "Arabic (Lebanon)",
-    "ar-PS": "Arabic (Palestine)",
-    "ar-JO": "Arabic (Jordan)",
-    "ar-EG": "Arabic (Egypt)",
-    "ar-SD": "Arabic (Sudan)",
-    "ar-TD": "Arabic (Chad)",
-    "ar-MA": "Arabic (Morocco)",
-    "ar-DZ": "Arabic (Algeria)",
-    "ar-TN": "Arabic (Tunisia)",
-    "ar-IQ": "Arabic (Iraq)",
-    "ar-IR": "Arabic (Iran)",
-    // Other languages
-    "be": "Belarusian",
-    "bn": "Bengali",
-    "bs": "Bosnian",
-    "bg": "Bulgarian",
-    "ca": "Catalan",
-    "cs": "Czech",
-    "da": "Danish",
-    "da-DK": "Danish (Denmark)",
-    "de": "German",
-    "de-CH": "German (Switzerland)",
-    "el": "Greek",
-    "en": "English",
-    "en-US": "English (US)",
-    "en-AU": "English (Australia)",
-    "en-GB": "English (UK)",
-    "en-IN": "English (India)",
-    "en-NZ": "English (New Zealand)",
-    "es": "Spanish",
-    "es-419": "Spanish (Latin America)",
-    "et": "Estonian",
-    "fa": "Persian",
-    "fi": "Finnish",
-    "fr": "French",
-    "fr-CA": "French (Canada)",
-    "he": "Hebrew",
-    "hi": "Hindi",
-    "hr": "Croatian",
-    "hu": "Hungarian",
-    "id": "Indonesian",
-    "it": "Italian",
-    "ja": "Japanese",
-    "kn": "Kannada",
-    "ko": "Korean",
-    "ko-KR": "Korean (South Korea)",
-    "lt": "Lithuanian",
-    "lv": "Latvian",
-    "mk": "Macedonian",
-    "mr": "Marathi",
-    "ms": "Malay",
-    "nl": "Dutch",
-    "nl-BE": "Flemish",
-    "no": "Norwegian",
-    "pl": "Polish",
-    "pt": "Portuguese",
-    "pt-BR": "Portuguese (Brazil)",
-    "pt-PT": "Portuguese (Portugal)",
-    "ro": "Romanian",
-    "ru": "Russian",
-    "sk": "Slovak",
-    "sl": "Slovenian",
-    "sr": "Serbian",
-    "sv": "Swedish",
-    "sv-SE": "Swedish (Sweden)",
-    "ta": "Tamil",
-    "te": "Telugu",
-    "th": "Thai",
-    "tl": "Tagalog",
-    "tr": "Turkish",
-    "uk": "Ukrainian",
-    "ur": "Urdu",
-    "vi": "Vietnamese",
-    "zh-CN": "Chinese (Simplified)",
-    "zh-TW": "Chinese (Traditional)",
-    // Sarvam Indian languages
-    "bn-IN": "Bengali",
-    "gu-IN": "Gujarati",
-    "hi-IN": "Hindi",
-    "kn-IN": "Kannada",
-    "ml-IN": "Malayalam",
-    "mr-IN": "Marathi",
-    "od-IN": "Odia",
-    "pa-IN": "Punjabi",
-    "ta-IN": "Tamil",
-    "te-IN": "Telugu",
-    "as-IN": "Assamese",
-};
 
 // Display names for Sarvam voices
 const VOICE_DISPLAY_NAMES: Record<string, string> = {
@@ -236,11 +138,21 @@ export default function ServiceConfiguration() {
                         }
                     });
                     selectedProviders[service] = userConfig?.[service]?.provider as string;
+                    // Fill in schema defaults for fields not present in userConfig
+                    const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
+                    if (properties) {
+                        Object.entries(properties).forEach(([field, schema]) => {
+                            const key = `${service}_${field}`;
+                            if (field !== "provider" && field !== "api_key" && schema.default !== undefined && !(key in defaultValues)) {
+                                defaultValues[key] = schema.default;
+                            }
+                        });
+                    }
                 } else {
                     const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
                     if (properties) {
                         Object.entries(properties).forEach(([field, schema]) => {
-                            if (field !== "provider" && schema.default) {
+                            if (field !== "provider" && schema.default !== undefined) {
                                 defaultValues[`${service}_${field}`] = schema.default;
                             }
                         });

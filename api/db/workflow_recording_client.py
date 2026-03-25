@@ -64,7 +64,7 @@ class WorkflowRecordingClient(BaseDBClient):
                 storage_key=storage_key,
                 storage_backend=storage_backend,
                 created_by=created_by,
-                metadata=metadata or {},
+                recording_metadata=metadata or {},
             )
 
             session.add(recording)

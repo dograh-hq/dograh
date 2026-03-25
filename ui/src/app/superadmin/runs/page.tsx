@@ -519,13 +519,17 @@ export default function RunsPage() {
                                                                 variant="outline"
                                                                 size="icon"
                                                                 onClick={() => {
-                                                                    const filter = encodeURIComponent(
-                                                                        `metadata;stringObject;attributes;contains;conversation.id,metadata;stringObject;attributes;contains;${run.id}`,
-                                                                    );
-                                                                    window.open(
-                                                                        `${process.env.NEXT_PUBLIC_LANGFUSE_ENDPOINT}/project/${process.env.NEXT_PUBLIC_LANGFUSE_PROJECT_ID}/traces?search=&filter=${filter}&dateRange=All+time`,
-                                                                        '_blank',
-                                                                    );
+                                                                    if (run.gathered_context?.trace_url) {
+                                                                        window.open(String(run.gathered_context.trace_url), '_blank');
+                                                                    } else {
+                                                                        const filter = encodeURIComponent(
+                                                                            `metadata;stringObject;attributes;contains;conversation.id,metadata;stringObject;attributes;contains;${run.id}`,
+                                                                        );
+                                                                        window.open(
+                                                                            `${process.env.NEXT_PUBLIC_LANGFUSE_ENDPOINT}/project/${process.env.NEXT_PUBLIC_LANGFUSE_PROJECT_ID}/traces?search=&filter=${filter}&dateRange=All+time`,
+                                                                            '_blank',
+                                                                        );
+                                                                    }
                                                                 }}
                                                             >
                                                                 <Image

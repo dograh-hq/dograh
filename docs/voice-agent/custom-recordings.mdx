@@ -1,0 +1,79 @@
+---
+title: "Custom Recordings"
+description: "Build hybrid voice agents that combine pre-recorded audio with dynamic text generation for lower latency, reduced TTS costs, and natural-sounding conversations."
+---
+
+Custom recordings allow you to build **hybrid voice agents** that use your own pre-recorded audio for key parts of the conversation, while falling back to LLM-generated speech (via a cloned voice) for dynamic responses. This gives you the best of both worlds — the emotional depth of real human speech and the flexibility of AI-generated dialogue.
+
+<iframe
+  width="560"
+  height="315"
+  src="https://www.youtube.com/embed/1uZqhG0_cIo"
+  title="YouTube video player"
+  frameborder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+  referrerpolicy="strict-origin-when-cross-origin"
+  allowfullscreen>
+</iframe>
+
+## Why use custom recordings?
+
+- **Reduced TTS cost** — Pre-recorded audio is played directly, so you are not charged for TTS synthesis on those segments.
+- **Emotional variance** — Real recordings carry natural intonation and emotion that TTS cannot fully replicate.
+- **Lower latency** — Playing a pre-recorded clip is faster than synthesizing text at runtime.
+
+## Prerequisites
+
+- A TTS provider that supports **voice cloning** (e.g., Cartesia, ElevenLabs, or Deepgram).
+- An API key for your chosen TTS provider, configured in [Voice settings](/configurations/voice).
+
+## Step 1: Clone your voice
+
+Clone your voice with your TTS provider so that dynamically generated speech sounds similar to your recordings. For example, with Cartesia:
+
+1. Go to Cartesia and navigate to **Instant Clone**.
+2. Record a short audio clip (up to 10 seconds) of your voice.
+3. Give the clone a name and select your language.
+4. Copy the **Voice ID** — you will need it in the next step.
+
+<Note>
+You can use any TTS provider that supports voice cloning. The steps will vary by provider, but the key output is always a **Voice ID** tied to your cloned voice.
+</Note>
+
+## Step 2: Configure the cloned voice in Dograh
+
+1. Go to your agent's **Model Configuration** in the Dograh dashboard.
+2. Under voice settings, select **Add Voice ID manually**.
+3. Paste the Voice ID from your cloned voice.
+4. Make sure the **provider** matches where you cloned your voice (e.g., Cartesia).
+5. Enter the provider's API key if you haven't already.
+6. Save the configuration.
+
+## Step 3: Upload recordings
+
+Navigate to your agent in the workflow builder and open the **Recordings** panel. You can either upload pre-recorded audio files or record directly in the browser.
+
+For each recording:
+
+1. Click **Record** (or upload a file).
+2. Speak the exact phrase you want the agent to use.
+3. Give the recording a descriptive name (e.g., `greeting`, `invitation`, `venue`).
+4. Verify the transcription is correct — edit it if needed.
+5. Click **Upload**.
+
+<Warning>
+Recordings are scoped to a specific **provider and Voice ID**. If you change either, you will need to re-upload your recordings to ensure consistency between the recorded audio and the cloned voice used for dynamic responses.
+</Warning>
+
+## Step 4: Build the workflow
+
+Open your agent's workflow and write the conversation flow in natural language. To insert a recording, type **`@`** in the prompt editor — this will show a list of all available recordings scoped to your current Voice ID.
+
+For any user question that falls outside your recordings, the agent automatically generates a dynamic response using the LLM, which is then synthesized using your cloned voice via TTS.
+
+## Tips for best results
+
+- **Record in a quiet environment** to improve audio quality and consistency with the cloned voice.
+- **Use pro cloning services** (when available) and provide more sample audio for a higher-quality voice clone.
+- **Keep recordings concise** — short, focused clips work best for specific conversation moments.
+- **Review call recordings** after testing to identify where the transition between pre-recorded and dynamic audio can be improved.

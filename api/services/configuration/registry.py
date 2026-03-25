@@ -27,6 +27,7 @@ class ServiceProviders(str, Enum):
     SPEECHMATICS = "speechmatics"
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
+    SELF_HOSTED = "self_hosted"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -40,6 +41,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.AZURE,
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
+        ServiceProviders.SELF_HOSTED,
         # ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
@@ -249,6 +251,22 @@ class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(default=None)
 
 
+SELF_HOSTED_LLM_MODELS = ["llama3", "mistral", "phi3", "qwen2", "gemma2", "deepseek-r1"]
+
+
+@register_llm
+class SelfHostedLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.SELF_HOSTED] = ServiceProviders.SELF_HOSTED
+    model: str = Field(
+        default="llama3", json_schema_extra={"examples": SELF_HOSTED_LLM_MODELS}
+    )
+    base_url: str = Field(
+        default="http://localhost:11434/v1",
+        description="OpenAI-compatible endpoint (Ollama, vLLM, etc.)",
+    )
+    api_key: str | list[str] | None = Field(default=None)
+
+
 LLMConfig = Annotated[
     Union[
         OpenAILLMService,
@@ -258,6 +276,7 @@ LLMConfig = Annotated[
         AzureLLMService,
         DograhLLMService,
         AWSBedrockLLMConfiguration,
+        SelfHostedLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -334,6 +353,12 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(default="3faa81ae-d3d8-4ab1-9e44-e50e46d33c30")
     speed: float = Field(default=1.0, ge=0.6, le=1.5, description="Speed of the voice")
+    volume: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Volume multiplier for generated speech",
+    )
 
 
 SARVAM_TTS_MODELS = ["bulbul:v2", "bulbul:v3"]

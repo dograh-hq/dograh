@@ -363,7 +363,13 @@ export const useWorkflowState = ({
     // Save workflow function
     const saveWorkflow = useCallback(async (updateWorkflowDefinition: boolean = true) => {
         if (!user || !rfInstance.current) return;
-        const flow = rfInstance.current.toObject();
+        // Read nodes/edges from the Zustand store (synchronously up-to-date)
+        // and viewport from the ReactFlow instance to build the flow object.
+        // This avoids a race condition where rfInstance.toObject() may return
+        // stale node data if React hasn't re-rendered yet after a store update.
+        const { nodes: currentNodes, edges: currentEdges } = useWorkflowStore.getState();
+        const viewport = rfInstance.current.getViewport();
+        const flow = { nodes: currentNodes, edges: currentEdges, viewport };
         try {
             await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {

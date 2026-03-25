@@ -40,6 +40,7 @@ class UserConfigurationValidator:
             ServiceProviders.SPEECHMATICS.value: self._check_speechmatics_api_key,
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
+            ServiceProviders.SELF_HOSTED.value: self._check_self_hosted_api_key,
         }
 
     async def validate(self, configuration: UserConfiguration) -> APIKeyStatusResponse:
@@ -73,6 +74,20 @@ class UserConfigurationValidator:
             return []  # Optional service not configured is OK
 
         provider = service_config.provider
+
+        # Self-hosted doesn't require an API key
+        if provider == ServiceProviders.SELF_HOSTED.value:
+            try:
+                if not self._check_self_hosted_api_key(provider, service_config):
+                    return [
+                        {
+                            "model": service_name,
+                            "message": f"Invalid {provider} configuration",
+                        }
+                    ]
+            except ValueError as e:
+                return [{"model": service_name, "message": str(e)}]
+            return []
 
         # AWS Bedrock uses AWS credentials instead of api_key
         if provider == ServiceProviders.AWS_BEDROCK.value:
@@ -163,7 +178,12 @@ class UserConfigurationValidator:
 
     def _check_camb_api_key(self, model: str, api_key: str) -> bool:
         return True
-      
+
+    def _check_self_hosted_api_key(self, model: str, service_config) -> bool:
+        if not getattr(service_config, "base_url", None):
+            raise ValueError("base_url is required for self-hosted LLM")
+        return True
+
     def _check_aws_bedrock_api_key(self, model: str, service_config) -> bool:
         if not service_config.aws_access_key or not service_config.aws_secret_key:
             raise ValueError("AWS access key and secret key are required for Bedrock")

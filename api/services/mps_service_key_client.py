@@ -351,6 +351,71 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def transcribe_audio(
+        self,
+        audio_data: bytes,
+        filename: str = "audio.wav",
+        content_type: str = "audio/wav",
+        language: str = "en",
+        model: str = "default",
+        correlation_id: Optional[str] = None,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """
+        Transcribe an audio file via MPS STT API.
+
+        Args:
+            audio_data: Raw audio bytes
+            filename: Name of the audio file
+            content_type: MIME type of the audio (e.g., audio/wav, audio/mp3)
+            language: Language code for transcription (default: "en")
+            model: Model tier name (default: "default")
+            correlation_id: Optional correlation ID for tracking
+            organization_id: Organization ID (for authenticated mode)
+            created_by: User provider ID (for OSS mode)
+
+        Returns:
+            Dictionary containing transcription result with keys like
+            'transcript', 'duration_seconds', etc.
+
+        Raises:
+            httpx.HTTPStatusError: If the API call fails
+        """
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0)) as client:
+            files = {
+                "file": (filename, audio_data, content_type),
+            }
+            data = {
+                "language": language,
+                "model": model,
+            }
+            if correlation_id:
+                data["correlation_id"] = correlation_id
+
+            headers = self._get_headers(organization_id, created_by)
+            # Remove Content-Type so httpx sets the correct multipart boundary
+            headers.pop("Content-Type", None)
+
+            response = await client.post(
+                f"{self.base_url}/api/v1/stt/transcribe",
+                files=files,
+                data=data,
+                headers=headers,
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.error(
+                    f"Failed to transcribe audio: {response.status_code} - {response.text}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Failed to transcribe audio: {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+
     def validate_service_key(self, service_key: str) -> bool:
         """
         Synchronously validate a Dograh service key by checking usage via MPS.

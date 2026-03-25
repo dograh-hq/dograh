@@ -48,6 +48,12 @@ new api route in backend, and wish to use it in the UI, generate the client usin
 npm run generate-client
 ```
 
+## Conventions
+
+### File Uploads
+
+Always use a hidden `<input type="file">` with a visible `<Button>` that triggers it via `fileInputRef.current?.click()`. Never use a visible `<Input type="file">` — the native file input styling is inconsistent and confusing. Show the selected filename next to or below the button.
+
 ## Development
 
 ```bash

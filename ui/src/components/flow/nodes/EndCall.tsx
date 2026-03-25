@@ -75,10 +75,7 @@ export const EndCall = memo(({ data, selected, id }: EndCallNodeProps) => {
             add_global_prompt: addGlobalPrompt,
         });
         setOpen(false);
-        // Save the workflow after updating node data with a small delay to ensure state is updated
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     };
 
     // Reset form state when dialog opens

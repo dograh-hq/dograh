@@ -66,6 +66,7 @@ class RecordingRouterProcessor(FrameProcessor):
         self._frame_buffer: list[tuple[LLMTextFrame, FrameDirection]] = []
         self._mode: Optional[str] = None  # None = detecting, "tts", "recording"
         self._recording_id_buffer = ""
+        self._recording_playback_started = False
 
     # ------------------------------------------------------------------
     # Frame dispatch
@@ -99,9 +100,15 @@ class RecordingRouterProcessor(FrameProcessor):
             await self.push_frame(frame, direction)
             return
 
-        # --- Recording mode: accumulate recording_id silently ---
+        # --- Recording mode: accumulate text and start playback ASAP ---
         if self._mode == "recording":
             self._recording_id_buffer += frame.text
+            if not self._recording_playback_started:
+                buf = self._recording_id_buffer.lstrip()
+                if " " in buf:
+                    recording_id = buf.split()[0]
+                    self._recording_playback_started = True
+                    await self._play_recording(recording_id)
             return
 
         # --- Detection mode: buffer until marker found ---
@@ -178,16 +185,21 @@ class RecordingRouterProcessor(FrameProcessor):
         self, frame: LLMFullResponseEndFrame, direction: FrameDirection
     ):
         if self._mode == "recording":
-            recording_id = self._recording_id_buffer.strip()
-            if recording_id:
-                # Push accumulated text as TTSTextFrame for UI feedback via observer
+            full_text = self._recording_id_buffer.strip()
+            if full_text:
+                recording_id = full_text.split()[0]
+
+                # Push full text (marker + id + transcript) for assistant context
                 await self.push_frame(
                     TTSTextFrame(
                         text=RECORDING_MARKER + self._recording_id_buffer,
                         aggregated_by="recording_router",
                     )
                 )
-                await self._play_recording(recording_id)
+
+                # Fallback: if response ended before a space arrived (no transcript)
+                if not self._recording_playback_started:
+                    await self._play_recording(recording_id)
             else:
                 logger.warning(
                     "RecordingRouterProcessor: recording mode but empty recording_id"
@@ -256,3 +268,4 @@ class RecordingRouterProcessor(FrameProcessor):
         self._frame_buffer = []
         self._mode = None
         self._recording_id_buffer = ""
+        self._recording_playback_started = False

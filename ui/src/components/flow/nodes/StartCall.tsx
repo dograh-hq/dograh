@@ -104,10 +104,7 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             document_uuids: documentUuids.length > 0 ? documentUuids : undefined,
         });
         setOpen(false);
-        // Save the workflow after updating node data with a small delay to ensure state is updated
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     };
 
     // Reset form state when dialog opens
@@ -148,27 +145,23 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     }, [data, open]);
 
     // Handle cleanup of stale document UUIDs
-    const handleStaleDocuments = useCallback((staleUuids: string[]) => {
+    const handleStaleDocuments = useCallback(async (staleUuids: string[]) => {
         const cleanedUuids = (data.document_uuids ?? []).filter(uuid => !staleUuids.includes(uuid));
         handleSaveNodeData({
             ...data,
             document_uuids: cleanedUuids.length > 0 ? cleanedUuids : undefined,
         });
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     }, [data, handleSaveNodeData, saveWorkflow]);
 
     // Handle cleanup of stale tool UUIDs
-    const handleStaleTools = useCallback((staleUuids: string[]) => {
+    const handleStaleTools = useCallback(async (staleUuids: string[]) => {
         const cleanedUuids = (data.tool_uuids ?? []).filter(uuid => !staleUuids.includes(uuid));
         handleSaveNodeData({
             ...data,
             tool_uuids: cleanedUuids.length > 0 ? cleanedUuids : undefined,
         });
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     }, [data, handleSaveNodeData, saveWorkflow]);
 
     return (

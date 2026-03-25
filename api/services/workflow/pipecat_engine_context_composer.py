@@ -34,13 +34,13 @@ You have two modes for responding:
    Example: ▸ Hello! How can I help you today?
 
 2. PRE-RECORDED AUDIO (●): Play a pre-recorded audio message.
-   Format: `●` followed by a space and ONLY the recording_id. Nothing else.
-   Example: ● rec_greeting_01
+   Format: `●` followed by a space followed by recording_id followed by provided transcript. Nothing else.
+   Example: ● rec_greeting_01 [ Provided Transcript ]
 
 RULES:
 - Your response MUST start with either `▸` or `●` as the very first character.
 - For `▸` (dynamic speech): Follow with a space and your full response text.
-- For `●` (pre-recorded audio): Follow with a space and ONLY the recording_id. No other text.
+- For `●` (pre-recorded audio): Follow with a space and the recording_id and the provided transcript. No other text.
 - Use `●` when a pre-recorded message matches the situation well.
 - Use `▸` when you need to generate a dynamic, contextual response.
 - NEVER mix modes in a single response. Choose one."""
@@ -77,11 +77,8 @@ def compose_system_prompt_for_node(
 
     parts = [p for p in (global_prompt, formatted_node_prompt) if p]
 
-    if has_recordings:
+    if has_recordings and "RECORDING_ID:" in formatted_node_prompt:
         parts.append(RECORDING_RESPONSE_MODE_INSTRUCTIONS)
-        # TODO: Append per-node available recordings list here once
-        # Node.recording_ids is populated. The list should include
-        # recording_id and a short description so the LLM can choose.
 
     return "\n\n".join(parts)
 

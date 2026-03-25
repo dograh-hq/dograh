@@ -215,11 +215,7 @@ export default function CustomEdge(props: CustomEdgeProps) {
     const handleSaveEdgeData = useCallback(async (updatedData: FlowEdgeData) => {
         // Use the workflow store's updateEdge method to properly track history
         updateEdge(id, { data: updatedData });
-
-        // Save the workflow after updating edge data with a small delay to ensure state is updated
-        setTimeout(async () => {
-            await saveWorkflow();
-        }, 100);
+        await saveWorkflow();
     }, [id, updateEdge, saveWorkflow]);
 
     return (

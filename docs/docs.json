@@ -54,7 +54,7 @@
             "pages": [
               "voice-agent/introduction",
               "voice-agent/editing-a-workflow",
-              "voice-agent/custom-recordings",
+              "voice-agent/pre-recorded-audio",
               "voice-agent/template-variables",
               {
                 "group": "Tools",
@@ -231,6 +231,10 @@
       "label": "Dashboard",
       "href": "https://app.dograh.com"
     }
+  },
+  "banner": {
+    "content": "🎉 **New: Pre-recorded Audio** — lower latency, reduced TTS costs, and natural-sounding conversations using your own voice recordings. [Learn more →](/voice-agent/pre-recorded-audio)",
+    "dismissible": true
   },
   "search": {
     "prompt": "Search for Tools, Webhook, Deployment, etc..."

@@ -1064,11 +1064,15 @@ export const getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet = <ThrowOn
 
 /**
  * Generate a signed S3 URL
- * Return a short-lived signed URL for a transcript or recording file stored on S3.
+ * Return a short-lived signed URL for a file stored on S3 / MinIO.
  *
  * Access Control:
+ * * Keys that embed an organization ID (``{prefix}/{org_id}/...``) are
+ * authorized by matching the org_id against the requesting user's
+ * organization.
+ * * Legacy keys (``recordings/{run_id}.wav``, ``transcripts/{run_id}.txt``)
+ * are authorized via the workflow run they belong to.
  * * Superusers can request any key.
- * * Regular users can only request resources belonging to **their** workflow runs.
  */
 export const getSignedUrlApiV1S3SignedUrlGet = <ThrowOnError extends boolean = false>(options: Options<GetSignedUrlApiV1S3SignedUrlGetData, ThrowOnError>) => {
     return (options.client ?? _heyApiClient).get<GetSignedUrlApiV1S3SignedUrlGetResponse, GetSignedUrlApiV1S3SignedUrlGetError, ThrowOnError>({

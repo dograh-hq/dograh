@@ -3964,6 +3964,10 @@ export type GetSignedUrlApiV1S3SignedUrlGetData = {
         key: string;
         expires_in?: number;
         inline?: boolean;
+        /**
+         * Storage backend to use (e.g. 'minio', 's3'). When omitted the backend is inferred from the resource.
+         */
+        storage_backend?: string | null;
     };
     url: '/api/v1/s3/signed-url';
 };

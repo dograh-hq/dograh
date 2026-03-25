@@ -54,6 +54,7 @@
             "pages": [
               "voice-agent/introduction",
               "voice-agent/editing-a-workflow",
+              "voice-agent/custom-recordings",
               "voice-agent/template-variables",
               {
                 "group": "Tools",

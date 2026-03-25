@@ -1,9 +1,10 @@
-import { Loader2, Mic, Square, Trash2Icon, Upload } from "lucide-react";
+import { Loader2, Mic, Pause, Play, Square, Trash2Icon, Upload } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
     createRecordingApiV1WorkflowRecordingsPost,
     deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete,
+    getSignedUrlApiV1S3SignedUrlGet,
     getUploadUrlApiV1WorkflowRecordingsUploadUrlPost,
     listRecordingsApiV1WorkflowRecordingsGet,
     transcribeAudioApiV1WorkflowRecordingsTranscribePost,
@@ -58,6 +59,8 @@ export const RecordingsDialog = ({
     const [recordingStep, setRecordingStep] = useState<RecordingStep>("idle");
     const [recordingFilename, setRecordingFilename] = useState("");
     const [recordingDuration, setRecordingDuration] = useState(0);
+    const [playingId, setPlayingId] = useState<string | null>(null);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -110,6 +113,14 @@ export const RecordingsDialog = ({
         setRecordingDuration(0);
     }, []);
 
+    const stopPlayback = useCallback(() => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+        setPlayingId(null);
+    }, []);
+
     useEffect(() => {
         if (open) {
             fetchRecordings();
@@ -125,8 +136,9 @@ export const RecordingsDialog = ({
         if (!open) {
             stopRecording();
             stopRecordingTimer();
+            stopPlayback();
         }
-    }, [open, stopRecording, stopRecordingTimer]);
+    }, [open, stopRecording, stopRecordingTimer, stopPlayback]);
 
     const transcribeFile = async (file: File) => {
         setRecordingStep("transcribing");
@@ -292,6 +304,33 @@ export const RecordingsDialog = ({
             await fetchRecordings();
         } catch {
             setError("Failed to delete recording");
+        }
+    };
+
+    const handlePlay = async (rec: RecordingResponseSchema) => {
+        if (playingId === rec.recording_id) {
+            stopPlayback();
+            return;
+        }
+        stopPlayback();
+        try {
+            const result = await getSignedUrlApiV1S3SignedUrlGet({
+                query: {
+                    key: rec.storage_key,
+                    storage_backend: rec.storage_backend,
+                },
+            });
+            if (!result.data?.url) {
+                setError("Failed to get audio URL");
+                return;
+            }
+            const audio = new Audio(result.data.url);
+            audio.onended = () => setPlayingId(null);
+            audioRef.current = audio;
+            setPlayingId(rec.recording_id);
+            await audio.play();
+        } catch {
+            setError("Failed to play recording");
         }
     };
 
@@ -540,6 +579,17 @@ export const RecordingsDialog = ({
                                         {rec.transcript}
                                     </p>
                                 </div>
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() => handlePlay(rec)}
+                                >
+                                    {playingId === rec.recording_id ? (
+                                        <Pause className="w-4 h-4" />
+                                    ) : (
+                                        <Play className="w-4 h-4" />
+                                    )}
+                                </Button>
                                 <Button
                                     size="sm"
                                     variant="ghost"

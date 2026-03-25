@@ -1,10 +1,8 @@
-# Dograh AI
-
-<h3 align="center">⭐ <strong>If you find value in this project, please STAR the Github repository to help others discover our FOSS platform!</strong></h3>
+# Zoren Voice AI
 
 <p align="center">
-  <a href="https://docs.dograh.com">
-    <img src="https://img.shields.io/badge/docs-https://docs.dograh.com-blue.svg" alt="Docs: https://docs.dograh.com">
+  <a href="https://docs.zoren-voice.ashtra.ai">
+    <img src="https://img.shields.io/badge/docs-https://docs.zoren-voice.ashtra.ai-blue.svg" alt="Docs: https://docs.zoren-voice.ashtra.ai">
   </a>
   <a href="https://deepwiki.com/dograh-hq/dograh">
     <img src="https://deepwiki.com/badge.svg" alt="Deepwiki: https://deepwiki.com/dograh-hq/dograh">
@@ -20,7 +18,7 @@
   </a>
 </p>
 
-**The open-source alternative to Vapi** - Dograh helps you build your own voice agents with an easy drag-and-drop workflow builder. It's the fastest way to build voice AI agents - from zero to working bot in under 2 minutes (our hard SLA standards).
+**The open-source alternative to Vapi** - Zoren Voice helps you build your own voice agents with an easy drag-and-drop workflow builder. It's the fastest way to build voice AI agents - from zero to working bot in under 2 minutes (our hard SLA standards).
 
 - **100% open source**, self-hostable platform - no vendor lock-in, unlike proprietary solutions like Vapi
 - **Full control & transparency** - every line of code is open, with built-in AI testing personas and flexible LLM/TTS/STT integration
@@ -30,21 +28,21 @@
 
 <div align="center">
   <a href="https://www.tella.tv/video/cmgbysbsz00kw0bjm2qnc5f1d/view">
-    <img src="docs/images/video_thumbnail_1.png" alt="Watch Dograh AI Demo Video" width="80%" style="border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
+    <img src="docs/images/video_thumbnail_1.png" alt="Watch Zoren Voice AI Demo Video" width="80%" style="border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
   </a>
   <br>
-  <em>Click to watch a 2-minute demo of Dograh AI in action</em>
+  <em>Click to watch a 2-minute demo of Zoren Voice AI in action</em>
 </div>
 
 ## 🚀 Get Started
 
-##### Download and setup Dograh on your Local Machine
+##### Download and setup Zoren Voice on your Local Machine
 
 > **Note**
 > We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.
 
 > **Note**
-> If you wish to run the platform on a remote server instead, checkout our [Documentation](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment)
+> If you wish to run the platform on a remote server instead, checkout our [Documentation](https://docs.zoren-voice.ashtra.ai/deployment/docker#option-2:-remote-server-deployment)
 
 ```bash
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
@@ -61,8 +59,8 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 3. **Name Your Bot**: Use a short two-word name (e.g., _Lead Qualification_).
 4. **Describe Use Case**: In 5–10 words (e.g., _Screen insurance form submissions for purchase intent_).
 5. **Launch**: Your bot is ready! Open the bot and click **Web Call** to talk to it.
-6. **No API Keys Needed**: We auto-generate Dograh API keys so you can start immediately. You can switch to your own keys anytime.
-7. **Default Access**: Includes Dograh’s own LLMs, STT, and TTS stack by default.
+6. **No API Keys Needed**: We auto-generate Zoren Voice API keys so you can start immediately. You can switch to your own keys anytime.
+7. **Default Access**: Includes Zoren Voice’s own LLMs, STT, and TTS stack by default.
 8. **Bring Your Own Keys**: Optionally connect your own API keys for LLMs, STT, TTS, or telephony providers like Twilio.
 
 ## Quick Summary
@@ -72,8 +70,8 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 - 🔧 **No vendor lock-in**: Self-hostable platform vs proprietary SaaS solutions
 - 🤖 **AI Testing Personas**: Test your bots with LoopTalk AI that mimics real customer interactions
 - 🔓 **100% Open Source**: Every line of code is open - no hidden logic, no black boxes (unlike Vapi)
-- 🔄 **Flexible Integration**: Bring your own LLM, TTS, or STT - or use Dograh's APIs
-- ☁️ **Deploy anywhere**: Self-host or use our hosted version at app.dograh.com
+- 🔄 **Flexible Integration**: Bring your own LLM, TTS, or STT - or use Zoren Voice's APIs
+- ☁️ **Deploy anywhere**: Self-host or use our hosted version at zoren-voice.ashtra.ai
 
 ## Features
 
@@ -105,11 +103,11 @@ Architecture diagram _(coming soon)_
 
 ### Local Development
 
-Refer [Local Setup](https://docs.dograh.com/contribution/setup)
+Refer [Local Setup](https://docs.zoren-voice.ashtra.ai/contribution/setup)
 
 ### Self-Hosted Deployment
 
-For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.dograh.com/deployment/docker).
+For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.zoren-voice.ashtra.ai/deployment/docker).
 
 ### Production (Self-Hosted)
 
@@ -117,26 +115,26 @@ Production guide coming soon. [Drop in a message](https://join.slack.com/t/dogra
 
 ### Cloud Version
 
-Visit [https://www.dograh.com](https://www.dograh.com/) for our managed cloud offering.
+Visit [https://zoren-voice.ashtra.ai](https://zoren-voice.ashtra.ai/) for our managed cloud offering.
 
 ## 📚Documentation
 
-You can go to [https://docs.dograh.com](https://docs.dograh.com/) for our documentation.
+You can go to [https://docs.zoren-voice.ashtra.ai](https://docs.zoren-voice.ashtra.ai/) for our documentation.
 
 ## 🤝Community & Support
 
 - GitHub Issues: Report bugs or request features
-- Slack: Our Slack community is not just for support — it’s the cornerstone of Dograh AI contributions. Here, you can:
+- Slack: Our Slack community is not just for support — it’s the cornerstone of Zoren Voice AI contributions. Here, you can:
   - Connect with maintainers and other contributors
   - Discuss issues and features before coding
   - Get help with setup and debugging
   - Stay up to date with contribution sprints
 
-👉 Join us → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+👉 Join us → [Zoren Voice Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
 
 ## 🙌 Contributing
 
-We love contributions! Dograh AI is 100% open source and we intend to keep it that way.
+We love contributions! Zoren Voice AI is 100% open source and we intend to keep it that way.
 
 ### Getting Started
 
@@ -148,17 +146,16 @@ We love contributions! Dograh AI is 100% open source and we intend to keep it th
 
 ## 📄 License
 
-Dograh AI is licensed under the [BSD 2-Clause License](LICENSE)- the same license as projects that were used in building Dograh AI, ensuring compatibility and freedom to use, modify, and distribute.
+Zoren Voice AI is licensed under the [BSD 2-Clause License](LICENSE)- the same license as projects that were used in building Zoren Voice AI, ensuring compatibility and freedom to use, modify, and distribute.
 
 ## 🏢 About
 
-Built with ❤️ by **Dograh** (Zansat Technologies Private Limited)
+Built with ❤️ by **Zoren Voice** (Zansat Technologies Private Limited)
 Founded by YC alumni and exit founders committed to keeping voice AI open and accessible to everyone.
 
 <br><br><br>
 
   <p align="center">
-    <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ Star us on GitHub</a> |
-    <a href="https://app.dograh.com">☁️ Try Cloud Version</a> |
+    <a href="https://zoren-voice.ashtra.ai">☁️ Try Cloud Version</a> |
     <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">💬 Join Slack</a>
   </p>

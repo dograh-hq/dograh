@@ -1,13 +1,13 @@
 ---
 title: "Custom Domain"
-description: "Deploy Dograh AI with custom domain names and SSL certificates"
+description: "Deploy Zoren Voice AI with custom domain names and SSL certificates"
 ---
 
-Deploy Dograh AI with your own custom domain name for a professional production setup. By now, you should be able to create and test a voice agent by following the previous guide to setup the platform on a remote server using [Docker](docker#option-2%3A-remote-server-deployment)
+Deploy Zoren Voice AI with your own custom domain name for a professional production setup. By now, you should be able to create and test a voice agent by following the previous guide to setup the platform on a remote server using [Docker](docker#option-2%3A-remote-server-deployment)
 
 ## What is Custom Domain Deployment?
 
-Custom domain deployment allows you to run Dograh AI with a personalized domain name (like `voice.yourcompany.com`) instead of using IP addresses. This setup includes:
+Custom domain deployment allows you to run Zoren Voice AI with a personalized domain name (like `voice.yourcompany.com`) instead of using IP addresses. This setup includes:
 
 - **Custom Domain**: Access your application via a memorable domain name
 - **Automatic SSL**: Proper SSL certificates from Let's Encrypt or similar providers
@@ -20,7 +20,7 @@ Before starting, ensure you have:
 
 - A domain name you own (e.g., `yourcompany.com`)
 - Access to your domain's DNS settings (usually through your domain registrar)
-- Dograh AI already running on your server via the [remote deployment](docker#option-2%3A-remote-server-deployment) guide
+- Zoren Voice AI already running on your server via the [remote deployment](docker#option-2%3A-remote-server-deployment) guide
 - Your server's public IP address
 
 ## Step 1: Configure DNS Records
@@ -77,7 +77,7 @@ It will automatically:
 - Generate Let's Encrypt SSL certificates
 - Update nginx configuration
 - Configure automatic certificate renewal
-- Restart Dograh services
+- Restart Zoren Voice services
 
 Once complete, your application will be available at `https://voice.yourcompany.com`.
 
@@ -108,9 +108,9 @@ sudo apt install certbot -y
 sudo yum install certbot -y
 ```
 
-### Stop Dograh Services
+### Stop Zoren Voice Services
 
-Before generating certificates, stop the running Dograh services to free up port 80:
+Before generating certificates, stop the running Zoren Voice services to free up port 80:
 
 ```bash
 cd dograh
@@ -136,7 +136,7 @@ Certbot will:
 You'll be prompted to enter an email address for renewal notifications and agree to the terms of service.
 </Note>
 
-### Copy Certificates to Dograh Directory
+### Copy Certificates to Zoren Voice Directory
 
 Copy the generated certificates to the dograh certs directory:
 
@@ -173,9 +173,9 @@ server {
 
 Replace `BACKEND_API_ENDPOINT` environment variable the `docker-compose.yaml` with your custom domain with the scheme.
 
-### Start Dograh Services
+### Start Zoren Voice Services
 
-Start Dograh with the updated configuration:
+Start Zoren Voice with the updated configuration:
 
 ```bash
 cd dograh

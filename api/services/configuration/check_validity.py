@@ -162,7 +162,7 @@ class UserConfigurationValidator:
     def _check_dograh_api_key(self, model: str, api_key: str) -> bool:
         if api_key.startswith("dgr"):
             raise ValueError(
-                "You provided a Dograh API key (dgr...) instead of a service key. "
+                "You provided a Zoren Voice API key (dgr...) instead of a service key. "
                 "Please use a service key (mps...)."
             )
         return mps_service_key_client.validate_service_key(api_key)

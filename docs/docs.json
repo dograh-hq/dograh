@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
-  "name": "Dograh AI",
+  "name": "Zoren Voice AI",
   "colors": {
     "primary": "#16A34A",
     "light": "#07C983",
@@ -30,7 +30,7 @@
           {
             "group": "Core Concepts",
             "pages": [
-              "core-concepts/how-dograh-works",
+              "core-concepts/how-zoren-voice-works",
               "core-concepts/workflows-and-agents",
               "core-concepts/calls-and-runs",
               "core-concepts/context-and-variables",
@@ -216,7 +216,7 @@
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg",
-    "href": "https://docs.dograh.com"
+    "href": "https://docs.zoren-voice.ashtra.ai"
   },
   "navbar": {
     "links": [
@@ -228,7 +228,7 @@
     "primary": {
       "type": "button",
       "label": "Dashboard",
-      "href": "https://app.dograh.com"
+      "href": "https://zoren-voice.ashtra.ai"
     }
   },
   "search": {

@@ -93,7 +93,7 @@ async def initiate_call(
     if trigger.state != TriggerState.ACTIVE.value:
         raise HTTPException(status_code=404, detail="Agent trigger is not active")
 
-    # 4.5 Check Dograh quota before initiating the call
+    # 4.5 Check Zoren Voice quota before initiating the call
     quota_result = await check_dograh_quota_by_user_id(api_key.created_by)
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)

@@ -1,4 +1,4 @@
-"""Quota checking service for Dograh credits.
+"""Quota checking service for Zoren Voice credits.
 
 This module provides reusable quota checking functionality that can be used
 across different endpoints (WebRTC signaling, telephony, public API triggers).
@@ -23,9 +23,9 @@ class QuotaCheckResult:
 
 
 async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
-    """Check if user has sufficient Dograh quota for making a call.
+    """Check if user has sufficient Zoren Voice quota for making a call.
 
-    This function checks if the user is using any Dograh services (LLM, STT, TTS)
+    This function checks if the user is using any Zoren Voice services (LLM, STT, TTS)
     and validates that they have sufficient credits remaining.
 
     Args:
@@ -33,14 +33,14 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
 
     Returns:
         QuotaCheckResult with has_quota=True if user has sufficient quota or
-        is not using Dograh services, or has_quota=False with error_message
+        is not using Zoren Voice services, or has_quota=False with error_message
         if quota is insufficient.
     """
     try:
         # Get user configurations
         user_config = await db_client.get_user_configurations(user.id)
 
-        # Check if user is using any Dograh service
+        # Check if user is using any Zoren Voice service
         using_dograh = False
         dograh_api_keys = set()
 
@@ -56,11 +56,11 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
             using_dograh = True
             dograh_api_keys.add(user_config.tts.api_key)
 
-        # If not using Dograh, quota check passes
+        # If not using Zoren Voice, quota check passes
         if not using_dograh:
             return QuotaCheckResult(has_quota=True)
 
-        # Check quota for ALL Dograh keys
+        # Check quota for all Zoren Voice keys
         for api_key in dograh_api_keys:
             try:
                 usage = await mps_service_key_client.check_service_key_usage(
@@ -71,27 +71,27 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
                 # Require at least $0.10 for a short call
                 if remaining < 0.10:
                     logger.warning(
-                        f"Insufficient Dograh credits for key ...{api_key[-8:]}: "
+                        f"Insufficient Zoren Voice credits for key ...{api_key[-8:]}: "
                         f"${remaining:.2f} remaining"
                     )
                     return QuotaCheckResult(
                         has_quota=False,
                         error_message=(
                             "You have exhausted your trial credits. "
-                            "Please email founders@dograh.com for additional Dograh credits "
+                            "Please contact support for additional Zoren Voice credits "
                             "or change providers in Models configurations."
                         ),
                     )
 
                 logger.info(
-                    f"Dograh quota check passed for key ...{api_key[-8:]}: "
+                    f"Zoren Voice quota check passed for key ...{api_key[-8:]}: "
                     f"${remaining:.2f} remaining"
                 )
             except Exception as e:
-                logger.error(f"Failed to check quota for Dograh key: {str(e)}")
+                logger.error(f"Failed to check quota for Zoren Voice key: {str(e)}")
                 return QuotaCheckResult(
                     has_quota=False,
-                    error_message="Could not verify Dograh credits. Please try again.",
+                    error_message="Could not verify Zoren Voice credits. Please try again.",
                 )
 
         return QuotaCheckResult(has_quota=True)
@@ -103,7 +103,7 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
 
 
 async def check_dograh_quota_by_user_id(user_id: int) -> QuotaCheckResult:
-    """Check Dograh quota by user ID.
+    """Check Zoren Voice quota by user ID.
 
     Convenience function that fetches the user and then checks quota.
 

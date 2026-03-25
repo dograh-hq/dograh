@@ -7,7 +7,7 @@ metadata:
     app: zoren-voice-ui
     env: prod
 data:
-  BACKEND_URL: http://api:8000
+  BACKEND_URL: https://zoren-voice.ashtra.ai
   NEXT_PUBLIC_API_URL: https://zoren-voice.ashtra.ai
   NEXT_PUBLIC_APP_NAME: Zoren Voice AI
   NODE_ENV: production

@@ -1,16 +1,16 @@
 ---
 title: "Environment Variables"
-description: "Complete reference for all environment variables used by the Dograh backend"
+description: "Complete reference for all environment variables used by the Zoren Voice backend"
 ---
 
 Core environment variables are centralized in `api/constants.py`. Variables marked **Required** in the description must be explicitly set — the application will either fail to boot or behave insecurely without them.
 
 ## Deployment Modes
 
-Dograh supports two deployment modes, set via `DEPLOYMENT_MODE`:
+Zoren Voice supports two deployment modes, set via `DEPLOYMENT_MODE`:
 
-- **OSS**: The default mode. Designed for self-hosted deployments using [Docker Compose](/deployment/docker) — the fastest way to get Dograh running. Uses local JWT authentication and MinIO for storage.
-- **SaaS**: Intended for customised deployments outside of Docker. Authentication and API key management are handled through Dograh Managed Platform Services (MPS), allowing greater flexibility in how the platform is hosted and integrated.
+- **OSS**: The default mode. Designed for self-hosted deployments using [Docker Compose](/deployment/docker) — the fastest way to get Zoren Voice running. Uses local JWT authentication and MinIO for storage.
+- **SaaS**: Intended for customised deployments outside of Docker. Authentication and API key management are handled through Zoren Voice Managed Platform Services (MPS), allowing greater flexibility in how the platform is hosted and integrated.
 
 The relevant required variables for each mode are noted in the descriptions below.
 
@@ -34,6 +34,16 @@ The relevant required variables for each mode are noted in the descriptions belo
 | `DATABASE_URL` | N/A | **Required.** PostgreSQL connection string. e.g. `postgresql+asyncpg://user:pass@host:5432/dbname` |
 | `REDIS_URL` | N/A | **Required.** Redis connection string. e.g. `redis://localhost:6379` |
 
+For Supabase or any other managed Postgres provider, keep `DATABASE_URL` in SQLAlchemy `asyncpg` format. If the runtime is IPv4-only, prefer the Supabase session pooler host; direct database connections are best on IPv6-capable hosts.
+
+Example:
+
+```text
+postgresql+asyncpg://postgres.<project-ref>:[PASSWORD]@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres
+```
+
+When deploying with the GitHub Actions release workflow, place that same full URL in the `VOICE_DATABASE_URL` secret. If the secret is omitted, the workflow continues to use the bundled in-cluster Postgres deployment.
+
 ---
 
 ## Authentication (OSS)
@@ -55,14 +65,14 @@ Never use the placeholder `OSS_JWT_SECRET` in a production deployment. Generate 
 |---|---|---|
 | `BACKEND_API_ENDPOINT` | `http://localhost:8000` | Internal URL of the backend API |
 | `UI_APP_URL` | `http://localhost:3010` | URL of the frontend application |
-| `MPS_API_URL` | `https://services.dograh.com` | Dograh Managed Platform Services URL |
+| `MPS_API_URL` | `https://services.zoren-voice.ashtra.ai` | Zoren Voice Managed Platform Services URL |
 | `DOGRAH_MPS_SECRET_KEY` | `null` | **Required for non-OSS deployments.** Secret key for authenticating with MPS |
 
 ---
 
 ## Storage
 
-Dograh uses **MinIO by default**, which is bundled with the self-hosted deployment and requires no external setup. Set `ENABLE_AWS_S3=true` to switch to AWS S3 — typically used for cloud or managed deployments where S3 is already part of the infrastructure.
+Zoren Voice uses **MinIO by default**, which is bundled with the self-hosted deployment and requires no external setup. Set `ENABLE_AWS_S3=true` to switch to AWS S3 — typically used for cloud or managed deployments where S3 is already part of the infrastructure.
 
 ### MinIO (OSS default)
 

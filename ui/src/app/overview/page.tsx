@@ -1,6 +1,5 @@
 "use client";
 
-import { Star } from 'lucide-react';
 import Link from 'next/link';
 
 import { Button } from '@/components/ui/button';
@@ -27,28 +26,13 @@ export default function OverviewPage() {
                         <CardDescription className="text-lg mt-2">
                             {isOSSMode ? (
                                 <>
-                                    Open source voice AI workflow builder. Help us support the project by giving us a star on GitHub.
+                                    Open source voice AI workflow builder.
                                 </>
                             ) : (
                                 "Get started with building voice AI workflows"
                             )}
                         </CardDescription>
                     </CardHeader>
-                    <CardContent>
-                        {isOSSMode && (
-                            <Button asChild className="mb-6">
-                                <a
-                                    href="https://github.com/dograh-hq/dograh"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center"
-                                >
-                                    <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                                    Star us on GitHub
-                                </a>
-                            </Button>
-                        )}
-                    </CardContent>
                 </Card>
 
                 {/* Quick Actions */}
@@ -85,38 +69,6 @@ export default function OverviewPage() {
                         </CardContent>
                     </Card>
                 </div>
-
-                {/* Resources Section */}
-                <Card className="mt-8">
-                    <CardHeader>
-                        <CardTitle>Resources</CardTitle>
-                        <CardDescription>
-                            Get help and learn more about Zoren Voice AI
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="flex flex-wrap gap-4">
-                            <Button asChild variant="outline">
-                                <a
-                                    href="https://docs.dograh.com"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    Documentation
-                                </a>
-                            </Button>
-                            <Button asChild variant="outline">
-                                <a
-                                    href="https://github.com/dograh-hq/dograh/issues"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    Report an Issue
-                                </a>
-                            </Button>
-                        </div>
-                    </CardContent>
-                </Card>
             </div>
         </div>
     );

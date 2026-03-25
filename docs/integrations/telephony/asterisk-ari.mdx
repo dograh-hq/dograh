@@ -1,13 +1,13 @@
 ---
 title: "Asterisk ARI Integration"
-description: "Connect Dograh AI to your Asterisk PBX using the Asterisk REST Interface (ARI)"
+description: "Connect Zoren Voice AI to your Asterisk PBX using the Asterisk REST Interface (ARI)"
 ---
 
 ## Overview
 
-Asterisk ARI (Asterisk REST Interface) allows you to connect Dograh AI voice agents to your existing Asterisk PBX. ARI provides a WebSocket-based event model for controlling calls via Stasis applications, giving Dograh full control over call flow and audio streaming.
+Asterisk ARI (Asterisk REST Interface) allows you to connect Zoren Voice AI voice agents to your existing Asterisk PBX. ARI provides a WebSocket-based event model for controlling calls via Stasis applications, giving Zoren Voice full control over call flow and audio streaming.
 
-This guide focuses on the Dograh-specific configuration. For general Asterisk installation and administration, refer to the [official Asterisk documentation](https://docs.asterisk.org/).
+This guide focuses on the Zoren Voice-specific configuration. For general Asterisk installation and administration, refer to the [official Asterisk documentation](https://docs.asterisk.org/).
 
 ## Prerequisites
 
@@ -16,20 +16,20 @@ Before setting up the ARI integration, ensure you have:
 - A running Asterisk instance (version 16 or later recommended)
 - ARI module enabled in Asterisk
 - `chan_websocket` (WebSocket channel driver) enabled in your Asterisk build
-- Network connectivity between your Dograh instance and Asterisk
-- Dograh AI instance running and accessible
+- Network connectivity between your Zoren Voice instance and Asterisk
+- Zoren Voice AI instance running and accessible
 
 <Note>
-If you compiled Asterisk from source, ensure `chan_websocket` is included during the build. This module is required for external media streaming between Asterisk and Dograh. Refer to the [Asterisk build system documentation](https://docs.asterisk.org/) for details on enabling modules.
+If you compiled Asterisk from source, ensure `chan_websocket` is included during the build. This module is required for external media streaming between Asterisk and Zoren Voice. Refer to the [Asterisk build system documentation](https://docs.asterisk.org/) for details on enabling modules.
 </Note>
 
 ## Asterisk Configuration
 
-The following Asterisk configuration files need to be set up to work with Dograh. These are minimal examples focused on the Dograh integration -- refer to the [Asterisk documentation](https://docs.asterisk.org/) for full configuration details.
+The following Asterisk configuration files need to be set up to work with Zoren Voice. These are minimal examples focused on the Zoren Voice integration -- refer to the [Asterisk documentation](https://docs.asterisk.org/) for full configuration details.
 
 ### Enable ARI (`ari.conf`)
 
-Create an ARI user that Dograh will use to authenticate:
+Create an ARI user that Zoren Voice will use to authenticate:
 
 ```ini
 [general]
@@ -42,7 +42,7 @@ password = your_secure_password
 ```
 
 <Note>
-The username (section name, e.g., `dograh`) and password here must match the **Stasis App Name** and **App Password** you configure in Dograh.
+The username (section name, e.g., `dograh`) and password here must match the **Stasis App Name** and **App Password** you configure in Zoren Voice.
 </Note>
 
 ### Enable the HTTP Server (`http.conf`)
@@ -58,7 +58,7 @@ bindport = 8088
 
 ### Configure the Stasis Dialplan (`extensions.conf`)
 
-Route incoming calls to your Stasis application so Dograh can handle them:
+Route incoming calls to your Stasis application so Zoren Voice can handle them:
 
 ```ini
 [from-external]
@@ -67,11 +67,11 @@ exten => _X.,1,NoOp(Incoming call to ${EXTEN})
  same => n,Hangup()
 ```
 
-Replace `dograh` with the app name you configured in `ari.conf` and in Dograh.
+Replace `dograh` with the app name you configured in `ari.conf` and in Zoren Voice.
 
 ### Configure External Media Streaming (`websocket_client.conf`)
 
-Dograh uses Asterisk's external media streaming to send and receive audio over WebSocket. Configure a WebSocket client connection that points to your Dograh instance:
+Zoren Voice uses Asterisk's external media streaming to send and receive audio over WebSocket. Configure a WebSocket client connection that points to your Zoren Voice instance:
 
 ```ini
 [dograh_staging]
@@ -81,12 +81,12 @@ protocols = audio
 ```
 
 <Note>
-The section name (e.g., `dograh_staging`) is the **WebSocket Client Name** you'll enter in the Dograh telephony configuration. This name tells Asterisk which WebSocket connection to use for external media streaming during calls.
+The section name (e.g., `dograh_staging`) is the **WebSocket Client Name** you'll enter in the Zoren Voice telephony configuration. This name tells Asterisk which WebSocket connection to use for external media streaming during calls.
 </Note>
 
 Refer to the [Asterisk WebSocket documentation](https://docs.asterisk.org/) for additional `websocket_client.conf` options and TLS configuration.
 
-## Configuration in Dograh
+## Configuration in Zoren Voice
 
 ### Step 1: Navigate to Telephony Settings
 
@@ -114,13 +114,13 @@ Configure the following fields:
 
 ## Inbound Calling
 
-Unlike other telephony providers that use HTTP webhooks for inbound calls, ARI delivers inbound calls as **StasisStart events on the ARI WebSocket**. Dograh automatically detects these events and activates the configured workflow.
+Unlike other telephony providers that use HTTP webhooks for inbound calls, ARI delivers inbound calls as **StasisStart events on the ARI WebSocket**. Zoren Voice automatically detects these events and activates the configured workflow.
 
 ### How It Works
 
 1. An external call arrives at Asterisk and the dialplan routes it to `Stasis(dograh)`
 2. Asterisk fires a StasisStart event over the ARI WebSocket with the channel in `Ring` state
-3. Dograh identifies this as an inbound call, validates your quota, and creates a workflow run
+3. Zoren Voice identifies this as an inbound call, validates your quota, and creates a workflow run
 4. The call is answered, bridged to an external media channel, and your voice agent workflow begins
 
 ### Setting Up Inbound Calls
@@ -129,7 +129,7 @@ Unlike other telephony providers that use HTTP webhooks for inbound calls, ARI d
 
 Ensure your dialplan routes inbound calls to the Stasis application as shown in the [dialplan configuration above](#configure-the-stasis-dialplan-extensionsconf).
 
-**Step 2: Set the Inbound Workflow ID in Dograh**
+**Step 2: Set the Inbound Workflow ID in Zoren Voice**
 
 1. Go to **Workflow** → **Phone Call** → **Configure Telephony**
 2. In the ARI configuration, enter the **Inbound Workflow ID** — this is the ID of the workflow you want to activate when an inbound call arrives
@@ -161,7 +161,7 @@ When an inbound call activates a workflow, the following context is available to
 
 <AccordionGroup>
   <Accordion title="Cannot connect to ARI endpoint">
-    - Verify the ARI endpoint URL is correct and reachable from your Dograh instance
+    - Verify the ARI endpoint URL is correct and reachable from your Zoren Voice instance
     - Check that the Asterisk HTTP server is running (`http.conf` has `enabled = yes`)
     - Ensure firewall rules allow traffic on the ARI port (default: 8088)
     - Confirm the ARI module is loaded: run `module show like res_ari` in the Asterisk CLI
@@ -175,12 +175,12 @@ When an inbound call activates a workflow, the following context is available to
 
   <Accordion title="No audio during calls">
     - Verify `chan_websocket` is loaded: run `module show like chan_websocket` in the Asterisk CLI
-    - Check that `websocket_client.conf` is correctly configured with the right Dograh URI
-    - Ensure the WebSocket Client Name in Dograh matches the section name in `websocket_client.conf`
-    - Verify network connectivity and firewall rules allow WebSocket traffic between Asterisk and Dograh
+    - Check that `websocket_client.conf` is correctly configured with the right Zoren Voice URI
+    - Ensure the WebSocket Client Name in Zoren Voice matches the section name in `websocket_client.conf`
+    - Verify network connectivity and firewall rules allow WebSocket traffic between Asterisk and Zoren Voice
   </Accordion>
 
-  <Accordion title="Calls not reaching Dograh">
+  <Accordion title="Calls not reaching Zoren Voice">
     - Ensure the dialplan routes calls to `Stasis(your_app_name)`
     - Verify the app name in the dialplan matches the ARI user in `ari.conf`
     - Check Asterisk CLI for errors: `asterisk -rvvv`
@@ -191,22 +191,22 @@ When an inbound call activates a workflow, the following context is available to
     - Verify the **Inbound Workflow ID** is set in your ARI telephony configuration
     - Confirm the workflow ID exists and belongs to the same organization as the ARI config
     - Check that your organization has available quota
-    - Review Dograh logs for warnings mentioning "no inbound_workflow_id configured"
+    - Review Zoren Voice logs for warnings mentioning "no inbound_workflow_id configured"
   </Accordion>
 
   <Accordion title="WebSocket client connection issues">
-    - Check the URI in `websocket_client.conf` points to the correct Dograh host and port
-    - Verify the Dograh instance is running and accepting WebSocket connections
+    - Check the URI in `websocket_client.conf` points to the correct Zoren Voice host and port
+    - Verify the Zoren Voice instance is running and accepting WebSocket connections
     - If using TLS, ensure certificates are correctly configured on both sides
   </Accordion>
 </AccordionGroup>
 
 ## Best Practices
 
-- Keep your Asterisk instance on the same network or a low-latency connection to Dograh for optimal audio quality
+- Keep your Asterisk instance on the same network or a low-latency connection to Zoren Voice for optimal audio quality
 - Use strong passwords for ARI authentication
 - Restrict ARI access to known IP addresses using firewall rules
-- Monitor Asterisk logs alongside Dograh logs when debugging call issues
+- Monitor Asterisk logs alongside Zoren Voice logs when debugging call issues
 - Keep Asterisk updated to the latest stable version for security and compatibility
 
 ## Further Reading

@@ -290,7 +290,7 @@ export default function UsagePage() {
                 <div className="flex justify-between items-start">
                     <div>
                         <h1 className="text-3xl font-bold mb-2">Usage Dashboard</h1>
-                        <p className="text-muted-foreground">Monitor your Dograh Token usage and quota</p>
+                        <p className="text-muted-foreground">Monitor your Zoren Voice Token usage and quota</p>
                     </div>
                         <div className="flex items-center gap-2">
                             <Globe className="h-4 w-4 text-muted-foreground" />
@@ -371,9 +371,9 @@ export default function UsagePage() {
                 {/* MPS Credits Card */}
                 <Card className="mb-6">
                     <CardHeader>
-                        <CardTitle>Dograh Model Credits</CardTitle>
+                        <CardTitle>Zoren Voice Model Credits</CardTitle>
                         <CardDescription>
-                            These track usage of Dograh models using Dograh Service Keys.
+                            These track usage of Zoren Voice models using Zoren Voice Service Keys.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -403,7 +403,7 @@ export default function UsagePage() {
                                 )}
                             </div>
                         ) : (
-                            <p className="text-muted-foreground">No Dograh service keys configured. Set up a service key in your model configuration to see usage.</p>
+                            <p className="text-muted-foreground">No Zoren Voice service keys configured. Set up a service key in your model configuration to see usage.</p>
                         )}
                     </CardContent>
                 </Card>
@@ -462,7 +462,7 @@ export default function UsagePage() {
                                                 <TableHead className="font-semibold">Date</TableHead>
                                                 <TableHead className="font-semibold text-right">Duration</TableHead>
                                                 <TableHead className="font-semibold text-right">
-                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Dograh Tokens'}
+                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Zoren Voice Tokens'}
                                                 </TableHead>
                                                 <TableHead className="font-semibold">Actions</TableHead>
                                             </TableRow>
@@ -520,7 +520,7 @@ export default function UsagePage() {
                                     <div className="mt-4 p-3 bg-muted rounded-md">
                                         <p className="text-sm text-muted-foreground">
                                             Total for filtered period: <span className="font-semibold text-foreground">
-                                                {usageHistory.total_dograh_tokens.toLocaleString()} Dograh Tokens
+                                                {usageHistory.total_dograh_tokens.toLocaleString()} Zoren Voice Tokens
                                             </span>
                                             {' • '}
                                             <span className="font-semibold text-foreground">
@@ -570,4 +570,3 @@ export default function UsagePage() {
         </div>
     );
 }
-

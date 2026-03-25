@@ -14,7 +14,6 @@ import {
   Megaphone,
   Phone,
   Settings,
-  Star,
   TrendingUp,
   Workflow,
   Wrench,
@@ -266,52 +265,6 @@ export function AppSidebar() {
           </div>
         )}
 
-        {/* Star us on GitHub for OSS mode - at the top */}
-        {provider !== "stack" && (
-          <div className="mt-3 px-2">
-            {state === "collapsed" ? (
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="w-full hover:bg-accent hover:text-accent-foreground"
-                      asChild
-                    >
-                      <a
-                        href="https://github.com/dograh-hq/dograh"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                        <span className="sr-only">Star us on GitHub</span>
-                      </a>
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>Star us on GitHub</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            ) : (
-              <Button
-                variant="ghost"
-                className="w-full justify-start hover:bg-accent hover:text-accent-foreground"
-                asChild
-              >
-                <a
-                  href="https://github.com/dograh-hq/dograh"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                  <span className="ml-2">Star us on GitHub</span>
-                </a>
-              </Button>
-            )}
-          </div>
-        )}
       </SidebarHeader>
 
       <SidebarContent className={cn(

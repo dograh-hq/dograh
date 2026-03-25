@@ -1,11 +1,11 @@
 ---
 title: "Vobiz Integration"
-description: "Configure Vobiz for voice communication in Dograh AI"
+description: "Configure Vobiz for voice communication in Zoren Voice AI"
 ---
 
 ## Overview
 
-Vobiz is a cloud-based telephony service provider that offers global reach with competitive pricing. Dograh AI's Vobiz integration provides reliable voice connectivity for your conversational AI agents.
+Vobiz is a cloud-based telephony service provider that offers global reach with competitive pricing. Zoren Voice AI's Vobiz integration provides reliable voice connectivity for your conversational AI agents.
 
 ## Prerequisites
 
@@ -15,7 +15,7 @@ Before setting up Vobiz integration, you'll need:
 - Auth ID from your Vobiz dashboard
 - Auth Token generated for your account
 - At least one configured phone number in your Vobiz account
-- Dograh AI instance running and accessible
+- Zoren Voice AI instance running and accessible
 
 ## Configuration
 
@@ -27,7 +27,7 @@ Before setting up Vobiz integration, you'll need:
 4. Generate an **Auth Token** for API access
 5. Configure phone numbers in your Vobiz account for outbound calling
 
-### Step 2: Configure in Dograh AI
+### Step 2: Configure in Zoren Voice AI
 
 1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
 2. Select **Vobiz** as your provider
@@ -52,7 +52,7 @@ Vobiz provides cloud-based telephony services with global reach and competitive 
 To enable inbound calling with Vobiz:
 
 1. **Complete Telephony Configuration**: Use the same [Configuration](#configuration) steps above
-2. **Get Your Workflow Webhook URL**: Find your workflow ID and construct the webhook URL as: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
+2. **Get Your Workflow Webhook URL**: Find your workflow ID and construct the webhook URL as: `https://api.zoren-voice.ashtra.ai/api/v1/telephony/inbound/{workflow_id}`
 
 ### Configure Application in Vobiz Console
 
@@ -76,13 +76,13 @@ Vobiz requires creating an XML application to handle inbound calls. Follow these
 2. **Create New Application**:
    - Click **Create New Application**
    - Configure the XML application with the following URLs:
-     - **Answer URL**: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
-     - **Hangup URL**: `https://api.dograh.com/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}`
-     - **Fallback Answer URL**: `https://api.dograh.com/api/v1/telephony/inbound/fallback`
+     - **Answer URL**: `https://api.zoren-voice.ashtra.ai/api/v1/telephony/inbound/{workflow_id}`
+     - **Hangup URL**: `https://api.zoren-voice.ashtra.ai/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}`
+     - **Fallback Answer URL**: `https://api.zoren-voice.ashtra.ai/api/v1/telephony/inbound/fallback`
    - Save the application
 
    <Note>
-   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Dograh, replace `api.dograh.com` with your domain.
+   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Zoren Voice, replace `api.zoren-voice.ashtra.ai` with your domain.
    </Note>
 
    <img
@@ -113,14 +113,14 @@ Vobiz requires creating an XML application to handle inbound calls. Follow these
    />
 
 2. **Verify Setup**:
-   - Ensure your Dograh AI instance is publicly accessible
+   - Ensure your Zoren Voice AI instance is publicly accessible
    - Verify any firewalls allow Vobiz's webhook requests
 
 ### Test Inbound Calling
 
 1. Call your configured Vobiz phone number from another phone
-2. Verify your Dograh AI voice agent answers and responds
-3. Check call logs in both Dograh AI dashboard and Vobiz dashboard
+2. Verify your Zoren Voice AI voice agent answers and responds
+3. Check call logs in both Zoren Voice AI dashboard and Vobiz dashboard
 
 ## Troubleshooting
 
@@ -151,7 +151,7 @@ Vobiz requires creating an XML application to handle inbound calls. Follow these
     - Verify webhook URL is correctly configured in Vobiz dashboard
     - Ensure webhook URL is publicly accessible from internet
     - Check that phone number is properly linked to webhook
-    - Verify Dograh AI instance is running and responding
+    - Verify Zoren Voice AI instance is running and responding
   </Accordion>
   
   <Accordion title="Voice agent doesn't respond to inbound calls">

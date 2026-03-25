@@ -320,12 +320,12 @@ export default function ConfigureTelephonyPage() {
                 <CardDescription>
                   {selectedProvider === "ari" ? (
                     <>
-                      Connect Dograh to your Asterisk PBX using the Asterisk REST Interface (ARI).
+                      Connect Zoren Voice to your Asterisk PBX using the Asterisk REST Interface (ARI).
                       ARI provides a WebSocket-based event model for controlling calls via Stasis applications.
                     </>
                   ) : selectedProvider === "cloudonix" ? (
                     <>
-                      Cloudonix is an AI Connectivity platform, enabling you to connect Dograh to any SIP product or SIP Telephony Provider.<br/><br/>
+                      Cloudonix is an AI Connectivity platform, enabling you to connect Zoren Voice to any SIP product or SIP Telephony Provider.<br/><br/>
                       <iframe
                         style={{ border: 0 }}
                         width="100%"
@@ -376,7 +376,7 @@ export default function ConfigureTelephonyPage() {
                         <li>Enable the ARI module in your Asterisk configuration (ari.conf)</li>
                         <li>Create an ARI user with a password in ari.conf</li>
                         <li>Create a Stasis application in your dialplan (extensions.conf)</li>
-                        <li>Ensure the ARI HTTP endpoint is accessible from Dograh</li>
+                        <li>Ensure the ARI HTTP endpoint is accessible from Zoren Voice</li>
                         <li>Enter your ARI endpoint URL, app name, and password below</li>
                       </ol>
                     </div>
@@ -397,7 +397,7 @@ export default function ConfigureTelephonyPage() {
                       src={
                         selectedProvider === "twilio"
                           ? "https://www.tella.tv/video/cmgbvzkrt00jk0clacu16blm3/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
-                          : "https://www.tella.tv/video/configuring-telephony-on-dograh-with-vonage-3wvo/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
+                          : "https://www.tella.tv/video/configuring-telephony-on-zoren-voice-with-vonage-3wvo/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
                       }
                       allowFullScreen
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -429,8 +429,8 @@ export default function ConfigureTelephonyPage() {
                       <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
                         <li>Sign up for a Cloudonix account at https://cloudonix.com</li>
                         <li>Create an <i>API token</i> for your Cloudonix domain</li>
-                        <li>Configure your Cloudoinx <i>API Token</i> and <i>Cloudonix Domain Name</i> in Dograh</li>
-                        <li>Configure an optional outbound phone number for your Dograh agent</li>
+                        <li>Configure your Cloudoinx <i>API Token</i> and <i>Cloudonix Domain Name</i> in Zoren Voice</li>
+                        <li>Configure an optional outbound phone number for your Zoren Voice agent</li>
                       </ol>
                     </div>
                     <div className="bg-muted border border-border rounded p-3">
@@ -864,7 +864,7 @@ export default function ConfigureTelephonyPage() {
                         <Label htmlFor="app_name">Stasis App Name</Label>
                         <Input
                           id="app_name"
-                          placeholder="dograh"
+                          placeholder="zoren-voice"
                           {...register("app_name", {
                             required:
                               selectedProvider === "ari"
@@ -911,7 +911,7 @@ export default function ConfigureTelephonyPage() {
                         <Label htmlFor="ws_client_name">WebSocket Client Name</Label>
                         <Input
                           id="ws_client_name"
-                          placeholder="dograh_staging"
+                          placeholder="zoren-voice_staging"
                           {...register("ws_client_name")}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -981,7 +981,7 @@ export default function ConfigureTelephonyPage() {
                       <p className="text-xs text-muted-foreground">
                         Configure inbound calling?{" "}
                         <a
-                          href="https://docs.dograh.com/integrations/telephony/inbound"
+                          href="https://docs.zoren-voice.ashtra.ai/integrations/telephony/inbound"
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-blue-600 dark:text-blue-400 hover:underline"

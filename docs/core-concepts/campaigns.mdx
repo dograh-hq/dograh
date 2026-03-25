@@ -4,13 +4,13 @@ sidebarTitle: "Campaigns (Bulk Outbound Calls)"
 description: "Running a voice agent against a list of contacts at scale"
 ---
 
-A campaign is how you run a workflow against many contacts automatically. Instead of triggering calls one by one via the API, you upload a list of phone numbers and Dograh dials them for you — respecting scheduling windows, concurrency limits, and retry rules.
+A campaign is how you run a workflow against many contacts automatically. Instead of triggering calls one by one via the API, you upload a list of phone numbers and Zoren Voice dials them for you — respecting scheduling windows, concurrency limits, and retry rules.
 
 ## How a campaign works
 
 ```mermaid
 flowchart LR
-    CSV[Contacts CSV] --> Upload[Upload to Dograh]
+    CSV[Contacts CSV] --> Upload[Upload to Zoren Voice]
     Upload --> Campaign[Create Campaign]
     Campaign --> Schedule[Scheduling & Concurrency]
     Schedule --> Calls[Outbound Calls]
@@ -20,7 +20,7 @@ flowchart LR
 
 1. **Upload a contacts CSV** — must have a `phone_number` column; any extra columns become `initial_context` for each call
 2. **Create the campaign** — link it to a workflow, set concurrency, time slots, and retry behaviour
-3. **Start it** — Dograh begins dialing contacts up to your concurrency limit
+3. **Start it** — Zoren Voice begins dialing contacts up to your concurrency limit
 4. **Monitor progress** — track processed, completed, failed, and pending counts in real time
 5. **Pause and resume** — stop and restart at any point without losing progress
 
@@ -40,7 +40,7 @@ Columns beyond `phone_number` are automatically passed as `initial_context` to e
 
 **Concurrency** controls how many calls run simultaneously. It's capped by your telephony plan. Set it conservatively to start.
 
-**Time slots** restrict when Dograh is allowed to dial — useful for respecting business hours or regulations:
+**Time slots** restrict when Zoren Voice is allowed to dial — useful for respecting business hours or regulations:
 
 ```json
 {
@@ -52,11 +52,11 @@ Columns beyond `phone_number` are automatically passed as `initial_context` to e
 }
 ```
 
-If no time slots are set, Dograh dials continuously once the campaign is started.
+If no time slots are set, Zoren Voice dials continuously once the campaign is started.
 
 ## Retry behaviour
 
-Dograh can automatically retry contacts who didn't answer, were busy, or went to voicemail:
+Zoren Voice can automatically retry contacts who didn't answer, were busy, or went to voicemail:
 
 ```json
 {
@@ -71,7 +71,7 @@ Dograh can automatically retry contacts who didn't answer, were busy, or went to
 
 The circuit breaker automatically pauses a campaign when the call failure rate gets too high — protecting against wasted spend and telephony reputation issues caused by a misconfigured agent or a bad contact list.
 
-When enabled, Dograh monitors the failure rate within a rolling time window. If it exceeds the threshold, the campaign is paused automatically and must be manually resumed after the issue is investigated.
+When enabled, Zoren Voice monitors the failure rate within a rolling time window. If it exceeds the threshold, the campaign is paused automatically and must be manually resumed after the issue is investigated.
 
 | Setting | Default | Description |
 |---|---|---|

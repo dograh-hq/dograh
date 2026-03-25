@@ -1,11 +1,11 @@
 ---
 title: "Cloudonix Integration"
-description: "Configure Cloudonix for voice communication in Dograh AI"
+description: "Configure Cloudonix for voice communication in Zoren Voice AI"
 ---
 
 ## Overview
 
-Cloudonix is a cloud communications platform that enables Dograh voice agents to connect to SIP communications
+Cloudonix is a cloud communications platform that enables Zoren Voice voice agents to connect to SIP communications
 platform, either on-premise or in the cloud. In addition, Cloudonix exposes a full set of voice APIs, that provide 
 a full suite of call-control capabilities and more.
 
@@ -17,16 +17,16 @@ Before setting up Cloudonix integration, you'll need:
 - A Cloudonix domain UUID (or the domain name)
 - A Cloudonix domain API Key
 - A Cloudonix outbound voice trunk service provider connection
-- Dograh AI instance running and accessible
+- Zoren Voice AI instance running and accessible
 
 ## Video Tutorial
 
-Watch this step-by-step guide to set up Cloudonix with Dograh AI:
+Watch this step-by-step guide to set up Cloudonix with Zoren Voice AI:
 
 <iframe
   className="w-full aspect-video rounded-xl"
   src="https://www.youtube.com/embed/qLKX0F99jpU?si=tA3zwCsNRKe-WCI1"
-  title="Dograh Cloudonix Setup"
+  title="Zoren Voice Cloudonix Setup"
   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
   allowFullScreen
 ></iframe>
@@ -38,7 +38,7 @@ Watch this step-by-step guide to set up Cloudonix with Dograh AI:
 1. Log in to your [Cloudonix Console](https://cockpit.cloudonix.io/onboarding?affiliate=DOGRAH)
 2. Find your **Domain UUID** and **Domain API Key** on the dashboard
 
-### Step 2: Configure in Dograh AI
+### Step 2: Configure in Zoren Voice AI
 
 1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
 2. Watch the Cloudonix setup video tutorial above for detailed guidance
@@ -56,7 +56,7 @@ Watch this step-by-step guide to set up Cloudonix with Dograh AI:
 
 ## Inbound Calling Setup
 
-The Dograh AI configuration for inbound calling is **identical** to outbound calling - use the same credentials configured above. However, you need additional setup in your Cloudonix Console to route incoming calls to Dograh AI.
+The Zoren Voice AI configuration for inbound calling is **identical** to outbound calling - use the same credentials configured above. However, you need additional setup in your Cloudonix Console to route incoming calls to Zoren Voice AI.
 
 ### Configure Inbound Trunk and Application
 
@@ -83,11 +83,11 @@ The Dograh AI configuration for inbound calling is **identical** to outbound cal
    - Create a new application for your domain
    - Set the webhook URL in the application:
      ```
-     https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}
+     https://api.zoren-voice.ashtra.ai/api/v1/telephony/inbound/{workflow_id}
      ```
 
    <Note>
-   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Dograh, replace `api.dograh.com` with your domain.
+   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Zoren Voice, replace `api.zoren-voice.ashtra.ai` with your domain.
    </Note>
 
    <img
@@ -102,7 +102,7 @@ The Dograh AI configuration for inbound calling is **identical** to outbound cal
    />
 
 3. **Verify Configuration**:
-   - Ensure your Dograh AI instance is publicly accessible
+   - Ensure your Zoren Voice AI instance is publicly accessible
    - Test that webhook URL responds correctly
    - Verify any firewalls allow Cloudonix's IP ranges
    - Confirm your inbound trunk is active and receiving calls
@@ -110,8 +110,8 @@ The Dograh AI configuration for inbound calling is **identical** to outbound cal
 ### Test Inbound Calling
 
 1. Call your configured phone number from another phone
-2. Verify your Dograh AI voice agent answers and responds
-3. Check call logs in both Dograh AI dashboard and Cloudonix Console
+2. Verify your Zoren Voice AI voice agent answers and responds
+3. Check call logs in both Zoren Voice AI dashboard and Cloudonix Console
 4. Confirm clear two-way audio communication
 
 ## Troubleshooting
@@ -135,7 +135,7 @@ The Dograh AI configuration for inbound calling is **identical** to outbound cal
   
   <Accordion title="Inbound calls not reaching voice agent">
     - Verify inbound trunk is properly configured and active
-    - Check routing rules point to correct Dograh AI webhook endpoint
+    - Check routing rules point to correct Zoren Voice AI webhook endpoint
     - Ensure webhook URLs are publicly accessible
     - Confirm phone numbers are correctly routed to your trunk
   </Accordion>

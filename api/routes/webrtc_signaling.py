@@ -220,7 +220,7 @@ class SignalingManager:
         if org_id:
             set_current_org_id(org_id)
 
-        # Check Dograh quota before initiating the call
+        # Check Zoren Voice quota before initiating the call
         quota_result = await check_dograh_quota(user)
         if not quota_result.has_quota:
             # Send error response for quota issues

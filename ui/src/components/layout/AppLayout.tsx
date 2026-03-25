@@ -17,7 +17,7 @@ function MobileHeader() {
       <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu">
         <Menu className="h-5 w-5" />
       </Button>
-      <span className="text-lg font-bold">Dograh</span>
+      <span className="text-lg font-bold">Zoren Voice AI</span>
     </header>
   );
 }

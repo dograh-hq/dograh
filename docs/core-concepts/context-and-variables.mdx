@@ -3,7 +3,7 @@ title: "Context & Variables"
 description: "How data flows into, through, and out of a conversation"
 ---
 
-Dograh has a simple data model for passing information through a call. Understanding it is key to building agents that feel personalised and to extracting useful results after a call.
+Zoren Voice has a simple data model for passing information through a call. Understanding it is key to building agents that feel personalised and to extracting useful results after a call.
 
 ## The three context objects
 
@@ -43,7 +43,7 @@ which renews on {{renewal_date}}. Be friendly and confirm
 whether they'd like to continue.
 ```
 
-When the call starts, Dograh substitutes the values before sending the prompt to the LLM — so the agent speaks naturally as if it already knows the contact.
+When the call starts, Zoren Voice substitutes the values before sending the prompt to the LLM — so the agent speaks naturally as if it already knows the contact.
 
 ### gathered_context
 
@@ -58,7 +58,7 @@ Data the agent collects *during* the call. You configure what to extract in the 
 ```mermaid
 sequenceDiagram
     participant App as Your System
-    participant Dog as Dograh
+    participant Dog as Zoren Voice
     participant LLM as LLM
 
     App->>Dog: initial_context: {customer_name: "Jane", plan: "premium"}

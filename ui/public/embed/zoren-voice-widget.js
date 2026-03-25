@@ -45,7 +45,7 @@
     if (state.isInitialized) return;
 
     // Get token from script URL
-    const script = document.currentScript || document.querySelector('script[src*="zoren-voice-widget.js"], script[src*="dograh-widget.js"]');
+    const script = document.currentScript || document.querySelector('script[src*="zoren-voice-widget.js"]');
     if (!script) {
       console.error('Zoren Voice Widget: Script not found');
       return;

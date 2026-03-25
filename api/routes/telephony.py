@@ -155,7 +155,7 @@ async def initiate_call(
             detail="telephony_not_configured",
         )
 
-    # Check Dograh quota before initiating the call
+    # Check Zoren Voice quota before initiating the call
     quota_result = await check_dograh_quota(user)
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)

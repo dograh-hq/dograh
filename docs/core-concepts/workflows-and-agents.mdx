@@ -1,9 +1,9 @@
 ---
 title: "Workflows & Agents"
-description: "How conversation flows are defined in Dograh"
+description: "How conversation flows are defined in Zoren Voice"
 ---
 
-In Dograh, what you see as an **agent** in the dashboard is called a **workflow** in the API. They are the same thing — a workflow is the underlying definition, agent is the product name for it.
+In Zoren Voice, what you see as an **agent** in the dashboard is called a **workflow** in the API. They are the same thing — a workflow is the underlying definition, agent is the product name for it.
 
 <Note>
 Anywhere the API says `workflow`, think "agent". Anywhere the API says `workflow_definition`, think "the conversation logic inside your agent".
@@ -48,13 +48,13 @@ An edge connects two nodes and fires when its condition is satisfied:
 
 ## Versioning
 
-Every time you update a workflow's `workflow_definition`, Dograh saves a new version while keeping the history. The current version is always what runs. Old versions are retained for auditing.
+Every time you update a workflow's `workflow_definition`, Zoren Voice saves a new version while keeping the history. The current version is always what runs. Old versions are retained for auditing.
 
 ## Creating workflows
 
 There are two ways to create a workflow via the API:
 
 - **From a definition** — provide the full node/edge graph yourself. Best for programmatic generation.
-- **From a template** — describe the use case in natural language and Dograh generates the initial graph using an LLM. Best for getting started quickly.
+- **From a template** — describe the use case in natural language and Zoren Voice generates the initial graph using an LLM. Best for getting started quickly.
 
 See the [Workflow Definition Schema](/developer/workflow-schema) for the full field reference.

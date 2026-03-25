@@ -1,16 +1,16 @@
 ---
 title: "Webhook Payloads"
-description: "Context variables available in webhook nodes and the data Dograh sends after a call"
+description: "Context variables available in webhook nodes and the data Zoren Voice sends after a call"
 ---
 
-Dograh executes **webhook nodes** asynchronously after a workflow run completes. You configure the target URL, HTTP method, headers, and payload template directly in the workflow definition.
+Zoren Voice executes **webhook nodes** asynchronously after a workflow run completes. You configure the target URL, HTTP method, headers, and payload template directly in the workflow definition.
 
 ---
 
 ## How webhooks work
 
 1. A call completes (or a run finishes)
-2. Dograh executes any `webhook` nodes in the workflow asynchronously
+2. Zoren Voice executes any `webhook` nodes in the workflow asynchronously
 3. The payload template is rendered with the run's context and sent as a JSON `POST` (or your configured method) to your endpoint
 4. Non-200 responses are logged but do not block or retry by default (configure `retry_config` to change this)
 

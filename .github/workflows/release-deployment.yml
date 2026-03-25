@@ -87,6 +87,7 @@ jobs:
       - name: Validate required secrets
         shell: bash
         env:
+          VOICE_DATABASE_URL: ${{ secrets.VOICE_DATABASE_URL }}
           POSTGRES_PASSWORD: ${{ secrets.VOICE_POSTGRES_PASSWORD }}
           REDIS_PASSWORD: ${{ secrets.VOICE_REDIS_PASSWORD }}
           MINIO_ROOT_PASSWORD: ${{ secrets.VOICE_MINIO_PASSWORD }}
@@ -94,12 +95,28 @@ jobs:
         run: |
           set -euo pipefail
 
-          for name in POSTGRES_PASSWORD REDIS_PASSWORD MINIO_ROOT_PASSWORD OSS_JWT_SECRET; do
+          use_external_database=false
+          if [ -n "${VOICE_DATABASE_URL:-}" ]; then
+            use_external_database=true
+            if [[ "${VOICE_DATABASE_URL}" != postgresql+asyncpg://* ]]; then
+              echo "VOICE_DATABASE_URL must be a postgresql+asyncpg:// SQLAlchemy URL"
+              exit 1
+            fi
+          fi
+
+          for name in REDIS_PASSWORD MINIO_ROOT_PASSWORD OSS_JWT_SECRET; do
             if [ -z "${!name:-}" ]; then
               echo "Missing required secret: $name"
               exit 1
             fi
           done
+
+          if [ "$use_external_database" = false ]; then
+            if [ -z "${POSTGRES_PASSWORD:-}" ]; then
+              echo "Missing required secret: POSTGRES_PASSWORD"
+              exit 1
+            fi
+          fi
 
       - name: Wait for ACR images
         shell: bash
@@ -139,11 +156,32 @@ jobs:
           wait_for_image zoren-voice-api
           wait_for_image zoren-voice-ui
 
+      - name: Run database migrations
+        shell: bash
+        env:
+          VOICE_DATABASE_URL: ${{ secrets.VOICE_DATABASE_URL }}
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${VOICE_DATABASE_URL:-}" ]; then
+            echo "No external database URL configured; skipping migrations."
+            exit 0
+          fi
+
+          az acr login --name "$ACR_NAME"
+
+          docker run --rm \
+            -e DATABASE_URL="$VOICE_DATABASE_URL" \
+            "$ACR_LOGIN_SERVER/zoren-voice-api:${VERSION}" \
+            alembic upgrade head
+
       - name: Render manifests
         id: render
         shell: bash
         env:
           VERSION: ${{ steps.vars.outputs.version }}
+          VOICE_DATABASE_URL: ${{ secrets.VOICE_DATABASE_URL }}
           POSTGRES_PASSWORD: ${{ secrets.VOICE_POSTGRES_PASSWORD }}
           REDIS_PASSWORD: ${{ secrets.VOICE_REDIS_PASSWORD }}
           MINIO_ROOT_PASSWORD: ${{ secrets.VOICE_MINIO_PASSWORD }}
@@ -152,8 +190,17 @@ jobs:
           set -euo pipefail
 
           rendered_dir="$(mktemp -d)"
+          use_external_database=false
 
           for file in manifests/prod/*.yaml; do
+            case "$(basename "$file")" in
+              postgres-service.yaml|postgres-statefulset.yaml)
+                if [ -n "${VOICE_DATABASE_URL:-}" ]; then
+                  use_external_database=true
+                  continue
+                fi
+                ;;
+            esac
             cp "$file" "$rendered_dir/"
           done
 
@@ -161,19 +208,36 @@ jobs:
             sed -i "s/__IMAGE_TAG__/${VERSION}/g" "$file"
           done < <(find "$rendered_dir" -maxdepth 1 -type f -name '*.yaml' -print0)
 
-          database_url="postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@voice-postgres:5432/postgres"
+          if [ -n "${VOICE_DATABASE_URL:-}" ]; then
+            database_url="$VOICE_DATABASE_URL"
+            use_external_database=true
+          else
+            database_url="postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@voice-postgres:5432/postgres"
+          fi
+
           redis_url="redis://:${REDIS_PASSWORD}@voice-redis:6379"
+
+          secret_args=(
+            --from-literal=DATABASE_URL="$database_url"
+            --from-literal=REDIS_URL="$redis_url"
+            --from-literal=REDIS_PASSWORD="$REDIS_PASSWORD"
+            --from-literal=MINIO_ROOT_PASSWORD="$MINIO_ROOT_PASSWORD"
+            --from-literal=MINIO_SECRET_KEY="$MINIO_ROOT_PASSWORD"
+            --from-literal=OSS_JWT_SECRET="$OSS_JWT_SECRET"
+          )
+
+          if [ "$use_external_database" = false ]; then
+            secret_args+=(--from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD")
+          fi
 
           kubectl create secret generic zoren-voice-api-secrets-prod \
             --namespace "$K8S_NAMESPACE" \
-            --from-literal=DATABASE_URL="$database_url" \
-            --from-literal=REDIS_URL="$redis_url" \
-            --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-            --from-literal=REDIS_PASSWORD="$REDIS_PASSWORD" \
-            --from-literal=MINIO_ROOT_PASSWORD="$MINIO_ROOT_PASSWORD" \
-            --from-literal=MINIO_SECRET_KEY="$MINIO_ROOT_PASSWORD" \
-            --from-literal=OSS_JWT_SECRET="$OSS_JWT_SECRET" \
+            "${secret_args[@]}" \
             --dry-run=client -o yaml > "$rendered_dir/zoren-voice-api-secrets-prod.yaml"
+
+          if [ "$use_external_database" = true ]; then
+            echo "External database URL detected; bundling manifests without the in-cluster Postgres resources."
+          fi
 
           echo "rendered_dir=$rendered_dir" >> "$GITHUB_OUTPUT"
 
@@ -185,6 +249,8 @@ jobs:
 
       - name: Wait for rollouts
         shell: bash
+        env:
+          VOICE_DATABASE_URL: ${{ secrets.VOICE_DATABASE_URL }}
         run: |
           set -euo pipefail
 
@@ -192,7 +258,9 @@ jobs:
           kubectl rollout status deployment/ui -n "$K8S_NAMESPACE" --timeout=20m
           kubectl rollout status deployment/voice-redis -n "$K8S_NAMESPACE" --timeout=20m
           kubectl rollout status deployment/minio -n "$K8S_NAMESPACE" --timeout=20m
-          kubectl rollout status statefulset/voice-postgres -n "$K8S_NAMESPACE" --timeout=20m
+          if [ -z "${VOICE_DATABASE_URL:-}" ]; then
+            kubectl rollout status statefulset/voice-postgres -n "$K8S_NAMESPACE" --timeout=20m
+          fi
 
       - name: Verify public endpoint
         shell: bash

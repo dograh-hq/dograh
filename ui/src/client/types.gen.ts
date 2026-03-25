@@ -5623,5 +5623,5 @@ export type HealthApiV1HealthGetResponses = {
 export type HealthApiV1HealthGetResponse = HealthApiV1HealthGetResponses[keyof HealthApiV1HealthGetResponses];
 
 export type ClientOptions = {
-    baseUrl: 'https://app.dograh.com' | 'http://localhost:8000' | (string & {});
+    baseUrl: 'https://zoren-voice.ashtra.ai' | 'http://localhost:8000' | (string & {});
 };

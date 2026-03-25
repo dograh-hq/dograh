@@ -4,6 +4,12 @@ import { createContext, ReactNode, useContext, useEffect, useState } from 'react
 
 import { client } from '@/client/client.gen';
 
+const INTERNAL_HOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1|api)(:\d+)?(\/|$)/;
+
+function isInternalUrl(url: string | undefined | null): boolean {
+    return !url || INTERNAL_HOST_RE.test(url);
+}
+
 interface AppConfig {
     uiVersion: string;
     apiVersion: string;
@@ -35,24 +41,32 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetch('/api/config/version')
+        const browserOrigin = window.location.origin;
+        fetch('/api/config/version', { cache: 'no-store' })
             .then((res) => res.json())
             .then((data) => {
-                // Use clientApiBaseUrl (filtered for browser-reachable URLs)
-                // to configure the API client; keep backendApiEndpoint for display
-                if (data.clientApiBaseUrl) {
-                    client.setConfig({ baseUrl: data.clientApiBaseUrl });
-                }
+                const clientApiBaseUrl = isInternalUrl(data.clientApiBaseUrl)
+                    ? browserOrigin
+                    : data.clientApiBaseUrl;
+                const backendApiEndpoint = isInternalUrl(data.backendApiEndpoint)
+                    ? browserOrigin
+                    : data.backendApiEndpoint;
+
+                client.setConfig({ baseUrl: clientApiBaseUrl });
                 setConfig({
                     uiVersion: data.ui || 'dev',
                     apiVersion: data.api || 'unknown',
-                    backendApiEndpoint: data.backendApiEndpoint || null,
+                    backendApiEndpoint,
                     deploymentMode: data.deploymentMode || 'oss',
                     authProvider: data.authProvider || 'local',
                 });
             })
             .catch(() => {
-                setConfig(defaultConfig);
+                client.setConfig({ baseUrl: browserOrigin });
+                setConfig({
+                    ...defaultConfig,
+                    backendApiEndpoint: browserOrigin,
+                });
             })
             .finally(() => {
                 setLoading(false);

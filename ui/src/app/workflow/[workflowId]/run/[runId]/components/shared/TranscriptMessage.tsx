@@ -51,7 +51,7 @@ export function TranscriptMessage({ message, nextMessage }: TranscriptMessagePro
                         {message.text}
                     </div>
                     <a
-                        href="https://docs.dograh.com/configurations/interruption"
+                        href="https://docs.zoren-voice.ashtra.ai/configurations/interruption"
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 hover:underline mt-1"

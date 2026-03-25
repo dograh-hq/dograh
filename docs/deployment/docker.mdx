@@ -1,30 +1,30 @@
 ---
 title: "Docker"
-description: "Deploy Dograh AI using Docker for local development and remote server environments"
+description: "Deploy Zoren Voice AI using Docker for local development and remote server environments"
 ---
 
-Dograh AI can be deployed using Docker in two main configurations. Choose the option that best fits your needs:
+Zoren Voice AI can be deployed using Docker in two main configurations. Choose the option that best fits your needs:
 
 - **Option 1**: For local development and testing on your own machine
 - **Option 2**: For remote server deployment with HTTPS (using IP address)
 
 ## Option 1: Local Docker Deployment
 
-Watch the video tutorial below for a step-by-step walkthrough of setting up Dograh AI locally with Docker.
+Watch the video tutorial below for a step-by-step walkthrough of setting up Zoren Voice AI locally with Docker.
 
 <iframe
   className="w-full aspect-video rounded-xl"
   src="https://www.tella.tv/video/dograh-local-setup-with-docker-5wsf/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
-  title="Dograh Local Setup with Docker"
+  title="Zoren Voice Local Setup with Docker"
   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
   allowFullScreen
 ></iframe>
 
-For local development and testing, you can run Dograh AI directly on your machine using Docker with a single command.
+For local development and testing, you can run Zoren Voice AI directly on your machine using Docker with a single command.
 
 ### Quick Start
 
-Run this single command to download and start Dograh AI:
+Run this single command to download and start Zoren Voice AI:
 
 ```bash
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
@@ -48,17 +48,17 @@ You can disable telemetry by setting `ENABLE_TELEMETRY=false` in the command abo
 
 ## Option 2: Remote Server Deployment
 
-Watch the video tutorial below for a step-by-step walkthrough of deploying Dograh AI to a remote server.
+Watch the video tutorial below for a step-by-step walkthrough of deploying Zoren Voice AI to a remote server.
 
 <iframe
   className="w-full aspect-video rounded-xl"
   src="https://www.tella.tv/video/deploying-dogra-to-a-remote-server-80ai/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
-  title="Deploying Dograh to a Remote Server"
+  title="Deploying Zoren Voice to a Remote Server"
   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
   allowFullScreen
 ></iframe>
 
-Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates. We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS.
+Deploy Zoren Voice AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates. We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS.
 
 **We highly recommend you set up the platform on a fresh server, so that there are less chances of confliciting dependencies, and ports from other applications.**
 
@@ -94,7 +94,7 @@ It will automatically:
 Please ensure that Docker Compose is installed on your machine before proceeding further. You can check whether its installed by running `docker compose version` command. If its not installed, please install it by following your server provider documentation.
 </Note>
 
-After the setup script completes, start Dograh:
+After the setup script completes, start Zoren Voice:
 
 ```bash
 cd dograh

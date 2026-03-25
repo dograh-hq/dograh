@@ -16,5 +16,5 @@ import type { ClientOptions } from './types.gen';
 export type CreateClientConfig<T extends DefaultClientOptions = ClientOptions> = (override?: Config<DefaultClientOptions & T>) => Config<Required<DefaultClientOptions> & T>;
 
 export const client = createClient(createClientConfig(createConfig<ClientOptions>({
-    baseUrl: 'https://app.dograh.com'
+    baseUrl: 'https://zoren-voice.ashtra.ai'
 })));

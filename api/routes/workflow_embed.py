@@ -18,16 +18,16 @@ def generate_embed_script(token: EmbedTokenModel) -> str:
     """Generate the embed script for a given token."""
     base_url = str(UI_APP_URL).rstrip("/")
 
-    return f"""<!-- Dograh Voice Widget -->
+    return f"""<!-- Zoren Voice Widget -->
 <script>
   (function(d, s, id) {{
     var js, fjs = d.getElementsByTagName(s)[0];
     if (d.getElementById(id)) return;
     js = d.createElement(s); js.id = id;
-    js.src = '{base_url}/embed/dograh-widget.js?token={token.token}&environment={ENVIRONMENT}&apiEndpoint={BACKEND_API_ENDPOINT}';
+    js.src = '{base_url}/embed/zoren-voice-widget.js?token={token.token}&environment={ENVIRONMENT}&apiEndpoint={BACKEND_API_ENDPOINT}';
     js.async = true;
     fjs.parentNode.insertBefore(js, fjs);
-  }}(document, 'script', 'dograh-widget'));
+  }}(document, 'script', 'zoren-voice-widget'));
 </script>"""
 
 

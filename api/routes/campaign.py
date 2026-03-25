@@ -415,7 +415,7 @@ async def start_campaign(
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
-    # Check Dograh quota before starting campaign
+    # Check Zoren Voice quota before starting campaign
     quota_result = await check_dograh_quota(user)
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
@@ -604,7 +604,7 @@ async def resume_campaign(
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
-    # Check Dograh quota before resuming campaign
+    # Check Zoren Voice quota before resuming campaign
     quota_result = await check_dograh_quota(user)
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)

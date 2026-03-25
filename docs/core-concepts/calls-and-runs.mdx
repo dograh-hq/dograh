@@ -3,13 +3,13 @@ title: "Calls & Runs"
 description: "The lifecycle of a call and how runs capture its results"
 ---
 
-Every time a workflow executes, Dograh creates a **run**. The run is the record of that execution: what was said, what data was collected, how long it took, and what it cost.
+Every time a workflow executes, Zoren Voice creates a **run**. The run is the record of that execution: what was said, what data was collected, how long it took, and what it cost.
 
 ## Calls vs runs
 
 A **call** is the audio connection — whether over the phone via a telephony provider, or through the browser via Web Call.
 
-A **run** is the Dograh record of the workflow execution. Every call — outbound, inbound, web, or campaign — creates a run with the same contents: transcript, recording, gathered context, usage, and cost. Campaign runs are additionally linked to their parent campaign.
+A **run** is the Zoren Voice record of the workflow execution. Every call — outbound, inbound, web, or campaign — creates a run with the same contents: transcript, recording, gathered context, usage, and cost. Campaign runs are additionally linked to their parent campaign.
 
 ## Call lifecycle
 
@@ -25,14 +25,14 @@ stateDiagram-v2
     Ended --> [*]
 ```
 
-For inbound calls, the flow starts when the caller dials in and the telephony provider routes the call to Dograh.
+For inbound calls, the flow starts when the caller dials in and the telephony provider routes the call to Zoren Voice.
 
 
 ## Inbound vs outbound
 
-**Outbound calls** are initiated by Dograh — you trigger them via the API or dashboard with a phone number and agent. Used for proactive outreach, reminders, and campaigns.
+**Outbound calls** are initiated by Zoren Voice — you trigger them via the API or dashboard with a phone number and agent. Used for proactive outreach, reminders, and campaigns.
 
-**Inbound calls** are initiated by the caller — your telephony provider routes incoming calls to a Dograh agent via a webhook URL. Used for support lines, hotlines, and IVR replacement.
+**Inbound calls** are initiated by the caller — your telephony provider routes incoming calls to a Zoren Voice agent via a webhook URL. Used for support lines, hotlines, and IVR replacement.
 
 ## Web Calls
 

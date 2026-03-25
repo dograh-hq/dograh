@@ -1,11 +1,11 @@
 ---
 title: "Twilio Integration"
-description: "Configure Twilio for voice communication in Dograh AI"
+description: "Configure Twilio for voice communication in Zoren Voice AI"
 ---
 
 ## Overview
 
-Twilio is a cloud communications platform that enables voice calling, messaging, and video capabilities. Dograh AI's Twilio integration provides seamless connectivity for your voice agents.
+Twilio is a cloud communications platform that enables voice calling, messaging, and video capabilities. Zoren Voice AI's Twilio integration provides seamless connectivity for your voice agents.
 
 ## Prerequisites
 
@@ -14,16 +14,16 @@ Before setting up Twilio integration, you'll need:
 - A [Twilio account](https://www.twilio.com/try-twilio)
 - Account SID and Auth Token from your Twilio Console
 - At least one Twilio phone number
-- Dograh AI instance running and accessible
+- Zoren Voice AI instance running and accessible
 
 ## Video Tutorial
 
-Watch this step-by-step guide to set up Twilio with Dograh AI:
+Watch this step-by-step guide to set up Twilio with Zoren Voice AI:
 
 <iframe
   className="w-full aspect-video rounded-xl"
   src="https://www.tella.tv/video/cmgbvzkrt00jk0clacu16blm3/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
-  title="Dograh Twilio Setup"
+  title="Zoren Voice Twilio Setup"
   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
   allowFullScreen
 ></iframe>
@@ -37,7 +37,7 @@ Watch this step-by-step guide to set up Twilio with Dograh AI:
 3. Navigate to **Phone Numbers** → **Manage** → **Active Numbers**
 4. Copy your phone number(s)
 
-### Step 2: Configure in Dograh AI
+### Step 2: Configure in Zoren Voice AI
 
 1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
 2. Watch the Twilio setup video tutorial above for detailed guidance
@@ -59,7 +59,7 @@ Watch this step-by-step guide to set up Twilio with Dograh AI:
 To enable inbound calling with Twilio:
 
 1. **Complete Telephony Configuration**: Use the same [Configuration](#configuration) steps above
-2. **Get Your Workflow Webhook URL**: Find your workflow ID and construct the webhook URL as: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
+2. **Get Your Workflow Webhook URL**: Find your workflow ID and construct the webhook URL as: `https://api.zoren-voice.ashtra.ai/api/v1/telephony/inbound/{workflow_id}`
 
 ### Configure Webhook in Twilio Console
 
@@ -67,12 +67,12 @@ To enable inbound calling with Twilio:
    - Go to **Phone Numbers** → **Manage** → **Active Numbers** in Twilio Console
    - Click on the phone number you want to use for inbound calls
    - In the "Voice Configuration" section:
-     - Set **Webhook** to: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
+     - Set **Webhook** to: `https://api.zoren-voice.ashtra.ai/api/v1/telephony/inbound/{workflow_id}`
      - Set **HTTP Method** to: `POST`
    - Click **Save Configuration**
 
    <Note>
-   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Dograh, replace `api.dograh.com` with your domain.
+   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Zoren Voice, replace `api.zoren-voice.ashtra.ai` with your domain.
    </Note>
 
    <img
@@ -87,14 +87,14 @@ To enable inbound calling with Twilio:
    />
 
 2. **Verify Setup**:
-   - Ensure your Dograh AI instance is publicly accessible
+   - Ensure your Zoren Voice AI instance is publicly accessible
    - Verify any firewalls allow Twilio's IP ranges
 
 ### Test Inbound Calling
 
 1. Call your configured Twilio phone number from another phone
-2. Verify your Dograh AI voice agent answers and responds
-3. Check call logs in both Dograh AI dashboard and Twilio Console
+2. Verify your Zoren Voice AI voice agent answers and responds
+3. Check call logs in both Zoren Voice AI dashboard and Twilio Console
 
 ## Troubleshooting
 
@@ -125,7 +125,7 @@ To enable inbound calling with Twilio:
     - Verify webhook URL is correctly configured in Twilio Console
     - Ensure webhook URL is publicly accessible from internet
     - Check that phone number is properly linked to webhook
-    - Verify Dograh AI instance is running and responding
+    - Verify Zoren Voice AI instance is running and responding
   </Accordion>
   
   <Accordion title="Voice agent doesn't respond to inbound calls">

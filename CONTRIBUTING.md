@@ -1,16 +1,16 @@
-# Contributing to Dograh AI
+# Contributing to Zoren Voice AI
 
-Welcome to Dograh AI! ❤️ Thank you for your interest in contributing to the future of open-source voice AI. ❤️
+Welcome to Zoren Voice AI! ❤️ Thank you for your interest in contributing to the future of open-source voice AI. ❤️
 
-Dograh AI is a comprehensive voice agent platform that helps developers build, test, and deploy conversational AI systems with minimal setup. This guide will help you understand the project structure, set up your development environment, and start contributing effectively.
+Zoren Voice AI is a comprehensive voice agent platform that helps developers build, test, and deploy conversational AI systems with minimal setup. This guide will help you understand the project structure, set up your development environment, and start contributing effectively.
 
-👉 Join our community → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+👉 Join our community → [Zoren Voice Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
 
 ## 🏗️ Project Overview
 
-### What is Dograh AI?
+### What is Zoren Voice AI?
 
-Dograh AI is a full-stack platform for building voice agents with a drag-and-drop workflow builder. It combines multiple technologies to provide a seamless experience from development to production deployment.
+Zoren Voice AI is a full-stack platform for building voice agents with a drag-and-drop workflow builder. It combines multiple technologies to provide a seamless experience from development to production deployment.
 
 ## 🙌 How You Can Contribute
 
@@ -24,7 +24,6 @@ Dograh AI is a full-stack platform for building voice agents with a drag-and-dro
 
 > And if you like the project, but just don't have time to contribute code, that's fine. There are other easy ways to support the project:
 >
-> - Star the project;
 > - Tweet about it;
 > - Refer to this project in your project's readme;
 > - Submit and vote on [Ideas](https://github.com/orgs/dograh-hq/discussions/categories/ideas);
@@ -33,7 +32,7 @@ Dograh AI is a full-stack platform for building voice agents with a drag-and-dro
 
 ## 🚀 Development Setup
 
-Please refer to our [Development Setup documentation](https://docs.dograh.com/contribution/setup).
+Please refer to our [Development Setup documentation](https://docs.zoren-voice.ashtra.ai/contribution/setup).
 
 ### Getting Help
 
@@ -51,13 +50,13 @@ Please refer to our [Development Setup documentation](https://docs.dograh.com/co
 
 ## 💬 Community & Support
 
-Our Slack community is the heart of Dograh AI development:
+Our Slack community is the heart of Zoren Voice AI development:
 
 - **Get Help**: Setup assistance and debugging support
 - **Collaborate**: Discuss features and architectural decisions
 - **Connect**: Meet other contributors and maintainers
 - **Stay Updated**: Learn about contribution opportunities and releases
 
-👉 **Join us**: [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+👉 **Join us**: [Zoren Voice Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
 
 Thank you for helping us keep voice AI open and accessible! 🎉

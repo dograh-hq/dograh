@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { healthApiV1HealthGet } from "@/client/sdk.gen";
 import type { HealthResponse } from "@/client/types.gen";
@@ -6,15 +6,16 @@ import type { HealthResponse } from "@/client/types.gen";
 // Import version from package.json at build time
 import packageJson from "../../../../../package.json";
 
-// Internal/local URLs that are not reachable from the browser
+// Internal/local URLs that are not reachable from the browser.
 const INTERNAL_HOST_RE = /^https?:\/\/(localhost|127\.0\.0\.1|api)(:\d+)?(\/|$)/;
 
 function isInternalUrl(url: string | undefined | null): boolean {
   return !url || INTERNAL_HOST_RE.test(url);
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const uiVersion = packageJson.version || "dev";
+  const browserOrigin = request.nextUrl.origin;
 
   // Fetch backend version and config from health endpoint
   let apiVersion = "unknown";
@@ -37,22 +38,29 @@ export async function GET() {
     apiVersion = "unavailable";
   }
 
-  // For the API client base URL: prefer BACKEND_URL env, but if it points at
-  // an internal service name (for example http://api:8000), fall back to the
-  // backend-advertised public endpoint so browser-side WebSocket URLs and
-  // direct API links stay reachable outside the cluster.
+  // Browser-facing URLs must always be reachable from the public origin.
+  // If the backend health endpoint is unavailable or only advertises an
+  // internal service name, keep the browser on the public app origin instead
+  // of leaking localhost/internal cluster addresses into the client SDK.
   const configuredBackendUrl = process.env.BACKEND_URL;
   const clientCandidate = !isInternalUrl(configuredBackendUrl)
     ? configuredBackendUrl
     : backendApiEndpoint;
-  const clientApiBaseUrl = isInternalUrl(clientCandidate) ? 'http://localhost:8000' : clientCandidate;
+  const clientApiBaseUrl = isInternalUrl(clientCandidate) ? browserOrigin : clientCandidate;
 
-  return NextResponse.json({
-    ui: uiVersion,
-    api: apiVersion,
-    backendApiEndpoint,
-    clientApiBaseUrl,
-    deploymentMode,
-    authProvider,
-  });
+  return NextResponse.json(
+    {
+      ui: uiVersion,
+      api: apiVersion,
+      backendApiEndpoint,
+      clientApiBaseUrl,
+      deploymentMode,
+      authProvider,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  );
 }

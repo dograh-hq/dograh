@@ -6,12 +6,9 @@ inline WebSocket media streaming.
 
 import json
 import random
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 import aiohttp
-from fastapi import HTTPException
-from loguru import logger
-
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -19,6 +16,8 @@ from api.services.telephony.base import (
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
+from fastapi import HTTPException
+from loguru import logger
 
 if TYPE_CHECKING:
     from fastapi import WebSocket

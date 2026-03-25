@@ -13,6 +13,7 @@ from api.enums import OrganizationConfigurationKey
 from api.services.telephony.base import TelephonyProvider
 from api.services.telephony.providers.ari_provider import ARIProvider
 from api.services.telephony.providers.cloudonix_provider import CloudonixProvider
+from api.services.telephony.providers.telnyx_provider import TelnyxProvider
 from api.services.telephony.providers.twilio_provider import TwilioProvider
 from api.services.telephony.providers.vobiz_provider import VobizProvider
 from api.services.telephony.providers.vonage_provider import VonageProvider
@@ -76,6 +77,13 @@ async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
                 "domain_id": config.value.get("domain_id"),
                 "from_numbers": config.value.get("from_numbers", []),
             }
+        elif provider == "telnyx":
+            return {
+                "provider": "telnyx",
+                "api_key": config.value.get("api_key"),
+                "connection_id": config.value.get("connection_id"),
+                "from_numbers": config.value.get("from_numbers", []),
+            }
         elif provider == "ari":
             return {
                 "provider": "ari",
@@ -125,6 +133,9 @@ async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
     elif provider_type == "cloudonix":
         return CloudonixProvider(config)
 
+    elif provider_type == "telnyx":
+        return TelnyxProvider(config)
+
     elif provider_type == "ari":
         return ARIProvider(config)
 
@@ -143,6 +154,7 @@ async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:
     return [
         ARIProvider,
         CloudonixProvider,
+        TelnyxProvider,
         TwilioProvider,
         VobizProvider,
         VonageProvider,

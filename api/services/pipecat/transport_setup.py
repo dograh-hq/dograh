@@ -20,6 +20,7 @@ from api.services.telephony.providers.twilio_call_strategies import (
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 from pipecat.serializers.asterisk import AsteriskFrameSerializer
+from pipecat.serializers.telnyx import TelnyxFrameSerializer
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.serializers.vobiz import VobizFrameSerializer
 from pipecat.serializers.vonage import VonageFrameSerializer
@@ -165,6 +166,70 @@ async def create_cloudonix_transport(
             ),
             serializer=serializer,
             audio_out_10ms_chunks=2,
+        ),
+    )
+
+
+async def create_telnyx_transport(
+    websocket_client: WebSocket,
+    stream_id: str,
+    call_control_id: str,
+    workflow_run_id: int,
+    audio_config: AudioConfig,
+    organization_id: int,
+    vad_config: dict | None = None,
+    ambient_noise_config: dict | None = None,
+):
+    """Create a transport for Telnyx connections."""
+    config = await db_client.get_configuration(
+        organization_id, OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value
+    )
+
+    if not config or not config.value:
+        raise ValueError(
+            f"Telnyx credentials not configured for organization {organization_id}"
+        )
+
+    if config.value.get("provider") != "telnyx":
+        raise ValueError(
+            f"Expected Telnyx provider, got {config.value.get('provider')}"
+        )
+
+    api_key = config.value.get("api_key")
+    if not api_key:
+        raise ValueError(
+            f"Incomplete Telnyx configuration for organization {organization_id}"
+        )
+
+    serializer = TelnyxFrameSerializer(
+        stream_id=stream_id,
+        call_control_id=call_control_id,
+        api_key=api_key,
+        outbound_encoding="PCMU",
+        inbound_encoding="PCMU",
+    )
+
+    return FastAPIWebsocketTransport(
+        websocket=websocket_client,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=audio_config.transport_in_sample_rate,
+            audio_out_sample_rate=audio_config.transport_out_sample_rate,
+            audio_out_mixer=(
+                SoundfileMixer(
+                    sound_files={
+                        "office": APP_ROOT_DIR
+                        / "assets"
+                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
+                    },
+                    default_sound="office",
+                    volume=ambient_noise_config.get("volume", 0.3),
+                )
+                if ambient_noise_config and ambient_noise_config.get("enabled", False)
+                else SilenceAudioMixer()
+            ),
+            serializer=serializer,
         ),
     )
 

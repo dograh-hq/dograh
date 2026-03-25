@@ -9,7 +9,8 @@ export const WORKFLOW_RUN_MODES = {
     CLOUDONIX: 'cloudonix',
     WEBRTC: 'webrtc',
     SMALL_WEBRTC: 'smallwebrtc',
-    ARI: 'ari'
+    ARI: 'ari',
+    TELNYX: 'telnyx'
 } as const;
 
 export type WorkflowRunMode = typeof WORKFLOW_RUN_MODES[keyof typeof WORKFLOW_RUN_MODES];

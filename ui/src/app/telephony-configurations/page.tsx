@@ -13,6 +13,8 @@ import type {
   CloudonixConfigurationRequest,
   CloudonixConfigurationResponse,
   TelephonyConfigurationResponse,
+  TelnyxConfigurationRequest,
+  TelnyxConfigurationResponse,
   TwilioConfigurationRequest,
   VobizConfigurationRequest,
   VonageConfigurationRequest
@@ -50,6 +52,9 @@ interface TelephonyConfigForm {
   // Vobiz fields
   auth_id?: string;
   vobiz_auth_token?: string;
+  // Telnyx fields
+  telnyx_api_key?: string;
+  connection_id?: string;
   // Cloudonix fields
   bearer_token?: string;
   domain_id?: string;
@@ -161,6 +166,13 @@ export default function ConfigureTelephonyPage() {
               typeof ariConfig.inbound_workflow_id === "number" ? ariConfig.inbound_workflow_id : undefined
             );
             setValue("from_numbers", ariConfig.from_numbers?.length > 0 ? ariConfig.from_numbers : [""]);
+          } else if ((response.data as TelephonyConfigurationResponse)?.telnyx) {
+            const telnyxConfig = (response.data as TelephonyConfigurationResponse).telnyx as TelnyxConfigurationResponse;
+            setHasExistingConfig(true);
+            setValue("provider", "telnyx");
+            setValue("telnyx_api_key", telnyxConfig.api_key);
+            setValue("connection_id", telnyxConfig.connection_id);
+            setValue("from_numbers", telnyxConfig.from_numbers?.length > 0 ? telnyxConfig.from_numbers : [""]);
           }
         }
       } catch (error) {
@@ -183,7 +195,8 @@ export default function ConfigureTelephonyPage() {
         | VonageConfigurationRequest
         | VobizConfigurationRequest
         | CloudonixConfigurationRequest
-        | AriConfigurationRequest;
+        | AriConfigurationRequest
+        | TelnyxConfigurationRequest;
 
       const filteredNumbers = data.from_numbers.filter(n => n.trim() !== "");
 
@@ -201,7 +214,7 @@ export default function ConfigureTelephonyPage() {
 
       let pattern: RegExp;
       let formatMessage: string;
-      if (data.provider === "twilio") {
+      if (data.provider === "twilio" || data.provider === "telnyx") {
         pattern = twilioPattern;
         formatMessage = "with + prefix (e.g., +1234567890)";
       } else if (data.provider === "cloudonix") {
@@ -246,6 +259,13 @@ export default function ConfigureTelephonyPage() {
           auth_id: data.auth_id,
           auth_token: data.vobiz_auth_token,
         } as VobizConfigurationRequest;
+      } else if (data.provider === "telnyx") {
+        requestBody = {
+          provider: data.provider,
+          from_numbers: filteredNumbers,
+          api_key: data.telnyx_api_key!,
+          connection_id: data.connection_id!,
+        } as TelnyxConfigurationRequest;
       } else if (data.provider === "cloudonix") {
         requestBody = {
           provider: data.provider,
@@ -312,13 +332,21 @@ export default function ConfigureTelephonyPage() {
                     ? "Vonage"
                     : selectedProvider === "vobiz"
                     ? "Vobiz"
+                    : selectedProvider === "telnyx"
+                    ? "Telnyx"
                     : selectedProvider === "ari"
                     ? "Asterisk ARI"
                     : "Cloudonix"}{" "}
                   Setup Guide
                 </CardTitle>
                 <CardDescription>
-                  {selectedProvider === "ari" ? (
+                  {selectedProvider === "telnyx" ? (
+                    <>
+                      Telnyx is a cloud communications platform providing programmable voice, messaging,
+                      and networking services. Use the Call Control API to build voice applications
+                      with real-time WebSocket audio streaming.
+                    </>
+                  ) : selectedProvider === "ari" ? (
                     <>
                       Connect Dograh to your Asterisk PBX using the Asterisk REST Interface (ARI).
                       ARI provides a WebSocket-based event model for controlling calls via Stasis applications.
@@ -368,7 +396,26 @@ export default function ConfigureTelephonyPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                {selectedProvider === "ari" ? (
+                {selectedProvider === "telnyx" ? (
+                  <div className="space-y-4 text-sm">
+                    <div>
+                      <h4 className="font-semibold mb-2">Getting Started with Telnyx:</h4>
+                      <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                        <li>Sign up at <a href="https://telnyx.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">telnyx.com</a> and create an API Key in the Mission Control Portal</li>
+                        <li>Create a Call Control Application under Voice &gt; Programmable Voice</li>
+                        <li>Note the Connection ID (Application ID) from your Call Control App</li>
+                        <li>Purchase a phone number and assign it to your Call Control Application</li>
+                        <li>Enter your API Key, Connection ID, and phone numbers below</li>
+                      </ol>
+                    </div>
+                    <div className="bg-muted border border-border rounded p-3">
+                      <p className="text-sm">
+                        <strong>Note:</strong> Telnyx uses the Call Control API with WebSocket-based
+                        bidirectional audio streaming. Phone numbers must be in E.164 format (e.g., +1234567890).
+                      </p>
+                    </div>
+                  </div>
+                ) : selectedProvider === "ari" ? (
                   <div className="space-y-4 text-sm">
                     <div>
                       <h4 className="font-semibold mb-2">Getting Started with Asterisk ARI:</h4>
@@ -469,6 +516,7 @@ export default function ConfigureTelephonyPage() {
                         <SelectItem value="twilio">Twilio</SelectItem>
                         <SelectItem value="vonage">Vonage</SelectItem>
                         <SelectItem value="vobiz">Vobiz</SelectItem>
+                        <SelectItem value="telnyx">Telnyx</SelectItem>
                         <SelectItem value="cloudonix">Cloudonix</SelectItem>
                         <SelectItem value="ari">Asterisk (ARI)</SelectItem>
                       </SelectContent>
@@ -738,6 +786,97 @@ export default function ConfigureTelephonyPage() {
                         {fromNumbers.some(n => n.trim() !== "" && !/^[1-9]\d{1,14}$/.test(n)) && (
                           <p className="text-sm text-red-500">
                             Enter valid phone numbers without + prefix (e.g., 14155551234)
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Telnyx-specific fields */}
+                  {selectedProvider === "telnyx" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="telnyx_api_key">API Key</Label>
+                        <Input
+                          id="telnyx_api_key"
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder={
+                            hasExistingConfig
+                              ? "Leave masked to keep existing"
+                              : "Enter your Telnyx API key"
+                          }
+                          {...register("telnyx_api_key", {
+                            required: selectedProvider === "telnyx" && !hasExistingConfig
+                              ? "API Key is required"
+                              : false,
+                          })}
+                        />
+                        {errors.telnyx_api_key && (
+                          <p className="text-sm text-red-500">
+                            {errors.telnyx_api_key.message}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Found in the Telnyx Mission Control Portal under Auth &gt; API Keys
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="connection_id">Connection ID (Application ID)</Label>
+                        <Input
+                          id="connection_id"
+                          placeholder="1234567890"
+                          {...register("connection_id", {
+                            required: selectedProvider === "telnyx"
+                              ? "Connection ID is required"
+                              : false,
+                          })}
+                        />
+                        {errors.connection_id && (
+                          <p className="text-sm text-red-500">
+                            {errors.connection_id.message}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          The ID of your Call Control Application in Telnyx Mission Control
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>CLI Phone Numbers</Label>
+                        {fromNumbers.map((number, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              autoComplete="tel"
+                              placeholder="+1234567890"
+                              value={number}
+                              onChange={(e) => updatePhoneNumber(index, e.target.value)}
+                            />
+                            {fromNumbers.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => removePhoneNumber(index)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addPhoneNumber}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Phone Number
+                        </Button>
+                        {fromNumbers.some(n => n.trim() !== "" && !/^\+[1-9]\d{1,14}$/.test(n)) && (
+                          <p className="text-sm text-red-500">
+                            Enter valid phone numbers with country code (e.g., +1234567890)
                           </p>
                         )}
                       </div>

@@ -13,6 +13,8 @@ from api.schemas.telephony_config import (
     CloudonixConfigurationRequest,
     CloudonixConfigurationResponse,
     TelephonyConfigurationResponse,
+    TelnyxConfigurationRequest,
+    TelnyxConfigurationResponse,
     TwilioConfigurationRequest,
     TwilioConfigurationResponse,
     VobizConfigurationRequest,
@@ -33,6 +35,7 @@ PROVIDER_MASKED_FIELDS = {
     "vobiz": ["auth_id", "auth_token"],
     "cloudonix": ["bearer_token"],
     "ari": ["app_password"],
+    "telnyx": ["api_key"],
 }
 
 
@@ -149,6 +152,19 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
                 from_numbers=from_numbers,
             ),
         )
+    elif stored_provider == "telnyx":
+        api_key = config.value.get("api_key", "")
+        connection_id = config.value.get("connection_id", "")
+        from_numbers = config.value.get("from_numbers", [])
+
+        return TelephonyConfigurationResponse(
+            telnyx=TelnyxConfigurationResponse(
+                provider="telnyx",
+                api_key=mask_key(api_key) if api_key else "",
+                connection_id=connection_id,
+                from_numbers=from_numbers,
+            ),
+        )
     else:
         return TelephonyConfigurationResponse()
 
@@ -161,6 +177,7 @@ async def save_telephony_configuration(
         VobizConfigurationRequest,
         CloudonixConfigurationRequest,
         ARIConfigurationRequest,
+        TelnyxConfigurationRequest,
     ],
     user: UserModel = Depends(get_user),
 ):
@@ -203,6 +220,13 @@ async def save_telephony_configuration(
             "provider": "cloudonix",
             "bearer_token": request.bearer_token,
             "domain_id": request.domain_id,
+            "from_numbers": request.from_numbers,
+        }
+    elif request.provider == "telnyx":
+        config_value = {
+            "provider": "telnyx",
+            "api_key": request.api_key,
+            "connection_id": request.connection_id,
             "from_numbers": request.from_numbers,
         }
     elif request.provider == "ari":

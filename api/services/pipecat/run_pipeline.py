@@ -44,6 +44,7 @@ from api.services.pipecat.tracing_config import (
 from api.services.pipecat.transport_setup import (
     create_ari_transport,
     create_cloudonix_transport,
+    create_telnyx_transport,
     create_twilio_transport,
     create_vobiz_transport,
     create_vonage_transport,
@@ -340,6 +341,74 @@ async def run_pipeline_vobiz(
     except Exception as e:
         logger.error(
             f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True
+        )
+        raise
+
+
+async def run_pipeline_telnyx(
+    websocket_client: WebSocket,
+    stream_id: str,
+    call_control_id: str,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+) -> None:
+    """Run pipeline for Telnyx Call Control WebSocket connections.
+
+    Telnyx uses PCMU at 8kHz over WebSocket with base64-encoded media events,
+    similar to Twilio's protocol.
+    """
+    logger.info(
+        f"[run {workflow_run_id}] Starting Telnyx pipeline - "
+        f"stream_id={stream_id}, call_control_id={call_control_id}, "
+        f"workflow_id={workflow_id}"
+    )
+    set_current_run_id(workflow_run_id)
+
+    cost_info = {"call_id": call_control_id}
+    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+
+    workflow = await db_client.get_workflow(workflow_id, user_id)
+
+    if workflow:
+        set_current_org_id(workflow.organization_id)
+
+    vad_config = None
+    ambient_noise_config = None
+    if workflow and workflow.workflow_configurations:
+        if "vad_configuration" in workflow.workflow_configurations:
+            vad_config = workflow.workflow_configurations["vad_configuration"]
+        if "ambient_noise_configuration" in workflow.workflow_configurations:
+            ambient_noise_config = workflow.workflow_configurations[
+                "ambient_noise_configuration"
+            ]
+
+    try:
+        audio_config = create_audio_config(WorkflowRunMode.TELNYX.value)
+
+        transport = await create_telnyx_transport(
+            websocket_client,
+            stream_id,
+            call_control_id,
+            workflow_run_id,
+            audio_config,
+            workflow.organization_id,
+            vad_config,
+            ambient_noise_config,
+        )
+
+        await _run_pipeline(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            audio_config=audio_config,
+        )
+        logger.info(f"[run {workflow_run_id}] Telnyx pipeline completed successfully")
+
+    except Exception as e:
+        logger.error(
+            f"[run {workflow_run_id}] Error in Telnyx pipeline: {e}", exc_info=True
         )
         raise
 

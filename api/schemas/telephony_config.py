@@ -125,6 +125,28 @@ class ARIConfigurationResponse(BaseModel):
     from_numbers: List[str]
 
 
+class TelnyxConfigurationRequest(BaseModel):
+    """Request schema for Telnyx configuration."""
+
+    provider: str = Field(default="telnyx")
+    api_key: str = Field(..., description="Telnyx API Key")
+    connection_id: str = Field(
+        ..., description="Telnyx Call Control Application ID (connection_id)"
+    )
+    from_numbers: List[str] = Field(
+        ..., min_length=1, description="List of Telnyx phone numbers (E.164 format)"
+    )
+
+
+class TelnyxConfigurationResponse(BaseModel):
+    """Response schema for Telnyx configuration with masked sensitive fields."""
+
+    provider: str
+    api_key: str  # Masked
+    connection_id: str
+    from_numbers: List[str]
+
+
 class TelephonyConfigurationResponse(BaseModel):
     """Top-level telephony configuration response."""
 
@@ -133,3 +155,4 @@ class TelephonyConfigurationResponse(BaseModel):
     vobiz: Optional[VobizConfigurationResponse] = None
     cloudonix: Optional[CloudonixConfigurationResponse] = None
     ari: Optional[ARIConfigurationResponse] = None
+    telnyx: Optional[TelnyxConfigurationResponse] = None

@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.19.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.18.0...dograh-v1.19.0) (2026-03-25)
+
+
+### Features
+
+* add CAMB AI TTS integration ([#187](https://github.com/dograh-hq/dograh/issues/187)) ([31e075d](https://github.com/dograh-hq/dograh/commit/31e075d114d9d6bfc17733f8dc68531587feb6ea))
+* add speed configuration for cartesia ([f8cf433](https://github.com/dograh-hq/dograh/commit/f8cf433ba302e264813dc7d4b8db414b034f5a5e))
+* add support for self hosted llm models ([ac0731a](https://github.com/dograh-hq/dograh/commit/ac0731a374692c3d4e4517587cd2bbbbacac1d8a))
+* allow recording audio in workflow builder ([2fa4191](https://github.com/dograh-hq/dograh/commit/2fa4191d9bf7aeaa6ee743300b2d020046590756))
+* integrate Telnyx telephony for outbound and inbound calling ([#206](https://github.com/dograh-hq/dograh/issues/206)) ([5b820cb](https://github.com/dograh-hq/dograh/commit/5b820cb0ba43ff8452655f87dec6ee9c127f7f23))
+
+
+### Bug Fixes
+
+* imports in telnyx_provider ([e5e1954](https://github.com/dograh-hq/dograh/commit/e5e19541c3455a0e2c3963de0cfcd297679a3fa7))
+* incorrect system instruction in llm inference of variable extrac… ([#201](https://github.com/dograh-hq/dograh/issues/201)) ([7073061](https://github.com/dograh-hq/dograh/commit/70730616ec5b842ce51dd108b1be350786288956))
+* pass system_instruction to one shot llm inferences to avoid syst… ([#203](https://github.com/dograh-hq/dograh/issues/203)) ([330e4a0](https://github.com/dograh-hq/dograh/commit/330e4a05f2b9ecb916fb19b8036258743d54781e))
+
+
+### Documentation
+
+* pre-recorded audio ([#207](https://github.com/dograh-hq/dograh/issues/207)) ([da19ddc](https://github.com/dograh-hq/dograh/commit/da19ddce484fc1e67ed505ebf79b872d29540962))
+
 ## [1.18.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.17.0...dograh-v1.18.0) (2026-03-23)
 
 

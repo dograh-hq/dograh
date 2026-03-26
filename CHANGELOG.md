@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.19.2](https://github.com/dograh-hq/dograh/compare/dograh-v1.19.1...dograh-v1.19.2) (2026-03-26)
+
+
+### Bug Fixes
+
+* send auth credentials with validate service keys ([83f05ab](https://github.com/dograh-hq/dograh/commit/83f05ab1466d7fa1825b30eb87a267aa1da9ff26))
+
 ## [1.19.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.19.0...dograh-v1.19.1) (2026-03-26)
 
 

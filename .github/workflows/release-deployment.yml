@@ -60,6 +60,28 @@ jobs:
               owner,
               repo,
               release_id,
-              body: context.payload.release.body + 
+              body: context.payload.release.body +
                     '\n\n---\n🚀 **Deployed to Production:** ' + deployment_url
             });
+
+      - name: Send Slack notification - Success
+        if: success()
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "✅ Dograh Dashboard - Vercel Deployment Successful - ${{ steps.deploy.outputs.deployment_url || 'URL not captured' }} on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+            }
+
+      - name: Send Slack notification - Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "❌ Dograh Dashboard - Vercel Deployment Failed on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+            }

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.19.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.19.0...dograh-v1.19.1) (2026-03-26)
+
+
+### Bug Fixes
+
+* cleanup rtf on pipeline finish ([2d91336](https://github.com/dograh-hq/dograh/commit/2d91336aecb44b366aa0bbbf583baf18938f3725))
+* ui build error, slack notification for vercel deployment status ([fea0e4d](https://github.com/dograh-hq/dograh/commit/fea0e4d84012fac647f54d5f28847b0e5a8c8fe7))
+
 ## [1.19.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.18.0...dograh-v1.19.0) (2026-03-25)
 
 

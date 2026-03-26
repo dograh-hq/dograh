@@ -27,7 +27,7 @@ class ServiceProviders(str, Enum):
     SPEECHMATICS = "speechmatics"
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
-    SELF_HOSTED = "self_hosted"
+    SPEACHES = "speaches"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -41,7 +41,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.AZURE,
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
-        ServiceProviders.SELF_HOSTED,
+        ServiceProviders.SPEACHES,
         # ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
@@ -191,14 +191,18 @@ AWS_BEDROCK_MODELS = [
 @register_llm
 class OpenAILLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
-    model: str = Field(default="gpt-4.1", json_schema_extra={"examples": OPENAI_MODELS})
+    model: str = Field(
+        default="gpt-4.1",
+        json_schema_extra={"examples": OPENAI_MODELS, "allow_custom_input": True},
+    )
 
 
 @register_llm
 class GoogleLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
-        default="gemini-2.0-flash", json_schema_extra={"examples": GOOGLE_MODELS}
+        default="gemini-2.0-flash",
+        json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
     )
 
 
@@ -206,7 +210,8 @@ class GoogleLLMService(BaseLLMConfiguration):
 class GroqLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.GROQ] = ServiceProviders.GROQ
     model: str = Field(
-        default="llama-3.3-70b-versatile", json_schema_extra={"examples": GROQ_MODELS}
+        default="llama-3.3-70b-versatile",
+        json_schema_extra={"examples": GROQ_MODELS, "allow_custom_input": True},
     )
 
 
@@ -214,7 +219,8 @@ class GroqLLMService(BaseLLMConfiguration):
 class OpenRouterLLMConfiguration(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
     model: str = Field(
-        default="openai/gpt-4.1", json_schema_extra={"examples": OPENROUTER_MODELS}
+        default="openai/gpt-4.1",
+        json_schema_extra={"examples": OPENROUTER_MODELS, "allow_custom_input": True},
     )
 
     base_url: str = Field(default="https://openrouter.ai/api/v1")
@@ -224,7 +230,8 @@ class OpenRouterLLMConfiguration(BaseLLMConfiguration):
 class AzureLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
     model: str = Field(
-        default="gpt-4.1-mini", json_schema_extra={"examples": AZURE_MODELS}
+        default="gpt-4.1-mini",
+        json_schema_extra={"examples": AZURE_MODELS, "allow_custom_input": True},
     )
 
     endpoint: str
@@ -234,7 +241,8 @@ class AzureLLMService(BaseLLMConfiguration):
 class DograhLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
-        default="default", json_schema_extra={"examples": DOGRAH_LLM_MODELS}
+        default="default",
+        json_schema_extra={"examples": DOGRAH_LLM_MODELS, "allow_custom_input": True},
     )
 
 
@@ -243,7 +251,7 @@ class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.AWS_BEDROCK] = ServiceProviders.AWS_BEDROCK
     model: str = Field(
         default="us.amazon.nova-pro-v1:0",
-        json_schema_extra={"examples": AWS_BEDROCK_MODELS},
+        json_schema_extra={"examples": AWS_BEDROCK_MODELS, "allow_custom_input": True},
     )
     aws_access_key: str = Field(default="")
     aws_secret_key: str = Field(default="")
@@ -251,14 +259,18 @@ class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(default=None)
 
 
-SELF_HOSTED_LLM_MODELS = ["llama3", "mistral", "phi3", "qwen2", "gemma2", "deepseek-r1"]
+SPEACHES_LLM_MODELS = ["llama3", "mistral", "phi3", "qwen2", "gemma2", "deepseek-r1"]
 
 
 @register_llm
-class SelfHostedLLMConfiguration(BaseLLMConfiguration):
-    provider: Literal[ServiceProviders.SELF_HOSTED] = ServiceProviders.SELF_HOSTED
+class SpeachesLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
-        default="llama3", json_schema_extra={"examples": SELF_HOSTED_LLM_MODELS}
+        default="llama3",
+        json_schema_extra={
+            "examples": SPEACHES_LLM_MODELS,
+            "allow_custom_input": True,
+        },
     )
     base_url: str = Field(
         default="http://localhost:11434/v1",
@@ -276,7 +288,7 @@ LLMConfig = Annotated[
         AzureLLMService,
         DograhLLMService,
         AWSBedrockLLMConfiguration,
-        SelfHostedLLMConfiguration,
+        SpeachesLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -462,6 +474,34 @@ class CambTTSConfiguration(BaseTTSConfiguration):
     language: str = Field(default="en-us", description="BCP-47 language code")
 
 
+SPEACHES_TTS_MODELS = ["hexgrad/Kokoro-82M"]
+
+
+@register_tts
+class SpeachesTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
+    model: str = Field(
+        default="kokoro",
+        json_schema_extra={
+            "examples": SPEACHES_TTS_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="af_heart",
+        json_schema_extra={"allow_custom_input": True},
+        description="Voice ID for the TTS engine",
+    )
+    base_url: str = Field(
+        default="http://localhost:8000/v1",
+        description="OpenAI-compatible TTS endpoint (Kokoro-FastAPI, etc.)",
+    )
+    speed: float = Field(
+        default=1.0, ge=0.25, le=4.0, description="Speech speed (0.25 to 4.0)"
+    )
+    api_key: str | list[str] | None = Field(default=None)
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -471,6 +511,7 @@ TTSConfig = Annotated[
         DograhTTSService,
         SarvamTTSConfiguration,
         CambTTSConfiguration,
+        SpeachesTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -674,6 +715,29 @@ class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+SPEACHES_STT_MODELS = [
+    "Systran/faster-distil-whisper-small.en",
+    "Systran/faster-whisper-large-v3",
+]
+
+
+@register_stt
+class SpeachesSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
+    model: str = Field(
+        default="Systran/faster-distil-whisper-small.en",
+        json_schema_extra={
+            "examples": SPEACHES_STT_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="http://localhost:8000/v1",
+        description="OpenAI-compatible STT endpoint (Speaches, etc.)",
+    )
+    api_key: str | list[str] | None = Field(default=None)
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -682,6 +746,7 @@ STTConfig = Annotated[
         DograhSTTService,
         SpeechmaticsSTTConfiguration,
         SarvamSTTConfiguration,
+        SpeachesSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

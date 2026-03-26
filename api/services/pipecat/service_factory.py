@@ -27,11 +27,16 @@ from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.services.openai.stt import OpenAISTTService, OpenAISTTSettings
+from pipecat.services.openai.stt import (
+    OpenAISTTService,
+    OpenAISTTSettings,
+)
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
+from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
+from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
 from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
@@ -134,6 +139,20 @@ def create_stt_service(
             settings=SarvamSTTSettings(
                 model=user_config.stt.model,
                 language=pipecat_language,
+            ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.SPEACHES.value:
+        base_url = user_config.stt.base_url.replace("http://", "ws://").replace(
+            "https://", "wss://"
+        )
+        language = getattr(user_config.stt, "language", None) or "multi"
+        return SpeachesSTTService(
+            base_url=base_url,
+            api_key=user_config.stt.api_key or "none",
+            settings=SpeachesSTTSettings(
+                model=user_config.stt.model,
+                language=language,
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
@@ -261,6 +280,18 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         # Set language directly as BCP-47 code (bypasses Language enum conversion)
         tts._settings.language = language
         return tts
+    elif user_config.tts.provider == ServiceProviders.SPEACHES.value:
+        return SpeachesTTSService(
+            base_url=user_config.tts.base_url,
+            api_key=user_config.tts.api_key or "none",
+            settings=SpeachesTTSSettings(
+                model=user_config.tts.model,
+                voice=user_config.tts.voice,
+                speed=user_config.tts.speed,
+            ),
+            text_filters=[xml_function_tag_filter],
+            silence_time_s=1.0,
+        )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum for TTS
         language_mapping = {
@@ -363,7 +394,7 @@ def create_llm_service_from_provider(
             aws_region=aws_region,
             settings=AWSBedrockLLMSettings(model=model),
         )
-    elif provider == ServiceProviders.SELF_HOSTED.value:
+    elif provider == ServiceProviders.SPEACHES.value:
         return OpenAILLMService(
             base_url=base_url or "http://localhost:11434/v1",
             api_key=api_key or "none",
@@ -384,7 +415,7 @@ def create_llm_service(user_config):
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.AZURE.value:
         kwargs["endpoint"] = user_config.llm.endpoint
-    elif provider == ServiceProviders.SELF_HOSTED.value:
+    elif provider == ServiceProviders.SPEACHES.value:
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.AWS_BEDROCK.value:
         kwargs["aws_access_key"] = user_config.llm.aws_access_key

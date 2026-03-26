@@ -24,6 +24,7 @@ interface SchemaProperty {
     enum?: string[];
     examples?: string[];
     model_options?: Record<string, string[]>;
+    allow_custom_input?: boolean;
     $ref?: string;
     description?: string;
     format?: string;
@@ -80,8 +81,7 @@ export default function ServiceConfiguration() {
         stt: [""],
         embeddings: [""],
     });
-    const [isManualModelInput, setIsManualModelInput] = useState(false);
-    const [hasCheckedManualMode, setHasCheckedManualMode] = useState(false);
+    const [isCustomInput, setIsCustomInput] = useState<Record<string, boolean>>({});
 
     const {
         register,
@@ -165,38 +165,38 @@ export default function ServiceConfiguration() {
             setServicePropertyValues("stt");
             setServicePropertyValues("embeddings");
 
+            // Detect saved values that are not in suggested options (custom value)
+            const detectedCustomInput: Record<string, boolean> = {};
+            const allSchemas = response.data as Record<string, Record<string, ProviderSchema>>;
+            (["llm", "tts", "stt", "embeddings"] as ServiceSegment[]).forEach(service => {
+                const provider = selectedProviders[service];
+                const providerSchema = allSchemas[service]?.[provider];
+                if (!providerSchema) return;
+
+                Object.entries(providerSchema.properties).forEach(([field, schema]) => {
+                    const actualSchema = (schema as SchemaProperty).$ref && providerSchema.$defs
+                        ? providerSchema.$defs[(schema as SchemaProperty).$ref!.split('/').pop() || '']
+                        : schema as SchemaProperty;
+
+                    if (!actualSchema?.allow_custom_input || !actualSchema?.examples) return;
+
+                    const savedValue = userConfig?.[service]?.[field] as string | undefined;
+                    if (savedValue && !actualSchema.examples.includes(savedValue)) {
+                        detectedCustomInput[`${service}_${field}`] = true;
+                    }
+                });
+            });
+
             // IMPORTANT: Reset form values BEFORE changing providers
             // Otherwise, Radix Select sees old values that don't match new provider's enum
             // and calls onValueChange('') to clear "invalid" values
             reset(defaultValues);
             setApiKeys(loadedApiKeys);
             setServiceProviders(selectedProviders);
+            setIsCustomInput(detectedCustomInput);
         };
         fetchConfigurations();
     }, [reset, userConfig]);
-
-    // Check if the saved LLM model is not in the suggested options (custom model)
-    useEffect(() => {
-        if (hasCheckedManualMode) return;
-
-        const currentProvider = serviceProviders.llm;
-        const providerSchema = schemas?.llm?.[currentProvider];
-        if (!providerSchema) return;
-
-        const modelSchema = providerSchema.properties.model;
-        const actualModelSchema = modelSchema?.$ref && providerSchema.$defs
-            ? providerSchema.$defs[modelSchema.$ref.split('/').pop() || '']
-            : modelSchema;
-
-        if (actualModelSchema?.examples && userConfig?.llm?.model) {
-            const savedModel = userConfig.llm.model as string;
-            const isInOptions = actualModelSchema.examples.includes(savedModel);
-            if (!isInOptions) {
-                setIsManualModelInput(true);
-            }
-            setHasCheckedManualMode(true);
-        }
-    }, [schemas, serviceProviders.llm, userConfig?.llm?.model, hasCheckedManualMode]);
 
     // Reset voice when TTS model changes if the provider has model-dependent voice options
     const ttsModel = watch("tts_model");
@@ -256,10 +256,14 @@ export default function ServiceConfiguration() {
         setServiceProviders(prev => ({ ...prev, [service]: providerName }));
         setApiKeys(prev => ({ ...prev, [service]: [""] }));
 
-        // Reset manual model input when LLM provider changes
-        if (service === "llm") {
-            setIsManualModelInput(false);
-        }
+        // Reset custom input toggles when provider changes
+        setIsCustomInput(prev => {
+            const next = { ...prev };
+            Object.keys(next).forEach(key => {
+                if (key.startsWith(`${service}_`)) delete next[key];
+            });
+            return next;
+        });
     }
 
 
@@ -459,15 +463,13 @@ export default function ServiceConfiguration() {
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
             : schema;
 
-        // Use VoiceSelector for voice field in TTS service (except Sarvam which uses predefined options)
-        if (service === "tts" && field === "voice") {
-            const currentProvider = serviceProviders.tts;
-            // Sarvam uses predefined voice options, not VoiceSelector
+        // VoiceSelector for TTS voice fields without predefined options or manual input flag
+        if (service === "tts" && field === "voice" && !actualSchema?.allow_custom_input) {
             const hasVoiceOptions = actualSchema?.enum || actualSchema?.examples;
-            if (currentProvider !== "sarvam" && !hasVoiceOptions) {
+            if (!hasVoiceOptions) {
                 return (
                     <VoiceSelector
-                        provider={currentProvider}
+                        provider={serviceProviders.tts}
                         value={watch(`${service}_${field}`) as string || ""}
                         onChange={(voiceId) => {
                             setValue(`${service}_${field}`, voiceId, { shouldDirty: true });
@@ -477,39 +479,36 @@ export default function ServiceConfiguration() {
             }
         }
 
-        // Handle LLM model field with manual input toggle (uses examples from schema)
-        if (service === "llm" && field === "model" && actualSchema?.examples) {
-            const currentValue = watch(`${service}_${field}`) as string || "";
-            const modelOptions = actualSchema.examples;
+        // Generic allow_custom_input handler for any field (model, voice with options, etc.)
+        if (actualSchema?.allow_custom_input && actualSchema?.examples) {
+            const fieldKey = `${service}_${field}`;
+            const currentValue = watch(fieldKey) as string || "";
+            const options = actualSchema.examples;
 
-            if (isManualModelInput) {
+            if (isCustomInput[fieldKey]) {
                 return (
                     <div className="space-y-2">
                         <Input
                             type="text"
-                            placeholder="Enter model name"
+                            placeholder={`Enter ${field}`}
                             value={currentValue}
                             onChange={(e) => {
-                                setValue(`${service}_${field}`, e.target.value, { shouldDirty: true });
+                                setValue(fieldKey, e.target.value, { shouldDirty: true });
                             }}
                         />
                         <div className="flex items-center space-x-2">
                             <Checkbox
-                                id="manual-model-input"
-                                checked={isManualModelInput}
+                                id={`custom-input-${fieldKey}`}
+                                checked={true}
                                 onCheckedChange={(checked) => {
-                                    setIsManualModelInput(checked as boolean);
-                                    if (!checked && modelOptions.length > 0) {
-                                        // Reset to first option when switching back
-                                        setValue(`${service}_${field}`, modelOptions[0], { shouldDirty: true });
+                                    setIsCustomInput(prev => ({ ...prev, [fieldKey]: checked as boolean }));
+                                    if (!checked && options.length > 0) {
+                                        setValue(fieldKey, options[0], { shouldDirty: true });
                                     }
                                 }}
                             />
-                            <Label
-                                htmlFor="manual-model-input"
-                                className="text-sm font-normal cursor-pointer"
-                            >
-                                Add Model Manually
+                            <Label htmlFor={`custom-input-${fieldKey}`} className="text-sm font-normal cursor-pointer">
+                                Enter Custom Value
                             </Label>
                         </div>
                     </div>
@@ -522,14 +521,14 @@ export default function ServiceConfiguration() {
                         value={currentValue}
                         onValueChange={(value) => {
                             if (!value) return;
-                            setValue(`${service}_${field}`, value, { shouldDirty: true });
+                            setValue(fieldKey, value, { shouldDirty: true });
                         }}
                     >
                         <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select model" />
+                            <SelectValue placeholder={`Select ${field}`} />
                         </SelectTrigger>
                         <SelectContent>
-                            {modelOptions.map((value: string) => (
+                            {options.map((value: string) => (
                                 <SelectItem key={value} value={value}>
                                     {value}
                                 </SelectItem>
@@ -538,17 +537,14 @@ export default function ServiceConfiguration() {
                     </Select>
                     <div className="flex items-center space-x-2">
                         <Checkbox
-                            id="manual-model-input-dropdown"
-                            checked={isManualModelInput}
+                            id={`custom-input-${fieldKey}-dropdown`}
+                            checked={false}
                             onCheckedChange={(checked) => {
-                                setIsManualModelInput(checked as boolean);
+                                setIsCustomInput(prev => ({ ...prev, [fieldKey]: checked as boolean }));
                             }}
                         />
-                        <Label
-                            htmlFor="manual-model-input-dropdown"
-                            className="text-sm font-normal cursor-pointer"
-                        >
-                            Add Model Manually
+                        <Label htmlFor={`custom-input-${fieldKey}-dropdown`} className="text-sm font-normal cursor-pointer">
+                            Enter Custom Value
                         </Label>
                     </div>
                 </div>

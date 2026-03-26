@@ -42,6 +42,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [isCompleted, setIsCompleted] = useState(false);
     const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
     const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+    const [apiKeyErrorCode, setApiKeyErrorCode] = useState<string | null>(null);
     const [workflowConfigModalOpen, setWorkflowConfigModalOpen] = useState(false);
     const [workflowConfigError, setWorkflowConfigError] = useState<string | null>(null);
     const [isStarting, setIsStarting] = useState(false);
@@ -264,12 +265,15 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             break;
 
                         case 'error':
-                            // Check if this is a quota exceeded error
-                            if (message.payload?.error_type === 'quota_exceeded') {
+                            // Check if this is a quota/service key error
+                            if (message.payload?.error_type === 'quota_exceeded' ||
+                                message.payload?.error_type === 'invalid_service_key' ||
+                                message.payload?.error_type === 'quota_check_failed') {
                                 // Log as info since it's a handled business logic case
-                                logger.info('Quota exceeded, showing user dialog:', message.payload.message);
+                                logger.info('Quota/service key error, showing user dialog:', message.payload.message);
 
                                 // Set error state for display
+                                setApiKeyErrorCode(message.payload.error_type);
                                 setApiKeyError(message.payload.message || 'Service quota exceeded');
                                 setApiKeyModalOpen(true);
 
@@ -545,6 +549,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
             if (response.error) {
                 setApiKeyModalOpen(true);
+                setApiKeyErrorCode('invalid_api_key');
                 let msg = 'API Key Error';
                 const detail = (response.error as unknown as { detail?: { errors: { model: string; message: string }[] } }).detail;
                 if (Array.isArray(detail)) {
@@ -685,6 +690,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         apiKeyModalOpen,
         setApiKeyModalOpen,
         apiKeyError,
+        apiKeyErrorCode,
         workflowConfigError,
         workflowConfigModalOpen,
         setWorkflowConfigModalOpen,

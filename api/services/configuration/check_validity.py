@@ -14,6 +14,12 @@ from api.schemas.user_configuration import (
 from api.services.configuration.registry import ServiceConfig, ServiceProviders
 from api.services.mps_service_key_client import mps_service_key_client
 
+AuthContext = TypedDict(
+    "AuthContext",
+    {"organization_id": Optional[int], "created_by": Optional[str]},
+    total=False,
+)
+
 
 class APIKeyStatus(TypedDict):
     model: str
@@ -43,7 +49,16 @@ class UserConfigurationValidator:
             ServiceProviders.SELF_HOSTED.value: self._check_self_hosted_api_key,
         }
 
-    async def validate(self, configuration: UserConfiguration) -> APIKeyStatusResponse:
+    async def validate(
+        self,
+        configuration: UserConfiguration,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> APIKeyStatusResponse:
+        self._auth_context: AuthContext = {
+            "organization_id": organization_id,
+            "created_by": created_by,
+        }
         status_list = []
 
         status_list.extend(self._validate_service(configuration.llm, "llm"))
@@ -165,7 +180,12 @@ class UserConfigurationValidator:
                 "You provided a Dograh API key (dgr...) instead of a service key. "
                 "Please use a service key (mps...)."
             )
-        return mps_service_key_client.validate_service_key(api_key)
+        auth = getattr(self, "_auth_context", {})
+        return mps_service_key_client.validate_service_key(
+            api_key,
+            organization_id=auth.get("organization_id"),
+            created_by=auth.get("created_by"),
+        )
 
     def _check_sarvam_api_key(self, model: str, api_key: str) -> bool:
         return True

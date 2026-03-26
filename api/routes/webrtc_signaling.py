@@ -228,7 +228,7 @@ class SignalingManager:
                 {
                     "type": "error",
                     "payload": {
-                        "error_type": "quota_exceeded",
+                        "error_type": quota_result.error_code,
                         "message": quota_result.error_message,
                     },
                 }

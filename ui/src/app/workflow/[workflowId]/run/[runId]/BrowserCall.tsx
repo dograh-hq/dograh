@@ -43,6 +43,7 @@ const BrowserCall = ({ workflowId, workflowRunId, initialContextVariables }: {
         apiKeyModalOpen,
         setApiKeyModalOpen,
         apiKeyError,
+        apiKeyErrorCode,
         workflowConfigError,
         workflowConfigModalOpen,
         setWorkflowConfigModalOpen,
@@ -91,8 +92,12 @@ const BrowserCall = ({ workflowId, workflowRunId, initialContextVariables }: {
         };
     }, [isCompleted, auth.isAuthenticated, workflowId, workflowRunId]);
 
-    const navigateToApiKeys = () => {
+    const navigateToCredits = () => {
         router.push('/api-keys');
+    };
+
+    const navigateToModelConfig = () => {
+        router.push('/model-configurations');
     };
 
     const navigateToWorkflow = () => {
@@ -161,7 +166,9 @@ const BrowserCall = ({ workflowId, workflowRunId, initialContextVariables }: {
                 open={apiKeyModalOpen}
                 onOpenChange={setApiKeyModalOpen}
                 error={apiKeyError}
-                onNavigateToApiKeys={navigateToApiKeys}
+                errorCode={apiKeyErrorCode}
+                onNavigateToCredits={navigateToCredits}
+                onNavigateToModelConfig={navigateToModelConfig}
             />
 
             <WorkflowConfigErrorDialog

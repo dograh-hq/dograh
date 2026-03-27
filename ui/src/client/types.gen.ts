@@ -3274,7 +3274,16 @@ export type DownloadCampaignReportApiV1CampaignCampaignIdReportGetData = {
     path: {
         campaign_id: number;
     };
-    query?: never;
+    query?: {
+        /**
+         * Filter runs created on or after this datetime (ISO 8601)
+         */
+        start_date?: string | null;
+        /**
+         * Filter runs created on or before this datetime (ISO 8601)
+         */
+        end_date?: string | null;
+    };
     url: '/api/v1/campaign/{campaign_id}/report';
 };
 

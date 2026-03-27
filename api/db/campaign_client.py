@@ -365,12 +365,29 @@ class CampaignClient(BaseDBClient):
             result = await session.execute(query)
             return list(result.scalars().all())
 
-    async def get_completed_runs_for_report(self, campaign_id: int) -> list:
+    async def get_completed_runs_for_report(
+        self,
+        campaign_id: int,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> list:
         """Get completed workflow runs for campaign report CSV.
 
         Returns rows with only the columns needed for report generation.
         """
         async with self.async_session() as session:
+            conditions = [
+                WorkflowRunModel.campaign_id == campaign_id,
+                WorkflowRunModel.is_completed.is_(True),
+                WorkflowRunModel.cost_info["call_duration_seconds"]
+                .as_string()
+                .isnot(None),
+            ]
+            if start_date is not None:
+                conditions.append(WorkflowRunModel.created_at >= start_date)
+            if end_date is not None:
+                conditions.append(WorkflowRunModel.created_at <= end_date)
+
             query = (
                 select(
                     WorkflowRunModel.id,
@@ -381,13 +398,7 @@ class CampaignClient(BaseDBClient):
                     WorkflowRunModel.logs,
                     WorkflowRunModel.public_access_token,
                 )
-                .where(
-                    WorkflowRunModel.campaign_id == campaign_id,
-                    WorkflowRunModel.is_completed.is_(True),
-                    WorkflowRunModel.cost_info["call_duration_seconds"]
-                    .as_string()
-                    .isnot(None),
-                )
+                .where(*conditions)
                 .order_by(WorkflowRunModel.created_at.desc())
             )
             result = await session.execute(query)

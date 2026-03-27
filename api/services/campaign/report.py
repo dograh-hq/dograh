@@ -1,6 +1,7 @@
 import csv
 import io
-from typing import Any, List
+from datetime import datetime
+from typing import Any, List, Optional
 
 from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
@@ -27,12 +28,18 @@ def _collect_extracted_variable_keys(runs: List[Any]) -> list[str]:
     return list(keys)
 
 
-async def generate_campaign_report_csv(campaign_id: int) -> tuple[io.StringIO, str]:
+async def generate_campaign_report_csv(
+    campaign_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> tuple[io.StringIO, str]:
     """Generate a CSV report for a campaign.
 
     Returns a tuple of (csv_output, filename).
     """
-    runs = await db_client.get_completed_runs_for_report(campaign_id)
+    runs = await db_client.get_completed_runs_for_report(
+        campaign_id, start_date=start_date, end_date=end_date
+    )
 
     # Collect dynamic extracted variable columns
     extracted_var_keys = _collect_extracted_variable_keys(runs)

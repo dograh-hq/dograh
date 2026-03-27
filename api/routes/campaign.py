@@ -706,13 +706,21 @@ async def get_campaign_source_download_url(
 async def download_campaign_report(
     campaign_id: int,
     user: UserModel = Depends(get_user),
+    start_date: Optional[datetime] = Query(
+        None, description="Filter runs created on or after this datetime (ISO 8601)"
+    ),
+    end_date: Optional[datetime] = Query(
+        None, description="Filter runs created on or before this datetime (ISO 8601)"
+    ),
 ) -> StreamingResponse:
     """Download a CSV report of completed campaign runs."""
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    output, filename = await generate_campaign_report_csv(campaign_id)
+    output, filename = await generate_campaign_report_csv(
+        campaign_id, start_date=start_date, end_date=end_date
+    )
 
     return StreamingResponse(
         output,

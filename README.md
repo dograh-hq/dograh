@@ -29,7 +29,7 @@
 ## 🎥 Demo Video
 
 <div align="center">
-  <a href="https://www.tella.tv/video/cmgbysbsz00kw0bjm2qnc5f1d/view">
+  <a href="https://youtu.be/9gPneyf9M9w">
     <img src="docs/images/video_thumbnail_1.png" alt="Watch Dograh AI Demo Video" width="80%" style="border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
   </a>
   <br>

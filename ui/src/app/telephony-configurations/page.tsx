@@ -443,7 +443,7 @@ export default function ConfigureTelephonyPage() {
                       height="100%"
                       src={
                         selectedProvider === "twilio"
-                          ? "https://www.tella.tv/video/cmgbvzkrt00jk0clacu16blm3/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
+                          ? "https://www.youtube.com/embed/jlPD4CSJHHI"
                           : "https://www.tella.tv/video/configuring-telephony-on-dograh-with-vonage-3wvo/embed?b=0&title=1&a=1&loop=0&t=0&muted=0&wt=0"
                       }
                       allowFullScreen

@@ -20,6 +20,7 @@ class QuotaCheckResult:
 
     has_quota: bool
     error_message: str = ""
+    error_code: str = ""
 
 
 async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
@@ -76,6 +77,7 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
                     )
                     return QuotaCheckResult(
                         has_quota=False,
+                        error_code="quota_exceeded",
                         error_message=(
                             "You have exhausted your trial credits. "
                             "Please email founders@dograh.com for additional Dograh credits "
@@ -89,8 +91,16 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
                 )
             except Exception as e:
                 logger.error(f"Failed to check quota for Dograh key: {str(e)}")
+                error_str = str(e)
+                if "404" in error_str or "not found" in error_str.lower():
+                    return QuotaCheckResult(
+                        has_quota=False,
+                        error_code="invalid_service_key",
+                        error_message="You have invalid keys in your model configuration. Please validate the service keys.",
+                    )
                 return QuotaCheckResult(
                     has_quota=False,
+                    error_code="quota_check_failed",
                     error_message="Could not verify Dograh credits. Please try again.",
                 )
 

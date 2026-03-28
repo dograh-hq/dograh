@@ -276,7 +276,7 @@ class MPSServiceKeyClient:
                     "remaining_credits": data.get("remaining_credits", 0.0),
                 }
             else:
-                logger.error(
+                logger.warning(
                     f"Failed to check service key usage: {response.status_code} - {response.text}"
                 )
                 raise httpx.HTTPStatusError(
@@ -416,7 +416,12 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
-    def validate_service_key(self, service_key: str) -> bool:
+    def validate_service_key(
+        self,
+        service_key: str,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> bool:
         """
         Synchronously validate a Dograh service key by checking usage via MPS.
 
@@ -427,7 +432,7 @@ class MPSServiceKeyClient:
                 response = client.post(
                     f"{self.base_url}/api/v1/service-keys/usage",
                     json={"service_key": service_key},
-                    headers=self._get_headers(),
+                    headers=self._get_headers(organization_id, created_by),
                 )
                 return response.status_code == 200
         except Exception:

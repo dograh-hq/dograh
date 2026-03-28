@@ -465,7 +465,7 @@ class WorkflowClient(BaseDBClient):
                 return
 
             existing = workflow.call_disposition_codes or {}
-            codes = existing.get("disposition_codes", [])
+            codes = list(existing.get("disposition_codes", []))
             if disposition_code in codes:
                 return
 

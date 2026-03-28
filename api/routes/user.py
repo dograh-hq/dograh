@@ -125,7 +125,11 @@ async def update_user_configurations(
 
     try:
         validator = UserConfigurationValidator()
-        await validator.validate(user_configurations)
+        await validator.validate(
+            user_configurations,
+            organization_id=user.selected_organization_id,
+            created_by=user.provider_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=e.args[0])
 
@@ -163,7 +167,11 @@ async def validate_user_configurations(
     ):
         validator = UserConfigurationValidator()
         try:
-            status = await validator.validate(configurations)
+            status = await validator.validate(
+                configurations,
+                organization_id=user.selected_organization_id,
+                created_by=user.provider_id,
+            )
             await db_client.update_user_configuration_last_validated_at(user.id)
             return status
         except ValueError as e:

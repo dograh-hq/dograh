@@ -36,10 +36,26 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
         }
     }, [data, open]);
 
-    const handleSave = () => {
+    const handleSave = useCallback(() => {
         onSave({ condition: condition, label: label, transition_speech: transitionSpeech || undefined });
         onOpenChange(false);
-    };
+    }, [condition, label, transitionSpeech, onSave, onOpenChange]);
+
+    // Handle Cmd+S / Ctrl+S keyboard shortcut to save
+    useEffect(() => {
+        if (!open) return;
+
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                handleSave();
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown, true);
+        return () => window.removeEventListener('keydown', handleKeyDown, true);
+    }, [open, handleSave]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>

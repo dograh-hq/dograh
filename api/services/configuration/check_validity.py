@@ -72,10 +72,13 @@ class UserConfigurationValidator:
                 configuration.embeddings, "embeddings", required=False
             )
         )
-        # Realtime is optional - only validate if configured
-        status_list.extend(
-            self._validate_service(configuration.realtime, "realtime", required=False)
-        )
+        # Realtime is optional - only validate if is_realtime is enabled
+        if configuration.is_realtime:
+            status_list.extend(
+                self._validate_service(
+                    configuration.realtime, "realtime", required=True
+                )
+            )
 
         if status_list:
             raise ValueError(status_list)

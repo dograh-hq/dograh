@@ -443,6 +443,13 @@ class PipecatEngine:
                         extraction_variables, parent_context, extraction_prompt
                     )
                 )
+                if not isinstance(extracted_data, dict):
+                    logger.warning(
+                        f"Variable extraction for node {node.name} returned "
+                        f"{type(extracted_data).__name__} instead of dict, "
+                        f"skipping update. Data: {extracted_data}"
+                    )
+                    return
                 self._gathered_context.update(extracted_data)
                 extracted_variables = self._gathered_context.setdefault(
                     "extracted_variables", {}

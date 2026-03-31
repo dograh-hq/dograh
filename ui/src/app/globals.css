@@ -136,3 +136,21 @@
   animation: spin-slow 3s linear infinite;
 }
 
+/* Smaller Chatwoot bubble on workflow run pages */
+body.chatwoot-compact .woot--bubble-holder {
+  transform: scale(0.7) !important;
+  transform-origin: bottom right !important;
+  right: 4px !important;
+  bottom: 4px !important;
+}
+
+body.chatwoot-compact .woot--bubble-holder .woot-widget-bubble {
+  width: 48px !important;
+  height: 48px !important;
+}
+
+body.chatwoot-compact #chatwoot_live_chat_widget {
+  bottom: 60px !important;
+  right: 4px !important;
+}
+

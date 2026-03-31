@@ -35,6 +35,7 @@ from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
+from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
 from pipecat.services.speechmatics.stt import (
@@ -63,7 +64,6 @@ def create_stt_service(
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         # Check if using Flux model (English-only, no language selection)
         if user_config.stt.model == "flux-general-en":
-            logger.debug("Using DeepGram Flux Model")
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
                 settings=DeepgramFluxSTTSettings(
@@ -395,13 +395,73 @@ def create_llm_service_from_provider(
             settings=AWSBedrockLLMSettings(model=model),
         )
     elif provider == ServiceProviders.SPEACHES.value:
-        return OpenAILLMService(
+        return SpeachesLLMService(
             base_url=base_url or "http://localhost:11434/v1",
             api_key=api_key or "none",
-            settings=OpenAILLMSettings(model=model),
+            settings=SpeachesLLMSettings(model=model),
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
+
+
+def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
+    """Create a realtime (speech-to-speech) LLM service that handles STT+LLM+TTS.
+
+    These services bypass separate STT/TTS and handle audio directly via
+    a bidirectional WebSocket connection. Reads from user_config.realtime.
+    """
+    realtime_config = user_config.realtime
+    provider = realtime_config.provider
+    model = realtime_config.model
+    api_key = realtime_config.api_key
+    voice = getattr(realtime_config, "voice", None)
+
+    logger.info(
+        f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}"
+    )
+
+    if provider == ServiceProviders.OPENAI_REALTIME.value:
+        from pipecat.services.openai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            AudioOutput,
+            InputAudioTranscription,
+            SessionProperties,
+        )
+        from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
+
+        return OpenAIRealtimeLLMService(
+            api_key=api_key,
+            settings=OpenAIRealtimeLLMService.Settings(
+                model=model,
+                session_properties=SessionProperties(
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(),
+                        ),
+                        output=AudioOutput(
+                            voice=voice or "alloy",
+                        ),
+                    ),
+                ),
+            ),
+        )
+    elif provider == ServiceProviders.GOOGLE_REALTIME.value:
+        from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
+
+        # Gemini Live enables input/output audio transcription by default
+        # in its _connect() method — no need to configure it explicitly.
+        return GeminiLiveLLMService(
+            api_key=api_key,
+            settings=GeminiLiveLLMService.Settings(
+                model=model,
+                voice=voice or "Puck",  # vad=GeminiVADParams(disabled=True)
+            ),
+        )
+    else:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid realtime LLM provider {provider}"
+        )
 
 
 def create_llm_service(user_config):

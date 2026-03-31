@@ -448,6 +448,11 @@ export type DefaultConfigurationsResponse = {
             [key: string]: unknown;
         };
     };
+    realtime: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
     default_providers: {
         [key: string]: string;
     };
@@ -1329,6 +1334,10 @@ export type UserConfigurationRequestResponseSchema = {
     embeddings?: {
         [key: string]: string | number | Array<string> | null;
     } | null;
+    realtime?: {
+        [key: string]: string | number | Array<string> | null;
+    } | null;
+    is_realtime?: boolean | null;
     test_phone_number?: string | null;
     timezone?: string | null;
     organization_pricing?: {

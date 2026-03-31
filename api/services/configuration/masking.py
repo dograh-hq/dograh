@@ -29,7 +29,7 @@ def contains_masked_key(api_key: str | list[str] | None) -> bool:
 
 def check_for_masked_keys(config: "UserConfiguration") -> None:
     """Raise ValueError if any service in *config* still has a masked API key."""
-    for field in ("llm", "tts", "stt", "embeddings"):
+    for field in ("llm", "tts", "stt", "embeddings", "realtime"):
         service = getattr(config, field, None)
         if service is None:
             continue
@@ -121,6 +121,8 @@ def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
         "tts": _mask_service(config.tts),
         "stt": _mask_service(config.stt),
         "embeddings": _mask_service(config.embeddings),
+        "realtime": _mask_service(config.realtime),
+        "is_realtime": config.is_realtime,
         "test_phone_number": config.test_phone_number,
         "timezone": config.timezone,
     }

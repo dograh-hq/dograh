@@ -67,6 +67,10 @@ def setup_logging():
         # Handler might already be removed
         pass
 
+    # Set default extra values on the shared core so ALL logger references
+    # (including ones imported before this runs) have run_id available.
+    loguru.logger.configure(extra={"run_id": None})
+
     # Patch loguru to inject run_id
     patched = loguru.logger.patch(inject_run_id)
 

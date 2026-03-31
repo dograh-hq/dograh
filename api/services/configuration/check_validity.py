@@ -47,6 +47,8 @@ class UserConfigurationValidator:
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
             ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
+            ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
+            ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
         }
 
     async def validate(
@@ -69,6 +71,10 @@ class UserConfigurationValidator:
             self._validate_service(
                 configuration.embeddings, "embeddings", required=False
             )
+        )
+        # Realtime is optional - only validate if configured
+        status_list.extend(
+            self._validate_service(configuration.realtime, "realtime", required=False)
         )
 
         if status_list:

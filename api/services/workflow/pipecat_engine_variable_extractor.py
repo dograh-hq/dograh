@@ -215,13 +215,17 @@ class VariableExtractionManager:
             with tracer.start_as_current_span(
                 "llm-variable-extraction", context=parent_ctx
             ) as span:
+                tracing_messages = [
+                    {"role": "system", "content": system_prompt},
+                    *extraction_messages,
+                ]
                 add_llm_span_attributes(
                     span,
                     service_name=self._engine.llm.__class__.__name__,
                     model=model_name,
                     operation_name="llm-variable-extraction",
-                    messages=extraction_messages,
-                    output=llm_response,
+                    messages=tracing_messages,
+                    output=json.dumps({"content": llm_response}),
                     stream=False,
                     parameters={},
                 )

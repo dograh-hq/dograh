@@ -9,7 +9,7 @@ from typing import Dict
 from api.schemas.user_configuration import UserConfiguration
 from api.services.configuration.masking import resolve_masked_api_keys
 
-SERVICE_FIELDS = ("llm", "tts", "stt", "embeddings")
+SERVICE_FIELDS = ("llm", "tts", "stt", "embeddings", "realtime")
 
 
 def merge_user_configurations(
@@ -64,6 +64,9 @@ def merge_user_configurations(
         _merge_service_block(service)
 
     # other simple fields
+    if "is_realtime" in incoming_partial:
+        merged["is_realtime"] = incoming_partial["is_realtime"]
+
     if "test_phone_number" in incoming_partial:
         merged["test_phone_number"] = incoming_partial["test_phone_number"]
 

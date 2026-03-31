@@ -10,6 +10,7 @@ class ServiceType(Enum):
     TTS = auto()
     STT = auto()
     EMBEDDINGS = auto()
+    REALTIME = auto()
 
 
 class ServiceProviders(str, Enum):
@@ -28,6 +29,8 @@ class ServiceProviders(str, Enum):
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
     SPEACHES = "speaches"
+    OPENAI_REALTIME = "openai_realtime"
+    GOOGLE_REALTIME = "google_realtime"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -42,6 +45,8 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
         ServiceProviders.SPEACHES,
+        ServiceProviders.OPENAI_REALTIME,
+        ServiceProviders.GOOGLE_REALTIME,
         # ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
@@ -97,6 +102,7 @@ REGISTRY: Dict[ServiceType, Dict[str, Type[BaseServiceConfiguration]]] = {
     ServiceType.TTS: {},
     ServiceType.STT: {},
     ServiceType.EMBEDDINGS: {},
+    ServiceType.REALTIME: {},
 }
 
 T = TypeVar("T", bound=BaseServiceConfiguration)
@@ -279,6 +285,68 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(default=None)
 
 
+OPENAI_REALTIME_MODELS = ["gpt-4o-realtime-preview", "gpt-4o-mini-realtime-preview"]
+OPENAI_REALTIME_VOICES = [
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "sage",
+    "shimmer",
+    "verse",
+]
+
+
+# @register_service(ServiceType.REALTIME)
+# class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
+#     provider: Literal[ServiceProviders.OPENAI_REALTIME] = (
+#         ServiceProviders.OPENAI_REALTIME
+#     )
+#     model: str = Field(
+#         default="gpt-4o-realtime-preview",
+#         json_schema_extra={
+#             "examples": OPENAI_REALTIME_MODELS,
+#             "allow_custom_input": True,
+#         },
+#     )
+#     voice: str = Field(
+#         default="alloy",
+#         json_schema_extra={"examples": OPENAI_REALTIME_VOICES},
+#     )
+
+
+GOOGLE_REALTIME_MODELS = ["gemini-3.1-flash-live-preview"]
+GOOGLE_REALTIME_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
+
+
+@register_service(ServiceType.REALTIME)
+class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.GOOGLE_REALTIME] = (
+        ServiceProviders.GOOGLE_REALTIME
+    )
+    model: str = Field(
+        default="gemini-2.0-flash-live-001",
+        json_schema_extra={
+            "examples": GOOGLE_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="Puck",
+        json_schema_extra={
+            "examples": GOOGLE_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+
+
+REALTIME_PROVIDERS = {
+    ServiceProviders.OPENAI_REALTIME.value,
+    ServiceProviders.GOOGLE_REALTIME.value,
+}
+
+
 LLMConfig = Annotated[
     Union[
         OpenAILLMService,
@@ -289,6 +357,14 @@ LLMConfig = Annotated[
         DograhLLMService,
         AWSBedrockLLMConfiguration,
         SpeachesLLMConfiguration,
+    ],
+    Field(discriminator="provider"),
+]
+
+RealtimeConfig = Annotated[
+    Union[
+        # OpenAIRealtimeLLMConfiguration,
+        GoogleRealtimeLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -719,6 +795,7 @@ SPEACHES_STT_MODELS = [
     "Systran/faster-distil-whisper-small.en",
     "Systran/faster-whisper-large-v3",
 ]
+SPEACHES_STT_LANGUAGES = ["en", "ar", "nl", "fr", "de", "hi", "it", "pt", "es"]
 
 
 @register_stt
@@ -728,6 +805,13 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
         default="Systran/faster-distil-whisper-small.en",
         json_schema_extra={
             "examples": SPEACHES_STT_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    language: str = Field(
+        default="en",
+        json_schema_extra={
+            "examples": SPEACHES_STT_LANGUAGES,
             "allow_custom_input": True,
         },
     )
@@ -785,6 +869,6 @@ EmbeddingsConfig = Annotated[
 ]
 
 ServiceConfig = Annotated[
-    Union[LLMConfig, TTSConfig, STTConfig, EmbeddingsConfig],
+    Union[LLMConfig, RealtimeConfig, TTSConfig, STTConfig, EmbeddingsConfig],
     Field(discriminator="provider"),
 ]

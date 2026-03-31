@@ -1,5 +1,6 @@
 """Langfuse / OpenTelemetry tracing helpers for QA analysis."""
 
+import json
 import re
 
 from loguru import logger
@@ -70,6 +71,7 @@ def add_qa_span_to_trace(
     messages: list[dict],
     output: str,
     span_name: str,
+    system_prompt: str = "",
 ) -> None:
     """Create a child span under the conversation trace."""
     if parent_ctx is None:
@@ -84,13 +86,21 @@ def add_qa_span_to_trace(
             span_name,
             context=parent_ctx,
         ) as span:
+            tracing_messages = (
+                [
+                    {"role": "system", "content": system_prompt},
+                    *messages,
+                ]
+                if system_prompt
+                else messages
+            )
             add_llm_span_attributes(
                 span,
                 service_name="OpenAILLMService",
                 model=model,
                 operation_name=span_name,
-                messages=messages,
-                output=output,
+                messages=tracing_messages,
+                output=json.dumps({"content": output}),
                 stream=False,
                 parameters={"temperature": 0},
             )
@@ -103,6 +113,7 @@ def create_node_summary_trace(
     messages: list[dict],
     output: str,
     node_name: str,
+    system_prompt: str = "",
 ) -> str | None:
     """Create a standalone Langfuse trace for a node summary generation.
 
@@ -125,13 +136,21 @@ def create_node_summary_trace(
             f"node-summary-{node_name}",
             context=Context(),
         ) as span:
+            tracing_messages = (
+                [
+                    {"role": "system", "content": system_prompt},
+                    *messages,
+                ]
+                if system_prompt
+                else messages
+            )
             add_llm_span_attributes(
                 span,
                 service_name="OpenAILLMService",
                 model=model,
                 operation_name=f"node-summary-{node_name}",
-                messages=messages,
-                output=output,
+                messages=tracing_messages,
+                output=json.dumps({"content": output}),
                 stream=False,
                 parameters={"temperature": 0},
             )

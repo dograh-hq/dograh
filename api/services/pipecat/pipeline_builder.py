@@ -97,6 +97,34 @@ def build_pipeline(
     return Pipeline(processors)
 
 
+def build_realtime_pipeline(
+    transport,
+    realtime_llm,
+    audio_buffer,
+    user_context_aggregator,
+    assistant_context_aggregator,
+    pipeline_engine_callback_processor,
+    pipeline_metrics_aggregator,
+):
+    """Build a pipeline for realtime (speech-to-speech) LLM services.
+
+    Realtime services (e.g. OpenAI Realtime, Gemini Live) handle STT+LLM+TTS
+    internally, so no separate STT or TTS processors are needed.
+    """
+    processors = [
+        transport.input(),
+        user_context_aggregator,
+        realtime_llm,
+        pipeline_engine_callback_processor,
+        transport.output(),
+        audio_buffer,
+        assistant_context_aggregator,
+        pipeline_metrics_aggregator,
+    ]
+
+    return Pipeline(processors)
+
+
 def create_pipeline_task(pipeline, workflow_run_id, audio_config: AudioConfig = None):
     """Create a pipeline task with appropriate parameters"""
     # Set up pipeline params with audio configuration if provided

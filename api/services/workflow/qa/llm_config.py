@@ -1,5 +1,7 @@
 """LLM configuration resolution and token usage accumulation."""
 
+import random
+
 from api.db import db_client
 from api.db.models import WorkflowRunModel
 
@@ -57,6 +59,8 @@ async def resolve_user_llm_config(
 
     provider = llm_config.get("provider", "openai")
     api_key = llm_config.get("api_key", "")
+    if isinstance(api_key, list):
+        api_key = random.choice(api_key)
     model = llm_config.get("model", "gpt-4.1")
 
     kwargs = {}

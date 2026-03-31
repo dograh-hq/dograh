@@ -14,4 +14,50 @@ You can see the configuration for the inference provider in the following screen
 
 You can select the provider from the dropdown and configure the API key, model, etc. For Dograh, you can see [Service Keys](api-keys) documentation for instructions on how to create Service Keys to be used in Model Configuration.
 
-Next there are some in depth documentation of various AI Models that you can configure. 
+Next there are some in depth documentation of various AI Models that you can configure.
+
+## Gemini 3.1 Live
+
+Gemini 3.1 Live is Google's realtime multimodal API that handles both LLM and voice in a single model. Instead of configuring separate LLM, TTS, and STT services, Gemini Live acts as an all-in-one realtime provider — it processes speech input, generates a response, and speaks it back, all over a single streaming connection.
+
+Dograh supports Gemini 3.1 Live as a **Realtime** provider. The default model is `gemini-3.1-flash-live-preview`.
+
+### Available Voices
+
+You can choose from the following built-in voices:
+
+| Voice | Description |
+|-------|-------------|
+| Puck | Default voice |
+| Charon | — |
+| Kore | — |
+| Fenrir | — |
+| Aoede | — |
+
+### Getting a Gemini API Key
+
+To use Gemini 3.1 Live with Dograh, you need a Google Gemini API key. Follow these steps:
+
+1. Go to [Google AI Studio](https://aistudio.google.com/).
+2. Sign in with your Google account.
+3. Click on **Get API Key** in the left sidebar.
+4. Click **Create API Key**.
+5. Select an existing Google Cloud project or create a new one.
+6. Copy the generated API key and store it securely.
+
+<Note>
+  The Gemini API key is different from a Google Cloud service account key. You specifically need a **Gemini API key** from Google AI Studio for use with Dograh.
+</Note>
+
+### Configuring Gemini 3.1 Live in Dograh
+
+1. Go to **Model Configurations** in your Dograh dashboard (`https://app.dograh.com/model-configurations` for hosted or `http://localhost:3010/model-configurations` for local).
+2. Under the **Realtime** section, select `google_realtime` as the provider.
+3. Paste your Gemini API key.
+4. Select the model (`gemini-3.1-flash-live-preview` is available by default, or you can enter a model name manually).
+5. Choose a voice from the dropdown (default is `Puck`).
+6. Select the language (currently `en` is supported).
+
+<Note>
+  When using a Realtime provider like Gemini Live, you do not need to configure separate LLM, TTS, and STT services — the realtime model handles all three.
+</Note>

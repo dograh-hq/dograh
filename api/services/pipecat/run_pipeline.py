@@ -16,6 +16,7 @@ from api.services.pipecat.event_handlers import (
 from api.services.pipecat.in_memory_buffers import InMemoryLogsBuffer
 from api.services.pipecat.pipeline_builder import (
     build_pipeline,
+    build_realtime_pipeline,
     create_pipeline_components,
     create_pipeline_task,
 )
@@ -35,6 +36,7 @@ from api.services.pipecat.recording_router_processor import RecordingRouterProce
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_llm_service_from_provider,
+    create_realtime_llm_service,
     create_stt_service,
     create_tts_service,
 )
@@ -603,10 +605,18 @@ async def _run_pipeline(
                     term.strip() for term in dictionary.split(",") if term.strip()
                 ]
 
+    # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
+    is_realtime = user_config.is_realtime and user_config.realtime is not None
+
     # Create services based on user configuration
-    stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
-    tts = create_tts_service(user_config, audio_config)
-    llm = create_llm_service(user_config)
+    if is_realtime:
+        llm = create_realtime_llm_service(user_config, audio_config)
+        stt = None
+        tts = None
+    else:
+        stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
+        tts = create_tts_service(user_config, audio_config)
+        llm = create_llm_service(user_config)
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
@@ -694,46 +704,66 @@ async def _run_pipeline(
     )
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
-    # Deepgram Flux uses external turn detection (VAD + External start/stop)
-    # Other models use configurable turn detection strategy
-    is_deepgram_flux = (
-        user_config.stt.provider == ServiceProviders.DEEPGRAM.value
-        and user_config.stt.model == "flux-general-en"
-    )
+    if is_realtime:
+        # Realtime services have server-side VAD/turn detection.
+        # For stop strategy, lets rely on SmartTurnAnalyzer which is
+        # enabled by default
+        user_turn_strategies = UserTurnStrategies(
+            start=[VADUserTurnStartStrategy()], stop=[]
+        )
 
-    if is_deepgram_flux:
-        user_turn_strategies = UserTurnStrategies(
-            start=[
-                VADUserTurnStartStrategy(),
-                ExternalUserTurnStartStrategy(enable_interruptions=True),
-            ],
-            stop=[ExternalUserTurnStopStrategy()],
-        )
-    elif turn_stop_strategy == "turn_analyzer":
-        # Smart Turn Analyzer: best for longer responses with natural pauses
-        smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
-        user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
-            stop=[
-                TurnAnalyzerUserTurnStopStrategy(
-                    turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
-                )
-            ],
-        )
+        # Lets not start the pipeline as muted for Realtime
+        # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
+        user_mute_strategies = [
+            FunctionCallUserMuteStrategy(),
+            CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+        ]
     else:
-        # Transcription-based (default): best for short 1-2 word responses
-        user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy(), TranscriptionUserTurnStartStrategy()],
-            stop=[SpeechTimeoutUserTurnStopStrategy()],
+        # Deepgram Flux uses external turn detection (VAD + External start/stop)
+        # Other models use configurable turn detection strategy
+        is_deepgram_flux = (
+            user_config.stt.provider == ServiceProviders.DEEPGRAM.value
+            and user_config.stt.model == "flux-general-en"
         )
 
-    # Create user mute strategies
-    # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
-    user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
-        FunctionCallUserMuteStrategy(),
-        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-    ]
+        if is_deepgram_flux:
+            user_turn_strategies = UserTurnStrategies(
+                start=[
+                    VADUserTurnStartStrategy(),
+                    ExternalUserTurnStartStrategy(enable_interruptions=True),
+                ],
+                stop=[ExternalUserTurnStopStrategy()],
+            )
+        elif turn_stop_strategy == "turn_analyzer":
+            # Smart Turn Analyzer: best for longer responses with natural pauses
+            smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
+            user_turn_strategies = UserTurnStrategies(
+                start=[
+                    VADUserTurnStartStrategy(),
+                    TranscriptionUserTurnStartStrategy(),
+                ],
+                stop=[
+                    TurnAnalyzerUserTurnStopStrategy(
+                        turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
+                    )
+                ],
+            )
+        else:
+            # Transcription-based (default): best for short 1-2 word responses
+            user_turn_strategies = UserTurnStrategies(
+                start=[
+                    VADUserTurnStartStrategy(),
+                    TranscriptionUserTurnStartStrategy(),
+                ],
+                stop=[SpeechTimeoutUserTurnStopStrategy()],
+            )
+
+        # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
+        user_mute_strategies = [
+            MuteUntilFirstBotCompleteUserMuteStrategy(),
+            FunctionCallUserMuteStrategy(),
+            CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+        ]
 
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
@@ -769,77 +799,93 @@ async def _run_pipeline(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
-    # Create voicemail detector if enabled in workflow configurations
+    # Voicemail detection and recording router are not supported in realtime mode
     voicemail_detector = None
-    voicemail_config = (workflow.workflow_configurations or {}).get(
-        "voicemail_detection", {}
-    )
-    if voicemail_config.get("enabled", False):
-        logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
-        # Create a separate LLM instance for the voicemail sub-pipeline
-        # (can't share with main pipeline as it would mess up frame linking)
-        if voicemail_config.get("use_workflow_llm", True):
-            voicemail_llm = create_llm_service(user_config)
-        else:
-            voicemail_llm = create_llm_service_from_provider(
-                provider=voicemail_config.get("provider", "openai"),
-                model=voicemail_config.get("model", "gpt-4.1"),
-                api_key=voicemail_config.get("api_key", ""),
-            )
-
-        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
-        custom_system_prompt = voicemail_config.get("system_prompt") or None
-
-        voicemail_detector = VoicemailDetector(
-            llm=voicemail_llm,
-            long_speech_timeout=long_speech_timeout,
-            custom_system_prompt=custom_system_prompt,
-        )
-
-        # Register event handler to end task when voicemail is detected
-        @voicemail_detector.event_handler("on_voicemail_detected")
-        async def _on_voicemail_detected(_processor):
-            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-            await engine.end_call_with_reason(
-                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
-                abort_immediately=True,
-            )
-
-    # Create recording router if workflow has active recordings
     recording_router = None
-    if has_recordings:
-        fetch_audio = create_recording_audio_fetcher(
-            organization_id=workflow.organization_id,
-            pipeline_sample_rate=audio_config.pipeline_sample_rate,
+
+    if not is_realtime:
+        # Create voicemail detector if enabled in workflow configurations
+        voicemail_config = (workflow.workflow_configurations or {}).get(
+            "voicemail_detection", {}
         )
-        recording_router = RecordingRouterProcessor(
-            audio_sample_rate=audio_config.pipeline_sample_rate,
-            fetch_recording_audio=fetch_audio,
-        )
-        # Warm the recording cache in the background so audio is ready
-        # before the first playback request.
-        asyncio.create_task(
-            warm_recording_cache(
-                workflow_id=workflow_id,
+        if voicemail_config.get("enabled", False):
+            logger.info(
+                f"Voicemail detection enabled for workflow run {workflow_run_id}"
+            )
+            # Create a separate LLM instance for the voicemail sub-pipeline
+            # (can't share with main pipeline as it would mess up frame linking)
+            if voicemail_config.get("use_workflow_llm", True):
+                voicemail_llm = create_llm_service(user_config)
+            else:
+                voicemail_llm = create_llm_service_from_provider(
+                    provider=voicemail_config.get("provider", "openai"),
+                    model=voicemail_config.get("model", "gpt-4.1"),
+                    api_key=voicemail_config.get("api_key", ""),
+                )
+
+            long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
+            custom_system_prompt = voicemail_config.get("system_prompt") or None
+
+            voicemail_detector = VoicemailDetector(
+                llm=voicemail_llm,
+                long_speech_timeout=long_speech_timeout,
+                custom_system_prompt=custom_system_prompt,
+            )
+
+            # Register event handler to end task when voicemail is detected
+            @voicemail_detector.event_handler("on_voicemail_detected")
+            async def _on_voicemail_detected(_processor):
+                logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
+                await engine.end_call_with_reason(
+                    reason=EndTaskReason.VOICEMAIL_DETECTED.value,
+                    abort_immediately=True,
+                )
+
+        # Create recording router if workflow has active recordings
+        if has_recordings:
+            fetch_audio = create_recording_audio_fetcher(
                 organization_id=workflow.organization_id,
                 pipeline_sample_rate=audio_config.pipeline_sample_rate,
             )
-        )
+            recording_router = RecordingRouterProcessor(
+                audio_sample_rate=audio_config.pipeline_sample_rate,
+                fetch_recording_audio=fetch_audio,
+            )
+            # Warm the recording cache in the background so audio is ready
+            # before the first playback request.
+            asyncio.create_task(
+                warm_recording_cache(
+                    workflow_id=workflow_id,
+                    organization_id=workflow.organization_id,
+                    pipeline_sample_rate=audio_config.pipeline_sample_rate,
+                )
+            )
 
-    # Build the pipeline with the STT mute filter and context controller
-    pipeline = build_pipeline(
-        transport,
-        stt,
-        audio_buffer,
-        llm,
-        tts,
-        user_context_aggregator,
-        assistant_context_aggregator,
-        pipeline_engine_callback_processor,
-        pipeline_metrics_aggregator,
-        voicemail_detector=voicemail_detector,
-        recording_router=recording_router,
-    )
+    # Build the pipeline
+    if is_realtime:
+        pipeline = build_realtime_pipeline(
+            transport,
+            llm,
+            audio_buffer,
+            user_context_aggregator,
+            assistant_context_aggregator,
+            pipeline_engine_callback_processor,
+            pipeline_metrics_aggregator,
+        )
+    else:
+        pipeline = build_pipeline(
+            transport,
+            stt,
+            audio_buffer,
+            llm,
+            tts,
+            user_context_aggregator,
+            assistant_context_aggregator,
+            pipeline_engine_callback_processor,
+            pipeline_metrics_aggregator,
+            voicemail_detector=voicemail_detector,
+            recording_router=recording_router,
+        )
 
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
@@ -847,7 +893,8 @@ async def _run_pipeline(
     # Now set the task on the engine
     engine.set_task(task)
 
-    # Initialize the engine to set the initial context
+    # Initialize the engine to set the initial context with
+    # System Prompt and Tools
     await engine.initialize()
 
     # Add real-time feedback observer (always logs to buffer, streams to WS if available)

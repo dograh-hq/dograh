@@ -11,12 +11,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoiceSelector } from "@/components/VoiceSelector";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
 
-type ServiceSegment = "llm" | "tts" | "stt" | "embeddings";
+type ServiceSegment = "llm" | "tts" | "stt" | "embeddings" | "realtime";
 
 interface SchemaProperty {
     type?: string;
@@ -24,6 +25,7 @@ interface SchemaProperty {
     enum?: string[];
     examples?: string[];
     model_options?: Record<string, string[]>;
+    allow_custom_input?: boolean;
     $ref?: string;
     description?: string;
     format?: string;
@@ -40,10 +42,15 @@ interface FormValues {
     [key: string]: string | number | boolean;
 }
 
-const TAB_CONFIG: { key: ServiceSegment; label: string }[] = [
+const STANDARD_TABS: { key: ServiceSegment; label: string }[] = [
     { key: "llm", label: "LLM" },
     { key: "tts", label: "Voice" },
     { key: "stt", label: "Transcriber" },
+    { key: "embeddings", label: "Embedding" },
+];
+
+const REALTIME_TABS: { key: ServiceSegment; label: string }[] = [
+    { key: "realtime", label: "Realtime Model" },
     { key: "embeddings", label: "Embedding" },
 ];
 
@@ -61,27 +68,30 @@ const VOICE_DISPLAY_NAMES: Record<string, string> = {
 export default function ServiceConfiguration() {
     const [apiError, setApiError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
+    const [isRealtime, setIsRealtime] = useState(false);
     const { userConfig, saveUserConfig } = useUserConfig();
     const [schemas, setSchemas] = useState<Record<ServiceSegment, Record<string, ProviderSchema>>>({
         llm: {},
         tts: {},
         stt: {},
-        embeddings: {}
+        embeddings: {},
+        realtime: {},
     });
     const [serviceProviders, setServiceProviders] = useState<Record<ServiceSegment, string>>({
         llm: "",
         tts: "",
         stt: "",
-        embeddings: ""
+        embeddings: "",
+        realtime: "",
     });
     const [apiKeys, setApiKeys] = useState<Record<ServiceSegment, string[]>>({
         llm: [""],
         tts: [""],
         stt: [""],
         embeddings: [""],
+        realtime: [""],
     });
-    const [isManualModelInput, setIsManualModelInput] = useState(false);
-    const [hasCheckedManualMode, setHasCheckedManualMode] = useState(false);
+    const [isCustomInput, setIsCustomInput] = useState<Record<string, boolean>>({});
 
     const {
         register,
@@ -97,12 +107,20 @@ export default function ServiceConfiguration() {
         const fetchConfigurations = async () => {
             const response = await getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet();
             if (response.data) {
+                const data = response.data as Record<string, unknown>;
                 setSchemas({
                     llm: response.data.llm as Record<string, ProviderSchema>,
                     tts: response.data.tts as Record<string, ProviderSchema>,
                     stt: response.data.stt as Record<string, ProviderSchema>,
-                    embeddings: response.data.embeddings as Record<string, ProviderSchema>
+                    embeddings: response.data.embeddings as Record<string, ProviderSchema>,
+                    realtime: (data.realtime || {}) as Record<string, ProviderSchema>,
                 });
+
+                // Restore realtime toggle from saved config
+                const configData = userConfig as Record<string, unknown> | null;
+                if (configData?.is_realtime) {
+                    setIsRealtime(true);
+                }
             } else {
                 console.error("Failed to fetch configurations");
                 return;
@@ -113,23 +131,41 @@ export default function ServiceConfiguration() {
                 llm: response.data.default_providers.llm,
                 tts: response.data.default_providers.tts,
                 stt: response.data.default_providers.stt,
-                embeddings: response.data.default_providers.embeddings
+                embeddings: response.data.default_providers.embeddings,
+                realtime: "",
             };
+
+            // Set default realtime provider from schema keys
+            const data = response.data as Record<string, unknown>;
+            const realtimeSchemas = (data.realtime || {}) as Record<string, ProviderSchema>;
+            const realtimeProviderKeys = Object.keys(realtimeSchemas);
+            if (realtimeProviderKeys.length > 0) {
+                selectedProviders.realtime = realtimeProviderKeys[0];
+            }
 
             const loadedApiKeys: Record<ServiceSegment, string[]> = {
                 llm: [""],
                 tts: [""],
                 stt: [""],
                 embeddings: [""],
+                realtime: [""],
             };
 
             const setServicePropertyValues = (service: ServiceSegment) => {
-                if (userConfig?.[service]?.provider) {
-                    Object.entries(userConfig?.[service]).forEach(([field, value]) => {
+                // For realtime, read from userConfig.realtime; for others, read from userConfig[service]
+                const configSource = service === "realtime"
+                    ? (userConfig as Record<string, unknown> | null)?.realtime as Record<string, unknown> | undefined
+                    : userConfig?.[service as "llm" | "tts" | "stt" | "embeddings"];
+
+                const schemaSource = service === "realtime"
+                    ? realtimeSchemas
+                    : response.data[service as "llm" | "tts" | "stt" | "embeddings"] as Record<string, ProviderSchema> | undefined;
+
+                if (configSource?.provider) {
+                    Object.entries(configSource).forEach(([field, value]) => {
                         if (field === "api_key") {
-                            // Handle api_key separately — it can be string or string[]
                             if (Array.isArray(value)) {
-                                loadedApiKeys[service] = value.length > 0 ? value : [""];
+                                loadedApiKeys[service] = (value as string[]).length > 0 ? value as string[] : [""];
                             } else {
                                 loadedApiKeys[service] = value ? [value as string] : [""];
                             }
@@ -137,9 +173,9 @@ export default function ServiceConfiguration() {
                             defaultValues[`${service}_${field}`] = value as string | number | boolean;
                         }
                     });
-                    selectedProviders[service] = userConfig?.[service]?.provider as string;
-                    // Fill in schema defaults for fields not present in userConfig
-                    const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
+                    selectedProviders[service] = configSource.provider as string;
+                    // Fill in schema defaults for fields not present in config
+                    const properties = schemaSource?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
                     if (properties) {
                         Object.entries(properties).forEach(([field, schema]) => {
                             const key = `${service}_${field}`;
@@ -149,7 +185,7 @@ export default function ServiceConfiguration() {
                         });
                     }
                 } else {
-                    const properties = response.data[service]?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
+                    const properties = schemaSource?.[selectedProviders[service]]?.properties as Record<string, SchemaProperty>;
                     if (properties) {
                         Object.entries(properties).forEach(([field, schema]) => {
                             if (field !== "provider" && schema.default !== undefined) {
@@ -164,6 +200,33 @@ export default function ServiceConfiguration() {
             setServicePropertyValues("tts");
             setServicePropertyValues("stt");
             setServicePropertyValues("embeddings");
+            setServicePropertyValues("realtime");
+
+            // Detect saved values that are not in suggested options (custom value)
+            const detectedCustomInput: Record<string, boolean> = {};
+            const allSchemas = { ...response.data, realtime: realtimeSchemas } as unknown as Record<string, Record<string, ProviderSchema>>;
+            (["llm", "tts", "stt", "embeddings", "realtime"] as ServiceSegment[]).forEach(service => {
+                const provider = selectedProviders[service];
+                const providerSchema = allSchemas[service]?.[provider];
+                if (!providerSchema) return;
+
+                const configSource = service === "realtime"
+                    ? (userConfig as Record<string, unknown> | null)?.realtime as Record<string, unknown> | undefined
+                    : userConfig?.[service as "llm" | "tts" | "stt" | "embeddings"];
+
+                Object.entries(providerSchema.properties).forEach(([field, schema]) => {
+                    const actualSchema = (schema as SchemaProperty).$ref && providerSchema.$defs
+                        ? providerSchema.$defs[(schema as SchemaProperty).$ref!.split('/').pop() || '']
+                        : schema as SchemaProperty;
+
+                    if (!actualSchema?.allow_custom_input || !actualSchema?.examples) return;
+
+                    const savedValue = configSource?.[field] as string | undefined;
+                    if (savedValue && !actualSchema.examples.includes(savedValue)) {
+                        detectedCustomInput[`${service}_${field}`] = true;
+                    }
+                });
+            });
 
             // IMPORTANT: Reset form values BEFORE changing providers
             // Otherwise, Radix Select sees old values that don't match new provider's enum
@@ -171,32 +234,10 @@ export default function ServiceConfiguration() {
             reset(defaultValues);
             setApiKeys(loadedApiKeys);
             setServiceProviders(selectedProviders);
+            setIsCustomInput(detectedCustomInput);
         };
         fetchConfigurations();
     }, [reset, userConfig]);
-
-    // Check if the saved LLM model is not in the suggested options (custom model)
-    useEffect(() => {
-        if (hasCheckedManualMode) return;
-
-        const currentProvider = serviceProviders.llm;
-        const providerSchema = schemas?.llm?.[currentProvider];
-        if (!providerSchema) return;
-
-        const modelSchema = providerSchema.properties.model;
-        const actualModelSchema = modelSchema?.$ref && providerSchema.$defs
-            ? providerSchema.$defs[modelSchema.$ref.split('/').pop() || '']
-            : modelSchema;
-
-        if (actualModelSchema?.examples && userConfig?.llm?.model) {
-            const savedModel = userConfig.llm.model as string;
-            const isInOptions = actualModelSchema.examples.includes(savedModel);
-            if (!isInOptions) {
-                setIsManualModelInput(true);
-            }
-            setHasCheckedManualMode(true);
-        }
-    }, [schemas, serviceProviders.llm, userConfig?.llm?.model, hasCheckedManualMode]);
 
     // Reset voice when TTS model changes if the provider has model-dependent voice options
     const ttsModel = watch("tts_model");
@@ -256,10 +297,14 @@ export default function ServiceConfiguration() {
         setServiceProviders(prev => ({ ...prev, [service]: providerName }));
         setApiKeys(prev => ({ ...prev, [service]: [""] }));
 
-        // Reset manual model input when LLM provider changes
-        if (service === "llm") {
-            setIsManualModelInput(false);
-        }
+        // Reset custom input toggles when provider changes
+        setIsCustomInput(prev => {
+            const next = { ...prev };
+            Object.keys(next).forEach(key => {
+                if (key.startsWith(`${service}_`)) delete next[key];
+            });
+            return next;
+        });
     }
 
 
@@ -271,55 +316,42 @@ export default function ServiceConfiguration() {
         const getServiceApiKeys = (service: ServiceSegment): string[] =>
             apiKeys[service].map(k => k.trim()).filter(k => k.length > 0);
 
-        const userConfig: Record<ServiceSegment, Record<string, string | number | string[]>> = {
-            llm: {
-                provider: serviceProviders.llm,
-                ...(getServiceApiKeys("llm").length > 0 && { api_key: getServiceApiKeys("llm") }),
-                model: data.llm_model as string
-            },
-            tts: {
-                provider: serviceProviders.tts,
-                ...(getServiceApiKeys("tts").length > 0 && { api_key: getServiceApiKeys("tts") }),
-            },
-            stt: {
-                provider: serviceProviders.stt,
-                ...(getServiceApiKeys("stt").length > 0 && { api_key: getServiceApiKeys("stt") }),
-            },
-            embeddings: {
-                provider: serviceProviders.embeddings,
-                ...(getServiceApiKeys("embeddings").length > 0 && { api_key: getServiceApiKeys("embeddings") }),
-                model: data.embeddings_model as string
+        // Build service configs from form data
+        const buildServiceConfig = (service: ServiceSegment) => {
+            const config: Record<string, string | number | string[]> = {
+                provider: serviceProviders[service],
+            };
+            const keys = getServiceApiKeys(service);
+            if (keys.length > 0) {
+                config.api_key = keys;
             }
+            // Add all form fields for this service
+            Object.entries(data).forEach(([property, value]) => {
+                if (!property.startsWith(`${service}_`)) return;
+                const field = property.slice(service.length + 1);
+                if (field === "api_key" || field === "provider") return;
+                config[field] = value as string | number;
+            });
+            return config;
         };
 
-        // Add any extra properties in the payload
-        Object.entries(data).forEach(([property, value]) => {
-            const parts = property.split('_');
-            const service = parts[0] as ServiceSegment;
-            const field = parts.slice(1).join('_');
-
-            if (field === "api_key") return; // handled via apiKeys state
-            if (userConfig[service] && !(field in userConfig[service])) {
-                (userConfig[service] as Record<string, string>)[field] = value as string;
-            }
-        });
-
-        // Build save config - only include embeddings if api_key is provided
-        const saveConfig: {
-            llm: Record<string, string | number | string[]>;
-            tts: Record<string, string | number | string[]>;
-            stt: Record<string, string | number | string[]>;
-            embeddings?: Record<string, string | number | string[]>;
-        } = {
-            llm: userConfig.llm,
-            tts: userConfig.tts,
-            stt: userConfig.stt
+        // Always save all configs so switching modes preserves everything
+        const saveConfig: Record<string, unknown> = {
+            llm: buildServiceConfig("llm"),
+            tts: buildServiceConfig("tts"),
+            stt: buildServiceConfig("stt"),
+            is_realtime: isRealtime,
         };
+
+        // Save realtime config if provider is set
+        if (serviceProviders.realtime) {
+            saveConfig.realtime = buildServiceConfig("realtime");
+        }
 
         // Only include embeddings if user has configured it (has api_key)
         const embeddingsKeys = getServiceApiKeys("embeddings");
         if (embeddingsKeys.length > 0) {
-            saveConfig.embeddings = userConfig.embeddings;
+            saveConfig.embeddings = buildServiceConfig("embeddings");
         }
 
         try {
@@ -459,15 +491,13 @@ export default function ServiceConfiguration() {
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
             : schema;
 
-        // Use VoiceSelector for voice field in TTS service (except Sarvam which uses predefined options)
-        if (service === "tts" && field === "voice") {
-            const currentProvider = serviceProviders.tts;
-            // Sarvam uses predefined voice options, not VoiceSelector
+        // VoiceSelector for TTS voice fields without predefined options or manual input flag
+        if (service === "tts" && field === "voice" && !actualSchema?.allow_custom_input) {
             const hasVoiceOptions = actualSchema?.enum || actualSchema?.examples;
-            if (currentProvider !== "sarvam" && !hasVoiceOptions) {
+            if (!hasVoiceOptions) {
                 return (
                     <VoiceSelector
-                        provider={currentProvider}
+                        provider={serviceProviders.tts}
                         value={watch(`${service}_${field}`) as string || ""}
                         onChange={(voiceId) => {
                             setValue(`${service}_${field}`, voiceId, { shouldDirty: true });
@@ -477,39 +507,36 @@ export default function ServiceConfiguration() {
             }
         }
 
-        // Handle LLM model field with manual input toggle (uses examples from schema)
-        if (service === "llm" && field === "model" && actualSchema?.examples) {
-            const currentValue = watch(`${service}_${field}`) as string || "";
-            const modelOptions = actualSchema.examples;
+        // Generic allow_custom_input handler for any field (model, voice with options, etc.)
+        if (actualSchema?.allow_custom_input && actualSchema?.examples) {
+            const fieldKey = `${service}_${field}`;
+            const currentValue = watch(fieldKey) as string || "";
+            const options = actualSchema.examples;
 
-            if (isManualModelInput) {
+            if (isCustomInput[fieldKey]) {
                 return (
                     <div className="space-y-2">
                         <Input
                             type="text"
-                            placeholder="Enter model name"
+                            placeholder={`Enter ${field}`}
                             value={currentValue}
                             onChange={(e) => {
-                                setValue(`${service}_${field}`, e.target.value, { shouldDirty: true });
+                                setValue(fieldKey, e.target.value, { shouldDirty: true });
                             }}
                         />
                         <div className="flex items-center space-x-2">
                             <Checkbox
-                                id="manual-model-input"
-                                checked={isManualModelInput}
+                                id={`custom-input-${fieldKey}`}
+                                checked={true}
                                 onCheckedChange={(checked) => {
-                                    setIsManualModelInput(checked as boolean);
-                                    if (!checked && modelOptions.length > 0) {
-                                        // Reset to first option when switching back
-                                        setValue(`${service}_${field}`, modelOptions[0], { shouldDirty: true });
+                                    setIsCustomInput(prev => ({ ...prev, [fieldKey]: checked as boolean }));
+                                    if (!checked && options.length > 0) {
+                                        setValue(fieldKey, options[0], { shouldDirty: true });
                                     }
                                 }}
                             />
-                            <Label
-                                htmlFor="manual-model-input"
-                                className="text-sm font-normal cursor-pointer"
-                            >
-                                Add Model Manually
+                            <Label htmlFor={`custom-input-${fieldKey}`} className="text-sm font-normal cursor-pointer">
+                                Enter Custom Value
                             </Label>
                         </div>
                     </div>
@@ -522,14 +549,14 @@ export default function ServiceConfiguration() {
                         value={currentValue}
                         onValueChange={(value) => {
                             if (!value) return;
-                            setValue(`${service}_${field}`, value, { shouldDirty: true });
+                            setValue(fieldKey, value, { shouldDirty: true });
                         }}
                     >
                         <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Select model" />
+                            <SelectValue placeholder={`Select ${field}`} />
                         </SelectTrigger>
                         <SelectContent>
-                            {modelOptions.map((value: string) => (
+                            {options.map((value: string) => (
                                 <SelectItem key={value} value={value}>
                                     {value}
                                 </SelectItem>
@@ -538,17 +565,14 @@ export default function ServiceConfiguration() {
                     </Select>
                     <div className="flex items-center space-x-2">
                         <Checkbox
-                            id="manual-model-input-dropdown"
-                            checked={isManualModelInput}
+                            id={`custom-input-${fieldKey}-dropdown`}
+                            checked={false}
                             onCheckedChange={(checked) => {
-                                setIsManualModelInput(checked as boolean);
+                                setIsCustomInput(prev => ({ ...prev, [fieldKey]: checked as boolean }));
                             }}
                         />
-                        <Label
-                            htmlFor="manual-model-input-dropdown"
-                            className="text-sm font-normal cursor-pointer"
-                        >
-                            Add Model Manually
+                        <Label htmlFor={`custom-input-${fieldKey}-dropdown`} className="text-sm font-normal cursor-pointer">
+                            Enter Custom Value
                         </Label>
                     </div>
                 </div>
@@ -616,6 +640,9 @@ export default function ServiceConfiguration() {
         );
     };
 
+    const visibleTabs = isRealtime ? REALTIME_TABS : STANDARD_TABS;
+    const defaultTab = isRealtime ? "realtime" : "llm";
+
     return (
         <div className="w-full max-w-2xl mx-auto">
             <div className="mb-6">
@@ -626,18 +653,35 @@ export default function ServiceConfiguration() {
             </div>
 
             <form onSubmit={handleSubmit(onSubmit)}>
+                {/* Realtime toggle */}
+                <div className="flex items-center justify-between mb-4 p-4 border rounded-lg">
+                    <div>
+                        <Label htmlFor="realtime-toggle" className="text-sm font-medium">
+                            Realtime Mode
+                        </Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Uses a single speech-to-speech model (no separate STT/TTS)
+                        </p>
+                    </div>
+                    <Switch
+                        id="realtime-toggle"
+                        checked={isRealtime}
+                        onCheckedChange={setIsRealtime}
+                    />
+                </div>
+
                 <Card>
                     <CardContent className="pt-6">
-                        <Tabs defaultValue="llm" className="w-full">
-                            <TabsList className="grid w-full grid-cols-4 mb-6">
-                                {TAB_CONFIG.map(({ key, label }) => (
+                        <Tabs key={defaultTab} defaultValue={defaultTab} className="w-full">
+                            <TabsList className="grid w-full mb-6" style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)` }}>
+                                {visibleTabs.map(({ key, label }) => (
                                     <TabsTrigger key={key} value={key}>
                                         {label}
                                     </TabsTrigger>
                                 ))}
                             </TabsList>
 
-                            {TAB_CONFIG.map(({ key }) => (
+                            {visibleTabs.map(({ key }) => (
                                 <TabsContent key={key} value={key} className="mt-0">
                                     {renderServiceFields(key)}
                                 </TabsContent>

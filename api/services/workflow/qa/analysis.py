@@ -59,7 +59,14 @@ async def _generate_conversation_summary(
         )
 
         span_name = f"conversation-summary-before-{node_name}"
-        add_qa_span_to_trace(parent_ctx, model, messages, summary, span_name)
+        add_qa_span_to_trace(
+            parent_ctx,
+            model,
+            messages,
+            summary,
+            span_name,
+            CONVERSATION_SUMMARY_SYSTEM_PROMPT,
+        )
 
         return summary
     except Exception as e:
@@ -189,7 +196,9 @@ async def run_per_node_qa_analysis(
 
         # Trace
         span_name = f"qa-node-{node_name}"
-        add_qa_span_to_trace(parent_ctx, model, messages, raw_response, span_name)
+        add_qa_span_to_trace(
+            parent_ctx, model, messages, raw_response, span_name, system_content
+        )
 
         # Parse response
         node_result: dict[str, Any] = {
@@ -299,7 +308,9 @@ async def _run_whole_call_qa_analysis(
 
     # Langfuse tracing
     parent_ctx = setup_langfuse_parent_context(workflow_run)
-    add_qa_span_to_trace(parent_ctx, model, messages, raw_response, "qa-analysis")
+    add_qa_span_to_trace(
+        parent_ctx, model, messages, raw_response, "qa-analysis", system_content
+    )
 
     return {
         "node_results": {"whole_call": node_result},

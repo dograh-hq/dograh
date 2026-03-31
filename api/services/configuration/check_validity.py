@@ -46,7 +46,9 @@ class UserConfigurationValidator:
             ServiceProviders.SPEECHMATICS.value: self._check_speechmatics_api_key,
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
-            ServiceProviders.SELF_HOSTED.value: self._check_self_hosted_api_key,
+            ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
+            ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
+            ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
         }
 
     async def validate(
@@ -70,6 +72,13 @@ class UserConfigurationValidator:
                 configuration.embeddings, "embeddings", required=False
             )
         )
+        # Realtime is optional - only validate if is_realtime is enabled
+        if configuration.is_realtime:
+            status_list.extend(
+                self._validate_service(
+                    configuration.realtime, "realtime", required=True
+                )
+            )
 
         if status_list:
             raise ValueError(status_list)
@@ -90,10 +99,10 @@ class UserConfigurationValidator:
 
         provider = service_config.provider
 
-        # Self-hosted doesn't require an API key
-        if provider == ServiceProviders.SELF_HOSTED.value:
+        # Speaches doesn't require an API key
+        if provider == ServiceProviders.SPEACHES.value:
             try:
-                if not self._check_self_hosted_api_key(provider, service_config):
+                if not self._check_speaches_api_key(provider, service_config):
                     return [
                         {
                             "model": service_name,
@@ -199,9 +208,9 @@ class UserConfigurationValidator:
     def _check_camb_api_key(self, model: str, api_key: str) -> bool:
         return True
 
-    def _check_self_hosted_api_key(self, model: str, service_config) -> bool:
+    def _check_speaches_api_key(self, model: str, service_config) -> bool:
         if not getattr(service_config, "base_url", None):
-            raise ValueError("base_url is required for self-hosted LLM")
+            raise ValueError("base_url is required for Speaches services")
         return True
 
     def _check_aws_bedrock_api_key(self, model: str, service_config) -> bool:

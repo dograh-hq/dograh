@@ -27,11 +27,17 @@ from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.services.openai.stt import OpenAISTTService, OpenAISTTSettings
+from pipecat.services.openai.stt import (
+    OpenAISTTService,
+    OpenAISTTSettings,
+)
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
+from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
+from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
+from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
 from pipecat.services.speechmatics.stt import (
     SpeechmaticsSTTService,
     SpeechmaticsSTTSettings,
@@ -58,7 +64,6 @@ def create_stt_service(
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         # Check if using Flux model (English-only, no language selection)
         if user_config.stt.model == "flux-general-en":
-            logger.debug("Using DeepGram Flux Model")
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
                 settings=DeepgramFluxSTTSettings(
@@ -137,6 +142,20 @@ def create_stt_service(
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.SPEACHES.value:
+        base_url = user_config.stt.base_url.replace("http://", "ws://").replace(
+            "https://", "wss://"
+        )
+        language = getattr(user_config.stt, "language", None) or "multi"
+        return SpeachesSTTService(
+            base_url=base_url,
+            api_key=user_config.stt.api_key or "none",
+            settings=SpeachesSTTSettings(
+                model=user_config.stt.model,
+                language=language,
+            ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:
         from pipecat.services.speechmatics.stt import (
             AdditionalVocabEntry,
@@ -186,6 +205,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             settings=DeepgramTTSSettings(voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
@@ -193,6 +213,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
@@ -212,6 +233,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 similarity_boost=0.75,
             ),
             text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.CARTESIA.value:
@@ -231,6 +253,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 ),
             ),
             text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.DOGRAH.value:
@@ -245,6 +268,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 speed=user_config.tts.speed,
             ),
             text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.CAMB.value:
@@ -257,10 +281,24 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             voice_id=voice_id,
             model=user_config.tts.model,
             text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
         )
         # Set language directly as BCP-47 code (bypasses Language enum conversion)
         tts._settings.language = language
         return tts
+    elif user_config.tts.provider == ServiceProviders.SPEACHES.value:
+        return SpeachesTTSService(
+            base_url=user_config.tts.base_url,
+            api_key=user_config.tts.api_key or "none",
+            settings=SpeachesTTSSettings(
+                model=user_config.tts.model,
+                voice=user_config.tts.voice,
+                speed=user_config.tts.speed,
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
+            silence_time_s=1.0,
+        )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
         # Map Sarvam language code to pipecat Language enum for TTS
         language_mapping = {
@@ -288,6 +326,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 language=pipecat_language,
             ),
             text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
             silence_time_s=1.0,
         )
     else:
@@ -363,14 +402,78 @@ def create_llm_service_from_provider(
             aws_region=aws_region,
             settings=AWSBedrockLLMSettings(model=model),
         )
-    elif provider == ServiceProviders.SELF_HOSTED.value:
-        return OpenAILLMService(
+    elif provider == ServiceProviders.SPEACHES.value:
+        return SpeachesLLMService(
             base_url=base_url or "http://localhost:11434/v1",
             api_key=api_key or "none",
-            settings=OpenAILLMSettings(model=model),
+            settings=SpeachesLLMSettings(model=model),
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
+
+
+def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
+    """Create a realtime (speech-to-speech) LLM service that handles STT+LLM+TTS.
+
+    These services bypass separate STT/TTS and handle audio directly via
+    a bidirectional WebSocket connection. Reads from user_config.realtime.
+    """
+    realtime_config = user_config.realtime
+    provider = realtime_config.provider
+    model = realtime_config.model
+    api_key = realtime_config.api_key
+    voice = getattr(realtime_config, "voice", None)
+    language = getattr(realtime_config, "language", None)
+
+    logger.info(
+        f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}, language={language}"
+    )
+
+    if provider == ServiceProviders.OPENAI_REALTIME.value:
+        from pipecat.services.openai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            AudioOutput,
+            InputAudioTranscription,
+            SessionProperties,
+        )
+        from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
+
+        return OpenAIRealtimeLLMService(
+            api_key=api_key,
+            settings=OpenAIRealtimeLLMService.Settings(
+                model=model,
+                session_properties=SessionProperties(
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(),
+                        ),
+                        output=AudioOutput(
+                            voice=voice or "alloy",
+                        ),
+                    ),
+                ),
+            ),
+        )
+    elif provider == ServiceProviders.GOOGLE_REALTIME.value:
+        from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
+
+        # Gemini Live enables input/output audio transcription by default
+        # in its _connect() method — no need to configure it explicitly.
+        settings_kwargs = {
+            "model": model,
+            "voice": voice or "Puck",
+        }
+        if language:
+            settings_kwargs["language"] = language
+        return GeminiLiveLLMService(
+            api_key=api_key,
+            settings=GeminiLiveLLMService.Settings(**settings_kwargs),
+        )
+    else:
+        raise HTTPException(
+            status_code=400, detail=f"Invalid realtime LLM provider {provider}"
+        )
 
 
 def create_llm_service(user_config):
@@ -384,7 +487,7 @@ def create_llm_service(user_config):
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.AZURE.value:
         kwargs["endpoint"] = user_config.llm.endpoint
-    elif provider == ServiceProviders.SELF_HOSTED.value:
+    elif provider == ServiceProviders.SPEACHES.value:
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.AWS_BEDROCK.value:
         kwargs["aws_access_key"] = user_config.llm.aws_access_key

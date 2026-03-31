@@ -166,7 +166,9 @@ async def ensure_node_summaries(
             continue
 
         # Create a Langfuse trace for this summary generation
-        trace_url = create_node_summary_trace(model, messages, summary_text, node_name)
+        trace_url = create_node_summary_trace(
+            model, messages, summary_text, node_name, NODE_SUMMARY_SYSTEM_PROMPT
+        )
 
         entry: dict[str, Any] = {"summary": summary_text}
         if trace_url:

@@ -81,6 +81,7 @@
                   "voice-agent/end-call",
                   "voice-agent/agent",
                   "voice-agent/global",
+                  "voice-agent/qa",
                   "voice-agent/api-trigger",
                   "voice-agent/webhook"
                 ]

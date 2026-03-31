@@ -415,9 +415,10 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     model = realtime_config.model
     api_key = realtime_config.api_key
     voice = getattr(realtime_config, "voice", None)
+    language = getattr(realtime_config, "language", None)
 
     logger.info(
-        f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}"
+        f"Creating realtime LLM service: provider={provider}, model={model}, voice={voice}, language={language}"
     )
 
     if provider == ServiceProviders.OPENAI_REALTIME.value:
@@ -451,12 +452,15 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
 
         # Gemini Live enables input/output audio transcription by default
         # in its _connect() method — no need to configure it explicitly.
+        settings_kwargs = {
+            "model": model,
+            "voice": voice or "Puck",
+        }
+        if language:
+            settings_kwargs["language"] = language
         return GeminiLiveLLMService(
             api_key=api_key,
-            settings=GeminiLiveLLMService.Settings(
-                model=model,
-                voice=voice or "Puck",  # vad=GeminiVADParams(disabled=True)
-            ),
+            settings=GeminiLiveLLMService.Settings(**settings_kwargs),
         )
     else:
         raise HTTPException(

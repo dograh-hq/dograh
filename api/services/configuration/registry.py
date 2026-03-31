@@ -318,6 +318,9 @@ OPENAI_REALTIME_VOICES = [
 
 GOOGLE_REALTIME_MODELS = ["gemini-3.1-flash-live-preview"]
 GOOGLE_REALTIME_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
+GOOGLE_REALTIME_LANGUAGES = [
+    "en"
+]
 
 
 @register_service(ServiceType.REALTIME)
@@ -326,7 +329,7 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
         ServiceProviders.GOOGLE_REALTIME
     )
     model: str = Field(
-        default="gemini-2.0-flash-live-001",
+        default="gemini-3.1-flash-live-preview",
         json_schema_extra={
             "examples": GOOGLE_REALTIME_MODELS,
             "allow_custom_input": True,
@@ -336,6 +339,13 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
         default="Puck",
         json_schema_extra={
             "examples": GOOGLE_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    language: str = Field(
+        default="en",
+        json_schema_extra={
+            "examples": GOOGLE_REALTIME_LANGUAGES,
             "allow_custom_input": True,
         },
     )

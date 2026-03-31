@@ -220,7 +220,7 @@ class VariableExtractionManager:
                     service_name=self._engine.llm.__class__.__name__,
                     model=model_name,
                     operation_name="llm-variable-extraction",
-                    messages=extraction_messages,
+                    messages=[{"role": "system", "content": system_prompt}] + extraction_messages,
                     output=llm_response,
                     stream=False,
                     parameters={},

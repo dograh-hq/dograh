@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.20.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.19.2...dograh-v1.20.0) (2026-03-31)
+
+
+### Features
+
+* add gemini live and speaches integration ([#220](https://github.com/dograh-hq/dograh/issues/220)) ([87e72d5](https://github.com/dograh-hq/dograh/commit/87e72d5f6f21a7ba1de5c03b80ec336f65073ba1))
+* add QA node documentation ([0b3a8bc](https://github.com/dograh-hq/dograh/commit/0b3a8bca4669b2f1ce5455db73ad8dd06a9616f0))
+* date range in download report ([0b5fd10](https://github.com/dograh-hq/dograh/commit/0b5fd107fabd7627a3506e43ebb28feb1655ac3a))
+
+
+### Bug Fixes
+
+* add disposition codes in workflows ([9bc2ffc](https://github.com/dograh-hq/dograh/commit/9bc2ffc193968b8b4c5ccb17bb0a3622af96ac3a))
+* resize chatwoot icon for workflow run page ([#217](https://github.com/dograh-hq/dograh/issues/217)) ([bb263a4](https://github.com/dograh-hq/dograh/commit/bb263a4162a15c61b5b3b8d66a3648829adc62a9))
+* skip updating gathered_context when the extracted variables is not a dict ([#219](https://github.com/dograh-hq/dograh/issues/219)) ([e0c3d6c](https://github.com/dograh-hq/dograh/commit/e0c3d6c3bfe3306f3958e33aa56d65bc66667544))
+
 ## [1.19.2](https://github.com/dograh-hq/dograh/compare/dograh-v1.19.1...dograh-v1.19.2) (2026-03-26)
 
 

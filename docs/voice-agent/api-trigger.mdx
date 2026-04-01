@@ -1,17 +1,75 @@
 ---
 title: "API Trigger"
-description: "API Trigger helps you trigger your Voice Agent using external systems, like N8n or Zapier"
+description: "Trigger outbound calls from external systems like n8n, Zapier, or your own backend"
 ---
 
-### API Payload 
-The API Trigger is a POST request, which requires an [API Key](../configurations/api-keys). It expects a valid JSON with `phone_number` and `initial_context`. 
+The API Trigger node lets you initiate outbound calls to your voice agent programmatically. When you add an API Trigger node to your workflow, Dograh generates a unique endpoint URL that external systems can call to start a conversation.
 
-### Initial Context
-`initial_context` is a valid JSON object, which contains any contextual information that you would want your voice agent to access. You can refer to these values in your prompts using **Handle Bars**, which are values enclosed in `{{` and `}}`. 
+This is useful when you want to trigger calls from your own backend, a CRM, or workflow tools like n8n and Zapier.
 
-Example: If you have below JSON as your `initial_context`
+## Prerequisites
+
+- A configured [telephony provider](/integrations/telephony/overview) — outbound calls will fail without one
+- An [API key](/configurations/api-keys) for authentication
+
+## Finding your trigger URL
+
+When you add an API Trigger node to your workflow, Dograh assigns it a unique UUID. You can find this UUID in the dashboard URL when viewing the agent, or in the trigger node settings.
+
+Your trigger endpoint is:
+
 ```
+POST https://your-dograh-instance/api/v1/public/agent/{uuid}
+```
+
+If you are using the hosted version, replace `your-dograh-instance` with `api.dograh.com`.
+
+## Making a request
+
+Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts an optional `initial_context` object.
+
+```bash
+curl -X POST https://your-dograh-instance/api/v1/public/agent/{uuid} \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dg_your_api_key" \
+  -d '{
+    "phone_number": "+14155550100",
+    "initial_context": {
+      "customer_name": "Jane",
+      "appointment_date": "March 15"
+    }
+  }'
+```
+
+### Response
+
+A successful request returns a `workflow_run_id` that you can use to [retrieve call details](/api-reference/calls/get-run), recordings, and transcripts.
+
+```json
 {
+  "status": "initiated",
+  "workflow_run_id": 12345,
+  "workflow_run_name": "WR-API-7823"
+}
+```
+
+### Error responses
+
+| Status | Cause |
+|---|---|
+| `400` | Telephony provider not configured, or call failed to initiate |
+| `401` | Missing or invalid API key |
+| `403` | API key does not have access to this agent |
+| `404` | Trigger not found or not active |
+
+## Initial context
+
+`initial_context` is a JSON object containing any information you want your voice agent to access during the call. You can reference these values in your prompts using [template variables](/voice-agent/template-variables) — values enclosed in `{{` and `}}`.
+
+For example, if your request includes:
+```json
+{
+    "phone_number": "+14155550100",
     "initial_context": {
         "user": {
             "name": "John"
@@ -20,4 +78,10 @@ Example: If you have below JSON as your `initial_context`
 }
 ```
 
-you can refer to the user name in your prompts as `{{initial_context.user.name}}`.
+You can reference the user's name in your prompt as `{{initial_context.user.name}}`.
+
+See [Context & Variables](/core-concepts/context-and-variables) for more on how data flows through a call.
+
+<Note>
+For full endpoint details including all parameters and response fields, see the [API reference](/api-reference/calls/trigger).
+</Note>

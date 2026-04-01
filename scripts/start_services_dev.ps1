@@ -26,6 +26,7 @@ $EnvFile    = Join-Path $BaseDir 'api/.env'
 $RunDir     = Join-Path $BaseDir 'run'
 $LogsRoot   = Join-Path $BaseDir 'logs'
 $LatestDir  = Join-Path $LogsRoot 'latest'
+$VenvPath   = Join-Path $BaseDir 'venv'
 
 Write-Host "Starting Dograh Services (DEV MODE) in BASE_DIR: $BaseDir"
 Write-Host "Auto-reload enabled for api/ directory changes"
@@ -66,7 +67,21 @@ for ($i = 1; $i -le $ArqWorkers; $i++) {
 }
 
 ###############################################################################
-### 3) Stop old services
+### 3) Activate virtual environment
+###############################################################################
+
+$VenvActivateScript = Join-Path $VenvPath 'Scripts/Activate.ps1'
+
+if (Test-Path $VenvActivateScript) {
+    . $VenvActivateScript
+    Write-Host "Virtual environment activated: $VenvPath"
+} else {
+    Write-Host "Warning: Virtual environment not found at $VenvPath"
+    Write-Host "Continuing without virtual environment activation..."
+}
+
+###############################################################################
+### 4) Stop old services
 ###############################################################################
 
 New-Item -ItemType Directory -Path $RunDir -Force | Out-Null
@@ -85,7 +100,7 @@ foreach ($spec in $serviceSpecs) {
 }
 
 ###############################################################################
-### 4) Run migrations
+### 5) Run migrations
 ###############################################################################
 
 if (-not $NoMigrations) {
@@ -93,14 +108,14 @@ if (-not $NoMigrations) {
 }
 
 ###############################################################################
-### 5) Prepare logs
+### 6) Prepare logs
 ###############################################################################
 
 New-Item -ItemType Directory -Path $LatestDir -Force | Out-Null
 Get-ChildItem $LatestDir -Filter '*.log' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 
 ###############################################################################
-### 6) Start services
+### 7) Start services
 ###############################################################################
 
 foreach ($spec in $serviceSpecs) {
@@ -118,7 +133,7 @@ foreach ($spec in $serviceSpecs) {
 }
 
 ###############################################################################
-### 7) Summary
+### 8) Summary
 ###############################################################################
 
 Write-Host ""

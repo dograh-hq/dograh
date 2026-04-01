@@ -7,6 +7,13 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BaseDir   = Split-Path -Parent $ScriptDir
 Set-Location $BaseDir
 
+# Ensure repository root is importable for Alembic env/module resolution.
+if ($env:PYTHONPATH) {
+    $env:PYTHONPATH = "$BaseDir;$($env:PYTHONPATH)"
+} else {
+    $env:PYTHONPATH = $BaseDir
+}
+
 $EnvFile = Join-Path $BaseDir 'api/.env'
 
 # Load environment variables

@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { CONTEXT_VARIABLES_DOC_URL, NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -216,7 +216,7 @@ const EndCallEditForm = ({
 
             <Label>Prompt</Label>
             <Label className="text-xs text-muted-foreground">
-                Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Prompt engineering&apos;s best practices apply.
+                Enter the prompt for the agent. This will be used to generate the agent&apos;s response. Supports <a href={CONTEXT_VARIABLES_DOC_URL} target="_blank" rel="noopener noreferrer" className="underline">template variables</a>
             </Label>
             <MentionTextarea
                 value={prompt}

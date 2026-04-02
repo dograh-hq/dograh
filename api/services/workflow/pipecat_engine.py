@@ -47,7 +47,6 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
 from api.services.workflow.tools.knowledge_base import (
     retrieve_from_knowledge_base,
 )
-from api.services.workflow.tools.timezone import get_current_time
 from api.utils.template_renderer import render_template
 
 
@@ -148,15 +147,6 @@ class PipecatEngine:
 
             # Helper that encapsulates custom tool management
             self._custom_tool_manager = CustomToolManager(self)
-
-            # Add current time in EST (America/New_York) to gathered context
-            try:
-                est_time_result = get_current_time("America/New_York")
-                # The get_current_time utility returns a dict with 'datetime' field
-                # Store the ISO formatted datetime string under the key 'time'
-                self._gathered_context["time"] = est_time_result.get("datetime")
-            except Exception as e:
-                logger.error(f"Failed to fetch current EST time: {e}")
 
             await self.set_node(self.workflow.start_node_id)
 

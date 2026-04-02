@@ -9,7 +9,7 @@ import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { CONTEXT_VARIABLES_DOC_URL, NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -145,7 +145,7 @@ const GlobalNodeEditForm = ({
 
             <Label>Prompt</Label>
             <Label className="text-xs text-muted-foreground">
-                This is the global prompt. This will be added to the system prompt of all the agents.
+                This is the global prompt. This will be added to the system prompt of all the agents. Supports <a href={CONTEXT_VARIABLES_DOC_URL} target="_blank" rel="noopener noreferrer" className="underline">template variables</a>
             </Label>
             <MentionTextarea
                 value={prompt}

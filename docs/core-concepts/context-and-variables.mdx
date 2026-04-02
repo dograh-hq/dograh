@@ -45,6 +45,27 @@ whether they'd like to continue.
 
 When the call starts, Dograh substitutes the values before sending the prompt to the LLM — so the agent speaks naturally as if it already knows the contact.
 
+### Built-in template variables
+
+Dograh provides built-in variables for current time and weekday that you can use in any prompt without setting up `initial_context`.
+
+| Variable | Description | Example output |
+|---|---|---|
+| `{{current_time}}` | Current time in UTC (or inferred timezone) | `2026-04-02 14:30:45 UTC` |
+| `{{current_time_<TIMEZONE>}}` | Current time in the specified timezone | `2026-04-02 20:00:45 IST` |
+| `{{current_weekday}}` | Current weekday name in UTC (or inferred timezone) | `Thursday` |
+| `{{current_weekday_<TIMEZONE>}}` | Current weekday name in the specified timezone | `Thursday` |
+
+Replace `<TIMEZONE>` with an [IANA timezone name](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) such as `Asia/Kolkata`, `America/New_York`, or `Europe/London`.
+
+```
+Today is {{current_weekday}} and the current time is {{current_time_America/New_York}}.
+```
+
+<Note>
+When you use a timezone suffix on **either** `current_time` or `current_weekday`, the other variable without a suffix will automatically use the same timezone instead of UTC. For example, if your prompt contains both `{{current_time_Asia/Kolkata}}` and `{{current_weekday}}`, the weekday will also be resolved in `Asia/Kolkata`.
+</Note>
+
 ### gathered_context
 
 Data the agent collects *during* the call. You configure what to extract in the agent node's extraction settings — each variable has a name, type, and a prompt that tells the LLM what to look for.

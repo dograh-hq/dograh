@@ -45,9 +45,9 @@ whether they'd like to continue.
 
 When the call starts, Dograh substitutes the values before sending the prompt to the LLM — so the agent speaks naturally as if it already knows the contact.
 
-### Built-in template variables
+### Default variables
 
-Dograh provides built-in variables for current time and weekday that you can use in any prompt without setting up `initial_context`.
+Built-in variables for current time and weekday, available in any prompt without setting up `initial_context`.
 
 | Variable | Description | Example output |
 |---|---|---|
@@ -65,6 +65,21 @@ Today is {{current_weekday}} and the current time is {{current_time_America/New_
 <Note>
 When you use a timezone suffix on **either** `current_time` or `current_weekday`, the other variable without a suffix will automatically use the same timezone instead of UTC. For example, if your prompt contains both `{{current_time_Asia/Kolkata}}` and `{{current_weekday}}`, the weekday will also be resolved in `Asia/Kolkata`.
 </Note>
+
+### Telephony variables
+
+For telephony calls (inbound and outbound), Dograh automatically adds these variables to `initial_context`:
+
+| Variable | Description | Example |
+|---|---|---|
+| `{{caller_number}}` | The phone number that initiated the call | `+14155550100` |
+| `{{called_number}}` | The phone number that received the call | `+18005550199` |
+
+For **inbound** calls, `caller_number` is the customer's number and `called_number` is your Dograh number. For **outbound** calls, it's the reverse — `caller_number` is your Dograh number and `called_number` is the customer's number.
+
+```
+You are speaking with the caller at {{caller_number}}.
+```
 
 ### gathered_context
 

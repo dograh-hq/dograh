@@ -150,6 +150,7 @@ class VobizProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=call_id,
                     status="queued",  # Vobiz returns "message": "call fired"
+                    caller_number=from_number,
                     provider_metadata={"call_id": call_id},
                     raw_response=response_data,
                 )

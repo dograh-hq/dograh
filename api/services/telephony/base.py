@@ -18,6 +18,7 @@ class CallInitiationResult:
 
     call_id: str  # Provider's call identifier (SID for Twilio, UUID for Vonage)
     status: str  # Initial status (e.g., "queued", "initiated", "started")
+    caller_number: Optional[str] = None  # Caller ID used for the outbound call
     provider_metadata: Dict[str, Any] = field(
         default_factory=dict
     )  # Data that needs to be persisted

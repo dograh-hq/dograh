@@ -143,6 +143,7 @@ class ARIProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=channel_id,
                     status=response_data.get("state", "created"),
+                    caller_number=from_number,
                     provider_metadata={
                         "call_id": channel_id,
                         "channel_name": response_data.get("name", ""),

@@ -187,6 +187,7 @@ async def initiate_call(
             call_type=CallType.OUTBOUND,
             initial_context={
                 "phone_number": phone_number,
+                "called_number": phone_number,
                 "provider": provider.PROVIDER_NAME,
             },
         )
@@ -220,13 +221,22 @@ async def initiate_call(
         **keywords,
     )
 
-    # Store provider type and any provider-specific metadata in workflow run context
+    # Store provider metadata and caller_number in workflow run context
     gathered_context = {
         "provider": provider.PROVIDER_NAME,
         **(result.provider_metadata or {}),
     }
+    # Merge caller_number into initial_context now that we know which number was used
+    updated_initial_context = {
+        **(workflow_run.initial_context or {}),
+        "called_number": phone_number,
+    }
+    if result.caller_number:
+        updated_initial_context["caller_number"] = result.caller_number
     await db_client.update_workflow_run(
-        run_id=workflow_run_id, gathered_context=gathered_context
+        run_id=workflow_run_id,
+        gathered_context=gathered_context,
+        initial_context=updated_initial_context,
     )
 
     return {"message": f"Call initiated successfully with run name {workflow_run_name}"}

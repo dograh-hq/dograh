@@ -111,6 +111,7 @@ class TwilioProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=response_data["sid"],
                     status=response_data.get("status", "queued"),
+                    caller_number=from_number,
                     provider_metadata={"call_id": response_data["sid"]},
                     raw_response=response_data,
                 )

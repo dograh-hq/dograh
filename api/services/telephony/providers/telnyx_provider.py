@@ -124,6 +124,7 @@ class TelnyxProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=call_control_id,
                     status="initiated",
+                    caller_number=from_number,
                     provider_metadata={
                         "call_control_id": call_control_id,
                         "call_leg_id": call_leg_id,

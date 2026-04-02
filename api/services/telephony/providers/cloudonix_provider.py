@@ -189,6 +189,7 @@ class CloudonixProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=session_token,
                     status="initiated",
+                    caller_number=from_number,
                     provider_metadata={
                         "call_id": session_token,
                         "domain_id": domain_id,

@@ -205,6 +205,8 @@ class CampaignCallDispatcher:
             "campaign_id": campaign.id,
             "provider": provider.PROVIDER_NAME,
             "source_uuid": queued_run.source_uuid,
+            "caller_number": from_number,
+            "called_number": phone_number,
         }
 
         logger.info(f"Final initial_context: {initial_context}")

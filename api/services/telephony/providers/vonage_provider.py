@@ -137,6 +137,7 @@ class VonageProvider(TelephonyProvider):
                 return CallInitiationResult(
                     call_id=response_data["uuid"],
                     status=response_data.get("status", "started"),
+                    caller_number=from_number,
                     provider_metadata={
                         "call_uuid": response_data["uuid"]
                     },  # Vonage needs UUID persisted for WebSocket

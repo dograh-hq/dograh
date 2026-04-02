@@ -31,7 +31,7 @@ import {
     renderToolIcon,
     type ToolCategory,
 } from "../config";
-import { EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
+import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 
 // Extended HttpApiConfig with parameters (until client types are regenerated)
 interface HttpApiConfigWithParams {
@@ -201,7 +201,9 @@ export default function ToolDetailPage() {
         if (!tool) return;
 
         // Validation based on tool type
-        if (tool.category === "transfer_call") {
+        if (tool.category === "calculator") {
+            // No validation needed for built-in tools
+        } else if (tool.category === "transfer_call") {
             // Validate destination for Transfer Call tools (supports both E.164 and SIP endpoints)
             const e164Pattern = /^\+[1-9]\d{1,14}$/;
             const sipPattern = /^(PJSIP|SIP)\/[\w\-\.@]+$/i;
@@ -236,7 +238,17 @@ export default function ToolDetailPage() {
 
             let requestBody;
 
-            if (tool.category === "end_call") {
+            if (tool.category === "calculator") {
+                // Built-in tool - only name/description, no config
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: {
+                        schema_version: 1,
+                        type: "calculator",
+                    },
+                };
+            } else if (tool.category === "end_call") {
                 // Build end call request body
                 requestBody = {
                     name,
@@ -400,6 +412,7 @@ const data = await response.json();`;
 
     const isEndCallTool = tool.category === "end_call";
     const isTransferCallTool = tool.category === "transfer_call";
+    const isBuiltinTool = tool.category === "calculator";
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
     return (
@@ -435,7 +448,7 @@ const data = await response.json();`;
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {!isEndCallTool && !isTransferCallTool && (
+                            {!isEndCallTool && !isTransferCallTool && !isBuiltinTool && (
                                 <Button
                                     variant="outline"
                                     onClick={() => setShowCodeDialog(true)}
@@ -458,7 +471,16 @@ const data = await response.json();`;
                         </div>
                     </div>
 
-                    {isEndCallTool ? (
+                    {isBuiltinTool ? (
+                        <BuiltinToolConfig
+                            name={name}
+                            onNameChange={setName}
+                            description={description}
+                            onDescriptionChange={setDescription}
+                            title="Calculator Configuration"
+                            subtitle="Built-in calculator for arithmetic operations. No additional configuration needed."
+                        />
+                    ) : isEndCallTool ? (
                         <EndCallToolConfig
                             name={name}
                             onNameChange={setName}

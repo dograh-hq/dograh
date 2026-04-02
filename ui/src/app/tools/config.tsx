@@ -1,11 +1,18 @@
 "use client";
 
-import { Cog, Globe, type LucideIcon, PhoneForwarded, PhoneOff, Puzzle } from "lucide-react";
+import { Calculator, Cog, Globe, type LucideIcon, PhoneForwarded, PhoneOff, Puzzle } from "lucide-react";
 import { type ReactNode } from "react";
 
-import type { EndCallConfig } from "@/client/types.gen";
+import type {
+    CalculatorToolDefinition,
+    EndCallConfig,
+    EndCallToolDefinition,
+    HttpApiToolDefinition,
+    TransferCallConfig,
+    TransferCallToolDefinition,
+} from "@/client/types.gen";
 
-export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "native" | "integration";
+export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration";
 
 export type EndCallMessageType = "none" | "custom";
 
@@ -57,6 +64,18 @@ export const TOOL_CATEGORIES: ToolCategoryConfig[] = [
         },
     },
     {
+        value: "calculator",
+        label: "Calculator",
+        description: "Built-in calculator for arithmetic operations",
+        icon: Calculator,
+        iconName: "calculator",
+        iconColor: "#F59E0B",
+        autoFill: {
+            name: "Calculator",
+            description: "Perform arithmetic calculations (supports +, -, *, /, **, %, and parentheses)",
+        },
+    },
+    {
         value: "native",
         label: "Native (Coming Soon)",
         description: "Built-in tools like call transfer, DTMF input",
@@ -103,6 +122,8 @@ export function getToolTypeLabel(category: string): string {
             return "Transfer Call Tool";
         case "http_api":
             return "HTTP API Tool";
+        case "calculator":
+            return "Calculator Tool";
         case "native":
             return "Native Tool";
         case "integration":
@@ -121,14 +142,6 @@ export const DEFAULT_END_CALL_CONFIG: EndCallConfig = {
     endCallReason: false,
 };
 
-// Transfer Call tool specific configuration
-export interface TransferCallConfig {
-    destination: string;
-    messageType: EndCallMessageType; // Reuse the same type
-    customMessage?: string;
-    timeout: number;
-}
-
 export const DEFAULT_TRANSFER_CALL_CONFIG: TransferCallConfig = {
     destination: "",
     messageType: "none",
@@ -136,38 +149,7 @@ export const DEFAULT_TRANSFER_CALL_CONFIG: TransferCallConfig = {
     timeout: 30,
 };
 
-// Tool definition types for different categories
-export interface HttpApiToolDefinition {
-    schema_version: number;
-    type: "http_api";
-    config: {
-        method: string;
-        url: string;
-        headers?: Record<string, string>;
-        credential_uuid?: string;
-        parameters?: Array<{
-            name: string;
-            type: string;
-            description: string;
-            required: boolean;
-        }>;
-        timeout_ms?: number;
-    };
-}
-
-export interface EndCallToolDefinition {
-    schema_version: number;
-    type: "end_call";
-    config: EndCallConfig;
-}
-
-export interface TransferCallToolDefinition {
-    schema_version: number;
-    type: "transfer_call";
-    config: TransferCallConfig;
-}
-
-export type ToolDefinition = HttpApiToolDefinition | EndCallToolDefinition | TransferCallToolDefinition;
+export type ToolDefinition = HttpApiToolDefinition | EndCallToolDefinition | TransferCallToolDefinition | CalculatorToolDefinition;
 
 export function createEndCallDefinition(config: EndCallConfig): EndCallToolDefinition {
     return {
@@ -196,12 +178,21 @@ export function createHttpApiDefinition(): HttpApiToolDefinition {
     };
 }
 
+export function createCalculatorDefinition(): CalculatorToolDefinition {
+    return {
+        schema_version: 1,
+        type: "calculator",
+    };
+}
+
 export function createToolDefinition(category: ToolCategory): ToolDefinition {
     switch (category) {
         case "end_call":
             return createEndCallDefinition(DEFAULT_END_CALL_CONFIG);
         case "transfer_call":
             return createTransferCallDefinition(DEFAULT_TRANSFER_CALL_CONFIG);
+        case "calculator":
+            return createCalculatorDefinition();
         case "http_api":
         default:
             return createHttpApiDefinition();

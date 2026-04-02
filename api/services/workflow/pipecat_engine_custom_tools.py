@@ -23,6 +23,7 @@ from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.disposition_mapper import (
     get_organization_id_from_workflow_run,
 )
+from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
@@ -105,6 +106,20 @@ class CustomToolManager:
 
             schemas: list[FunctionSchema] = []
             for tool in tools:
+                if tool.category == ToolCategory.CALCULATOR.value:
+                    # Built-in calculator: return pre-defined schemas
+                    for tool_def in get_calculator_tools():
+                        func = tool_def["function"]
+                        schemas.append(
+                            get_function_schema(
+                                func["name"],
+                                func["description"],
+                                properties=func["parameters"]["properties"],
+                                required=func["parameters"]["required"],
+                            )
+                        )
+                    continue
+
                 raw_schema = tool_to_function_schema(tool)
                 function_name = raw_schema["function"]["name"]
 
@@ -146,6 +161,14 @@ class CustomToolManager:
             tools = await db_client.get_tools_by_uuids(tool_uuids, organization_id)
 
             for tool in tools:
+                if tool.category == ToolCategory.CALCULATOR.value:
+                    self._register_calculator_handler()
+                    logger.debug(
+                        f"Registered calculator tool handler "
+                        f"(tool_uuid: {tool.tool_uuid})"
+                    )
+                    continue
+
                 schema = tool_to_function_schema(tool)
                 function_name = schema["function"]["name"]
 
@@ -192,6 +215,23 @@ class CustomToolManager:
             handler = self._create_http_tool_handler(tool, function_name)
 
         return handler, timeout_secs, cancel_on_interruption
+
+    def _register_calculator_handler(self) -> None:
+        """Register the built-in calculator function with the LLM."""
+
+        async def calculate_func(function_call_params: FunctionCallParams) -> None:
+            logger.info("LLM Function Call EXECUTED: safe_calculator")
+            logger.info(f"Arguments: {function_call_params.arguments}")
+            try:
+                expr = function_call_params.arguments.get("expression", "")
+                result = safe_calculator(expr)
+                await function_call_params.result_callback(
+                    {"expression": expr, "result": result}
+                )
+            except Exception as e:
+                await function_call_params.result_callback({"error": str(e)})
+
+        self._engine.llm.register_function("safe_calculator", calculate_func)
 
     def _create_http_tool_handler(self, tool: Any, function_name: str):
         """Create a handler function for an HTTP API tool.

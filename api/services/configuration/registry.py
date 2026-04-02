@@ -318,9 +318,7 @@ OPENAI_REALTIME_VOICES = [
 
 GOOGLE_REALTIME_MODELS = ["gemini-3.1-flash-live-preview"]
 GOOGLE_REALTIME_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
-GOOGLE_REALTIME_LANGUAGES = [
-    "en"
-]
+GOOGLE_REALTIME_LANGUAGES = ["en"]
 
 
 @register_service(ServiceType.REALTIME)

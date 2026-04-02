@@ -86,26 +86,22 @@ def compose_system_prompt_for_node(
 async def compose_functions_for_node(
     *,
     node: "Node",
-    builtin_function_schemas: list[dict],
     custom_tool_manager: Optional["CustomToolManager"],
 ) -> list[dict]:
     """Compose the function/tool schemas for a workflow node.
 
-    Gathers built-in tools, knowledge-base tools, custom tools,
-    and transition function schemas into a single list.
+    Gathers knowledge-base tools, custom tools (including built-in
+    categories like calculator), and transition function schemas
+    into a single list.
 
     Args:
         node: The workflow node to compose functions for.
-        builtin_function_schemas: Pre-computed schemas for built-in tools.
-        custom_tool_manager: Manager for user-defined custom tools (may be None).
+        custom_tool_manager: Manager for custom and built-in tools (may be None).
 
     Returns:
         A list of function schemas to register with the LLM.
     """
     functions: list[dict] = []
-
-    # Built-in tools (calculator, timezone)
-    functions.extend(builtin_function_schemas)
 
     # Knowledge base retrieval tool
     if node.document_uuids:

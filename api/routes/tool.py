@@ -134,9 +134,21 @@ class TransferCallToolDefinition(BaseModel):
     config: TransferCallConfig = Field(description="Transfer Call configuration")
 
 
+class CalculatorToolDefinition(BaseModel):
+    """Tool definition for Calculator tools (no configuration needed)."""
+
+    schema_version: int = Field(default=1, description="Schema version")
+    type: Literal["calculator"] = Field(description="Tool type")
+
+
 # Union type for tool definitions - Pydantic will discriminate based on 'type' field
 ToolDefinition = Annotated[
-    Union[HttpApiToolDefinition, EndCallToolDefinition, TransferCallToolDefinition],
+    Union[
+        HttpApiToolDefinition,
+        EndCallToolDefinition,
+        TransferCallToolDefinition,
+        CalculatorToolDefinition,
+    ],
     Field(discriminator="type"),
 ]
 

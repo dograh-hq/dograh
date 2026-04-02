@@ -85,6 +85,20 @@ export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
     language?: string;
 };
 
+/**
+ * Tool definition for Calculator tools (no configuration needed).
+ */
+export type CalculatorToolDefinition = {
+    /**
+     * Schema version
+     */
+    schema_version?: number;
+    /**
+     * Tool type
+     */
+    type: 'calculator';
+};
+
 export type CallDispositionCodes = {
     disposition_codes?: Array<string>;
 };
@@ -328,7 +342,9 @@ export type CreateToolRequest = {
         type?: 'end_call';
     } & EndCallToolDefinition) | ({
         type?: 'transfer_call';
-    } & TransferCallToolDefinition);
+    } & TransferCallToolDefinition) | ({
+        type?: 'calculator';
+    } & CalculatorToolDefinition);
 };
 
 export type CreateWorkflowRequest = {
@@ -1290,7 +1306,9 @@ export type UpdateToolRequest = {
         type?: 'end_call';
     } & EndCallToolDefinition) | ({
         type?: 'transfer_call';
-    } & TransferCallToolDefinition)) | null;
+    } & TransferCallToolDefinition) | ({
+        type?: 'calculator';
+    } & CalculatorToolDefinition)) | null;
     status?: string | null;
 };
 

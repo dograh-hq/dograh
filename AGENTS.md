@@ -35,6 +35,12 @@ dograh/
 ./scripts/stop_services.sh
 ```
 
+On Windows (PowerShell):
+```powershell
+.\scripts\start_services_dev.ps1
+.\scripts\stop_services.ps1
+```
+
 ## Environment Configuration
 
 - `api/.env` - Backend environment variables

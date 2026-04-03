@@ -9,11 +9,17 @@ description: "Common issues and solutions for running Dograh AI"
 
 ### When a port is already in use:
 ##### Check what's using the port first and then kill the process (may require sudo on Linux)
-```bash
+<CodeGroup>
+```bash macOS/Linux
 lsof -i :3010
-
 kill -9 $(lsof -t -i :3010)
 ```
+```powershell Windows
+netstat -ano | findstr :3010
+# Find the PID in the last column, then:
+Stop-Process -Id <PID> -Force
+```
+</CodeGroup>
 
 ### When Docker containers are using the ports (with auto-restart enabled):
 

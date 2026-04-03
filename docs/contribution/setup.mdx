@@ -8,9 +8,13 @@ If the below steps do not work out for you, it would be great if you can open an
 
 ### System Requirements
 - git to clone the forked repository
-- Node.js 24 to run the UI (we recommend using [NVM](https://github.com/nvm-sh/nvm) to manage your node versions locally)
+- Node.js 24 to run the UI (we recommend using [NVM](https://github.com/nvm-sh/nvm) on macOS/Linux or [NVM for Windows](https://github.com/coreybutler/nvm-windows) on Windows to manage your node versions locally)
 - Python 3.13 to run the backend
 - Docker to run the database and redis cache locally
+
+<Note>
+All commands below are shown for **macOS / Linux**. Expand the **Windows** tab for the PowerShell equivalent where it differs.
+</Note>
 
 ### Steps
 1. Fork the Dograh repository by going to https://github.com/dograh-hq/dograh
@@ -20,10 +24,16 @@ git clone https://github.com/<GITHUB_HANDLE>/dograh
 cd dograh
 ```
 3. Create a python virtual environment
-```
+<CodeGroup>
+```bash macOS/Linux
 python3 -m venv venv
 source venv/bin/activate
 ```
+```powershell Windows
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+</CodeGroup>
 4. Install the requirements
 ```
 pip install -r api/requirements.txt
@@ -50,25 +60,51 @@ CONTAINER ID   IMAGE         COMMAND                  CREATED          STATUS   
 a57e3e92b02c   minio/minio   "/usr/bin/docker-ent…"   18 seconds ago   Up 18 seconds (healthy)   127.0.0.1:9000-9001->9000-9001/tcp            dograh-minio-1
 ```
 8. Setup environment variables
-``
+<CodeGroup>
+```bash macOS/Linux
 cp api/.env.example api/.env && cp ui/.env.example ui/.env
-``
-9. Setup pipecat git submodule
 ```
+```powershell Windows
+Copy-Item api/.env.example api/.env
+Copy-Item ui/.env.example ui/.env
+```
+</CodeGroup>
+9. Setup pipecat git submodule
+<CodeGroup>
+```bash macOS/Linux
 bash scripts/setup_pipecat.sh
 ```
-10. Start backend services 
+```powershell Windows
+.\scripts\setup_pipecat.ps1
 ```
+</CodeGroup>
+10. Start backend services 
+<CodeGroup>
+```bash macOS/Linux
 bash scripts/start_services_dev.sh
 ```
+```powershell Windows
+.\scripts\start_services_dev.ps1
+```
+</CodeGroup>
 Verify that your backend server is running
+<CodeGroup>
+```bash macOS/Linux
+curl -X GET localhost:8000/api/v1/health
 ```
-curl -X GET localhost:8000/api/v1/health                                                                                                                                                                  
+```powershell Windows
+curl.exe http://localhost:8000/api/v1/health
 ```
+</CodeGroup>
 You would be able to see the logs in logs/ directory.
-```
+<CodeGroup>
+```bash macOS/Linux
 tail -f logs/latest/*.log
 ```
+```powershell Windows
+Get-Content logs/latest/*.log -Wait
+```
+</CodeGroup>
 11. Start the UI
 ```
 cd ui && npm run dev

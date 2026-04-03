@@ -37,6 +37,7 @@ export interface WorkflowConfigurations {
     turn_stop_strategy: TurnStopStrategy;  // Strategy for detecting end of user turn
     dictionary?: string;  // Comma-separated words for voice agent to listen for
     voicemail_detection?: VoicemailDetectionConfiguration;
+    context_compaction_enabled?: boolean;  // Summarize context on node transitions to remove stale tool calls
     [key: string]: unknown;  // Allow additional properties for future configurations
 }
 

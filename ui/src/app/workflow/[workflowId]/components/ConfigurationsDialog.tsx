@@ -44,6 +44,9 @@ export const ConfigurationsDialog = ({
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
         workflowConfigurations?.turn_stop_strategy || 'transcription'
     );
+    const [contextCompactionEnabled, setContextCompactionEnabled] = useState<boolean>(
+        workflowConfigurations?.context_compaction_enabled ?? false
+    );
     const [isSaving, setIsSaving] = useState(false);
 
     const handleSave = async () => {
@@ -54,7 +57,8 @@ export const ConfigurationsDialog = ({
                 max_call_duration: maxCallDuration,
                 max_user_idle_timeout: maxUserIdleTimeout,
                 smart_turn_stop_secs: smartTurnStopSecs,
-                turn_stop_strategy: turnStopStrategy
+                turn_stop_strategy: turnStopStrategy,
+                context_compaction_enabled: contextCompactionEnabled,
             }, name);
             onOpenChange(false);
         } catch (error) {
@@ -73,6 +77,7 @@ export const ConfigurationsDialog = ({
             setMaxUserIdleTimeout(workflowConfigurations?.max_user_idle_timeout || 10);
             setSmartTurnStopSecs(workflowConfigurations?.smart_turn_stop_secs || 2);
             setTurnStopStrategy(workflowConfigurations?.turn_stop_strategy || 'transcription');
+            setContextCompactionEnabled(workflowConfigurations?.context_compaction_enabled ?? false);
         }
     }, [open, workflowName, workflowConfigurations]);
 
@@ -213,6 +218,27 @@ export const ConfigurationsDialog = ({
                                 </p>
                             </div>
                         )}
+                    </div>
+
+                    {/* Context Management Section */}
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-sm font-semibold mb-1">Context Compaction</h3>
+                            <p className="text-xs text-muted-foreground">
+                                Automatically summarize conversation context when transitioning between nodes. Removes stale tool calls and keeps the context clean for the new node.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                            <Label htmlFor="context-compaction-enabled" className="text-sm">
+                                Enable Context Compaction
+                            </Label>
+                            <Switch
+                                id="context-compaction-enabled"
+                                checked={contextCompactionEnabled}
+                                onCheckedChange={setContextCompactionEnabled}
+                            />
+                        </div>
                     </div>
 
                     {/* Call Management Section */}

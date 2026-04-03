@@ -679,6 +679,10 @@ async def _run_pipeline(
         workflow_id, workflow.organization_id
     )
 
+    context_compaction_enabled = (workflow.workflow_configurations or {}).get(
+        "context_compaction_enabled", False
+    )
+
     engine = PipecatEngine(
         llm=llm,
         workflow=workflow_graph,
@@ -689,6 +693,7 @@ async def _run_pipeline(
         embeddings_model=embeddings_model,
         embeddings_base_url=embeddings_base_url,
         has_recordings=has_recordings,
+        context_compaction_enabled=context_compaction_enabled,
     )
 
     # Create pipeline components

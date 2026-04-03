@@ -413,12 +413,12 @@ async def _execute_webhook_node(
             return True
 
     except httpx.HTTPStatusError as e:
-        logger.error(
+        logger.warning(
             f"Webhook '{webhook_name}' failed: {e.response.status_code} - {e.response.text[:200]}"
         )
         return False
     except httpx.RequestError as e:
-        logger.error(f"Webhook '{webhook_name}' request error: {e}")
+        logger.warning(f"Webhook '{webhook_name}' request error: {e}")
         return False
     except Exception as e:
         logger.error(f"Webhook '{webhook_name}' unexpected error: {e}")

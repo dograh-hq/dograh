@@ -159,8 +159,7 @@ def create_stt_service(
         )
     elif user_config.stt.provider == ServiceProviders.ASSEMBLYAI.value:
         language = getattr(user_config.stt, "language", None)
-        pipecat_language = _to_language_enum(language, default=Language.EN)
-        settings_kwargs = {"model": user_config.stt.model, "language": pipecat_language}
+        settings_kwargs = {"model": user_config.stt.model, "language": language}
         if keyterms:
             settings_kwargs["keyterms_prompt"] = keyterms
         return AssemblyAISTTService(

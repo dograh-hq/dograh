@@ -38,6 +38,9 @@ from api.services.workflow.pipecat_engine_context_composer import (
     compose_functions_for_node,
     compose_system_prompt_for_node,
 )
+from api.services.workflow.pipecat_engine_context_summarizer import (
+    ContextSummarizationManager,
+)
 from api.services.workflow.pipecat_engine_custom_tools import (
     CustomToolManager,
 )
@@ -67,6 +70,7 @@ class PipecatEngine:
         embeddings_model: Optional[str] = None,
         embeddings_base_url: Optional[str] = None,
         has_recordings: bool = False,
+        context_compaction_enabled: bool = False,
     ):
         self.task = task
         self.llm = llm
@@ -114,6 +118,12 @@ class PipecatEngine:
         # response mode instructions on all nodes for in-context learning.
         self._has_recordings: bool = has_recordings
 
+        # Background context summarization on node transitions
+        self._context_compaction_enabled: bool = context_compaction_enabled
+        self._context_summarization_manager: Optional[ContextSummarizationManager] = (
+            None
+        )
+
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
         if self._custom_tool_manager:
@@ -147,6 +157,10 @@ class PipecatEngine:
 
             # Helper that encapsulates custom tool management
             self._custom_tool_manager = CustomToolManager(self)
+
+            # Helper that encapsulates context summarization
+            if self._context_compaction_enabled:
+                self._context_summarization_manager = ContextSummarizationManager(self)
 
             await self.set_node(self.workflow.start_node_id)
 
@@ -500,6 +514,11 @@ class PipecatEngine:
         else:
             await self._handle_agent_node(node)
 
+        # Summarize context in background after non-start node transitions
+        # to clean up tool calls from previous nodes
+        if previous_node_id is not None and self._context_summarization_manager:
+            self._context_summarization_manager.start()
+
     async def _handle_start_node(self, node: Node) -> None:
         """Handle start node execution."""
         # Check if delayed start is enabled
@@ -714,3 +733,7 @@ class PipecatEngine:
             and not self._user_response_timeout_task.done()
         ):
             self._user_response_timeout_task.cancel()
+
+        # Cancel any in-flight background summarization
+        if self._context_summarization_manager:
+            await self._context_summarization_manager.cleanup()

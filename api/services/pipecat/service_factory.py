@@ -5,6 +5,7 @@ from loguru import logger
 
 from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
+from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
 from pipecat.services.cartesia.stt import CartesiaSTTService
@@ -154,6 +155,17 @@ def create_stt_service(
                 model=user_config.stt.model,
                 language=language,
             ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.ASSEMBLYAI.value:
+        language = getattr(user_config.stt, "language", None)
+        pipecat_language = _to_language_enum(language, default=Language.EN)
+        settings_kwargs = {"model": user_config.stt.model, "language": pipecat_language}
+        if keyterms:
+            settings_kwargs["keyterms_prompt"] = keyterms
+        return AssemblyAISTTService(
+            api_key=user_config.stt.api_key,
+            settings=AssemblyAISTTSettings(**settings_kwargs),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:

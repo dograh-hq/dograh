@@ -29,6 +29,7 @@ class ServiceProviders(str, Enum):
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
     SPEACHES = "speaches"
+    ASSEMBLYAI = "assemblyai"
     OPENAI_REALTIME = "openai_realtime"
     GOOGLE_REALTIME = "google_realtime"
 
@@ -45,6 +46,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
         ServiceProviders.SPEACHES,
+        ServiceProviders.ASSEMBLYAI,
         ServiceProviders.OPENAI_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         # ServiceProviders.SARVAM,
@@ -318,7 +320,33 @@ OPENAI_REALTIME_VOICES = [
 
 GOOGLE_REALTIME_MODELS = ["gemini-3.1-flash-live-preview"]
 GOOGLE_REALTIME_VOICES = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
-GOOGLE_REALTIME_LANGUAGES = ["en"]
+GOOGLE_REALTIME_LANGUAGES = [
+    "ar",
+    "bn",
+    "de",
+    "en",
+    "es",
+    "fr",
+    "gu",
+    "hi",
+    "id",
+    "it",
+    "ja",
+    "kn",
+    "ko",
+    "ml",
+    "mr",
+    "nl",
+    "pl",
+    "pt",
+    "ru",
+    "ta",
+    "te",
+    "th",
+    "tr",
+    "vi",
+    "zh",
+]
 
 
 @register_service(ServiceType.REALTIME)
@@ -830,6 +858,23 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
     api_key: str | list[str] | None = Field(default=None)
 
 
+ASSEMBLYAI_STT_MODELS = ["u3-rt-pro"]
+ASSEMBLYAI_STT_LANGUAGES = ["en", "es", "de", "fr", "pt", "it"]
+
+
+@register_stt
+class AssemblyAISTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.ASSEMBLYAI] = ServiceProviders.ASSEMBLYAI
+    model: str = Field(
+        default="u3-rt-pro",
+        json_schema_extra={"examples": ASSEMBLYAI_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        json_schema_extra={"examples": ASSEMBLYAI_STT_LANGUAGES},
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -839,6 +884,7 @@ STTConfig = Annotated[
         SpeechmaticsSTTConfiguration,
         SarvamSTTConfiguration,
         SpeachesSTTConfiguration,
+        AssemblyAISTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

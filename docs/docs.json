@@ -234,7 +234,7 @@
     }
   },
   "banner": {
-    "content": "🎉 **New: Pre-recorded Audio** — lower latency, reduced TTS costs, and natural-sounding conversations using your own voice recordings. [Learn more →](/voice-agent/pre-recorded-audio)",
+    "content": "🎉 **New: Gemini Live 3.1 Support** — Try the latest Google Gemini Live 3.1 on Dograh platform. [Learn more →](/configurations/inference-providers#gemini-3-1-live)",
     "dismissible": true
   },
   "search": {

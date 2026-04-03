@@ -26,7 +26,8 @@ def extract_template_variables(text: str) -> Set[str]:
         if "." in var_name:
             continue
         # Skip variables with a fallback (they have a default value)
-        if filter_name == "fallback":
+        # Supports both {{var | default}} and legacy {{var | fallback:default}}
+        if filter_name is not None:
             continue
         # Skip system-injected variables
         if var_name in _SYSTEM_VARIABLES:

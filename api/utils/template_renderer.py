@@ -187,12 +187,19 @@ def _render_string(template_str: str, context: Dict[str, Any]) -> str:
         # Get value using nested path lookup
         value = get_nested_value(context, variable_path)
 
-        # Apply filters
-        if filter_name == "fallback":
+        # Apply fallback: new syntax {{var | default}} or legacy {{var | fallback:default}}
+        if filter_name is not None:
             if value is None or value == "":
-                value = (
-                    filter_value if filter_value is not None else variable_path.title()
-                )
+                if filter_name == "fallback":
+                    # Legacy syntax: {{var | fallback:default}}
+                    value = (
+                        filter_value
+                        if filter_value is not None
+                        else variable_path.title()
+                    )
+                else:
+                    # New syntax: {{var | default}}
+                    value = filter_name
 
         # Convert to string for substitution
         if value is None:

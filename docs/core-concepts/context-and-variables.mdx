@@ -45,6 +45,22 @@ whether they'd like to continue.
 
 When the call starts, Dograh substitutes the values before sending the prompt to the LLM — so the agent speaks naturally as if it already knows the contact.
 
+### Fallback values
+
+If a variable might be missing or empty, use a pipe (`|`) to provide a default value:
+
+```
+Hello {{customer_name | there}}, we're calling about your {{plan | current}} plan.
+```
+
+When `customer_name` is not set, the agent will say "Hello there" instead of leaving a blank. The syntax is:
+
+```
+{{variable_name | fallback_value}}
+```
+
+If the variable is present and non-empty, the fallback is ignored and the actual value is used.
+
 ### Default variables
 
 Built-in variables for current time and weekday, available in any prompt without setting up `initial_context`.

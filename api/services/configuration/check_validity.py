@@ -49,6 +49,7 @@ class UserConfigurationValidator:
             ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
             ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
             ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
+            ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,
         }
 
     async def validate(
@@ -216,4 +217,7 @@ class UserConfigurationValidator:
     def _check_aws_bedrock_api_key(self, model: str, service_config) -> bool:
         if not service_config.aws_access_key or not service_config.aws_secret_key:
             raise ValueError("AWS access key and secret key are required for Bedrock")
+        return True
+
+    def _check_assemblyai_api_key(self, model: str, service_config) -> bool:
         return True

@@ -24,7 +24,8 @@ from api.schemas.telephony_config import (
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
-from api.services.pipecat.tracing_config import unregister_org_langfuse_credentials
+from api.services.worker_sync.manager import get_worker_sync_manager
+from api.services.worker_sync.protocol import WorkerSyncEventType
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -341,14 +342,11 @@ async def save_langfuse_credentials(
         config_value,
     )
 
-    # Update the in-memory OTEL exporter so new traces route immediately
-    from api.services.pipecat.tracing_config import register_org_langfuse_credentials
-
-    register_org_langfuse_credentials(
+    # Broadcast to all workers so every process updates its in-memory exporter
+    await get_worker_sync_manager().broadcast(
+        WorkerSyncEventType.LANGFUSE_CREDENTIALS,
+        action="update",
         org_id=user.selected_organization_id,
-        host=config_value["host"],
-        public_key=config_value["public_key"],
-        secret_key=config_value["secret_key"],
     )
 
     return {"message": "Langfuse credentials saved successfully"}
@@ -368,8 +366,12 @@ async def delete_langfuse_credentials(user: UserModel = Depends(get_user)):
     if not deleted:
         raise HTTPException(status_code=404, detail="No Langfuse credentials found")
 
-    # Remove the in-memory OTEL exporter so traces fall back to default
-    unregister_org_langfuse_credentials(user.selected_organization_id)
+    # Broadcast to all workers so every process removes its in-memory exporter
+    await get_worker_sync_manager().broadcast(
+        WorkerSyncEventType.LANGFUSE_CREDENTIALS,
+        action="delete",
+        org_id=user.selected_organization_id,
+    )
 
     return {"message": "Langfuse credentials deleted successfully"}
 

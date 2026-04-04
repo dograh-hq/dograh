@@ -493,6 +493,7 @@ class KnowledgeBaseClient(BaseDBClient):
             ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             ".doc": "application/msword",
             ".txt": "text/plain",
+            ".json": "application/json",
             ".html": "text/html",
             ".md": "text/markdown",
         }

@@ -398,6 +398,10 @@ export function AppSidebar() {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Platform Settings
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign out
@@ -442,6 +446,10 @@ export function AppSidebar() {
                   <DropdownMenuItem onClick={() => router.push("/handler/account-settings")} className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
                     Account settings
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                    <Settings className="mr-2 h-4 w-4" />
+                    Platform Settings
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => router.push("/usage")} className="cursor-pointer">
                     <CircleDollarSign className="mr-2 h-4 w-4" />

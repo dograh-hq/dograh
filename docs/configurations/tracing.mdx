@@ -106,27 +106,21 @@ Every time an LLM call is made, the **entire conversation history up to that poi
 - You can see exactly what context the LLM had when it made a decision
 - Useful for debugging unexpected responses
 
-## Setting Up Tracing in (Open Source) Self hosted Dograh AI
+## Setting Up Langfuse Tracing
 
-### Langfuse Integration
-
-We provide seamless integration with Langfuse for self-hosted Dograh deployments.
+We provide seamless integration with Langfuse for tracing if you want to use your own account. This enables you to use the [playground feature of Langfuse](https://langfuse.com/docs/prompt-management/features/playground). This works on both managed and self-hosted Dograh deployments.
 
 **Setup steps:**
 
 1. Sign up at [Langfuse](https://langfuse.com) and create API credentials
-2. Add the following [environment variables](/developer/environment-variables#tracing-langfuse) (in `docker-compose.yaml` for Docker deployments):
-
-```
-ENABLE_TRACING="true"
-LANGFUSE_SECRET_KEY=
-LANGFUSE_PUBLIC_KEY=
-LANGFUSE_HOST=
-```
-
-3. Restart your services
+2. In the Dograh UI, go to **Platform Settings** (`/settings`) and enter your Langfuse host, public key, and secret key
+3. Click **Save**
 
 Once enabled, traces will be available for every completed call in Dograh.
+
+<Note>
+For self-hosted deployments, you can also configure Langfuse via [environment variables](/developer/environment-variables#tracing-langfuse) (`ENABLE_TRACING`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_HOST`) if you prefer. The UI settings take precedence over environment variables.
+</Note>
 
 ## Quick Reference
 

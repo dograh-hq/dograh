@@ -26,8 +26,17 @@ from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from api.constants import REDIS_URL
 from api.routes.main import router as main_router
-from api.services.pipecat.tracing_config import load_all_org_langfuse_credentials
+from api.services.pipecat.tracing_config import (
+    handle_langfuse_sync,
+    load_all_org_langfuse_credentials,
+)
+from api.services.worker_sync.manager import (
+    WorkerSyncManager,
+    set_worker_sync_manager,
+)
+from api.services.worker_sync.protocol import WorkerSyncEventType
 from api.tasks.arq import get_arq_redis
 
 API_PREFIX = "/api/v1"
@@ -42,10 +51,19 @@ async def lifespan(app: FastAPI):
     # before any pipeline runs, without per-call DB lookups.
     await load_all_org_langfuse_credentials()
 
+    # Start cross-worker sync manager so config changes propagate to all workers
+    sync_manager = WorkerSyncManager(REDIS_URL)
+    sync_manager.register(
+        WorkerSyncEventType.LANGFUSE_CREDENTIALS, handle_langfuse_sync
+    )
+    await sync_manager.start()
+    set_worker_sync_manager(sync_manager)
+
     yield  # Run app
 
     # Shutdown sequence - this runs when FastAPI is shutting down
     logger.info("Starting graceful shutdown...")
+    await sync_manager.stop()
 
 
 app = FastAPI(

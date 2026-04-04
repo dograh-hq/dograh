@@ -1,5 +1,6 @@
 """ARQ background task for processing knowledge base documents."""
 
+import json
 import os
 import tempfile
 
@@ -163,84 +164,148 @@ async def process_knowledge_base_document(
             base_url=embeddings_base_url,
         )
 
-        # Step 1: Convert document with docling
-        logger.info("Converting document with docling")
-        converter = DocumentConverter()
-        conversion_result = converter.convert(temp_file_path)
-        doc = conversion_result.document
-
-        # Store docling metadata
-        docling_metadata = {
-            "num_pages": len(doc.pages) if hasattr(doc, "pages") else None,
-            "document_type": type(doc).__name__,
-        }
-
-        # Step 2: Initialize tokenizer for chunking
+        # Step 1: Initialize tokenizer for chunking
         logger.info(
             f"Loading tokenizer: {TOKENIZER_MODEL} with max_tokens={max_tokens}"
         )
+        hf_tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_MODEL)
         tokenizer = HuggingFaceTokenizer(
-            tokenizer=AutoTokenizer.from_pretrained(TOKENIZER_MODEL),
+            tokenizer=hf_tokenizer,
             max_tokens=max_tokens,
         )
 
-        # Step 3: Initialize chunker
-        logger.info(f"Initializing HybridChunker with max_tokens={max_tokens}")
-        chunker = HybridChunker(tokenizer=tokenizer)
-
-        # Step 4: Chunk the document
-        logger.info(f"Chunking document with max_tokens={max_tokens}")
-        chunks = list(chunker.chunk(dl_doc=doc))
-        total_chunks = len(chunks)
-        logger.info(f"Generated {total_chunks} chunks")
-
-        # Step 5: Process each chunk
         chunk_texts = []
         chunk_records = []
         token_counts = []
 
-        for i, chunk in enumerate(chunks):
-            chunk_text = chunk.text
-            contextualized_text = chunker.contextualize(chunk=chunk)
+        # Check if file is a plain text format that docling doesn't support
+        plain_text_extensions = {".txt", ".json"}
+        if file_extension.lower() in plain_text_extensions:
+            # Read text content directly
+            logger.info(f"Reading {file_extension} file directly (bypassing docling)")
+            with open(temp_file_path, "r", encoding="utf-8") as f:
+                raw_content = f.read()
 
-            # Calculate token count
-            text_to_tokenize = (
-                contextualized_text if contextualized_text else chunk_text
-            )
-            token_count = len(
-                tokenizer.tokenizer.encode(text_to_tokenize, add_special_tokens=False)
-            )
-            token_counts.append(token_count)
+            # For JSON files, pretty-print for better readability
+            if file_extension.lower() == ".json":
+                try:
+                    parsed = json.loads(raw_content)
+                    raw_content = json.dumps(parsed, indent=2, ensure_ascii=False)
+                except json.JSONDecodeError:
+                    logger.warning(
+                        "JSON file is not valid JSON, treating as plain text"
+                    )
 
-            # Prepare chunk metadata
-            chunk_metadata = {}
-            if hasattr(chunk, "meta") and chunk.meta:
-                chunk_metadata = {
-                    "doc_items": (
-                        [str(item) for item in chunk.meta.doc_items]
-                        if hasattr(chunk.meta, "doc_items")
-                        else []
-                    ),
-                    "headings": (
-                        chunk.meta.headings if hasattr(chunk.meta, "headings") else []
-                    ),
-                }
+            docling_metadata = {
+                "num_pages": None,
+                "document_type": "PlainText",
+            }
 
-            # Create chunk record (without embedding yet)
-            chunk_record = KnowledgeBaseChunkModel(
-                document_id=document_id,
-                organization_id=organization_id,
-                chunk_text=chunk_text,
-                contextualized_text=contextualized_text,
-                chunk_index=i,
-                chunk_metadata=chunk_metadata,
-                embedding_model=service.get_model_id(),
-                embedding_dimension=service.get_embedding_dimension(),
-                token_count=token_count,
+            # Token-based chunking for plain text
+            tokens = hf_tokenizer.encode(raw_content, add_special_tokens=False)
+            total_tokens = len(tokens)
+            logger.info(
+                f"Total tokens in file: {total_tokens}, chunking with max_tokens={max_tokens}"
             )
 
-            chunk_records.append(chunk_record)
-            chunk_texts.append(text_to_tokenize)
+            start = 0
+            chunk_index = 0
+            while start < total_tokens:
+                end = min(start + max_tokens, total_tokens)
+                chunk_token_ids = tokens[start:end]
+                chunk_text = hf_tokenizer.decode(
+                    chunk_token_ids, skip_special_tokens=True
+                )
+
+                token_count = len(chunk_token_ids)
+                token_counts.append(token_count)
+
+                chunk_record = KnowledgeBaseChunkModel(
+                    document_id=document_id,
+                    organization_id=organization_id,
+                    chunk_text=chunk_text,
+                    contextualized_text=chunk_text,
+                    chunk_index=chunk_index,
+                    chunk_metadata={},
+                    embedding_model=service.get_model_id(),
+                    embedding_dimension=service.get_embedding_dimension(),
+                    token_count=token_count,
+                )
+
+                chunk_records.append(chunk_record)
+                chunk_texts.append(chunk_text)
+                chunk_index += 1
+                start = end
+
+            total_chunks = len(chunk_records)
+            logger.info(f"Generated {total_chunks} chunks from plain text")
+
+        else:
+            # Use docling for structured formats (PDF, DOCX, etc.)
+            logger.info("Converting document with docling")
+            converter = DocumentConverter()
+            conversion_result = converter.convert(temp_file_path)
+            doc = conversion_result.document
+
+            docling_metadata = {
+                "num_pages": len(doc.pages) if hasattr(doc, "pages") else None,
+                "document_type": type(doc).__name__,
+            }
+
+            # Initialize chunker
+            logger.info(f"Initializing HybridChunker with max_tokens={max_tokens}")
+            chunker = HybridChunker(tokenizer=tokenizer)
+
+            # Chunk the document
+            logger.info(f"Chunking document with max_tokens={max_tokens}")
+            chunks = list(chunker.chunk(dl_doc=doc))
+            total_chunks = len(chunks)
+            logger.info(f"Generated {total_chunks} chunks")
+
+            # Process each chunk
+            for i, chunk in enumerate(chunks):
+                chunk_text = chunk.text
+                contextualized_text = chunker.contextualize(chunk=chunk)
+
+                text_to_tokenize = (
+                    contextualized_text if contextualized_text else chunk_text
+                )
+                token_count = len(
+                    tokenizer.tokenizer.encode(
+                        text_to_tokenize, add_special_tokens=False
+                    )
+                )
+                token_counts.append(token_count)
+
+                chunk_metadata = {}
+                if hasattr(chunk, "meta") and chunk.meta:
+                    chunk_metadata = {
+                        "doc_items": (
+                            [str(item) for item in chunk.meta.doc_items]
+                            if hasattr(chunk.meta, "doc_items")
+                            else []
+                        ),
+                        "headings": (
+                            chunk.meta.headings
+                            if hasattr(chunk.meta, "headings")
+                            else []
+                        ),
+                    }
+
+                chunk_record = KnowledgeBaseChunkModel(
+                    document_id=document_id,
+                    organization_id=organization_id,
+                    chunk_text=chunk_text,
+                    contextualized_text=contextualized_text,
+                    chunk_index=i,
+                    chunk_metadata=chunk_metadata,
+                    embedding_model=service.get_model_id(),
+                    embedding_dimension=service.get_embedding_dimension(),
+                    token_count=token_count,
+                )
+
+                chunk_records.append(chunk_record)
+                chunk_texts.append(text_to_tokenize)
 
         # Log chunk statistics
         if token_counts:

@@ -223,6 +223,36 @@ async def load_all_org_langfuse_credentials():
     logger.info(f"Loaded Langfuse credentials for {len(configs)} org(s)")
 
 
+async def handle_langfuse_sync(event):
+    """Worker sync handler: refresh a single org's Langfuse exporter from DB."""
+    from api.db import db_client
+    from api.enums import OrganizationConfigurationKey
+
+    org_id = event.org_id
+
+    logger.info(
+        f"handle_langfuse_sync for org_id: {event.org_id} action: {event.action}"
+    )
+
+    if event.action == "delete":
+        unregister_org_langfuse_credentials(org_id)
+        return
+
+    config = await db_client.get_configuration(
+        org_id, OrganizationConfigurationKey.LANGFUSE_CREDENTIALS.value
+    )
+    if config and config.value:
+        register_org_langfuse_credentials(
+            org_id=org_id,
+            host=config.value.get("host"),
+            public_key=config.value.get("public_key"),
+            secret_key=config.value.get("secret_key"),
+        )
+    else:
+        # Credentials were saved then deleted before we got the event
+        unregister_org_langfuse_credentials(org_id)
+
+
 def get_trace_url(trace_id: str, org_id=None) -> str | None:
     """Build a Langfuse trace URL, using org-specific host when available."""
     if org_id is None:

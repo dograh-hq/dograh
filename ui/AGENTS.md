@@ -54,6 +54,23 @@ npm run generate-client
 
 Always use a hidden `<input type="file">` with a visible `<Button>` that triggers it via `fileInputRef.current?.click()`. Never use a visible `<Input type="file">` — the native file input styling is inconsistent and confusing. Show the selected filename next to or below the button.
 
+### Authenticated API Calls
+
+Components that make API calls must wait for auth to be ready before fetching. Use `useAuth()` and guard the `useEffect` with `authLoading` and `user`:
+
+```tsx
+const { user, loading: authLoading } = useAuth();
+const hasFetched = useRef(false);
+
+useEffect(() => {
+  if (authLoading || !user || hasFetched.current) return;
+  hasFetched.current = true;
+  fetchData();
+}, [authLoading, user]);
+```
+
+The auth interceptor (which attaches the Bearer token) is only registered once auth is fully loaded. Fetching before that sends unauthenticated requests that silently fail.
+
 ## Development
 
 ```bash

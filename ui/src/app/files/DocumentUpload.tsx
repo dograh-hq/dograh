@@ -18,7 +18,7 @@ interface DocumentUploadProps {
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const ACCEPTED_FILE_TYPES = ['.pdf', '.docx', '.doc', '.txt'];
+const ACCEPTED_FILE_TYPES = ['.pdf', '.docx', '.doc', '.txt', '.json'];
 
 export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps) {
   const [uploading, setUploading] = useState(false);

@@ -20,15 +20,15 @@ api/
 
 ## Where to Find Things
 
-| Looking for... | Go to... |
-|----------------|----------|
-| API endpoints | `routes/` - each file is a router module, aggregated in `routes/main.py` |
-| Business logic | `services/` - organized by domain (telephony, workflow, campaign, etc.) |
-| Database models | `db/models.py` |
-| Database queries | `db/*_client.py` files (repository pattern) |
-| Request/response types | `schemas/` |
-| Background tasks | `tasks/` - uses ARQ for async job processing |
-| Environment config | `constants.py` |
+| Looking for...         | Go to...                                                                 |
+| ---------------------- | ------------------------------------------------------------------------ |
+| API endpoints          | `routes/` - each file is a router module, aggregated in `routes/main.py` |
+| Business logic         | `services/` - organized by domain (telephony, workflow, campaign, etc.)  |
+| Database models        | `db/models.py`                                                           |
+| Database queries       | `db/*_client.py` files (repository pattern)                              |
+| Request/response types | `schemas/`                                                               |
+| Background tasks       | `tasks/` - uses ARQ for async job processing                             |
+| Environment config     | `constants.py`                                                           |
 
 ## API Structure
 
@@ -42,6 +42,10 @@ api/
 ./scripts/makemigrate.sh "description"  # Create migration
 ./scripts/migrate.sh                     # Run migrations
 ```
+
+## Cross-Worker State Sync
+
+When an API endpoint updates in-memory state (e.g. cached credentials, config objects), that change only affects the worker process that handled the request. With multiple FastAPI workers, **use `WorkerSyncManager`** (`services/worker_sync/`) to propagate changes to all workers via Redis pub/sub instead of updating local state directly.
 
 ## Development
 

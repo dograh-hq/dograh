@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -12,8 +12,10 @@ import type { LangfuseCredentialsResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useAuth } from "@/lib/auth";
 
 export function TelemetrySection() {
+  const { user, loading: authLoading } = useAuth();
   const [credentials, setCredentials] = useState<LangfuseCredentialsResponse>({
     host: "",
     public_key: "",
@@ -22,10 +24,15 @@ export function TelemetrySection() {
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const hasFetched = useRef(false);
 
   useEffect(() => {
+    if (authLoading || !user || hasFetched.current) {
+      return;
+    }
+    hasFetched.current = true;
     fetchCredentials();
-  }, []);
+  }, [authLoading, user]);
 
   async function fetchCredentials() {
     try {

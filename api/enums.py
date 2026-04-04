@@ -103,6 +103,7 @@ class RedisChannel(Enum):
     """Redis pub/sub channel names"""
 
     CAMPAIGN_EVENTS = "campaign_events"
+    WORKER_SYNC = "worker_sync"
 
 
 class TriggerState(Enum):

@@ -24,6 +24,7 @@ from pipecat.services.dograh.llm import DograhLLMService
 from pipecat.services.dograh.stt import DograhSTTService, DograhSTTSettings
 from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
+from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
 from pipecat.services.openai.base_llm import OpenAILLMSettings
@@ -165,6 +166,21 @@ def create_stt_service(
         return AssemblyAISTTService(
             api_key=user_config.stt.api_key,
             settings=AssemblyAISTTSettings(**settings_kwargs),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.GLADIA.value:
+        from pipecat.services.gladia.config import LanguageConfig
+
+        language = getattr(user_config.stt, "language", None) or "en"
+        settings_kwargs = {
+            "model": user_config.stt.model,
+            "language_config": LanguageConfig(
+                languages=[language], code_switching=False
+            ),
+        }
+        return GladiaSTTService(
+            api_key=user_config.stt.api_key,
+            settings=GladiaSTTSettings(**settings_kwargs),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEECHMATICS.value:

@@ -30,6 +30,7 @@ class ServiceProviders(str, Enum):
     AWS_BEDROCK = "aws_bedrock"
     SPEACHES = "speaches"
     ASSEMBLYAI = "assemblyai"
+    GLADIA = "gladia"
     OPENAI_REALTIME = "openai_realtime"
     GOOGLE_REALTIME = "google_realtime"
 
@@ -47,6 +48,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.AWS_BEDROCK,
         ServiceProviders.SPEACHES,
         ServiceProviders.ASSEMBLYAI,
+        ServiceProviders.GLADIA,
         ServiceProviders.OPENAI_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         # ServiceProviders.SARVAM,
@@ -875,6 +877,124 @@ class AssemblyAISTTConfiguration(BaseSTTConfiguration):
     )
 
 
+GLADIA_STT_MODELS = ["solaria-1"]
+GLADIA_STT_LANGUAGES = [
+    "af",
+    "am",
+    "ar",
+    "as",
+    "az",
+    "ba",
+    "be",
+    "bg",
+    "bn",
+    "bo",
+    "br",
+    "bs",
+    "ca",
+    "cs",
+    "cy",
+    "da",
+    "de",
+    "el",
+    "en",
+    "es",
+    "et",
+    "eu",
+    "fa",
+    "fi",
+    "fo",
+    "fr",
+    "gl",
+    "gu",
+    "ha",
+    "haw",
+    "he",
+    "hi",
+    "hr",
+    "ht",
+    "hu",
+    "hy",
+    "id",
+    "is",
+    "it",
+    "ja",
+    "jw",
+    "ka",
+    "kk",
+    "km",
+    "kn",
+    "ko",
+    "la",
+    "lb",
+    "ln",
+    "lo",
+    "lt",
+    "lv",
+    "mg",
+    "mi",
+    "mk",
+    "ml",
+    "mn",
+    "mr",
+    "ms",
+    "mt",
+    "my",
+    "ne",
+    "nl",
+    "nn",
+    "no",
+    "oc",
+    "pa",
+    "pl",
+    "ps",
+    "pt",
+    "ro",
+    "ru",
+    "sa",
+    "sd",
+    "si",
+    "sk",
+    "sl",
+    "sn",
+    "so",
+    "sq",
+    "sr",
+    "su",
+    "sv",
+    "sw",
+    "ta",
+    "te",
+    "tg",
+    "th",
+    "tk",
+    "tl",
+    "tr",
+    "tt",
+    "uk",
+    "ur",
+    "uz",
+    "vi",
+    "wo",
+    "yi",
+    "yo",
+    "zh",
+]
+
+
+@register_stt
+class GladiaSTTConfiguration(BaseSTTConfiguration):
+    provider: Literal[ServiceProviders.GLADIA] = ServiceProviders.GLADIA
+    model: str = Field(
+        default="solaria-1",
+        json_schema_extra={"examples": GLADIA_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        json_schema_extra={"examples": GLADIA_STT_LANGUAGES},
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -885,6 +1005,7 @@ STTConfig = Annotated[
         SarvamSTTConfiguration,
         SpeachesSTTConfiguration,
         AssemblyAISTTConfiguration,
+        GladiaSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

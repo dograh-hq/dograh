@@ -12,6 +12,12 @@ export const NODE_DOCUMENTATION_URLS: Record<string, string> = {
 
 export const CONTEXT_VARIABLES_DOC_URL = `${DOCS_BASE}/core-concepts/context-and-variables`;
 
+export const TOOLS_INTRODUCTION_DOC_URL = `${DOCS_BASE}/voice-agent/tools/introduction`;
+
+export const KNOWLEDGE_BASE_DOC_URL = `${DOCS_BASE}/voice-agent/knowledge-base`;
+
+export const PRE_CALL_DATA_FETCH_DOC_URL = `${DOCS_BASE}/voice-agent/pre-call-data-fetch`;
+
 export const TOOL_DOCUMENTATION_URLS: Record<string, string> = {
     http_api: `${DOCS_BASE}/voice-agent/tools/http-api`,
     end_call: `${DOCS_BASE}/voice-agent/tools/end-call`,

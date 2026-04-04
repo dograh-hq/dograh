@@ -1,5 +1,5 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { Edit, FileText, Play, PlusIcon, Trash2Icon, Wrench } from "lucide-react";
+import { ChevronRight, Edit, FileText, Play, PlusIcon, Settings, Trash2Icon, Wrench } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
@@ -11,12 +11,14 @@ import { MentionTextarea } from "@/components/flow/MentionTextarea";
 import { ToolBadges } from "@/components/flow/ToolBadges";
 import { ToolSelector } from "@/components/flow/ToolSelector";
 import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
+import { CredentialSelector, UrlInput, validateUrl } from "@/components/http";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { CONTEXT_VARIABLES_DOC_URL, NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { CONTEXT_VARIABLES_DOC_URL, NODE_DOCUMENTATION_URLS, PRE_CALL_DATA_FETCH_DOC_URL } from "@/constants/documentation";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -48,6 +50,12 @@ interface StartCallEditFormProps {
     setToolUuids: (value: string[]) => void;
     documentUuids: string[];
     setDocumentUuids: (value: string[]) => void;
+    preCallFetchEnabled: boolean;
+    setPreCallFetchEnabled: (value: boolean) => void;
+    preCallFetchUrl: string;
+    setPreCallFetchUrl: (value: string) => void;
+    preCallFetchCredentialUuid: string;
+    setPreCallFetchCredentialUuid: (value: string) => void;
     tools: ToolResponse[];
     documents: DocumentResponseSchema[];
     recordings: RecordingResponseSchema[];
@@ -77,6 +85,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const [variables, setVariables] = useState<ExtractionVariable[]>(data.extraction_variables ?? []);
     const [toolUuids, setToolUuids] = useState<string[]>(data.tool_uuids ?? []);
     const [documentUuids, setDocumentUuids] = useState<string[]>(data.document_uuids ?? []);
+    const [preCallFetchEnabled, setPreCallFetchEnabled] = useState(data.pre_call_fetch_enabled ?? false);
+    const [preCallFetchUrl, setPreCallFetchUrl] = useState(data.pre_call_fetch_url ?? "");
+    const [preCallFetchCredentialUuid, setPreCallFetchCredentialUuid] = useState(data.pre_call_fetch_credential_uuid ?? "");
 
     // Compute if form has unsaved changes (only check prompt, name, greeting)
     const isDirty = useMemo(() => {
@@ -88,6 +99,14 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     }, [greeting, prompt, name, data]);
 
     const handleSave = async () => {
+        // Validate pre-call fetch URL if enabled
+        if (preCallFetchEnabled && preCallFetchUrl) {
+            const urlValidation = validateUrl(preCallFetchUrl);
+            if (!urlValidation.valid) {
+                return;
+            }
+        }
+
         handleSaveNodeData({
             ...data,
             greeting: greeting || undefined,
@@ -102,6 +121,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             extraction_variables: variables,
             tool_uuids: toolUuids.length > 0 ? toolUuids : undefined,
             document_uuids: documentUuids.length > 0 ? documentUuids : undefined,
+            pre_call_fetch_enabled: preCallFetchEnabled,
+            pre_call_fetch_url: preCallFetchEnabled ? preCallFetchUrl || undefined : undefined,
+            pre_call_fetch_credential_uuid: preCallFetchEnabled && preCallFetchCredentialUuid ? preCallFetchCredentialUuid : undefined,
         });
         setOpen(false);
         await saveWorkflow();
@@ -122,6 +144,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setVariables(data.extraction_variables ?? []);
             setToolUuids(data.tool_uuids ?? []);
             setDocumentUuids(data.document_uuids ?? []);
+            setPreCallFetchEnabled(data.pre_call_fetch_enabled ?? false);
+            setPreCallFetchUrl(data.pre_call_fetch_url ?? "");
+            setPreCallFetchCredentialUuid(data.pre_call_fetch_credential_uuid ?? "");
         }
         setOpen(newOpen);
     };
@@ -141,6 +166,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
             setVariables(data.extraction_variables ?? []);
             setToolUuids(data.tool_uuids ?? []);
             setDocumentUuids(data.document_uuids ?? []);
+            setPreCallFetchEnabled(data.pre_call_fetch_enabled ?? false);
+            setPreCallFetchUrl(data.pre_call_fetch_url ?? "");
+            setPreCallFetchCredentialUuid(data.pre_call_fetch_credential_uuid ?? "");
         }
     }, [data, open]);
 
@@ -243,6 +271,12 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                         setToolUuids={setToolUuids}
                         documentUuids={documentUuids}
                         setDocumentUuids={setDocumentUuids}
+                        preCallFetchEnabled={preCallFetchEnabled}
+                        setPreCallFetchEnabled={setPreCallFetchEnabled}
+                        preCallFetchUrl={preCallFetchUrl}
+                        setPreCallFetchUrl={setPreCallFetchUrl}
+                        preCallFetchCredentialUuid={preCallFetchCredentialUuid}
+                        setPreCallFetchCredentialUuid={setPreCallFetchCredentialUuid}
                         tools={tools ?? []}
                         documents={documents ?? []}
                         recordings={recordings ?? []}
@@ -278,6 +312,12 @@ const StartCallEditForm = ({
     setToolUuids,
     documentUuids,
     setDocumentUuids,
+    preCallFetchEnabled,
+    setPreCallFetchEnabled,
+    preCallFetchUrl,
+    setPreCallFetchUrl,
+    preCallFetchCredentialUuid,
+    setPreCallFetchCredentialUuid,
     tools,
     documents,
     recordings,
@@ -474,6 +514,57 @@ const StartCallEditForm = ({
                     documents={documents}
                     description="Select documents from the knowledge base that the agent can reference during this conversation step."
                 />
+            </div>
+
+            {/* Advanced Settings */}
+            <div className="pt-4 border-t mt-4">
+                <Collapsible>
+                    <CollapsibleTrigger className="flex items-center gap-2 w-full text-sm font-medium hover:text-foreground text-muted-foreground">
+                        <Settings className="h-4 w-4" />
+                        <span>Advanced Settings</span>
+                        <ChevronRight className="h-4 w-4 ml-auto transition-transform [[data-state=open]>svg&]:rotate-90" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-4 space-y-4">
+                        {/* Pre-Call Data Fetch */}
+                        <div className="flex items-center space-x-2">
+                            <Switch
+                                id="pre-call-fetch"
+                                checked={preCallFetchEnabled}
+                                onCheckedChange={setPreCallFetchEnabled}
+                            />
+                            <Label htmlFor="pre-call-fetch">Pre-Call Data Fetch</Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            Fetch data from an external API before the call starts. A standardized POST request with caller/called numbers will be sent. The JSON response fields will be merged into the call context and available as template variables in your prompts.{" "}
+                            <a href={PRE_CALL_DATA_FETCH_DOC_URL} target="_blank" rel="noopener noreferrer" className="underline">Learn more</a>
+                        </p>
+
+                        {preCallFetchEnabled && (
+                            <div className="border rounded-md p-4 space-y-4 bg-muted/20">
+                                <div className="grid gap-2">
+                                    <Label>Endpoint URL</Label>
+                                    <Label className="text-xs text-muted-foreground">
+                                        The URL to send the pre-call data fetch request to.
+                                    </Label>
+                                    <UrlInput
+                                        value={preCallFetchUrl}
+                                        onChange={setPreCallFetchUrl}
+                                        placeholder="https://api.example.com/customer-lookup"
+                                        showValidation
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label>Authentication</Label>
+                                    <CredentialSelector
+                                        value={preCallFetchCredentialUuid}
+                                        onChange={setPreCallFetchCredentialUuid}
+                                    />
+                                </div>
+                            </div>
+                        )}
+                    </CollapsibleContent>
+                </Collapsible>
             </div>
         </div>
     );

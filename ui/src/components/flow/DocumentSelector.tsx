@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText } from "lucide-react";
+import { ExternalLink, FileText } from "lucide-react";
 import Link from "next/link";
 import { useMemo } from "react";
 
@@ -8,6 +8,7 @@ import type { DocumentResponseSchema } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { KNOWLEDGE_BASE_DOC_URL } from "@/constants/documentation";
 
 interface DocumentSelectorProps {
     value: string[];
@@ -57,7 +58,10 @@ export const DocumentSelector = ({
                     <>
                         <Label>{label}</Label>
                         {description && (
-                            <Label className="text-xs text-muted-foreground">{description}</Label>
+                            <Label className="text-xs text-muted-foreground">
+                            {description}{" "}
+                            <a href={KNOWLEDGE_BASE_DOC_URL} target="_blank" rel="noopener noreferrer" className="underline">Learn more</a>
+                        </Label>
                         )}
                     </>
                 )}
@@ -66,11 +70,12 @@ export const DocumentSelector = ({
                         No documents available. Upload documents to the knowledge base first.
                     </div>
                     <div className="flex justify-center">
-                        <Link href="/files">
-                            <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" asChild>
+                            <Link href="/files" target="_blank">
+                                <ExternalLink className="h-4 w-4 mr-2" />
                                 Upload Documents
-                            </Button>
-                        </Link>
+                            </Link>
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -83,7 +88,10 @@ export const DocumentSelector = ({
                 <>
                     <Label>{label}</Label>
                     {description && (
-                        <Label className="text-xs text-muted-foreground">{description}</Label>
+                        <Label className="text-xs text-muted-foreground">
+                            {description}{" "}
+                            <a href={KNOWLEDGE_BASE_DOC_URL} target="_blank" rel="noopener noreferrer" className="underline">Learn more</a>
+                        </Label>
                     )}
                 </>
             )}
@@ -123,15 +131,23 @@ export const DocumentSelector = ({
                         </div>
                     ))}
                 </div>
+                <div className="p-2 bg-muted/30">
+                    <Link
+                        href="/files"
+                        target="_blank"
+                        className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+                    >
+                        <ExternalLink className="h-4 w-4" />
+                        Manage Documents
+                    </Link>
+                </div>
             </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
-                <span>
+
+            {value.length > 0 && (
+                <p className="text-xs text-muted-foreground">
                     {value.length} {value.length === 1 ? "document" : "documents"} selected
-                </span>
-                <Link href="/files" className="hover:underline">
-                    Manage Documents
-                </Link>
-            </div>
+                </p>
+            )}
         </div>
     );
 };

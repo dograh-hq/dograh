@@ -287,6 +287,7 @@ class TestEndCallViaNodeTransition:
                     async def initialize_engine():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                     await asyncio.gather(run_pipeline(), initialize_engine())
@@ -390,6 +391,7 @@ class TestEndCallViaNodeTransition:
                     async def initialize_engine():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                     await asyncio.gather(run_pipeline(), initialize_engine())
@@ -488,6 +490,7 @@ class TestEndCallViaCustomTool:
                     async def initialize_engine():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                     await asyncio.gather(run_pipeline(), initialize_engine())
@@ -579,6 +582,7 @@ class TestEndCallViaCustomTool:
                     async def initialize_engine():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                     await asyncio.gather(run_pipeline(), initialize_engine())
@@ -656,6 +660,7 @@ class TestEndCallViaClientDisconnect:
                     async def initialize_and_disconnect():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                         # Wait for initial generation to complete
@@ -746,6 +751,7 @@ class TestEndCallRaceConditions:
                     async def initialize_and_race():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                         # Wait for initial generation
@@ -858,6 +864,7 @@ class TestEndCallRaceConditions:
                         nonlocal disconnect_called
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                         # Wait for the end_call tool to be called
@@ -951,6 +958,7 @@ class TestEndCallExtractionBehavior:
                     async def initialize_and_end():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                         # Wait for initial generation
@@ -1076,6 +1084,7 @@ class TestEndCallExtractionBehavior:
                     async def initialize_and_end():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
                         # Wait for initial generation

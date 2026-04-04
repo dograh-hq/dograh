@@ -1,0 +1,139 @@
+---
+title: "Pre-Call Data Fetch"
+description: "Fetch customer data from your CRM or ERP before the call starts, so your voice agent can greet callers by name and reference their account details."
+---
+
+Pre-Call Data Fetch allows you to enrich the call context with external data before the voice agent starts speaking. When enabled on the **Start Call** node, Dograh sends an HTTP request to your API as soon as a call is initiated. While the response is loading, the caller hears a ring-back tone. Once the data arrives, it is merged into the call's [initial context](/core-concepts/context-and-variables#initial_context) and becomes available as template variables in your prompts and greetings.
+
+
+## How It Works
+
+1. A call arrives (inbound) or is initiated (outbound).
+2. Dograh sends a **POST** request to your configured endpoint with a standardized payload.
+3. The caller hears a ring-back tone while waiting for the response.
+4. Your API responds with a JSON object containing `dynamic_variables`.
+5. The variables are merged into the call's initial context.
+6. The voice agent starts with full access to the fetched data via `{{variable_name}}` syntax.
+
+## Configuration
+
+Open the **Start Call** node editor and expand **Advanced Settings**. Toggle **Pre-Call Data Fetch** and configure:
+
+| Field | Description |
+| --- | --- |
+| **Endpoint URL** | The URL Dograh will send the POST request to. |
+| **Authentication** | Optional credential for authenticating the request. Supports API key, bearer token, basic auth, and custom header. |
+
+## Request Format
+
+Dograh sends a `POST` request with the following JSON payload:
+
+```json
+{
+  "event": "call_inbound",
+  "call_inbound": {
+    "agent_id": 123,
+    "from_number": "+12137771234",
+    "to_number": "+12137771235"
+  }
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `event` | Always `"call_inbound"`. |
+| `call_inbound.agent_id` | The workflow (agent) ID. |
+| `call_inbound.from_number` | The caller's phone number (`caller_number` from initial context). |
+| `call_inbound.to_number` | The called phone number (`called_number` from initial context). |
+
+The `Content-Type` header is set to `application/json`. If you configured a credential, the corresponding authentication header is included.
+
+## Expected Response Format
+
+Your API should return a **JSON object** with a `2xx` status code. The variables to inject into the call context should be placed inside the `dynamic_variables` key:
+
+```json
+{
+  "call_inbound": {
+    "dynamic_variables": {
+      "customer_name": "Jane Doe",
+      "account_status": "active",
+      "loyalty_tier": "gold",
+      "open_tickets": 2
+    }
+  }
+}
+```
+
+You can also place `dynamic_variables` at the top level:
+
+```json
+{
+  "dynamic_variables": {
+    "customer_name": "Jane Doe",
+    "account_status": "active"
+  }
+}
+```
+
+After the response is received, you can reference these values anywhere template variables are supported:
+
+- **Greeting**: `Hello {{customer_name}}, thank you for calling!`
+- **Prompt**: `The customer is a {{loyalty_tier}} member with {{open_tickets}} open support tickets.`
+
+<Note>
+If the response is not a valid JSON object, does not contain `dynamic_variables`, or the request fails or times out, the call proceeds normally without the additional context. The pre-call fetch never blocks or fails a call.
+</Note>
+
+## Nested Variables
+
+If your `dynamic_variables` contain nested objects, you can access them using dot notation:
+
+```json
+{
+  "call_inbound": {
+    "dynamic_variables": {
+      "customer": {
+        "name": "Jane Doe",
+        "address": {
+          "city": "Los Angeles"
+        }
+      }
+    }
+  }
+}
+```
+
+Access in prompts as `{{customer.name}}` and `{{customer.address.city}}`.
+
+## Timeout
+
+The request has a **10-second timeout**. If your API does not respond within this window, the call proceeds without the fetched data. Design your endpoint to respond as quickly as possible to minimize the ring-back tone duration.
+
+## Example Integration
+
+A simple Node.js endpoint that looks up a customer by phone number:
+
+```javascript
+app.post("/dograh/pre-call", async (req, res) => {
+  const { call_inbound } = req.body;
+
+  const customer = await db.customers.findOne({
+    phone: call_inbound.from_number,
+  });
+
+  if (!customer) {
+    return res.json({});
+  }
+
+  res.json({
+    call_inbound: {
+      dynamic_variables: {
+        customer_name: customer.name,
+        account_status: customer.status,
+        loyalty_tier: customer.tier,
+      },
+    },
+  });
+});
+```

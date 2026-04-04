@@ -56,9 +56,11 @@
               "voice-agent/editing-a-workflow",
               "voice-agent/pre-recorded-audio",
               "voice-agent/template-variables",
+              "voice-agent/pre-call-data-fetch",
               {
                 "group": "Tools",
                 "pages": [
+                  "voice-agent/tools/introduction",
                   {
                     "group": "Built-in Tools",
                     "pages": [
@@ -74,6 +76,7 @@
                   }
                 ]
               },
+              "voice-agent/knowledge-base",
               {
                 "group": "Nodes",
                 "pages": [

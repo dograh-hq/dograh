@@ -1,14 +1,18 @@
 """
-Hold audio utility for loading and caching hold music files.
+Hold audio utility for loading, caching, and playing hold music files.
 
 This module provides functionality to load hold music audio files at specific sample rates
-with caching to improve performance during multiple calls.
+with caching to improve performance during multiple calls, and a reusable loop that queues
+audio frames until a stop event is set.
 """
 
+import asyncio
 from typing import Dict, Optional, Tuple
 
 import numpy as np
 from loguru import logger
+
+from pipecat.frames.frames import OutputAudioRawFrame
 
 try:
     import soundfile as sf
@@ -92,3 +96,56 @@ def get_cache_info() -> Dict[str, int]:
         "cached_files": len(_hold_audio_cache),
         "total_cache_size": sum(len(data) for data in _hold_audio_cache.values()),
     }
+
+
+async def play_hold_audio_loop(
+    task,
+    stop_event: asyncio.Event,
+    sample_rate: int = 16000,
+    hold_music_file: Optional[str] = None,
+) -> None:
+    """Play hold/ring-back audio in a loop until *stop_event* is set.
+
+    This is a shared helper used by call-transfer hold music and the
+    pre-call data fetch ringer.  The caller is responsible for creating
+    the ``asyncio.Event`` and setting it when playback should stop.
+
+    Args:
+        task: A ``PipelineTask`` (or anything with ``queue_frame``).
+        stop_event: Set this event to terminate the loop.
+        sample_rate: Target sample rate for audio playback.
+        hold_music_file: Path to a WAV file.  When *None* the default
+            ``transfer_hold_ring_{sample_rate}.wav`` asset is used.
+    """
+    if hold_music_file is None:
+        from api.constants import APP_ROOT_DIR
+
+        hold_music_file = str(
+            APP_ROOT_DIR / "assets" / f"transfer_hold_ring_{sample_rate}.wav"
+        )
+
+    hold_audio_data = load_hold_audio(hold_music_file, sample_rate)
+    if not hold_audio_data:
+        logger.warning(f"Hold audio loop: failed to load {hold_music_file}, skipping")
+        return
+
+    num_samples = len(hold_audio_data) // 2  # 16-bit PCM = 2 bytes per sample
+    duration = num_samples / sample_rate
+
+    logger.debug(f"Hold audio loop: playing at {sample_rate}Hz")
+    try:
+        while not stop_event.is_set():
+            frame = OutputAudioRawFrame(
+                audio=hold_audio_data,
+                sample_rate=sample_rate,
+                num_channels=1,
+            )
+            await task.queue_frame(frame)
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=duration + 1.5)
+                break
+            except asyncio.TimeoutError:
+                pass
+    except Exception as e:
+        logger.error(f"Hold audio loop: error: {e}")
+    logger.debug("Hold audio loop: stopped")

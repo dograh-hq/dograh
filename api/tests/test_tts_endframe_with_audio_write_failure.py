@@ -227,6 +227,7 @@ class TestTTSPauseWithAudioWriteFailure:
                     async def initialize_and_end_call():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
 
                         # Start LLM generation - this will trigger TTS
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
@@ -346,6 +347,7 @@ class TestTTSPauseWithAudioWriteFailure:
                     async def initialize_and_observe():
                         await asyncio.sleep(0.01)
                         await engine.initialize()
+                        await engine.set_node(engine.workflow.start_node_id)
 
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
 

@@ -162,8 +162,6 @@ class PipecatEngine:
             if self._context_compaction_enabled:
                 self._context_summarization_manager = ContextSummarizationManager(self)
 
-            await self.set_node(self.workflow.start_node_id)
-
             logger.debug(f"{self.__class__.__name__} initialized")
         except Exception as e:
             logger.error(f"Error initializing {self.__class__.__name__}: {e}")

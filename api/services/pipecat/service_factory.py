@@ -144,12 +144,9 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SPEACHES.value:
-        base_url = user_config.stt.base_url.replace("http://", "ws://").replace(
-            "https://", "wss://"
-        )
-        language = getattr(user_config.stt, "language", None) or "multi"
+        language = getattr(user_config.stt, "language", None)
         return SpeachesSTTService(
-            base_url=base_url,
+            base_url=user_config.stt.base_url,
             api_key=user_config.stt.api_key or "none",
             settings=SpeachesSTTSettings(
                 model=user_config.stt.model,

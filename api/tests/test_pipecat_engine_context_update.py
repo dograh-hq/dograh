@@ -201,6 +201,7 @@ async def run_pipeline_and_capture_context(
             async def initialize_engine():
                 await asyncio.sleep(0.01)
                 await engine.initialize()
+                await engine.set_node(engine.workflow.start_node_id)
                 await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
             await asyncio.gather(run_pipeline(), initialize_engine())

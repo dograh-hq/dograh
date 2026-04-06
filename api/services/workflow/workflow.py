@@ -82,6 +82,9 @@ class Node:
         self.delayed_start_duration = data.delayed_start_duration
         self.tool_uuids = data.tool_uuids
         self.document_uuids = data.document_uuids
+        self.pre_call_fetch_enabled = data.pre_call_fetch_enabled
+        self.pre_call_fetch_url = data.pre_call_fetch_url
+        self.pre_call_fetch_credential_uuid = data.pre_call_fetch_credential_uuid
 
         self.data = data
 

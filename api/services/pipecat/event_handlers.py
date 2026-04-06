@@ -1,3 +1,5 @@
+import asyncio
+
 from loguru import logger
 
 from api.db import db_client
@@ -13,6 +15,7 @@ from api.services.pipecat.tracing_config import get_trace_url
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
+from api.utils.hold_audio import play_hold_audio_loop
 from pipecat.frames.frames import Frame, LLMContextFrame, TTSSpeakFrame
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
@@ -28,6 +31,7 @@ def register_event_handlers(
     in_memory_logs_buffer: InMemoryLogsBuffer,
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
+    pre_call_fetch_task: asyncio.Task | None = None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -58,6 +62,9 @@ def register_event_handlers(
     async def maybe_trigger_initial_response():
         """Start the conversation after both pipeline_started and client_connected events.
 
+        If a pre-call fetch is in progress, plays a ringer while waiting for the
+        response, then merges the result into the call context before proceeding.
+
         If the start node has a greeting configured, play it directly via TTS.
         Otherwise, trigger an LLM generation for the opening message.
         """
@@ -67,6 +74,43 @@ def register_event_handlers(
             and not ready_state["initial_response_triggered"]
         ):
             ready_state["initial_response_triggered"] = True
+
+            # Wait for pre-call fetch if in progress, playing ringer meanwhile
+            if pre_call_fetch_task is not None:
+                if not pre_call_fetch_task.done():
+                    logger.info(
+                        "Pre-call fetch still in progress, playing ringer while waiting"
+                    )
+                    stop_ringer = asyncio.Event()
+                    sample_rate = audio_config.pipeline_sample_rate or 16000
+                    ringer_task = asyncio.create_task(
+                        play_hold_audio_loop(task, stop_ringer, sample_rate)
+                    )
+                    try:
+                        fetch_result = await pre_call_fetch_task
+                    finally:
+                        stop_ringer.set()
+                        await ringer_task
+                else:
+                    fetch_result = pre_call_fetch_task.result()
+
+                if fetch_result:
+                    engine._call_context_vars.update(fetch_result)
+                    try:
+                        await db_client.update_workflow_run(
+                            workflow_run_id,
+                            initial_context={**engine._call_context_vars},
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to persist pre-call fetch context: {e}")
+                    logger.info(
+                        f"Pre-call fetch complete, merged keys: "
+                        f"{list(fetch_result.keys())}"
+                    )
+
+            # Set the start node now (after pre-call fetch data is merged)
+            # so that render_template() has the complete _call_context_vars.
+            await engine.set_node(engine.workflow.start_node_id)
 
             greeting = engine.get_start_greeting()
             if greeting:

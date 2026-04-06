@@ -24,6 +24,7 @@ from api.services.pipecat.pipeline_engine_callbacks_processor import (
     PipelineEngineCallbacksProcessor,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
+from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
 from api.services.pipecat.realtime_feedback_observer import (
     RealtimeFeedbackObserver,
     register_turn_log_handlers,
@@ -622,6 +623,28 @@ async def _run_pipeline(
         ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
     )
 
+    # Pre-call fetch: fire early so it runs concurrently with remaining setup
+    pre_call_fetch_task = None
+    start_node = workflow_graph.nodes.get(workflow_graph.start_node_id)
+    if (
+        start_node
+        and start_node.pre_call_fetch_enabled
+        and start_node.pre_call_fetch_url
+    ):
+        logger.info(
+            f"Pre-call fetch enabled for workflow run {workflow_run_id}, "
+            f"firing request to {start_node.pre_call_fetch_url}"
+        )
+        pre_call_fetch_task = asyncio.create_task(
+            execute_pre_call_fetch(
+                url=start_node.pre_call_fetch_url,
+                credential_uuid=start_node.pre_call_fetch_credential_uuid,
+                call_context_vars=merged_call_context_vars,
+                workflow_id=workflow_id,
+                organization_id=workflow.organization_id,
+            )
+        )
+
     # Create in-memory logs buffer early so it can be used by engine callbacks
     in_memory_logs_buffer = InMemoryLogsBuffer(workflow_run_id)
 
@@ -952,6 +975,7 @@ async def _run_pipeline(
         in_memory_logs_buffer=in_memory_logs_buffer,
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
         audio_config=audio_config,
+        pre_call_fetch_task=pre_call_fetch_task,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

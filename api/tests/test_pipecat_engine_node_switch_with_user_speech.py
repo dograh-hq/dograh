@@ -294,6 +294,7 @@ class TestNodeSwitchWithUserSpeech:
                 async def initialize_engine():
                     await asyncio.sleep(0.01)
                     await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
                     # Start the LLM generation - user speech will be injected
                     # automatically when FunctionCallResultFrame #1 is seen
                     await engine.llm.queue_frame(LLMContextFrame(engine.context))

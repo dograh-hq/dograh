@@ -8,6 +8,7 @@ import type { ToolResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
+import { TOOLS_INTRODUCTION_DOC_URL } from "@/constants/documentation";
 
 interface ToolSelectorProps {
     value: string[];
@@ -46,7 +47,8 @@ export function ToolSelector({
                     <Label>{label}</Label>
                     {description && (
                         <Label className="text-xs text-muted-foreground">
-                            {description}
+                            {description}{" "}
+                            <a href={TOOLS_INTRODUCTION_DOC_URL} target="_blank" rel="noopener noreferrer" className="underline">Learn more</a>
                         </Label>
                     )}
                 </>

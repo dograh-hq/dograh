@@ -1,0 +1,39 @@
+---
+title: "Tools"
+description: "Extend your voice agent's capabilities by giving it tools to perform actions during live conversations."
+---
+
+Tools let your AI agent take actions during a conversation — transfer calls, end calls, or call external APIs — based on the context of the conversation and your prompt instructions.
+
+When a tool is attached to a workflow node, the LLM decides **when** to invoke it and **what parameters** to pass, based on the user's spoken intent and your node-level instructions.
+
+## Tool Types
+
+Dograh provides two categories of tools:
+
+### Built-in Tools
+
+Pre-configured tools that handle common telephony operations out of the box:
+
+- [**Call Transfer**](/voice-agent/tools/call-transfer) — Transfer the active call to a phone number or SIP endpoint
+- [**End Call**](/voice-agent/tools/end-call) — Terminate the call when the conversation is complete
+
+### Custom Tools
+
+Tools you define to integrate with any external system:
+
+- [**HTTP API**](/voice-agent/tools/http-api) — Call any REST API endpoint during a conversation (e.g., CRM updates, data lookups, triggering automations)
+
+## How Tools Work
+
+1. You **define** a tool with a name, description, and parameters
+2. You **attach** the tool to one or more workflow nodes
+3. During a call, the LLM reads your node prompt, the tool description, and the caller's intent to decide whether to invoke the tool
+4. The tool executes and returns a result that the agent can use to continue the conversation
+
+## Best Practices
+
+- **Attach only relevant tools to each node** — fewer tools means more reliable invocations
+- **Write clear tool descriptions** — the LLM uses these to decide when to call the tool
+- **Guide the LLM in your node prompt** — explicitly describe when a tool should be used
+- **Test tool behavior** — verify your agent invokes tools at the right moments using web or phone calls

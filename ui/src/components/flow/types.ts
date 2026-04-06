@@ -28,6 +28,10 @@ export type FlowNodeData = {
     detect_voicemail?: boolean;
     delayed_start?: boolean;
     delayed_start_duration?: number;
+    // Pre-call data fetch (StartCall only)
+    pre_call_fetch_enabled?: boolean;
+    pre_call_fetch_url?: string;
+    pre_call_fetch_credential_uuid?: string;
     // Trigger node specific
     trigger_path?: string;
     // Webhook node specific

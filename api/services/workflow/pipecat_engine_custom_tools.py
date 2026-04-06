@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
 
-from api.constants import APP_ROOT_DIR
 from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
@@ -28,11 +27,10 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
-from api.utils.hold_audio import load_hold_audio
+from api.utils.hold_audio import play_hold_audio_loop
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import (
     FunctionCallResultProperties,
-    OutputAudioRawFrame,
     TTSSpeakFrame,
 )
 from pipecat.services.llm_service import FunctionCallParams
@@ -539,7 +537,11 @@ class CustomToolManager:
 
                     # Start hold music as background task
                     hold_music_task = asyncio.create_task(
-                        self.play_hold_music_loop(hold_music_stop_event, sample_rate)
+                        play_hold_audio_loop(
+                            self._engine.task,
+                            hold_music_stop_event,
+                            sample_rate,
+                        )
                     )
 
                     # Wait for transfer completion using Redis pub/sub
@@ -666,44 +668,3 @@ class CustomToolManager:
             # Unknown action, treat as generic success
             logger.warning(f"Unknown transfer action: {action}, treating as success")
             await function_call_params.result_callback(result)
-
-    async def play_hold_music_loop(
-        self, stop_event: asyncio.Event, sample_rate: int = 8000
-    ):
-        """Play hold music in a loop until stop event is triggered.
-
-        Args:
-            stop_event: Event to stop the hold music loop
-            sample_rate: Sample rate for the hold music (default 8000Hz for Twilio)
-        """
-        try:
-            # Path to hold music file based on sample rate
-            hold_music_file = (
-                APP_ROOT_DIR / "assets" / f"transfer_hold_ring_{sample_rate}.wav"
-            )
-            hold_audio_data = load_hold_audio(hold_music_file, sample_rate)
-            num_samples = len(hold_audio_data) // 2
-            duration = int(num_samples / sample_rate)
-
-            logger.info(f"Starting hold music loop with file: {hold_music_file}")
-
-            while not stop_event.is_set():
-                # Queue the hold audio frame
-                frame = OutputAudioRawFrame(
-                    audio=hold_audio_data,
-                    sample_rate=sample_rate,
-                    num_channels=1,
-                )
-                await self._engine.task.queue_frame(frame)
-
-                # Wait for the audio to play or until stopped
-                try:
-                    await asyncio.wait_for(stop_event.wait(), timeout=duration + 1.5)
-                    break  # Stop event was set
-                except asyncio.TimeoutError:
-                    pass  # Continue looping
-
-            logger.info("Hold music loop stopped")
-
-        except Exception as e:
-            logger.error(f"Error in hold music loop: {e}")

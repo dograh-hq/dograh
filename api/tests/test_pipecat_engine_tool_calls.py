@@ -131,6 +131,7 @@ async def run_pipeline_with_tool_calls(
                 # Small delay to let runner start
                 await asyncio.sleep(0.01)
                 await engine.initialize()
+                await engine.set_node(engine.workflow.start_node_id)
                 await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
             # Run both concurrently

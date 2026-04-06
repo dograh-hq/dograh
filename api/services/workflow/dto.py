@@ -59,6 +59,10 @@ class NodeDataDTO(BaseModel):
     detect_voicemail: bool = False
     delayed_start: bool = False
     delayed_start_duration: Optional[float] = None
+    # Pre-call fetch (start node only)
+    pre_call_fetch_enabled: bool = False
+    pre_call_fetch_url: Optional[str] = None
+    pre_call_fetch_credential_uuid: Optional[str] = None
     tool_uuids: Optional[List[str]] = None
     document_uuids: Optional[List[str]] = None
     trigger_path: Optional[str] = None

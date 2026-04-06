@@ -80,6 +80,50 @@ export type AuthUserResponse = {
     is_superuser: boolean;
 };
 
+/**
+ * Request schema for creating one or more recording records after upload.
+ */
+export type BatchRecordingCreateRequestSchema = {
+    /**
+     * List of recordings to create
+     */
+    recordings: Array<RecordingCreateRequestSchema>;
+};
+
+/**
+ * Response schema for recording creation.
+ */
+export type BatchRecordingCreateResponseSchema = {
+    /**
+     * Created recording records
+     */
+    recordings: Array<RecordingResponseSchema>;
+};
+
+/**
+ * Request schema for getting presigned upload URLs for one or more files.
+ */
+export type BatchRecordingUploadRequestSchema = {
+    /**
+     * Workflow ID these recordings belong to
+     */
+    workflow_id: number;
+    /**
+     * List of files to upload
+     */
+    files: Array<FileDescriptor>;
+};
+
+/**
+ * Response schema with presigned upload URLs.
+ */
+export type BatchRecordingUploadResponseSchema = {
+    /**
+     * Upload URLs for each file
+     */
+    items: Array<RecordingUploadResponseSchema>;
+};
+
 export type BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost = {
     file: Blob | File;
     language?: string;
@@ -634,6 +678,24 @@ export type EndCallToolDefinition = {
     config: EndCallConfig;
 };
 
+/**
+ * Descriptor for a single file in a batch upload request.
+ */
+export type FileDescriptor = {
+    /**
+     * Original filename of the audio file
+     */
+    filename: string;
+    /**
+     * MIME type of the audio file
+     */
+    mime_type?: string;
+    /**
+     * File size in bytes (max 5MB)
+     */
+    file_size: number;
+};
+
 export type FileMetadataResponse = {
     key: string;
     metadata: {
@@ -907,28 +969,6 @@ export type RecordingResponseSchema = {
     created_by: number;
     created_at: string;
     is_active: boolean;
-};
-
-/**
- * Request schema for getting a presigned upload URL.
- */
-export type RecordingUploadRequestSchema = {
-    /**
-     * Workflow ID this recording belongs to
-     */
-    workflow_id: number;
-    /**
-     * Original filename of the audio file
-     */
-    filename: string;
-    /**
-     * MIME type of the audio file
-     */
-    mime_type?: string;
-    /**
-     * File size in bytes (max 5MB)
-     */
-    file_size: number;
 };
 
 /**
@@ -5464,8 +5504,8 @@ export type SearchChunksApiV1KnowledgeBaseSearchPostResponses = {
 
 export type SearchChunksApiV1KnowledgeBaseSearchPostResponse = SearchChunksApiV1KnowledgeBaseSearchPostResponses[keyof SearchChunksApiV1KnowledgeBaseSearchPostResponses];
 
-export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostData = {
-    body: RecordingUploadRequestSchema;
+export type GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostData = {
+    body: BatchRecordingUploadRequestSchema;
     headers?: {
         authorization?: string | null;
         'X-API-Key'?: string | null;
@@ -5475,7 +5515,7 @@ export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostData = {
     url: '/api/v1/workflow-recordings/upload-url';
 };
 
-export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostErrors = {
+export type GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostErrors = {
     /**
      * Not found
      */
@@ -5486,16 +5526,16 @@ export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostErrors = {
     422: HttpValidationError;
 };
 
-export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostError = GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostErrors[keyof GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostErrors];
+export type GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostError = GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostErrors[keyof GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostErrors];
 
-export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponses = {
+export type GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostResponses = {
     /**
      * Successful Response
      */
-    200: RecordingUploadResponseSchema;
+    200: BatchRecordingUploadResponseSchema;
 };
 
-export type GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponse = GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponses[keyof GetUploadUrlApiV1WorkflowRecordingsUploadUrlPostResponses];
+export type GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostResponse = GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostResponses[keyof GetUploadUrlsApiV1WorkflowRecordingsUploadUrlPostResponses];
 
 export type ListRecordingsApiV1WorkflowRecordingsGetData = {
     body?: never;
@@ -5547,8 +5587,8 @@ export type ListRecordingsApiV1WorkflowRecordingsGetResponses = {
 
 export type ListRecordingsApiV1WorkflowRecordingsGetResponse = ListRecordingsApiV1WorkflowRecordingsGetResponses[keyof ListRecordingsApiV1WorkflowRecordingsGetResponses];
 
-export type CreateRecordingApiV1WorkflowRecordingsPostData = {
-    body: RecordingCreateRequestSchema;
+export type CreateRecordingsApiV1WorkflowRecordingsPostData = {
+    body: BatchRecordingCreateRequestSchema;
     headers?: {
         authorization?: string | null;
         'X-API-Key'?: string | null;
@@ -5558,7 +5598,7 @@ export type CreateRecordingApiV1WorkflowRecordingsPostData = {
     url: '/api/v1/workflow-recordings/';
 };
 
-export type CreateRecordingApiV1WorkflowRecordingsPostErrors = {
+export type CreateRecordingsApiV1WorkflowRecordingsPostErrors = {
     /**
      * Not found
      */
@@ -5569,16 +5609,16 @@ export type CreateRecordingApiV1WorkflowRecordingsPostErrors = {
     422: HttpValidationError;
 };
 
-export type CreateRecordingApiV1WorkflowRecordingsPostError = CreateRecordingApiV1WorkflowRecordingsPostErrors[keyof CreateRecordingApiV1WorkflowRecordingsPostErrors];
+export type CreateRecordingsApiV1WorkflowRecordingsPostError = CreateRecordingsApiV1WorkflowRecordingsPostErrors[keyof CreateRecordingsApiV1WorkflowRecordingsPostErrors];
 
-export type CreateRecordingApiV1WorkflowRecordingsPostResponses = {
+export type CreateRecordingsApiV1WorkflowRecordingsPostResponses = {
     /**
      * Successful Response
      */
-    200: RecordingResponseSchema;
+    200: BatchRecordingCreateResponseSchema;
 };
 
-export type CreateRecordingApiV1WorkflowRecordingsPostResponse = CreateRecordingApiV1WorkflowRecordingsPostResponses[keyof CreateRecordingApiV1WorkflowRecordingsPostResponses];
+export type CreateRecordingsApiV1WorkflowRecordingsPostResponse = CreateRecordingsApiV1WorkflowRecordingsPostResponses[keyof CreateRecordingsApiV1WorkflowRecordingsPostResponses];
 
 export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteData = {
     body?: never;

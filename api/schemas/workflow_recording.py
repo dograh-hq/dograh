@@ -6,10 +6,17 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
-class RecordingUploadRequestSchema(BaseModel):
-    """Request schema for getting a presigned upload URL."""
+class RecordingUploadResponseSchema(BaseModel):
+    """Response schema with presigned upload URL."""
 
-    workflow_id: int = Field(..., description="Workflow ID this recording belongs to")
+    upload_url: str = Field(..., description="Presigned URL for uploading the audio")
+    recording_id: str = Field(..., description="Short unique recording ID")
+    storage_key: str = Field(..., description="Storage key where file will be uploaded")
+
+
+class FileDescriptor(BaseModel):
+    """Descriptor for a single file in a batch upload request."""
+
     filename: str = Field(..., description="Original filename of the audio file")
     mime_type: str = Field(
         default="audio/wav", description="MIME type of the audio file"
@@ -22,12 +29,21 @@ class RecordingUploadRequestSchema(BaseModel):
     )
 
 
-class RecordingUploadResponseSchema(BaseModel):
-    """Response schema with presigned upload URL."""
+class BatchRecordingUploadRequestSchema(BaseModel):
+    """Request schema for getting presigned upload URLs for one or more files."""
 
-    upload_url: str = Field(..., description="Presigned URL for uploading the audio")
-    recording_id: str = Field(..., description="Short unique recording ID")
-    storage_key: str = Field(..., description="Storage key where file will be uploaded")
+    workflow_id: int = Field(..., description="Workflow ID these recordings belong to")
+    files: List[FileDescriptor] = Field(
+        ..., min_length=1, max_length=20, description="List of files to upload"
+    )
+
+
+class BatchRecordingUploadResponseSchema(BaseModel):
+    """Response schema with presigned upload URLs."""
+
+    items: List[RecordingUploadResponseSchema] = Field(
+        ..., description="Upload URLs for each file"
+    )
 
 
 class RecordingCreateRequestSchema(BaseModel):
@@ -64,6 +80,22 @@ class RecordingResponseSchema(BaseModel):
     created_by: int
     created_at: datetime
     is_active: bool
+
+
+class BatchRecordingCreateRequestSchema(BaseModel):
+    """Request schema for creating one or more recording records after upload."""
+
+    recordings: List[RecordingCreateRequestSchema] = Field(
+        ..., min_length=1, max_length=20, description="List of recordings to create"
+    )
+
+
+class BatchRecordingCreateResponseSchema(BaseModel):
+    """Response schema for recording creation."""
+
+    recordings: List[RecordingResponseSchema] = Field(
+        ..., description="Created recording records"
+    )
 
 
 class RecordingListResponseSchema(BaseModel):

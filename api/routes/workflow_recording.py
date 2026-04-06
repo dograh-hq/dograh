@@ -10,10 +10,12 @@ from api.db import db_client
 from api.db.workflow_recording_client import generate_short_id
 from api.enums import StorageBackend
 from api.schemas.workflow_recording import (
-    RecordingCreateRequestSchema,
+    BatchRecordingCreateRequestSchema,
+    BatchRecordingCreateResponseSchema,
+    BatchRecordingUploadRequestSchema,
+    BatchRecordingUploadResponseSchema,
     RecordingListResponseSchema,
     RecordingResponseSchema,
-    RecordingUploadRequestSchema,
     RecordingUploadResponseSchema,
 )
 from api.services.auth.depends import get_user
@@ -56,94 +58,105 @@ def _build_response(rec) -> RecordingResponseSchema:
 
 @router.post(
     "/upload-url",
-    response_model=RecordingUploadResponseSchema,
-    summary="Get presigned URL for recording upload",
+    response_model=BatchRecordingUploadResponseSchema,
+    summary="Get presigned URLs for recording uploads",
 )
-async def get_upload_url(
-    request: RecordingUploadRequestSchema,
+async def get_upload_urls(
+    request: BatchRecordingUploadRequestSchema,
     user=Depends(get_user),
 ):
-    """Generate a presigned PUT URL for uploading an audio recording."""
+    """Generate presigned PUT URLs for uploading one or more audio recordings."""
     try:
-        recording_id = await _generate_unique_recording_id()
+        items = []
+        for fd in request.files:
+            recording_id = await _generate_unique_recording_id()
 
-        storage_key = (
-            f"recordings/{user.selected_organization_id}"
-            f"/{request.workflow_id}/{recording_id}"
-            f"/{request.filename}"
-        )
+            storage_key = (
+                f"recordings/{user.selected_organization_id}"
+                f"/{request.workflow_id}/{recording_id}"
+                f"/{fd.filename}"
+            )
 
-        upload_url = await storage_fs.aget_presigned_put_url(
-            file_path=storage_key,
-            expiration=1800,  # 30 minutes
-            content_type=request.mime_type,
-            max_size=5_242_880,  # 5MB max
-        )
+            upload_url = await storage_fs.aget_presigned_put_url(
+                file_path=storage_key,
+                expiration=1800,
+                content_type=fd.mime_type,
+                max_size=5_242_880,
+            )
 
-        if not upload_url:
-            raise HTTPException(
-                status_code=500, detail="Failed to generate presigned upload URL"
+            if not upload_url:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to generate presigned upload URL for {fd.filename}",
+                )
+
+            items.append(
+                RecordingUploadResponseSchema(
+                    upload_url=upload_url,
+                    recording_id=recording_id,
+                    storage_key=storage_key,
+                )
             )
 
         logger.info(
-            f"Generated recording upload URL: {recording_id}, "
+            f"Generated {len(items)} recording upload URL(s), "
             f"workflow {request.workflow_id}, org {user.selected_organization_id}"
         )
 
-        return RecordingUploadResponseSchema(
-            upload_url=upload_url,
-            recording_id=recording_id,
-            storage_key=storage_key,
-        )
+        return BatchRecordingUploadResponseSchema(items=items)
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"Error generating recording upload URL: {exc}")
+        logger.error(f"Error generating recording upload URLs: {exc}")
         raise HTTPException(
-            status_code=500, detail="Failed to generate upload URL"
+            status_code=500, detail="Failed to generate upload URLs"
         ) from exc
 
 
 @router.post(
     "/",
-    response_model=RecordingResponseSchema,
-    summary="Create recording record after upload",
+    response_model=BatchRecordingCreateResponseSchema,
+    summary="Create recording records after upload",
 )
-async def create_recording(
-    request: RecordingCreateRequestSchema,
+async def create_recordings(
+    request: BatchRecordingCreateRequestSchema,
     user=Depends(get_user),
 ):
-    """Create a recording record after the audio has been uploaded to storage."""
+    """Create one or more recording records after audio files have been uploaded."""
     try:
         backend = StorageBackend.get_current_backend()
+        results = []
 
-        recording = await db_client.create_recording(
-            recording_id=request.recording_id,
-            workflow_id=request.workflow_id,
-            organization_id=user.selected_organization_id,
-            tts_provider=request.tts_provider,
-            tts_model=request.tts_model,
-            tts_voice_id=request.tts_voice_id,
-            transcript=request.transcript,
-            storage_key=request.storage_key,
-            storage_backend=backend.value,
-            created_by=user.id,
-            metadata=request.metadata,
-        )
+        for rec_req in request.recordings:
+            recording = await db_client.create_recording(
+                recording_id=rec_req.recording_id,
+                workflow_id=rec_req.workflow_id,
+                organization_id=user.selected_organization_id,
+                tts_provider=rec_req.tts_provider,
+                tts_model=rec_req.tts_model,
+                tts_voice_id=rec_req.tts_voice_id,
+                transcript=rec_req.transcript,
+                storage_key=rec_req.storage_key,
+                storage_backend=backend.value,
+                created_by=user.id,
+                metadata=rec_req.metadata,
+            )
+            results.append(_build_response(recording))
 
         logger.info(
-            f"Created recording {request.recording_id} for workflow {request.workflow_id}"
+            f"Created {len(results)} recording(s) for "
+            f"workflow {request.recordings[0].workflow_id}"
         )
 
-        return _build_response(recording)
+        return BatchRecordingCreateResponseSchema(recordings=results)
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error(f"Error creating recording: {exc}")
+        logger.error(f"Error creating recordings: {exc}")
         raise HTTPException(
-            status_code=500, detail="Failed to create recording"
+            status_code=500, detail="Failed to create recordings"
         ) from exc
 
 

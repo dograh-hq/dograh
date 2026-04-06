@@ -1,11 +1,11 @@
-import { Loader2, Mic, Pause, Play, Square, Trash2Icon, Upload } from "lucide-react";
+import { Loader2, Mic, Pause, Play, Square, Trash2Icon, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
-    createRecordingApiV1WorkflowRecordingsPost,
+    createRecordingsApiV1WorkflowRecordingsPost,
     deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete,
     getSignedUrlApiV1S3SignedUrlGet,
-    getUploadUrlApiV1WorkflowRecordingsUploadUrlPost,
+    getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost,
     listRecordingsApiV1WorkflowRecordingsGet,
     transcribeAudioApiV1WorkflowRecordingsTranscribePost,
 } from "@/client";
@@ -40,7 +40,17 @@ interface RecordingsDialogProps {
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
-type RecordingStep = "idle" | "naming" | "recording" | "transcribing";
+type RecordingStep = "idle" | "naming" | "recording";
+
+interface PendingFile {
+    id: string;
+    file: File;
+    transcript: string;
+    isTranscribing: boolean;
+    error?: string;
+}
+
+let pendingFileCounter = 0;
 
 export const RecordingsDialog = ({
     open,
@@ -52,8 +62,7 @@ export const RecordingsDialog = ({
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
     const [loading, setLoading] = useState(false);
     const [uploading, setUploading] = useState(false);
-    const [transcript, setTranscript] = useState("");
-    const [selectedFile, setSelectedFile] = useState<File | null>(null);
+    const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [language, setLanguage] = useState("multi");
     const [recordingStep, setRecordingStep] = useState<RecordingStep>("idle");
@@ -125,8 +134,7 @@ export const RecordingsDialog = ({
         if (open) {
             fetchRecordings();
             setError(null);
-            setTranscript("");
-            setSelectedFile(null);
+            setPendingFiles([]);
             setLanguage("multi");
             resetRecordingState();
         }
@@ -140,8 +148,10 @@ export const RecordingsDialog = ({
         }
     }, [open, stopRecording, stopRecordingTimer, stopPlayback]);
 
-    const transcribeFile = async (file: File) => {
-        setRecordingStep("transcribing");
+    const transcribeFile = async (pendingId: string, file: File) => {
+        setPendingFiles((prev) =>
+            prev.map((p) => (p.id === pendingId ? { ...p, isTranscribing: true } : p))
+        );
         try {
             const currentLang = languageRef.current;
             const result = await transcribeAudioApiV1WorkflowRecordingsTranscribePost({
@@ -149,14 +159,53 @@ export const RecordingsDialog = ({
             });
             const data = result.data as Record<string, unknown> | undefined;
             if (data?.transcript) {
-                setTranscript(data.transcript as string);
+                setPendingFiles((prev) =>
+                    prev.map((p) =>
+                        p.id === pendingId ? { ...p, transcript: data.transcript as string, isTranscribing: false } : p
+                    )
+                );
+            } else {
+                setPendingFiles((prev) =>
+                    prev.map((p) => (p.id === pendingId ? { ...p, isTranscribing: false } : p))
+                );
             }
         } catch {
-            // Transcription failed — user can still type manually
-            setError("Auto-transcription failed. You can type the transcript manually.");
-        } finally {
-            setRecordingStep("idle");
+            setPendingFiles((prev) =>
+                prev.map((p) =>
+                    p.id === pendingId
+                        ? { ...p, isTranscribing: false, error: "Auto-transcription failed" }
+                        : p
+                )
+            );
         }
+    };
+
+    const addPendingFiles = (files: File[]) => {
+        const valid: PendingFile[] = [];
+        for (const file of files) {
+            if (file.size > MAX_FILE_SIZE) {
+                setError(`${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds 5MB limit — skipped.`);
+                continue;
+            }
+            const id = `pending-${++pendingFileCounter}`;
+            valid.push({ id, file, transcript: "", isTranscribing: false });
+        }
+        if (valid.length === 0) return;
+        setPendingFiles((prev) => [...prev, ...valid]);
+        setError(null);
+        for (const pf of valid) {
+            transcribeFile(pf.id, pf.file);
+        }
+    };
+
+    const removePendingFile = (pendingId: string) => {
+        setPendingFiles((prev) => prev.filter((p) => p.id !== pendingId));
+    };
+
+    const updateTranscript = (pendingId: string, transcript: string) => {
+        setPendingFiles((prev) =>
+            prev.map((p) => (p.id === pendingId ? { ...p, transcript } : p))
+        );
     };
 
     const startRecording = async () => {
@@ -183,9 +232,8 @@ export const RecordingsDialog = ({
                 }
                 const ext = mediaRecorder.mimeType.includes("webm") ? "webm" : "mp4";
                 const file = new File([blob], `${filename}.${ext}`, { type: mediaRecorder.mimeType });
-                setSelectedFile(file);
-                setError(null);
-                transcribeFile(file);
+                resetRecordingState();
+                addPendingFiles([file]);
             };
 
             mediaRecorder.start();
@@ -205,20 +253,15 @@ export const RecordingsDialog = ({
         stopRecording();
     };
 
-    const handleFileSelect = (file: File | null) => {
-        if (file && file.size > MAX_FILE_SIZE) {
-            setError(`File size (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds the maximum allowed size of 5MB.`);
-            setSelectedFile(null);
-            if (fileInputRef.current) fileInputRef.current.value = "";
-            return;
-        }
-        setError(null);
-        setSelectedFile(file);
-        if (file) transcribeFile(file);
+    const handleFileSelect = (fileList: FileList | null) => {
+        if (!fileList || fileList.length === 0) return;
+        addPendingFiles(Array.from(fileList));
+        if (fileInputRef.current) fileInputRef.current.value = "";
     };
 
     const handleUpload = async () => {
-        if (!selectedFile || !transcript.trim()) return;
+        const ready = pendingFiles.filter((p) => p.transcript.trim() && !p.isTranscribing);
+        if (ready.length === 0) return;
         if (!ttsProvider || !ttsModel || !ttsVoiceId) {
             setError(
                 "TTS configuration (provider, model, voice) must be set in your user configuration before uploading."
@@ -230,66 +273,72 @@ export const RecordingsDialog = ({
         setError(null);
 
         try {
-            // Step 1: Get presigned URL
+            // Step 1: Get presigned URLs for all files
             const uploadUrlResponse =
-                await getUploadUrlApiV1WorkflowRecordingsUploadUrlPost({
+                await getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost({
                     body: {
                         workflow_id: workflowId,
-                        filename: selectedFile.name,
-                        mime_type: selectedFile.type || "audio/wav",
-                        file_size: selectedFile.size,
+                        files: ready.map((p) => ({
+                            filename: p.file.name,
+                            mime_type: p.file.type || "audio/wav",
+                            file_size: p.file.size,
+                        })),
                     },
                 });
 
-            if (!uploadUrlResponse.data) {
-                throw new Error("Failed to get upload URL");
+            if (!uploadUrlResponse.data?.items) {
+                throw new Error("Failed to get upload URLs");
             }
 
-            const { upload_url, recording_id, storage_key } =
-                uploadUrlResponse.data;
+            const items = uploadUrlResponse.data.items;
 
-            // Step 2: Upload file directly to storage
-            const uploadResponse = await fetch(upload_url, {
-                method: "PUT",
-                body: selectedFile,
-                headers: {
-                    "Content-Type": selectedFile.type || "audio/wav",
-                },
-            });
+            // Step 2: Upload all files to storage in parallel
+            await Promise.all(
+                items.map(async (item, idx) => {
+                    const file = ready[idx].file;
+                    const uploadResponse = await fetch(item.upload_url, {
+                        method: "PUT",
+                        body: file,
+                        headers: {
+                            "Content-Type": file.type || "audio/wav",
+                        },
+                    });
+                    if (!uploadResponse.ok) {
+                        throw new Error(`File upload failed for ${file.name}`);
+                    }
+                })
+            );
 
-            if (!uploadResponse.ok) {
-                throw new Error("File upload failed");
-            }
-
-            // Step 3: Create recording record
-            await createRecordingApiV1WorkflowRecordingsPost({
+            // Step 3: Create all recording records
+            await createRecordingsApiV1WorkflowRecordingsPost({
                 body: {
-                    recording_id,
-                    workflow_id: workflowId,
-                    tts_provider: ttsProvider,
-                    tts_model: ttsModel,
-                    tts_voice_id: ttsVoiceId,
-                    transcript: transcript.trim(),
-                    storage_key,
-                    metadata: {
-                        original_filename: selectedFile.name,
-                        file_size_bytes: selectedFile.size,
-                        mime_type: selectedFile.type,
-                        language,
-                    },
+                    recordings: items.map((item, idx) => ({
+                        recording_id: item.recording_id,
+                        workflow_id: workflowId,
+                        tts_provider: ttsProvider,
+                        tts_model: ttsModel,
+                        tts_voice_id: ttsVoiceId,
+                        transcript: ready[idx].transcript.trim(),
+                        storage_key: item.storage_key,
+                        metadata: {
+                            original_filename: ready[idx].file.name,
+                            file_size_bytes: ready[idx].file.size,
+                            mime_type: ready[idx].file.type,
+                            language,
+                        },
+                    })),
                 },
             });
 
             // Reset form and refresh list
-            setTranscript("");
-            setSelectedFile(null);
+            setPendingFiles([]);
             setLanguage("multi");
             resetRecordingState();
             if (fileInputRef.current) fileInputRef.current.value = "";
             await fetchRecordings();
         } catch (err) {
             setError(
-                err instanceof Error ? err.message : "Failed to upload recording"
+                err instanceof Error ? err.message : "Failed to upload recordings"
             );
         } finally {
             setUploading(false);
@@ -335,8 +384,9 @@ export const RecordingsDialog = ({
     };
 
     const isRecording = recordingStep === "recording";
-    const isTranscribing = recordingStep === "transcribing";
-    const isBusy = uploading || isRecording || isTranscribing;
+    const anyTranscribing = pendingFiles.some((p) => p.isTranscribing);
+    const readyCount = pendingFiles.filter((p) => p.transcript.trim() && !p.isTranscribing).length;
+    const isBusy = uploading || isRecording || anyTranscribing;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -383,19 +433,20 @@ export const RecordingsDialog = ({
 
                 {/* Upload Section */}
                 <div className="space-y-3 border rounded-md p-3">
-                    <Label className="text-sm font-medium">Add New Recording</Label>
+                    <Label className="text-sm font-medium">Add New Recordings</Label>
 
                     {/* Audio source: file picker or record */}
                     <div>
                         <Label className="text-xs text-muted-foreground">
-                            Audio File
+                            Audio Files
                         </Label>
                         <div className="flex gap-2">
                             <input
                                 ref={fileInputRef}
                                 type="file"
                                 accept="audio/*"
-                                onChange={(e) => handleFileSelect(e.target.files?.[0] ?? null)}
+                                multiple
+                                onChange={(e) => handleFileSelect(e.target.files)}
                                 className="hidden"
                             />
                             <Button
@@ -407,13 +458,7 @@ export const RecordingsDialog = ({
                                 disabled={isBusy}
                             >
                                 <Upload className="w-4 h-4 mr-2 shrink-0" />
-                                {selectedFile && recordingStep !== "naming" ? (
-                                    <span className="truncate">
-                                        {selectedFile.name} ({(selectedFile.size / (1024 * 1024)).toFixed(1)}MB)
-                                    </span>
-                                ) : (
-                                    <span className="text-muted-foreground">Choose audio file (max 5MB)</span>
-                                )}
+                                <span className="text-muted-foreground">Choose audio files (max 5MB each)</span>
                             </Button>
                             {recordingStep === "idle" && (
                                 <Button
@@ -421,7 +466,7 @@ export const RecordingsDialog = ({
                                     variant="outline"
                                     size="sm"
                                     onClick={() => setRecordingStep("naming")}
-                                    disabled={uploading || isTranscribing}
+                                    disabled={uploading || anyTranscribing}
                                 >
                                     <Mic className="w-4 h-4 mr-1" />
                                     Record
@@ -489,11 +534,44 @@ export const RecordingsDialog = ({
                         </div>
                     )}
 
-                    {/* Transcribing progress */}
-                    {isTranscribing && (
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Transcribing audio...
+                    {/* Pending files list */}
+                    {pendingFiles.length > 0 && (
+                        <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground">
+                                Pending ({pendingFiles.length} file{pendingFiles.length !== 1 ? "s" : ""})
+                            </Label>
+                            {pendingFiles.map((pf) => (
+                                <div key={pf.id} className="rounded-md border p-2 space-y-1.5 bg-muted/10">
+                                    <div className="flex items-center gap-2">
+                                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate flex-1">
+                                            {pf.file.name} ({(pf.file.size / (1024 * 1024)).toFixed(1)}MB)
+                                        </code>
+                                        {pf.isTranscribing && (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />
+                                        )}
+                                        <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-6 w-6 p-0 shrink-0"
+                                            onClick={() => removePendingFile(pf.id)}
+                                            disabled={uploading}
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </Button>
+                                    </div>
+                                    {pf.error && (
+                                        <p className="text-xs text-destructive">{pf.error}</p>
+                                    )}
+                                    <Textarea
+                                        placeholder={pf.isTranscribing ? "Transcribing..." : "What does this recording say?"}
+                                        value={pf.transcript}
+                                        onChange={(e) => updateTranscript(pf.id, e.target.value)}
+                                        disabled={pf.isTranscribing}
+                                        rows={2}
+                                        className="resize-none text-sm"
+                                    />
+                                </div>
+                            ))}
                         </div>
                     )}
 
@@ -516,32 +594,19 @@ export const RecordingsDialog = ({
                         </Select>
                     </div>
 
-                    {/* Transcript */}
-                    <div>
-                        <Label className="text-xs text-muted-foreground">
-                            Transcript
-                        </Label>
-                        <Textarea
-                            placeholder={isTranscribing ? "Transcribing..." : "What does this recording say?"}
-                            value={transcript}
-                            onChange={(e) => setTranscript(e.target.value)}
-                            disabled={isTranscribing}
-                            rows={3}
-                            className="resize-none text-sm"
-                        />
-                    </div>
-
                     <Button
                         size="sm"
                         onClick={handleUpload}
-                        disabled={!selectedFile || !transcript.trim() || isBusy}
+                        disabled={readyCount === 0 || isBusy}
                     >
                         {uploading ? (
                             <Loader2 className="w-4 h-4 mr-1 animate-spin" />
                         ) : (
                             <Upload className="w-4 h-4 mr-1" />
                         )}
-                        {uploading ? "Uploading..." : "Upload Recording"}
+                        {uploading
+                            ? "Uploading..."
+                            : `Upload ${readyCount} Recording${readyCount !== 1 ? "s" : ""}`}
                     </Button>
                 </div>
 

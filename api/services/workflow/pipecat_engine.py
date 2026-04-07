@@ -174,12 +174,12 @@ class PipecatEngine:
             tools_schema = ToolsSchema(standard_tools=functions)
             self.context.set_tools(tools_schema)
 
-        await self.llm._update_settings(LLMSettings(system_instruction=system_prompt))
-
         # For Gemini Live, set context on the LLM before _update_settings so that
         # _connect (triggered by reconnect) can read tools from it.
         if hasattr(self.llm, "_context") and not self.llm._context and self.context:
             self.llm._context = self.context
+
+        await self.llm._update_settings(LLMSettings(system_instruction=system_prompt))
 
     def _format_prompt(self, prompt: str) -> str:
         """Delegate prompt formatting to the shared workflow.utils implementation."""

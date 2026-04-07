@@ -31,6 +31,7 @@ class ServiceProviders(str, Enum):
     SPEACHES = "speaches"
     ASSEMBLYAI = "assemblyai"
     GLADIA = "gladia"
+    RIME = "rime"
     OPENAI_REALTIME = "openai_realtime"
     GOOGLE_REALTIME = "google_realtime"
 
@@ -49,6 +50,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.SPEACHES,
         ServiceProviders.ASSEMBLYAI,
         ServiceProviders.GLADIA,
+        ServiceProviders.RIME,
         ServiceProviders.OPENAI_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         # ServiceProviders.SARVAM,
@@ -588,6 +590,25 @@ class CambTTSConfiguration(BaseTTSConfiguration):
     language: str = Field(default="en-us", description="BCP-47 language code")
 
 
+RIME_TTS_MODELS = ["arcana", "mistv3", "mistv2", "mist"]
+
+
+@register_tts
+class RimeTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.RIME] = ServiceProviders.RIME
+    model: str = Field(
+        default="arcana",
+        json_schema_extra={"examples": RIME_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="celeste",
+        description="Rime voice ID",
+    )
+    speed: float = Field(
+        default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier"
+    )
+
+
 SPEACHES_TTS_MODELS = ["hexgrad/Kokoro-82M"]
 
 
@@ -625,6 +646,7 @@ TTSConfig = Annotated[
         DograhTTSService,
         SarvamTTSConfiguration,
         CambTTSConfiguration,
+        RimeTTSConfiguration,
         SpeachesTTSConfiguration,
     ],
     Field(discriminator="provider"),

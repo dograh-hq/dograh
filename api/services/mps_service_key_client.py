@@ -442,6 +442,8 @@ class MPSServiceKeyClient:
     async def get_voices(
         self,
         provider: str,
+        model: Optional[str] = None,
+        language: Optional[str] = None,
         organization_id: Optional[int] = None,
         created_by: Optional[str] = None,
     ) -> dict:
@@ -449,7 +451,9 @@ class MPSServiceKeyClient:
         Get available voices for a TTS provider from MPS.
 
         Args:
-            provider: TTS provider name (elevenlabs, deepgram, sarvam, cartesia)
+            provider: TTS provider name (elevenlabs, deepgram, sarvam, cartesia, rime)
+            model: Optional model ID to filter voices (e.g., "arcana", "mistv2")
+            language: Optional language code to filter voices (e.g., "eng", "en")
             organization_id: Organization ID (for authenticated mode)
             created_by: User provider ID (for OSS mode)
 
@@ -460,9 +464,15 @@ class MPSServiceKeyClient:
             HTTPException: If the API call fails
         """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
+            params = {}
+            if model:
+                params["model"] = model
+            if language:
+                params["language"] = language
             response = await client.get(
                 f"{self.base_url}/api/v1/voice-proxy/{provider}/voices",
                 headers=self._get_headers(organization_id, created_by),
+                params=params,
             )
 
             if response.status_code == 200:

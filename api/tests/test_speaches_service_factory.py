@@ -17,7 +17,9 @@ def test_create_speaches_stt_service_uses_http_base_url():
     )
     audio_config = SimpleNamespace(transport_in_sample_rate=16000)
 
-    with patch("api.services.pipecat.service_factory.SpeachesSTTService") as mock_service:
+    with patch(
+        "api.services.pipecat.service_factory.SpeachesSTTService"
+    ) as mock_service:
         create_stt_service(user_config, audio_config)
 
     assert mock_service.call_count == 1

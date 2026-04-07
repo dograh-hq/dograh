@@ -308,7 +308,7 @@ async def reactivate_api_key(
 
 
 # Voice Configuration Endpoints
-TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh"]
+TTSProvider = Literal["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"]
 
 
 class VoiceInfo(BaseModel):
@@ -329,12 +329,16 @@ class VoicesResponse(BaseModel):
 @router.get("/configurations/voices/{provider}")
 async def get_voices(
     provider: TTSProvider,
+    model: Optional[str] = None,
+    language: Optional[str] = None,
     user: UserModel = Depends(get_user),
 ) -> VoicesResponse:
     """Get available voices for a TTS provider."""
     try:
         result = await mps_service_key_client.get_voices(
             provider=provider,
+            model=model,
+            language=language,
             organization_id=user.selected_organization_id,
             created_by=user.provider_id,
         )

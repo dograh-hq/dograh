@@ -13,13 +13,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 
 // Providers that have MPS voice endpoints
-type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh";
-const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh"];
+type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime";
+const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"];
 
 interface VoiceSelectorProps {
     provider: string;
     value: string;
     onChange: (voiceId: string) => void;
+    model?: string;
+    language?: string;
     className?: string;
 }
 
@@ -27,6 +29,8 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     provider,
     value,
     onChange,
+    model,
+    language,
     className,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -52,6 +56,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             sarvam: "sarvam",
             cartesia: "cartesia",
             dograh: "dograh",
+            rime: "rime",
         };
         return providerMap[providerName.toLowerCase()] || null;
     }, []);
@@ -67,8 +72,12 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         setError(null);
 
         try {
+            const query: { model?: string; language?: string } = {};
+            if (model) query.model = model;
+            if (language) query.language = language;
             const response = await getVoicesApiV1UserConfigurationsVoicesProviderGet({
                 path: { provider: providerKey },
+                query: Object.keys(query).length > 0 ? query : undefined,
             });
 
             if (response.data?.voices) {
@@ -81,7 +90,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         } finally {
             setIsLoading(false);
         }
-    }, [provider, getProviderKey]);
+    }, [provider, model, language, getProviderKey]);
 
     useEffect(() => {
         if (provider) {

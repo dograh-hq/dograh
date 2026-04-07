@@ -35,6 +35,7 @@ from pipecat.services.openai.stt import (
 )
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
+from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
@@ -319,6 +320,21 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 voice=user_config.tts.voice,
                 speed=user_config.tts.speed,
             ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.RIME.value:
+        speed = getattr(user_config.tts, "speed", None)
+        settings_kwargs = {
+            "voice": user_config.tts.voice,
+            "model": user_config.tts.model,
+        }
+        if speed and speed != 1.0:
+            settings_kwargs["speedAlpha"] = speed
+        return RimeTTSService(
+            api_key=user_config.tts.api_key,
+            settings=RimeTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router"],
             silence_time_s=1.0,

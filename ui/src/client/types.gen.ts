@@ -2943,9 +2943,12 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
         'X-API-Key'?: string | null;
     };
     path: {
-        provider: 'elevenlabs' | 'deepgram' | 'sarvam' | 'cartesia' | 'dograh';
+        provider: 'elevenlabs' | 'deepgram' | 'sarvam' | 'cartesia' | 'dograh' | 'rime';
     };
-    query?: never;
+    query?: {
+        model?: string | null;
+        language?: string | null;
+    };
     url: '/api/v1/user/configurations/voices/{provider}';
 };
 

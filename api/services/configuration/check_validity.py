@@ -51,6 +51,7 @@ class UserConfigurationValidator:
             ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
             ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
+            ServiceProviders.RIME.value: self._check_rime_api_key,
         }
 
     async def validate(
@@ -224,4 +225,7 @@ class UserConfigurationValidator:
         return True
 
     def _check_gladia_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
+    def _check_rime_api_key(self, model: str, api_key: str) -> bool:
         return True

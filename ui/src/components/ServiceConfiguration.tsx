@@ -502,6 +502,7 @@ export default function ServiceConfiguration() {
                         onChange={(voiceId) => {
                             setValue(`${service}_${field}`, voiceId, { shouldDirty: true });
                         }}
+                        model={watch("tts_model") as string || undefined}
                     />
                 );
             }

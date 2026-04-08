@@ -29,6 +29,7 @@
     connectionStatus: 'idle', // idle, connecting, connected, failed
     audioElement: null,
     turnCredentials: null, // TURN server credentials
+    callStartedAt: null, // Timestamp when call connected (for duration tracking)
     callbacks: {
       onReady: null,
       onCallStart: null,
@@ -761,6 +762,8 @@
 
       if (state.pc.iceConnectionState === 'connected' || state.pc.iceConnectionState === 'completed') {
         updateStatus('connected', 'Connected', 'Your voice call is now active');
+        state.callStartedAt = Date.now();
+        emitMessage('dograh:call_started', {});
       } else if (state.pc.iceConnectionState === 'failed' || state.pc.iceConnectionState === 'disconnected') {
         updateStatus('failed', 'Connection lost', 'The call has been disconnected');
         stopCall();
@@ -893,6 +896,13 @@
    * Stop voice call
    */
   function stopCall() {
+    // Emit end message before clearing state so identifiers are still available
+    const durationSeconds = state.callStartedAt
+      ? Math.round((Date.now() - state.callStartedAt) / 1000)
+      : 0;
+    emitMessage('dograh:call_ended', { durationSeconds });
+    state.callStartedAt = null;
+
     updateStatus('idle', 'Call ended', 'Click below to start a new call');
 
     // Trigger call end callback
@@ -930,6 +940,26 @@
   function retryCall() {
     updateStatus('idle', 'Ready to start', 'Click below to begin your voice call');
     setTimeout(() => startCall(), 500);
+  }
+
+  /**
+   * Emit a postMessage event to the host window
+   * Allows the embedding website to listen for agent lifecycle events via:
+   *   window.addEventListener('message', (event) => { ... })
+   */
+  function emitMessage(eventType, detail) {
+    const containerId = state.config.embedMode === 'inline'
+      ? state.config.containerId
+      : 'dograh-widget';
+    const message = {
+      type: eventType,
+      agentId: state.config.workflowId || null,
+      token: state.config.token || null,
+      workflowRunId: state.workflowRunId || null,
+      containerId: containerId,
+      ...detail
+    };
+    window.postMessage(message, '*');
   }
 
   /**

@@ -578,7 +578,7 @@ class TestRunDefinitionBinding:
         run = await db_session.create_workflow_run(
             name="Campaign Run",
             workflow_id=workflow.id,
-            mode="phone_outbound",
+            mode="webrtc",
             user_id=user.id,
         )
 
@@ -600,7 +600,7 @@ class TestRunDefinitionBinding:
         run = await db_session.create_workflow_run(
             name="Test Run",
             workflow_id=workflow.id,
-            mode="web",  # test mode
+            mode="webrtc",  # test mode
             user_id=user.id,
             use_draft=True,
         )

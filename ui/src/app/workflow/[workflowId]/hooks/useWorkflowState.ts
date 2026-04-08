@@ -342,7 +342,7 @@ export const useWorkflowState = ({
                 if (response.data.is_valid === false && response.data.errors) {
                     const errors = response.data.errors;
 
-                    errors.forEach((error) => {
+                    errors.forEach((error: WorkflowError) => {
                         if (error.kind === 'node' && error.id) {
                             markNodeAsInvalid(error.id, error.message);
                         } else if (error.kind === 'edge' && error.id) {
@@ -355,7 +355,7 @@ export const useWorkflowState = ({
                     logger.info('Workflow is valid');
                 }
             }
-        } catch (error) {
+        } catch (error: unknown) {
             logger.error(`Unexpected validation error: ${error}`);
         }
     }, [workflowId, user, clearValidationErrors, markNodeAsInvalid, markEdgeAsInvalid, setWorkflowValidationErrors]);

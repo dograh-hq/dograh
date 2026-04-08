@@ -1,5 +1,4 @@
-import type { Client } from '@hey-api/client-fetch';
-
+import type { Client } from '@/client/client';
 import type { CreateClientConfig } from '@/client/client.gen';
 
 export const createClientConfig: CreateClientConfig = (config) => {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { listTestSessionsApiV1LooptalkTestSessionsGet } from '@/client/sdk.gen';
+import type { TestSessionResponse } from '@/client/types.gen';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
 
@@ -32,7 +33,7 @@ export function LoopTalkTestSessionsList({ status }: LoopTalkTestSessionsListPro
                 });
 
                 // Transform API response to match UI types
-                const transformedSessions = (response.data || []).map(session => ({
+                const transformedSessions = (response.data || []).map((session: TestSessionResponse) => ({
                     id: session.id,
                     name: session.name,
                     description: '', // API doesn't return description

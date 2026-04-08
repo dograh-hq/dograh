@@ -115,6 +115,7 @@ class MockToolModel:
     name: str
     description: str
     definition: Dict[str, Any]
+    category: str = "http_api"
 
 
 @pytest.fixture

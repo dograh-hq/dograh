@@ -2,7 +2,7 @@ import { BaseEdge, type Edge, EdgeLabelRenderer, type EdgeProps, getSmoothStepPa
 import { AlertCircle, Pencil } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
+import { useWorkflow, useWorkflowOptional } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -23,6 +23,7 @@ interface EdgeDetailsDialogProps {
 }
 
 const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDialogProps) => {
+    const readOnly = useWorkflowOptional()?.readOnly ?? false;
     const [condition, setCondition] = useState(data?.condition ?? '');
     const [label, setLabel] = useState(data?.label ?? '');
     const [transitionSpeech, setTransitionSpeech] = useState(data?.transition_speech ?? '');
@@ -43,7 +44,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
 
     // Handle Cmd+S / Ctrl+S keyboard shortcut to save
     useEffect(() => {
-        if (!open) return;
+        if (!open || readOnly) return;
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -55,7 +56,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
 
         window.addEventListener('keydown', handleKeyDown, true);
         return () => window.removeEventListener('keydown', handleKeyDown, true);
-    }, [open, handleSave]);
+    }, [open, readOnly, handleSave]);
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -115,7 +116,9 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                 <DialogFooter>
                     <div className="flex items-center gap-2">
                         <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-                        <Button onClick={handleSave}>Save</Button>
+                        <Button onClick={handleSave} disabled={readOnly}>
+                            {readOnly ? "Read Only" : "Save"}
+                        </Button>
                     </div>
                 </DialogFooter>
             </DialogContent>

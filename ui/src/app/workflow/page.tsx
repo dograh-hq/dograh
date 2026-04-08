@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 
 import { getWorkflowsApiV1WorkflowFetchGet } from '@/client/sdk.gen';
+import type { WorkflowListResponse } from '@/client/types.gen';
 import { CreateWorkflowButton } from "@/components/workflow/CreateWorkflowButton";
 import { UploadWorkflowButton } from '@/components/workflow/UploadWorkflowButton';
 import { WorkflowTable } from "@/components/workflow/WorkflowTable";
@@ -46,12 +47,12 @@ async function WorkflowList() {
 
         // Separate active and archived workflows
         const activeWorkflows = allWorkflowData
-            .filter(w => w.status === 'active')
-            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            .filter((w: WorkflowListResponse) => w.status === 'active')
+            .sort((a: WorkflowListResponse, b: WorkflowListResponse) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
         const archivedWorkflows = allWorkflowData
-            .filter(w => w.status === 'archived')
-            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            .filter((w: WorkflowListResponse) => w.status === 'archived')
+            .sort((a: WorkflowListResponse, b: WorkflowListResponse) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
         return (
             <>

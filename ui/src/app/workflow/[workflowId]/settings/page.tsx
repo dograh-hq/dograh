@@ -914,6 +914,7 @@ function WorkflowSettingsContent({
                 open={isRecordingsDialogOpen}
                 onOpenChange={setIsRecordingsDialogOpen}
                 workflowId={workflowId}
+                ttsOverrides={workflowConfigurations?.model_overrides?.tts}
             />
             <EmbedDialog
                 open={isEmbedDialogOpen}

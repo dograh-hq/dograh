@@ -36,6 +36,11 @@ interface RecordingsDialogProps {
     onOpenChange: (open: boolean) => void;
     workflowId: number;
     onRecordingsChange?: (recordings: RecordingResponseSchema[]) => void;
+    ttsOverrides?: {
+        provider?: string;
+        model?: string;
+        voice?: string;
+    };
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -57,6 +62,7 @@ export const RecordingsDialog = ({
     onOpenChange,
     workflowId,
     onRecordingsChange,
+    ttsOverrides,
 }: RecordingsDialogProps) => {
     const { userConfig } = useUserConfig();
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -77,9 +83,9 @@ export const RecordingsDialog = ({
     const languageRef = useRef(language);
     languageRef.current = language;
 
-    const ttsProvider = (userConfig?.tts?.provider as string) ?? "";
-    const ttsModel = (userConfig?.tts?.model as string) ?? "";
-    const ttsVoiceId = (userConfig?.tts?.voice as string) ?? "";
+    const ttsProvider = ttsOverrides?.provider ?? (userConfig?.tts?.provider as string) ?? "";
+    const ttsModel = ttsOverrides?.model ?? (userConfig?.tts?.model as string) ?? "";
+    const ttsVoiceId = ttsOverrides?.voice ?? (userConfig?.tts?.voice as string) ?? "";
 
     const fetchRecordings = useCallback(async () => {
         if (!workflowId) return;

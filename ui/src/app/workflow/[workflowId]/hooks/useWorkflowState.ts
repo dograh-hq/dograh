@@ -165,7 +165,7 @@ interface UseWorkflowStateProps {
     };
     initialTemplateContextVariables?: Record<string, string>;
     initialWorkflowConfigurations?: WorkflowConfigurations;
-    user: { id: string; email?: string };  // Minimal user type needed
+    user: { id: string; email?: string } | null;
 }
 
 export const useWorkflowState = ({
@@ -300,7 +300,7 @@ export const useWorkflowState = ({
 
     // Validate workflow function
     const validateWorkflow = useCallback(async () => {
-        if (!user) return;
+        if (!user?.id) return;
         try {
             const response = await validateWorkflowApiV1WorkflowWorkflowIdValidatePost({
                 path: {
@@ -360,9 +360,9 @@ export const useWorkflowState = ({
         }
     }, [workflowId, user, clearValidationErrors, markNodeAsInvalid, markEdgeAsInvalid, setWorkflowValidationErrors]);
 
-    // Save workflow function
-    const saveWorkflow = useCallback(async (updateWorkflowDefinition: boolean = true) => {
-        if (!user || !rfInstance.current) return;
+    // Save workflow function. Returns version info from the API response.
+    const saveWorkflow = useCallback(async (updateWorkflowDefinition: boolean = true): Promise<{ versionNumber?: number; versionStatus?: string } | undefined> => {
+        if (!user?.id || !rfInstance.current) return;
         // Read nodes/edges from the Zustand store (synchronously up-to-date)
         // and viewport from the ReactFlow instance to build the flow object.
         // This avoids a race condition where rfInstance.toObject() may return
@@ -370,8 +370,9 @@ export const useWorkflowState = ({
         const { nodes: currentNodes, edges: currentEdges } = useWorkflowStore.getState();
         const viewport = rfInstance.current.getViewport();
         const flow = { nodes: currentNodes, edges: currentEdges, viewport };
+        let result: { versionNumber?: number; versionStatus?: string } | undefined;
         try {
-            await updateWorkflowApiV1WorkflowWorkflowIdPut({
+            const response = await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {
                     workflow_id: workflowId,
                 },
@@ -381,12 +382,19 @@ export const useWorkflowState = ({
                 },
             });
             setIsDirty(false);
+            if (response.data) {
+                result = {
+                    versionNumber: response.data.version_number ?? undefined,
+                    versionStatus: response.data.version_status ?? undefined,
+                };
+            }
         } catch (error) {
             logger.error(`Error saving workflow: ${error}`);
         }
 
         // Validate after saving
         await validateWorkflow();
+        return result;
     }, [workflowId, workflowName, setIsDirty, user, validateWorkflow]);
 
     // Set up keyboard shortcut for save (Cmd/Ctrl + S)
@@ -394,7 +402,9 @@ export const useWorkflowState = ({
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
                 e.preventDefault();
-                saveWorkflow();
+                if (useWorkflowStore.getState().isDirty) {
+                    saveWorkflow();
+                }
             }
         };
 
@@ -439,7 +449,7 @@ export const useWorkflowState = ({
     );
 
     const onRun = async (mode: string) => {
-        if (!user) return;
+        if (!user?.id) return;
         const workflowRunName = `WR-${getRandomId()}`;
         const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({
             path: {
@@ -455,7 +465,7 @@ export const useWorkflowState = ({
 
     // Save template context variables
     const saveTemplateContextVariables = useCallback(async (variables: Record<string, string>) => {
-        if (!user) return;
+        if (!user?.id) return;
         try {
             await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {
@@ -477,12 +487,12 @@ export const useWorkflowState = ({
 
     // Save workflow configurations
     const saveWorkflowConfigurations = useCallback(async (configurations: WorkflowConfigurations, newWorkflowName: string) => {
-        if (!user) return;
+        if (!user?.id) return;
         // Preserve the current dictionary when saving other configurations
         const currentDictionary = useWorkflowStore.getState().dictionary;
         const configurationsWithDictionary: WorkflowConfigurations = { ...configurations, dictionary: currentDictionary };
         try {
-            await updateWorkflowApiV1WorkflowWorkflowIdPut({
+            const response = await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {
                     workflow_id: workflowId,
                 },
@@ -492,6 +502,22 @@ export const useWorkflowState = ({
                     workflow_configurations: configurationsWithDictionary as Record<string, unknown>,
                 },
             });
+
+            if (response.error) {
+                const detail = (response.error as { detail?: unknown }).detail;
+                let msg = 'Failed to save workflow configurations';
+                if (typeof detail === 'string') {
+                    msg = detail;
+                } else if (Array.isArray(detail)) {
+                    msg = detail
+                        .map((e: { model?: string; message?: string; msg?: string }) =>
+                            e.model && e.message ? `${e.model}: ${e.message}` : (e.msg || JSON.stringify(e))
+                        )
+                        .join('\n');
+                }
+                throw new Error(msg);
+            }
+
             setWorkflowConfigurations(configurationsWithDictionary);
             // Set name directly in the store to avoid setWorkflowName which marks isDirty: true
             useWorkflowStore.setState({ workflowName: newWorkflowName });
@@ -550,6 +576,7 @@ export const useWorkflowState = ({
         workflowConfigurations,
         dictionary,
         setNodes,
+        setEdges,
         setIsDirty,
         setIsAddNodePanelOpen,
         handleNodeSelect,

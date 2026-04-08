@@ -15,10 +15,12 @@ from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import CallType
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
+from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import (
     mask_workflow_definition,
     merge_workflow_api_keys,
 )
+from api.services.configuration.resolve import resolve_effective_config
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.duplicate import duplicate_workflow
@@ -104,7 +106,8 @@ class WorkflowResponse(BaseModel):
     call_disposition_codes: CallDispositionCodes | None = None
     total_runs: int | None = None
     workflow_configurations: dict | None = None
-    has_draft: bool = False
+    version_number: int | None = None
+    version_status: str | None = None
 
 
 class WorkflowListResponse(BaseModel):
@@ -148,6 +151,17 @@ class UpdateWorkflowRequest(BaseModel):
     workflow_definition: dict | None = None
     template_context_variables: dict | None = None
     workflow_configurations: dict | None = None
+
+
+class WorkflowVersionResponse(BaseModel):
+    id: int
+    version_number: int
+    status: str
+    created_at: datetime
+    published_at: datetime | None = None
+    workflow_json: dict
+    workflow_configurations: dict | None = None
+    template_context_variables: dict | None = None
 
 
 class UpdateWorkflowStatusRequest(BaseModel):
@@ -487,6 +501,7 @@ async def get_workflow(
         workflow_configs = published.workflow_configurations
         template_vars = published.template_context_variables
 
+    active_def = draft or workflow.released_definition
     return {
         "id": workflow.id,
         "name": workflow.name,
@@ -497,8 +512,97 @@ async def get_workflow(
         "template_context_variables": template_vars,
         "call_disposition_codes": workflow.call_disposition_codes,
         "workflow_configurations": workflow_configs,
-        "has_draft": draft is not None,
+        "version_number": active_def.version_number if active_def else None,
+        "version_status": active_def.status if active_def else None,
     }
+
+
+@router.get("/{workflow_id}/versions")
+async def get_workflow_versions(
+    workflow_id: int,
+    user: UserModel = Depends(get_user),
+) -> list[WorkflowVersionResponse]:
+    """List all versions for a workflow, newest first."""
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail=f"Workflow with id {workflow_id} not found"
+        )
+
+    versions = await db_client.get_workflow_versions(workflow_id)
+    return [
+        WorkflowVersionResponse(
+            id=v.id,
+            version_number=v.version_number,
+            status=v.status,
+            created_at=v.created_at,
+            published_at=v.published_at,
+            workflow_json=mask_workflow_definition(v.workflow_json),
+            workflow_configurations=v.workflow_configurations,
+            template_context_variables=v.template_context_variables,
+        )
+        for v in versions
+        if v.version_number is not None
+    ]
+
+
+@router.post("/{workflow_id}/publish")
+async def publish_workflow(
+    workflow_id: int,
+    user: UserModel = Depends(get_user),
+):
+    """Publish the current draft version of a workflow."""
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail=f"Workflow with id {workflow_id} not found"
+        )
+
+    try:
+        published = await db_client.publish_workflow_draft(workflow_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "id": published.id,
+        "version_number": published.version_number,
+        "status": published.status,
+        "published_at": published.published_at,
+    }
+
+
+@router.post("/{workflow_id}/create-draft")
+async def create_workflow_draft(
+    workflow_id: int,
+    user: UserModel = Depends(get_user),
+) -> WorkflowVersionResponse:
+    """Create a draft version from the current published version.
+
+    If a draft already exists, returns the existing draft.
+    """
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail=f"Workflow with id {workflow_id} not found"
+        )
+
+    draft = await db_client.save_workflow_draft(workflow_id)
+    return WorkflowVersionResponse(
+        id=draft.id,
+        version_number=draft.version_number,
+        status=draft.status,
+        created_at=draft.created_at,
+        published_at=draft.published_at,
+        workflow_json=mask_workflow_definition(draft.workflow_json),
+        workflow_configurations=draft.workflow_configurations,
+        template_context_variables=draft.template_context_variables,
+    )
 
 
 @router.get("/summary")
@@ -597,6 +701,25 @@ async def update_workflow(
                     existing_def,
                 )
 
+        # Validate model_overrides: resolve onto global config, then
+        # run the same validator used by the user-configurations endpoint.
+        if request.workflow_configurations and request.workflow_configurations.get(
+            "model_overrides"
+        ):
+            user_config = await db_client.get_user_configurations(user.id)
+            try:
+                effective = resolve_effective_config(
+                    user_config,
+                    request.workflow_configurations["model_overrides"],
+                )
+                await UserConfigurationValidator().validate(
+                    effective,
+                    organization_id=user.selected_organization_id,
+                    created_by=user.provider_id,
+                )
+            except ValueError as e:
+                raise HTTPException(status_code=422, detail=str(e))
+
         workflow = await db_client.update_workflow(
             workflow_id=workflow_id,
             name=request.name,
@@ -627,6 +750,8 @@ async def update_workflow(
             workflow_configs = published.workflow_configurations
             template_vars = published.template_context_variables
 
+        # Include version info from the active definition (draft or published)
+        active_def = draft or workflow.released_definition
         return {
             "id": workflow.id,
             "name": workflow.name,
@@ -637,8 +762,11 @@ async def update_workflow(
             "template_context_variables": template_vars,
             "call_disposition_codes": workflow.call_disposition_codes,
             "workflow_configurations": workflow_configs,
-            "has_draft": draft is not None,
+            "version_number": active_def.version_number if active_def else None,
+            "version_status": active_def.status if active_def else None,
         }
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

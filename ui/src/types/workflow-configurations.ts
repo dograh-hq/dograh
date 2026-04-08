@@ -28,6 +28,36 @@ export const DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION: VoicemailDetectionConfig
     long_speech_timeout: 8.0,
 };
 
+export interface ModelOverrides {
+    llm?: {
+        provider?: string;
+        model?: string;
+        api_key?: string;
+        [key: string]: unknown;
+    };
+    tts?: {
+        provider?: string;
+        model?: string;
+        voice?: string;
+        api_key?: string;
+        [key: string]: unknown;
+    };
+    stt?: {
+        provider?: string;
+        model?: string;
+        api_key?: string;
+        [key: string]: unknown;
+    };
+    realtime?: {
+        provider?: string;
+        model?: string;
+        voice?: string;
+        api_key?: string;
+        [key: string]: unknown;
+    };
+    is_realtime?: boolean;
+}
+
 export interface WorkflowConfigurations {
     vad_configuration?: VADConfiguration;
     ambient_noise_configuration: AmbientNoiseConfiguration;
@@ -38,6 +68,7 @@ export interface WorkflowConfigurations {
     dictionary?: string;  // Comma-separated words for voice agent to listen for
     voicemail_detection?: VoicemailDetectionConfiguration;
     context_compaction_enabled?: boolean;  // Summarize context on node transitions to remove stale tool calls
+    model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
     [key: string]: unknown;  // Allow additional properties for future configurations
 }
 

@@ -305,7 +305,12 @@ class WorkflowClient(BaseDBClient):
         async with self.async_session() as session:
             result = await session.execute(
                 select(WorkflowDefinitionModel)
-                .where(WorkflowDefinitionModel.workflow_id == workflow_id)
+                .where(
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowDefinitionModel.status.in_(
+                        ["published", "draft", "archived"]
+                    ),
+                )
                 .order_by(WorkflowDefinitionModel.version_number.desc())
             )
             return result.scalars().all()

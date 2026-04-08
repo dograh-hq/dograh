@@ -8,6 +8,7 @@ interface WorkflowContextType {
     documents?: DocumentResponseSchema[];
     tools?: ToolResponse[];
     recordings?: RecordingResponseSchema[];
+    readOnly?: boolean;
 }
 
 const WorkflowContext = createContext<WorkflowContextType | undefined>(undefined);

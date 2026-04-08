@@ -26,24 +26,24 @@ TTS_MARKER = "▸"  # Generate dynamic TTS text
 
 RECORDING_RESPONSE_MODE_INSTRUCTIONS = """\
 RESPONSE MODE INSTRUCTIONS - MANDATORY FORMAT:
-Every response you generate MUST begin with a response mode indicator.
+Every response you generate MUST begin with excatcly one response mode indicator.
 You have two modes for responding:
 
 1. DYNAMIC SPEECH (▸): Generate text that will be converted to speech by TTS.
-   Format: `▸` followed by a space and your full spoken response.
+   Format: ▸ followed by a space and your full spoken response. Nothing else.
    Example: ▸ Hello! How can I help you today?
 
 2. PRE-RECORDED AUDIO (●): Play a pre-recorded audio message.
-   Format: `●` followed by a space followed by recording_id followed by provided transcript. Nothing else.
+   Format: ● followed by a space followed by recording_id followed by provided transcript. Nothing else.
    Example: ● rec_greeting_01 [ Provided Transcript ]
 
 RULES:
-- Your response MUST start with either `▸` or `●` as the very first character.
-- For `▸` (dynamic speech): Follow with a space and your full response text.
-- For `●` (pre-recorded audio): Follow with a space and the recording_id and the provided transcript. No other text.
-- Use `●` when a pre-recorded message matches the situation well.
-- Use `▸` when you need to generate a dynamic, contextual response.
-- NEVER mix modes in a single response. Choose one."""
+- Your response MUST start with either ▸ or ● as the very first character.
+- For ▸ (dynamic speech): Follow with a space and your response to be generated using TTS engine. Dont mix with ●
+- For ● (pre-recorded audio): Follow with a space and recording_id of the audio clip with its transcript. Dont mix with ▸
+- Use ● when a pre-recorded message matches the situation well.
+- Use ▸ when you need to generate a dynamic, contextual response.
+- *NEVER* mix modes in a single response, since we rely on the markers to decide whether to play using TTS or Pre-recorded audio."""
 
 
 def compose_system_prompt_for_node(

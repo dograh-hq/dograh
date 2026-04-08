@@ -67,6 +67,7 @@ class RecordingRouterProcessor(FrameProcessor):
         self._mode: Optional[str] = None  # None = detecting, "tts", "recording"
         self._recording_id_buffer = ""
         self._recording_playback_started = False
+        self._second_marker_seen = False
 
     # ------------------------------------------------------------------
     # Frame dispatch
@@ -95,14 +96,28 @@ class RecordingRouterProcessor(FrameProcessor):
             await self.push_frame(frame, direction)
             return
 
+        # --- Second marker already seen — drop everything ---
+        if self._second_marker_seen:
+            return
+
         # --- TTS mode established: pass text through normally ---
         if self._mode == "tts":
-            await self.push_frame(frame, direction)
+            if RECORDING_MARKER in frame.text:
+                before = frame.text[: frame.text.index(RECORDING_MARKER)]
+                if before:
+                    await self.push_frame(LLMTextFrame(before), direction)
+                self._second_marker_seen = True
+            else:
+                await self.push_frame(frame, direction)
             return
 
         # --- Recording mode: accumulate text and start playback ASAP ---
         if self._mode == "recording":
-            self._recording_id_buffer += frame.text
+            text = frame.text
+            if TTS_MARKER in text:
+                text = text[: text.index(TTS_MARKER)]
+                self._second_marker_seen = True
+            self._recording_id_buffer += text
             if not self._recording_playback_started:
                 buf = self._recording_id_buffer.lstrip()
                 if " " in buf:
@@ -269,3 +284,4 @@ class RecordingRouterProcessor(FrameProcessor):
         self._mode = None
         self._recording_id_buffer = ""
         self._recording_playback_started = False
+        self._second_marker_seen = False

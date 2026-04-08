@@ -112,7 +112,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   isAddNodePanelOpen: false,
   workflowValidationErrors: [],
   templateContextVariables: {},
-  workflowConfigurations: DEFAULT_WORKFLOW_CONFIGURATIONS,
+  workflowConfigurations: null,
   dictionary: '',
   rfInstance: null,
 
@@ -393,7 +393,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       isAddNodePanelOpen: false,
       workflowValidationErrors: [],
       templateContextVariables: {},
-      workflowConfigurations: DEFAULT_WORKFLOW_CONFIGURATIONS,
+      workflowConfigurations: null,
       dictionary: '',
       rfInstance: null,
     });

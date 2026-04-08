@@ -263,8 +263,14 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         )
     elif user_config.tts.provider == ServiceProviders.CARTESIA.value:
         speed = getattr(user_config.tts, "speed", None)
+        volume = getattr(user_config.tts, "volume", None)
+        gen_config_kwargs = {}
+        if speed and speed != 1.0:
+            gen_config_kwargs["speed"] = speed
+        if volume and volume != 1.0:
+            gen_config_kwargs["volume"] = volume
         generation_config = (
-            GenerationConfig(speed=speed) if speed and speed != 1.0 else None
+            GenerationConfig(**gen_config_kwargs) if gen_config_kwargs else None
         )
         return CartesiaTTSService(
             api_key=user_config.tts.api_key,

@@ -3,18 +3,78 @@ title: "Model Configurations"
 description: "Voice Agents need AI Models to work, like LLM (Large Language Model), TTS (Voice) and STT (Transcriber). You can use any of your faviourite providers with Dograh Platform to run your Voice Agent."
 ---
 
-## Configure Models
-Dograh Platform ships with its own models by default. When you sign up on https://app.dograh.com or you setup the platform on your self hosted infrastructure, you get some Dograh model credits by default. 
+## How Model Configuration Works
 
-If you wish to change the models to a provider of your own choice, ou can go to `https://app.dograh.com/model-configurations` if you are on hosted version of Dograh or go to `http://localhost:3010/model-configurations` if you are running Dograh locally.
+Dograh uses a **two-level configuration system** for AI models:
 
-You can see the configuration for the inference provider in the following screenshot.
+1. **Global configuration** — A single set of model settings (LLM, TTS, STT) that applies to **all agents** by default.
+2. **Agent-level overrides** — Optional per-agent settings that override the global configuration for specific services.
+
+If no overrides are set for an agent, it uses the global configuration as-is.
+
+<Note>
+Agent-level overrides are **selective** — you can override only the services you want to change. For example, you can override just the LLM provider for a specific agent while keeping the global TTS and STT settings. There is no need to reconfigure every service.
+</Note>
+
+## Global Configuration
+
+The global configuration is the default model setup shared across all your agents. Dograh ships with its own models by default — when you sign up on https://app.dograh.com or set up the platform on your self-hosted infrastructure, you get some Dograh model credits to start with.
+
+To configure the global models, go to **Model Configurations** in your dashboard:
+- **Hosted:** `https://app.dograh.com/model-configurations`
+- **Self-hosted:** `http://localhost:3010/model-configurations`
 
 ![Model Configuration](../images/service-configuration.png)
 
-You can select the provider from the dropdown and configure the API key, model, etc. For Dograh, you can see [Service Keys](api-keys) documentation for instructions on how to create Service Keys to be used in Model Configuration.
+From here you can configure each service:
 
-Next there are some in depth documentation of various AI Models that you can configure.
+| Service | What it does |
+|---------|-------------|
+| **LLM** | The language model that generates responses (e.g., OpenAI GPT-4.1, Anthropic Claude) |
+| **TTS (Voice)** | The text-to-speech model that converts responses to spoken audio (e.g., ElevenLabs, Cartesia) |
+| **STT (Transcriber)** | The speech-to-text model that transcribes user speech (e.g., Deepgram, AssemblyAI) |
+| **Realtime** | A single speech-to-speech model that handles LLM, TTS, and STT in one (e.g., Gemini Live) |
+
+Select a provider from the dropdown and configure the API key, model, and any provider-specific settings. For Dograh's own models, see [Service Keys](api-keys) for instructions on creating Service Keys.
+
+## Agent-Level Model Overrides
+
+You can override the global model configuration for any individual agent. This is useful when different agents have different requirements — for example, a customer support agent might use a faster, cheaper LLM while a sales agent uses a more capable one.
+
+### Configuring overrides
+
+1. Open the agent you want to customize.
+2. Go to **Settings** in the agent detail page.
+3. Select the **Model Overrides** tab.
+4. You will see tabs for each service: **LLM**, **Voice** (TTS), and **Transcriber** (STT).
+5. Toggle **Override** on for the service you want to change.
+6. Configure the provider, model, and other settings as needed.
+7. Save your changes.
+
+### Selective overrides
+
+Each service can be toggled independently. When an override is **off** for a service, the agent inherits the global setting for that service. When an override is **on**, the agent uses the override setting instead.
+
+| LLM Override | TTS Override | STT Override | Result |
+|---|---|---|---|
+| Off | Off | Off | Agent uses global config for all services |
+| On | Off | Off | Agent uses custom LLM, global TTS and STT |
+| Off | On | Off | Agent uses global LLM and STT, custom TTS |
+| On | On | On | Agent uses custom config for all services |
+
+For example, if you only want to change the voice for a specific agent:
+1. Leave the LLM and Transcriber overrides **off**.
+2. Toggle the Voice override **on**.
+3. Select a different TTS provider or voice.
+4. The agent will use your custom voice while still using the global LLM and STT.
+
+### Realtime mode override
+
+You can also switch an individual agent to use a **Realtime** provider (such as Gemini Live) even if the global configuration uses standard LLM + TTS + STT. Toggle the **Realtime** switch in the Model Overrides tab, then configure the realtime provider, model, and voice.
+
+<Note>
+When an agent uses a Realtime provider, it replaces the separate LLM, TTS, and STT services with a single speech-to-speech model. The individual LLM/TTS/STT override tabs are hidden in this mode.
+</Note>
 
 ## Gemini 3.1 Live
 

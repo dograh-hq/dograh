@@ -65,9 +65,10 @@ interface RenderWorkflowProps {
 function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
     const router = useRouter();
     const { userConfig } = useUserConfig();
-    const ttsProvider = (userConfig?.tts?.provider as string) ?? "";
-    const ttsModel = (userConfig?.tts?.model as string) ?? "";
-    const ttsVoiceId = (userConfig?.tts?.voice as string) ?? "";
+    const ttsOverrides = initialWorkflowConfigurations?.model_overrides?.tts;
+    const ttsProvider = ttsOverrides?.provider ?? (userConfig?.tts?.provider as string) ?? "";
+    const ttsModel = ttsOverrides?.model ?? (userConfig?.tts?.model as string) ?? "";
+    const ttsVoiceId = ttsOverrides?.voice ?? (userConfig?.tts?.voice as string) ?? "";
 
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);

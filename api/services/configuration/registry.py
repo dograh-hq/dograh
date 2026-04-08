@@ -591,6 +591,7 @@ class CambTTSConfiguration(BaseTTSConfiguration):
 
 
 RIME_TTS_MODELS = ["arcana", "mistv3", "mistv2", "mist"]
+RIME_TTS_LANGUAGES = ["en", "de", "fr", "es", "hi"]
 
 
 @register_tts
@@ -606,6 +607,10 @@ class RimeTTSConfiguration(BaseTTSConfiguration):
     )
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier"
+    )
+    language: str = Field(
+        default="en",
+        json_schema_extra={"examples": RIME_TTS_LANGUAGES, "allow_custom_input": True},
     )
 
 

@@ -106,7 +106,7 @@ export default function EditCampaignPage() {
                     setScheduleEnabled(c.schedule_config.enabled);
                     setScheduleTimezone(c.schedule_config.timezone);
                     if (c.schedule_config.slots.length > 0) {
-                        setTimeSlots(c.schedule_config.slots.map(s => ({ ...s })));
+                        setTimeSlots(c.schedule_config.slots.map((s: TimeSlot) => ({ ...s })));
                     }
                 }
 

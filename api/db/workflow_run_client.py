@@ -30,6 +30,7 @@ class WorkflowRunClient(BaseDBClient):
         gathered_context: dict = None,
         campaign_id: int = None,
         queued_run_id: int = None,
+        use_draft: bool = False,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             # Get workflow and user to check organization
@@ -44,41 +45,51 @@ class WorkflowRunClient(BaseDBClient):
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
-            # # Check quota if user has an organization
-            # if workflow.user and workflow.user.selected_organization_id:
-            #     # Import here to avoid circular dependency
-            #     from api.db.organization_usage_client import OrganizationUsageClient
+            # Resolve which definition to bind to this run
+            target_def = None
 
-            #     usage_client = OrganizationUsageClient()
-
-            #     # Check quota (no reservation for now, actual cost will be added after completion)
-            #     has_quota = await usage_client.check_and_reserve_quota(
-            #         workflow.user.selected_organization_id, estimated_tokens=0
-            #     )
-
-            #     if not has_quota:
-            #         raise ValueError(
-            #             "Organization quota exceeded. Please contact your administrator."
-            #         )
-
-            # Fetch the current definition for this workflow
-            current_def_result = await session.execute(
-                select(WorkflowDefinitionModel).where(
-                    WorkflowDefinitionModel.workflow_id == workflow.id,
-                    WorkflowDefinitionModel.is_current == True,
+            if use_draft:
+                # For test calls: prefer draft if it exists, fall back to published
+                draft_result = await session.execute(
+                    select(WorkflowDefinitionModel).where(
+                        WorkflowDefinitionModel.workflow_id == workflow.id,
+                        WorkflowDefinitionModel.status == "draft",
+                    )
                 )
-            )
-            current_def = current_def_result.scalars().first()
+                target_def = draft_result.scalars().first()
+
+            if target_def is None:
+                # Use the published version via released_definition_id (preferred)
+                # or fall back to is_current for backward compatibility
+                if workflow.released_definition_id:
+                    target_def = await session.get(
+                        WorkflowDefinitionModel, workflow.released_definition_id
+                    )
+                else:
+                    pub_result = await session.execute(
+                        select(WorkflowDefinitionModel).where(
+                            WorkflowDefinitionModel.workflow_id == workflow.id,
+                            WorkflowDefinitionModel.is_current == True,
+                        )
+                    )
+                    target_def = pub_result.scalars().first()
 
             # Get the current storage backend based on ENABLE_AWS_S3 flag
             current_backend = StorageBackend.get_current_backend()
+
+            # Use initial_context from the version if available, else from workflow
+            default_context = (
+                target_def.template_context_variables
+                if target_def and target_def.template_context_variables
+                else workflow.template_context_variables
+            )
 
             new_run = WorkflowRunModel(
                 name=name,
                 workflow=workflow,
                 mode=mode,
-                definition_id=current_def.id if current_def else None,
-                initial_context=initial_context or workflow.template_context_variables,
+                definition_id=target_def.id if target_def else None,
+                initial_context=initial_context or default_context,
                 gathered_context=gathered_context or {},
                 campaign_id=campaign_id,
                 queued_run_id=queued_run_id,
@@ -189,7 +200,11 @@ class WorkflowRunClient(BaseDBClient):
         self, run_id: int, user_id: int = None, organization_id: int = None
     ) -> WorkflowRunModel | None:
         async with self.async_session() as session:
-            query = select(WorkflowRunModel).join(WorkflowRunModel.workflow)
+            query = (
+                select(WorkflowRunModel)
+                .options(selectinload(WorkflowRunModel.definition))
+                .join(WorkflowRunModel.workflow)
+            )
 
             if organization_id:
                 # Filter by organization_id when provided

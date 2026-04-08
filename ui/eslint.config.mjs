@@ -12,6 +12,8 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  // Ignore auto-generated hey-api client files
+  { ignores: ["src/client/client/", "src/client/core/", "src/client/client.gen.ts", "src/client/sdk.gen.ts", "src/client/types.gen.ts", "src/client/index.ts"] },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
     plugins: {

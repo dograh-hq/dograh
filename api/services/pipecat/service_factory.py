@@ -325,8 +325,6 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.RIME.value:
-        from pipecat.transcriptions.language import Language
-
         speed = getattr(user_config.tts, "speed", None)
         language_code = getattr(user_config.tts, "language", None) or "en"
         rime_language_mapping = {

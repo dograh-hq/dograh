@@ -6,10 +6,11 @@ import {
     Panel,
     ReactFlow,
 } from "@xyflow/react";
-import { BookA, BrushCleaning, Maximize2, Mic, Minus, PhoneOff, Plus, Rocket, Settings, Variable } from 'lucide-react';
-import React, { useEffect, useMemo, useState } from 'react';
+import { BrushCleaning, Maximize2, Minus, Plus, Settings } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
+import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
 import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } from '@/client/types.gen';
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
@@ -20,13 +21,8 @@ import { WorkflowConfigurations } from '@/types/workflow-configurations';
 import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { AgentNode, EndCall, GlobalNode, QANode, StartCall, TriggerNode, WebhookNode } from "../../../components/flow/nodes";
-import { ConfigurationsDialog } from './components/ConfigurationsDialog';
-import { DictionaryDialog } from './components/DictionaryDialog';
-import { EmbedDialog } from './components/EmbedDialog';
 import { PhoneCallDialog } from './components/PhoneCallDialog';
-import { RecordingsDialog } from './components/RecordingsDialog';
-import { TemplateContextVariablesDialog } from './components/TemplateContextVariablesDialog';
-import { VoicemailDetectionDialog } from './components/VoicemailDetectionDialog';
+import { VersionHistoryPanel, WorkflowVersion } from './components/VersionHistoryPanel';
 import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
@@ -61,22 +57,27 @@ interface RenderWorkflowProps {
     };
     initialTemplateContextVariables?: Record<string, string>;
     initialWorkflowConfigurations?: WorkflowConfigurations;
+    initialVersionNumber?: number | null;
+    initialVersionStatus?: string | null;
     user: { id: string; email?: string };
 }
 
-function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, user }: RenderWorkflowProps) {
+function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
+    const router = useRouter();
     const { userConfig } = useUserConfig();
     const ttsProvider = (userConfig?.tts?.provider as string) ?? "";
     const ttsModel = (userConfig?.tts?.model as string) ?? "";
     const ttsVoiceId = (userConfig?.tts?.voice as string) ?? "";
 
-    const [isContextVarsDialogOpen, setIsContextVarsDialogOpen] = useState(false);
-    const [isConfigurationsDialogOpen, setIsConfigurationsDialogOpen] = useState(false);
-    const [isDictionaryDialogOpen, setIsDictionaryDialogOpen] = useState(false);
-    const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
-    const [isRecordingsDialogOpen, setIsRecordingsDialogOpen] = useState(false);
-    const [isVoicemailDialogOpen, setIsVoicemailDialogOpen] = useState(false);
+    const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
+    const [versions, setVersions] = useState<WorkflowVersion[]>([]);
+    const [versionsLoading, setVersionsLoading] = useState(false);
+    const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
+    // Version info that updates immediately from the GET/save/publish responses.
+    const [currentVersionNumber, setCurrentVersionNumber] = useState<number | null>(initialVersionNumber ?? null);
+    const [currentVersionStatus, setCurrentVersionStatus] = useState<string | null>(initialVersionStatus ?? null);
+    const versionsFetched = useRef(false);
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -89,9 +90,8 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         workflowName,
         isDirty,
         workflowValidationErrors,
-        templateContextVariables,
-        workflowConfigurations,
         setNodes,
+        setEdges,
         setIsDirty,
         setIsAddNodePanelOpen,
         handleNodeSelect,
@@ -100,10 +100,6 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         onEdgesChange,
         onNodesChange,
         onRun,
-        saveTemplateContextVariables,
-        saveWorkflowConfigurations,
-        dictionary,
-        saveDictionary
     } = useWorkflowState({
         initialWorkflowName,
         workflowId,
@@ -112,6 +108,123 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         initialWorkflowConfigurations,
         user,
     });
+
+    // Derive hasDraft from the current version status
+    const hasDraft = currentVersionStatus === "draft";
+
+    // Fetch workflow versions, optionally forcing a refresh
+    const fetchVersions = useCallback(async (force = false) => {
+        if (versionsFetched.current && !force) return;
+        setVersionsLoading(true);
+        try {
+            const response = await getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet({
+                path: { workflow_id: workflowId },
+            });
+            const data = response.data as WorkflowVersion[] | undefined;
+            if (data) {
+                setVersions(data);
+                // Set active version to draft if exists, else published
+                const current = data.find((v) => v.status === "draft") ?? data.find((v) => v.status === "published");
+                if (current) {
+                    setActiveVersionId(current.id);
+                    setCurrentVersionNumber(current.version_number);
+                    setCurrentVersionStatus(current.status);
+                }
+            }
+            versionsFetched.current = true;
+        } finally {
+            setVersionsLoading(false);
+        }
+    }, [workflowId]);
+
+    const handleOpenVersionPanel = useCallback(() => {
+        setIsVersionPanelOpen(true);
+        fetchVersions();
+    }, [fetchVersions]);
+
+    const handleSelectVersion = useCallback((version: WorkflowVersion) => {
+        setActiveVersionId(version.id);
+        const wfJson = version.workflow_json;
+        const flowNodes = (wfJson.nodes ?? []) as FlowNode[];
+        const flowEdges = (wfJson.edges ?? []) as FlowEdge[];
+
+        // Update the Zustand store directly instead of rfInstance.current.setNodes().
+        // This keeps data flow unidirectional (store → props → ReactFlow) and avoids
+        // xyflow's d3 event handlers interfering with React's event delegation.
+        // The key={activeVersionId} on <ReactFlow> forces a clean remount.
+        setNodes(flowNodes);
+        setEdges(flowEdges);
+        // Never mark dirty when switching versions — historical versions are
+        // read-only, and loading the draft is restoring the saved state.
+        setIsDirty(false);
+        setIsVersionPanelOpen(false);
+    }, [setNodes, setEdges, setIsDirty]);
+
+    // Determine if we are viewing a historical (non-current) version.
+    // The "current" version is the draft if one exists, otherwise the published version.
+    // Anything else (archived, or published while a draft exists) is historical.
+    const isViewingHistoricalVersion = useMemo(() => {
+        if (!activeVersionId || versions.length === 0) return false;
+        const activeVersion = versions.find((v) => v.id === activeVersionId);
+        if (!activeVersion) return false;
+        if (activeVersion.status === "draft") return false;
+        if (activeVersion.status === "published" && !hasDraft) return false;
+        return true;
+    }, [activeVersionId, versions, hasDraft]);
+
+    // Return to the draft version, creating one from published if needed
+    const handleBackToDraft = useCallback(async () => {
+        const existingDraft = versions.find((v) => v.status === "draft");
+        if (existingDraft) {
+            handleSelectVersion(existingDraft);
+            return;
+        }
+
+        // No draft exists — ask the backend to create one from published
+        const response = await createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost({
+            path: { workflow_id: workflowId },
+        });
+        const draft = response.data;
+        if (draft) {
+            setCurrentVersionNumber(draft.version_number);
+            setCurrentVersionStatus(draft.status);
+            // Load draft nodes/edges via the Zustand store (same approach as handleSelectVersion)
+            const flowNodes = (draft.workflow_json?.nodes ?? []) as FlowNode[];
+            const flowEdges = (draft.workflow_json?.edges ?? []) as FlowEdge[];
+            setNodes(flowNodes);
+            setEdges(flowEdges);
+            setActiveVersionId(draft.id);
+            setIsDirty(false);
+            // Refresh the version list so the new draft appears
+            fetchVersions(true);
+        }
+    }, [versions, handleSelectVersion, workflowId, setNodes, setEdges, setIsDirty, fetchVersions]);
+
+    // After a successful publish, refresh the version list and update status
+    const handlePublished = useCallback(() => {
+        setCurrentVersionStatus("published");
+        fetchVersions(true);
+    }, [fetchVersions]);
+
+    // Compute version label for the header.
+    // Uses currentVersionNumber/Status which update immediately from save responses,
+    // falling back to the versions list for history navigation.
+    const activeVersionLabel = useMemo(() => {
+        // When viewing a version from the history panel, use the versions list
+        if (activeVersionId && versions.length > 0) {
+            const v = versions.find((ver) => ver.id === activeVersionId);
+            if (v) {
+                const statusSuffix = v.status === "draft" ? " (Draft)" : v.status === "published" ? " (Published)" : "";
+                return `v${v.version_number}${statusSuffix}`;
+            }
+        }
+        // Otherwise use the immediately-available version info from save responses
+        if (currentVersionNumber != null) {
+            const statusSuffix = currentVersionStatus === "draft" ? " (Draft)" : currentVersionStatus === "published" ? " (Published)" : "";
+            return `v${currentVersionNumber}${statusSuffix}`;
+        }
+        return undefined;
+    }, [activeVersionId, versions, currentVersionNumber, currentVersionStatus]);
 
     // Fetch documents, tools, and recordings once for the entire workflow
     useEffect(() => {
@@ -161,13 +274,37 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         type: "custom"
     }), []);
 
+    // Guard saveWorkflow so it's a no-op when viewing a historical version.
+    // This is the single safety net that covers every save path: header button,
+    // Cmd+S, node edit dialogs, stale doc/tool cleanup, etc.
+    // Uses the save response to immediately update version label and hasDraft.
+    const guardedSaveWorkflow = useCallback(async (updateWorkflowDefinition?: boolean) => {
+        if (isViewingHistoricalVersion) return;
+        const result = await saveWorkflow(updateWorkflowDefinition);
+        if (result) {
+            // If the versions list has been fetched (user interacted with versioning
+            // or published), refresh it so that activeVersionId points to the correct
+            // version.  This is critical when a save creates a new draft from a
+            // published version: without refreshing, activeVersionId would still
+            // point to the old published version, causing isViewingHistoricalVersion
+            // to incorrectly return true and lock the editor into read-only mode.
+            if (versionsFetched.current) {
+                await fetchVersions(true);
+            } else {
+                if (result.versionNumber != null) setCurrentVersionNumber(result.versionNumber);
+                if (result.versionStatus) setCurrentVersionStatus(result.versionStatus);
+            }
+        }
+    }, [saveWorkflow, isViewingHistoricalVersion, fetchVersions]);
+
     // Memoize the context value to prevent unnecessary re-renders
     const workflowContextValue = useMemo(() => ({
-        saveWorkflow,
+        saveWorkflow: guardedSaveWorkflow,
         documents,
         tools,
         recordings,
-    }), [saveWorkflow, documents, tools, recordings]);
+        readOnly: isViewingHistoricalVersion,
+    }), [guardedSaveWorkflow, documents, tools, recordings, isViewingHistoricalVersion]);
 
     return (
         <WorkflowProvider value={workflowContextValue}>
@@ -180,21 +317,29 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     rfInstance={rfInstance}
                     onRun={onRun}
                     workflowId={workflowId}
-                    saveWorkflow={saveWorkflow}
+                    saveWorkflow={guardedSaveWorkflow}
                     user={user}
                     onPhoneCallClick={() => setIsPhoneCallDialogOpen(true)}
+                    onHistoryClick={handleOpenVersionPanel}
+                    activeVersionLabel={activeVersionLabel}
+                    isViewingHistoricalVersion={isViewingHistoricalVersion}
+                    onBackToDraft={handleBackToDraft}
+                    hasDraft={hasDraft}
+                    onPublished={handlePublished}
                 />
 
                 {/* Workflow Canvas */}
                 <div className="flex-1 relative">
                     <ReactFlow
+                        key={activeVersionId ?? 'current'}
                         nodes={nodes}
                         edges={edges}
                         onNodesChange={onNodesChange}
                         onEdgesChange={onEdgesChange}
                         nodeTypes={nodeTypes}
                         edgeTypes={edgeTypes}
-                        onConnect={onConnect}
+                        onConnect={isViewingHistoricalVersion ? undefined : onConnect}
+                        minZoom={0.4}
                         onInit={(instance) => {
                             rfInstance.current = instance;
                             // Center the workflow on load
@@ -204,6 +349,11 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                         }}
                         defaultEdgeOptions={defaultEdgeOptions}
                         defaultViewport={initialFlow?.viewport}
+                        nodesDraggable={!isViewingHistoricalVersion}
+                        nodesConnectable={!isViewingHistoricalVersion}
+                        edgesReconnectable={!isViewingHistoricalVersion}
+                        zoomOnDoubleClick={false}
+                        deleteKeyCode={isViewingHistoricalVersion ? null : "Backspace"}
                     >
                         <Background
                             variant={BackgroundVariant.Dots}
@@ -212,124 +362,46 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                             color="#94a3b8"
                         />
 
-                        {/* Top-right controls - vertical layout */}
-                        <Panel position="top-right">
-                            <TooltipProvider>
-                                <div className="flex flex-col gap-2">
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="default"
-                                                size="icon"
-                                                onClick={() => setIsAddNodePanelOpen(true)}
-                                                className="shadow-md hover:shadow-lg"
-                                            >
-                                                <Plus className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                            <p>Add node</p>
-                                        </TooltipContent>
-                                    </Tooltip>
+                        {/* Top-right controls - vertical layout (hidden when viewing history) */}
+                        {!isViewingHistoricalVersion && (
+                            <Panel position="top-right">
+                                <TooltipProvider>
+                                    <div className="flex flex-col gap-2">
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="default"
+                                                    size="icon"
+                                                    onClick={() => setIsAddNodePanelOpen(true)}
+                                                    className="shadow-md hover:shadow-lg"
+                                                >
+                                                    <Plus className="h-4 w-4" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="left">
+                                                <p>Add node</p>
+                                            </TooltipContent>
+                                        </Tooltip>
 
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                onClick={() => setIsConfigurationsDialogOpen(true)}
-                                                className="bg-white shadow-sm hover:shadow-md"
-                                            >
-                                                <Settings className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                            <p>Configurations</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                onClick={() => setIsContextVarsDialogOpen(true)}
-                                                className="bg-white shadow-sm hover:shadow-md"
-                                            >
-                                                <Variable className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                            <p>Template Context Variables</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                onClick={() => setIsDictionaryDialogOpen(true)}
-                                                className="bg-white shadow-sm hover:shadow-md"
-                                            >
-                                                <BookA className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                            <p>Dictionary</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                onClick={() => setIsRecordingsDialogOpen(true)}
-                                                className="bg-white shadow-sm hover:shadow-md"
-                                            >
-                                                <Mic className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                            <p>Recordings</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                onClick={() => setIsVoicemailDialogOpen(true)}
-                                                className="bg-white shadow-sm hover:shadow-md"
-                                            >
-                                                <PhoneOff className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                            <p>Voicemail Detection</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                onClick={() => setIsEmbedDialogOpen(true)}
-                                                className="bg-white shadow-sm hover:shadow-md"
-                                            >
-                                                <Rocket className="h-4 w-4" />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="left">
-                                            <p>Deploy Workflow</p>
-                                        </TooltipContent>
-                                    </Tooltip>
-                                </div>
-                            </TooltipProvider>
-                        </Panel>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    size="icon"
+                                                    onClick={() => router.push(`/workflow/${workflowId}/settings`)}
+                                                    className="bg-white shadow-sm hover:shadow-md"
+                                                >
+                                                    <Settings className="h-4 w-4" />
+                                                </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent side="left">
+                                                <p>Workflow settings</p>
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                </TooltipProvider>
+                            </Panel>
+                        )}
                     </ReactFlow>
 
                     {/* Bottom-left controls - horizontal layout with custom buttons */}
@@ -386,25 +458,27 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                                 </TooltipContent>
                             </Tooltip>
 
-                            {/* Tidy/Arrange Nodes */}
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        onClick={() => {
-                                            setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
-                                            setIsDirty(true);
-                                        }}
-                                        className="bg-white shadow-sm hover:shadow-md h-8 w-8"
-                                    >
-                                        <BrushCleaning className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">
-                                    <p>Tidy Up</p>
-                                </TooltipContent>
-                            </Tooltip>
+                            {/* Tidy/Arrange Nodes (hidden when viewing history) */}
+                            {!isViewingHistoricalVersion && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            onClick={() => {
+                                                setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
+                                                setIsDirty(true);
+                                            }}
+                                            className="bg-white shadow-sm hover:shadow-md h-8 w-8"
+                                        >
+                                            <BrushCleaning className="h-4 w-4" />
+                                        </Button>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">
+                                        <p>Tidy Up</p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            )}
                         </TooltipProvider>
                     </div>
                 </div>
@@ -415,33 +489,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     onClose={() => setIsAddNodePanelOpen(false)}
                 />
 
-                <ConfigurationsDialog
-                    open={isConfigurationsDialogOpen}
-                    onOpenChange={setIsConfigurationsDialogOpen}
-                    workflowConfigurations={workflowConfigurations}
-                    workflowName={workflowName}
-                    onSave={saveWorkflowConfigurations}
-                />
-
-                <TemplateContextVariablesDialog
-                    open={isContextVarsDialogOpen}
-                    onOpenChange={setIsContextVarsDialogOpen}
-                    templateContextVariables={templateContextVariables}
-                    onSave={saveTemplateContextVariables}
-                />
-
-                <DictionaryDialog
-                    open={isDictionaryDialogOpen}
-                    onOpenChange={setIsDictionaryDialogOpen}
-                    dictionary={dictionary}
-                    onSave={saveDictionary}
-                />
-
-                <EmbedDialog
-                    open={isEmbedDialogOpen}
-                    onOpenChange={setIsEmbedDialogOpen}
-                    workflowId={workflowId}
-                    workflowName={workflowName}
+                <VersionHistoryPanel
+                    isOpen={isVersionPanelOpen}
+                    onClose={() => setIsVersionPanelOpen(false)}
+                    versions={versions}
+                    loading={versionsLoading}
+                    activeVersionId={activeVersionId}
+                    onSelectVersion={handleSelectVersion}
                 />
 
                 <PhoneCallDialog
@@ -450,22 +504,6 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     workflowId={workflowId}
                     user={user}
                 />
-
-                <RecordingsDialog
-                    open={isRecordingsDialogOpen}
-                    onOpenChange={setIsRecordingsDialogOpen}
-                    workflowId={workflowId}
-                    onRecordingsChange={setRecordings}
-                />
-
-                {workflowConfigurations && (
-                    <VoicemailDetectionDialog
-                        open={isVoicemailDialogOpen}
-                        onOpenChange={setIsVoicemailDialogOpen}
-                        workflowConfigurations={workflowConfigurations}
-                        onSave={(configurations) => saveWorkflowConfigurations(configurations, workflowName)}
-                    />
-                )}
             </div>
         </WorkflowProvider>
     );

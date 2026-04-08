@@ -1,6 +1,7 @@
 import { AlertCircle, ExternalLink } from "lucide-react";
 import { ReactNode, useCallback, useEffect, useState } from "react";
 
+import { useWorkflowOptional } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { FlowNodeData } from "@/components/flow/types";
 import {
     AlertDialog,
@@ -38,6 +39,7 @@ export const NodeEditDialog = ({
     isDirty = false,
     documentationUrl,
 }: NodeEditDialogProps) => {
+    const readOnly = useWorkflowOptional()?.readOnly ?? false;
     const [showDiscardAlert, setShowDiscardAlert] = useState(false);
 
     const handleClose = () => onOpenChange(false);
@@ -66,7 +68,7 @@ export const NodeEditDialog = ({
 
     // Handle Cmd+S / Ctrl+S keyboard shortcut to save
     useEffect(() => {
-        if (!open) return;
+        if (!open || readOnly) return;
 
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.metaKey || e.ctrlKey) && e.key === 's') {
@@ -78,7 +80,7 @@ export const NodeEditDialog = ({
 
         window.addEventListener('keydown', handleKeyDown, true);
         return () => window.removeEventListener('keydown', handleKeyDown, true);
-    }, [open, handleSave]);
+    }, [open, readOnly, handleSave]);
 
     return (
         <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -128,7 +130,9 @@ export const NodeEditDialog = ({
                         >
                             Cancel
                         </Button>
-                        <Button onClick={handleSave}>Save</Button>
+                        <Button onClick={handleSave} disabled={readOnly}>
+                            {readOnly ? "Read Only" : "Save"}
+                        </Button>
                     </div>
                 </DialogFooter>
             </DialogContent>

@@ -74,13 +74,17 @@ async def duplicate_workflow(
     if source is None:
         raise ValueError(f"Workflow with id {workflow_id} not found")
 
-    workflow_definition = copy.deepcopy(source.workflow_definition_with_fallback)
+    # 2. Prefer draft over released definition (duplicate latest state)
+    draft = await db_client.get_draft_version(workflow_id)
+    source_def = draft if draft else source.released_definition
 
-    # 2. Regenerate trigger UUIDs to avoid conflicts
+    workflow_definition = copy.deepcopy(source_def.workflow_json)
+
+    # 3. Regenerate trigger UUIDs to avoid conflicts
     if workflow_definition:
         workflow_definition = _regenerate_trigger_uuids(workflow_definition)
 
-    # 3. Create the new workflow
+    # 4. Create the new workflow
     new_name = f"{source.name} - Duplicate"
     new_workflow = await db_client.create_workflow(
         name=new_name,
@@ -89,21 +93,20 @@ async def duplicate_workflow(
         organization_id=organization_id,
     )
 
-    # 4. Copy template_context_variables and workflow_configurations
-    has_extra_fields = (
-        source.template_context_variables or source.workflow_configurations
-    )
-    if has_extra_fields:
+    # 5. Copy template_context_variables and workflow_configurations from source definition
+    source_tcv = source_def.template_context_variables
+    source_wc = source_def.workflow_configurations
+    if source_tcv or source_wc:
         new_workflow = await db_client.update_workflow(
             workflow_id=new_workflow.id,
             name=None,
             workflow_definition=None,
-            template_context_variables=copy.deepcopy(source.template_context_variables),
-            workflow_configurations=copy.deepcopy(source.workflow_configurations),
+            template_context_variables=copy.deepcopy(source_tcv),
+            workflow_configurations=copy.deepcopy(source_wc),
             organization_id=organization_id,
         )
 
-    # 5. Copy recordings with new IDs and storage paths scoped to new workflow
+    # 6. Copy recordings with new IDs and storage paths scoped to new workflow
     recording_id_map = await _duplicate_recordings(
         source_workflow_id=workflow_id,
         new_workflow_id=new_workflow.id,
@@ -111,7 +114,7 @@ async def duplicate_workflow(
         user_id=user_id,
     )
 
-    # 6. Replace old recording IDs with new ones in the workflow definition
+    # 7. Replace old recording IDs with new ones in the workflow definition
     if recording_id_map:
         workflow_definition = _replace_recording_ids(
             workflow_definition, recording_id_map
@@ -125,7 +128,7 @@ async def duplicate_workflow(
             organization_id=organization_id,
         )
 
-    # 7. Sync triggers for the new workflow
+    # 8. Sync triggers for the new workflow
     if workflow_definition:
         trigger_paths = _extract_trigger_paths(workflow_definition)
         if trigger_paths:

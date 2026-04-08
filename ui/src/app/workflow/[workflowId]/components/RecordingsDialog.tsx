@@ -9,7 +9,7 @@ import {
     listRecordingsApiV1WorkflowRecordingsGet,
     transcribeAudioApiV1WorkflowRecordingsTranscribePost,
 } from "@/client";
-import type { RecordingResponseSchema } from "@/client/types.gen";
+import type { RecordingResponseSchema, RecordingUploadResponseSchema } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -294,7 +294,7 @@ export const RecordingsDialog = ({
 
             // Step 2: Upload all files to storage in parallel
             await Promise.all(
-                items.map(async (item, idx) => {
+                items.map(async (item: RecordingUploadResponseSchema, idx: number) => {
                     const file = ready[idx].file;
                     const uploadResponse = await fetch(item.upload_url, {
                         method: "PUT",
@@ -312,7 +312,7 @@ export const RecordingsDialog = ({
             // Step 3: Create all recording records
             await createRecordingsApiV1WorkflowRecordingsPost({
                 body: {
-                    recordings: items.map((item, idx) => ({
+                    recordings: items.map((item: RecordingUploadResponseSchema, idx: number) => ({
                         recording_id: item.recording_id,
                         workflow_id: workflowId,
                         tts_provider: ttsProvider,

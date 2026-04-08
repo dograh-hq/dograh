@@ -295,7 +295,7 @@ async def create_campaign(
         from api.services.workflow.dto import ReactFlowDTO
         from api.services.workflow.workflow import WorkflowGraph
 
-        workflow_def = workflow.workflow_definition_with_fallback
+        workflow_def = workflow.released_definition.workflow_json
         if workflow_def:
             try:
                 dto = ReactFlowDTO(**workflow_def)

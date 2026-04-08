@@ -526,7 +526,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 });
                 if (turnResponse.data) {
                     turnCredentialsRef.current = turnResponse.data;
-                    logger.info(`TURN credentials obtained, TTL: ${turnCredentialsRef.current.ttl}s`);
+                    logger.info(`TURN credentials obtained, TTL: ${turnResponse.data.ttl}s`);
                 } else if (turnResponse.response.status === 503) {
                     // TURN not configured on server - this is OK, we'll use STUN only
                     logger.info('TURN server not configured, using STUN only');

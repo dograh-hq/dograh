@@ -1,7 +1,6 @@
 import uuid
 from datetime import UTC, datetime
 
-from loguru import logger
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
@@ -199,7 +198,7 @@ class IntegrationModel(Base):
 class WorkflowDefinitionModel(Base):
     __tablename__ = "workflow_definitions"
     id = Column(Integer, primary_key=True, index=True)
-    workflow_hash = Column(String, nullable=False)
+    workflow_hash = Column(String, nullable=True)  # Legacy, no longer used
     workflow_json = Column(JSON, nullable=False, default=dict)
     workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=True)
     is_current = Column(
@@ -207,12 +206,29 @@ class WorkflowDefinitionModel(Base):
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
-    # Table constraints and indexes
+    # Versioning columns
+    status = Column(
+        String,
+        nullable=False,
+        default="published",
+        server_default=text("'published'"),
+    )  # draft | published | archived
+    version_number = Column(
+        Integer, nullable=True
+    )  # Sequential per workflow, display only
+    published_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Full behavioral snapshot (moved from WorkflowModel to enable versioning)
+    workflow_configurations = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+    template_context_variables = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+
+    # Table constraints and indexes — unique hash constraint removed (no more dedup)
     __table_args__ = (
-        UniqueConstraint(
-            "workflow_hash", "workflow_id", name="uq_workflow_hash_workflow_id"
-        ),
-        Index("ix_workflow_hash_workflow_id", "workflow_hash", "workflow_id"),
+        Index("ix_workflow_definitions_workflow_status", "workflow_id", "status"),
     )
 
     # Relationships
@@ -247,6 +263,19 @@ class WorkflowModel(Base):
     runs = relationship("WorkflowRunModel", back_populates="workflow")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
+    # Pointer to the currently-live (published) version
+    released_definition_id = Column(
+        Integer,
+        ForeignKey("workflow_definitions.id", use_alter=True),
+        nullable=True,
+    )
+    released_definition = relationship(
+        "WorkflowDefinitionModel",
+        foreign_keys=[released_definition_id],
+        uselist=False,
+        viewonly=True,
+    )
+
     # All versions / historical definitions of this workflow
     definitions = relationship(
         "WorkflowDefinitionModel",
@@ -255,6 +284,7 @@ class WorkflowModel(Base):
     )
 
     # Relationship to fetch the current (is_current=True) definition
+    # Kept for backward compatibility during transition
     current_definition = relationship(
         "WorkflowDefinitionModel",
         primaryjoin=lambda: and_(
@@ -276,36 +306,6 @@ class WorkflowModel(Base):
         # risking an implicit lazy load on a detached instance. Return ``None`` in
         # that scenario so callers can handle the absence explicitly.
         return None
-
-    @property
-    def workflow_definition_with_fallback(self):
-        """
-        Get workflow definition with fallback to legacy workflow_definition field.
-
-        Returns:
-            dict: The workflow definition JSON
-        """
-        # Access the relationship only if it has ALREADY been eagerly loaded on this
-        # instance to avoid triggering an implicit lazy load once the SQLAlchemy
-        # Session has been closed (which would raise a DetachedInstanceError).
-
-        # ``__dict__`` will contain "current_definition" **only** when the attribute
-        # has been populated (e.g. via `selectinload` or an explicit access while
-        # the session was still open). Using ``__dict__.get`` guarantees that we
-        # do not accidentally issue a lazy load query on a detached instance.
-
-        current_definition = self.__dict__.get("current_definition")
-
-        if current_definition is not None:
-            return current_definition.workflow_json
-
-        # Fallback for backwards-compatibility when the relationship is not (yet)
-        # loaded. In this case we fall back to the legacy ``workflow_definition``
-        # column that always contains the most recent definition JSON.
-        logger.warning(
-            f"Workflow {self.id} has no loaded current definition, using workflow_definition as fallback",
-        )
-        return self.workflow_definition
 
 
 class WorkflowTemplates(Base):

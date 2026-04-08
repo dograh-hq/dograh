@@ -82,6 +82,8 @@ export default function WorkflowDetailPage() {
                 }}
                 initialTemplateContextVariables={workflow.template_context_variables as Record<string, string> || {}}
                 initialWorkflowConfigurations={(workflow.workflow_configurations as WorkflowConfigurations) || DEFAULT_WORKFLOW_CONFIGURATIONS}
+                initialVersionNumber={workflow.version_number ?? null}
+                initialVersionStatus={workflow.version_status ?? null}
                 user={stableUser}
             />
         ) : null;

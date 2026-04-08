@@ -9,6 +9,7 @@ import {
   getDailyRunsDetailApiV1OrganizationsReportsDailyRunsGet,
   getWorkflowOptionsApiV1OrganizationsReportsWorkflowsGet
 } from '@/client/sdk.gen';
+import type { WorkflowRunDetail } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { Card } from '@/components/ui/card';
@@ -140,7 +141,7 @@ export default function ReportsPage() {
       if (response.data && response.data.length > 0) {
         // Prepare CSV content
         const headers = ['Phone Number', 'Disposition', 'Duration (seconds)', 'Workflow Run URL'];
-        const rows = response.data.map(run => {
+        const rows = response.data.map((run: WorkflowRunDetail) => {
           const url = `${window.location.origin}/workflow/${run.workflow_id}/run/${run.run_id}`;
           return [
             run.phone_number || '',
@@ -153,7 +154,7 @@ export default function ReportsPage() {
         // Create CSV content
         const csvContent = [
           headers.join(','),
-          ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+          ...rows.map((row: string[]) => row.map((cell: string) => `"${cell}"`).join(','))
         ].join('\n');
 
         // Create blob and download

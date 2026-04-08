@@ -88,7 +88,7 @@ export default function GoogleSheetSelector({ accessToken, onSheetSelected, sele
 
         if (response.data) {
           const integrations = Array.isArray(response.data) ? response.data : [response.data];
-          const googleSheet = integrations.find(i => i.provider === 'google-sheet');
+          const googleSheet = integrations.find((i: IntegrationResponse) => i.provider === 'google-sheet');
           setGoogleIntegration(googleSheet || null);
         }
       } catch (error) {

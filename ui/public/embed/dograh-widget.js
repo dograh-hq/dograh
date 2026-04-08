@@ -948,15 +948,11 @@
    *   window.addEventListener('message', (event) => { ... })
    */
   function emitMessage(eventType, detail) {
-    const containerId = state.config.embedMode === 'inline'
-      ? state.config.containerId
-      : 'dograh-widget';
     const message = {
       type: eventType,
       agentId: state.config.workflowId || null,
       token: state.config.token || null,
       workflowRunId: state.workflowRunId || null,
-      containerId: containerId,
       ...detail
     };
     window.postMessage(message, '*');

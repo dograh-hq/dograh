@@ -562,49 +562,48 @@ async def _run_pipeline(
     # Get user configuration
     user_config = await db_client.get_user_configurations(user_id)
 
-    # Get workflow first so we can extract configurations before creating services
+    # Get workflow for metadata (name, organization_id, call_disposition_codes)
     workflow = await db_client.get_workflow(workflow_id, user_id)
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    # Extract configurations from workflow configurations
+    # Use the run's pinned definition for graph + configs (not the workflow's current)
+    run_definition = workflow_run.definition
+    run_workflow_json = run_definition.workflow_json
+    run_configs = run_definition.workflow_configurations or {}
+
+    # Extract configurations from the version's workflow_configurations
     max_call_duration_seconds = 300  # Default 5 minutes
     max_user_idle_timeout = 10.0  # Default 10 seconds
     smart_turn_stop_secs = 2.0  # Default 2 seconds for incomplete turn timeout
     turn_stop_strategy = "transcription"  # Default to transcription-based detection
     keyterms = None  # Dictionary words for STT boosting
 
-    if workflow.workflow_configurations:
-        # Use workflow-specific max call duration if provided
-        if "max_call_duration" in workflow.workflow_configurations:
-            max_call_duration_seconds = workflow.workflow_configurations[
-                "max_call_duration"
-            ]
+    if run_configs:
+        if "max_call_duration" in run_configs:
+            max_call_duration_seconds = run_configs["max_call_duration"]
 
-        # Use workflow-specific max user idle timeout if provided
-        if "max_user_idle_timeout" in workflow.workflow_configurations:
-            max_user_idle_timeout = workflow.workflow_configurations[
-                "max_user_idle_timeout"
-            ]
+        if "max_user_idle_timeout" in run_configs:
+            max_user_idle_timeout = run_configs["max_user_idle_timeout"]
 
-        # Use workflow-specific smart turn stop timeout if provided
-        if "smart_turn_stop_secs" in workflow.workflow_configurations:
-            smart_turn_stop_secs = workflow.workflow_configurations[
-                "smart_turn_stop_secs"
-            ]
+        if "smart_turn_stop_secs" in run_configs:
+            smart_turn_stop_secs = run_configs["smart_turn_stop_secs"]
 
-        # Use workflow-specific turn stop strategy if provided
-        if "turn_stop_strategy" in workflow.workflow_configurations:
-            turn_stop_strategy = workflow.workflow_configurations["turn_stop_strategy"]
+        if "turn_stop_strategy" in run_configs:
+            turn_stop_strategy = run_configs["turn_stop_strategy"]
 
-        # Extract dictionary words and convert to keyterms list
-        if "dictionary" in workflow.workflow_configurations:
-            dictionary = workflow.workflow_configurations["dictionary"]
+        if "dictionary" in run_configs:
+            dictionary = run_configs["dictionary"]
             if dictionary and isinstance(dictionary, str):
-                # Split by comma and strip whitespace from each term
                 keyterms = [
                     term.strip() for term in dictionary.split(",") if term.strip()
                 ]
+
+    # Resolve model overrides from the version onto global user config
+    from api.services.configuration.resolve import resolve_effective_config
+
+    model_overrides = run_configs.get("model_overrides")
+    user_config = resolve_effective_config(user_config, model_overrides)
 
     # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
     is_realtime = user_config.is_realtime and user_config.realtime is not None
@@ -619,9 +618,7 @@ async def _run_pipeline(
         tts = create_tts_service(user_config, audio_config)
         llm = create_llm_service(user_config)
 
-    workflow_graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
-    )
+    workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(run_workflow_json))
 
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
     pre_call_fetch_task = None

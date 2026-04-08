@@ -80,11 +80,6 @@ class MockWorkflowModel:
     workflow_id: int = 1
     organization_id: int = 1
     workflow_configurations: Dict[str, Any] = field(default_factory=dict)
-    workflow_definition_with_fallback: Dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self):
-        if not self.workflow_definition_with_fallback:
-            self.workflow_definition_with_fallback = DEFAULT_WORKFLOW_DEFINITION.copy()
 
 
 @dataclass

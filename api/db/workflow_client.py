@@ -1,5 +1,4 @@
-import hashlib
-import json
+from datetime import UTC, datetime
 from typing import Optional
 
 from loguru import logger
@@ -12,41 +11,15 @@ from api.db.models import WorkflowDefinitionModel, WorkflowModel, WorkflowRunMod
 
 
 class WorkflowClient(BaseDBClient):
-    def _generate_workflow_hash(self, workflow_definition: dict) -> str:
-        """Generate a consistent hash for workflow definition."""
-        # Convert to JSON with sorted keys for consistent hashing
-        json_str = json.dumps(
-            workflow_definition, sort_keys=True, separators=(",", ":")
-        )
-        return hashlib.sha256(json_str.encode()).hexdigest()
-
-    async def _get_or_create_workflow_definition(
-        self, workflow_definition: dict, session, workflow_id: int = None
-    ) -> WorkflowDefinitionModel:
-        """Get existing workflow definition by hash or create a new one."""
-        workflow_hash = self._generate_workflow_hash(workflow_definition)
-
-        # Try to find existing definition
+    async def _next_version_number(self, session, workflow_id: int) -> int:
+        """Get the next version number for a workflow."""
         result = await session.execute(
-            select(WorkflowDefinitionModel).where(
-                WorkflowDefinitionModel.workflow_hash == workflow_hash,
+            select(func.max(WorkflowDefinitionModel.version_number)).where(
                 WorkflowDefinitionModel.workflow_id == workflow_id,
             )
         )
-        existing_definition = result.scalars().first()
-
-        if existing_definition:
-            return existing_definition
-
-        # Create new definition if it doesn't exist
-        new_definition = WorkflowDefinitionModel(
-            workflow_hash=workflow_hash,
-            workflow_json=workflow_definition,
-            workflow_id=workflow_id,
-        )
-        session.add(new_definition)
-        await session.flush()  # Flush to get the ID without committing
-        return new_definition
+        current_max = result.scalar()
+        return (current_max or 0) + 1
 
     async def create_workflow(
         self,
@@ -66,21 +39,23 @@ class WorkflowClient(BaseDBClient):
                 session.add(new_workflow)
                 await session.flush()  # Flush to get the workflow ID
 
-                # Now get or create workflow definition with the workflow_id
-                definition = await self._get_or_create_workflow_definition(
-                    workflow_definition, session, new_workflow.id
+                # Create the first definition as V1 published
+                definition = WorkflowDefinitionModel(
+                    workflow_json=workflow_definition,
+                    workflow_id=new_workflow.id,
+                    is_current=True,
+                    status="published",
+                    version_number=1,
+                    published_at=datetime.now(UTC),
+                    workflow_configurations=new_workflow.workflow_configurations or {},
+                    template_context_variables=new_workflow.template_context_variables
+                    or {},
                 )
+                session.add(definition)
+                await session.flush()
 
-                # Mark this definition as the current one and unset others
-                definition.is_current = True
-                await session.execute(
-                    update(WorkflowDefinitionModel)
-                    .where(
-                        WorkflowDefinitionModel.workflow_id == new_workflow.id,
-                        WorkflowDefinitionModel.id != definition.id,
-                    )
-                    .values(is_current=False)
-                )
+                # Set the released pointer
+                new_workflow.released_definition_id = definition.id
 
                 await session.commit()
             except Exception as e:
@@ -88,6 +63,252 @@ class WorkflowClient(BaseDBClient):
                 raise e
             await session.refresh(new_workflow)
         return new_workflow
+
+    # ------------------------------------------------------------------
+    # Versioning methods
+    # ------------------------------------------------------------------
+
+    async def save_workflow_draft(
+        self,
+        workflow_id: int,
+        workflow_definition: dict | None = None,
+        workflow_configurations: dict | None = None,
+        template_context_variables: dict | None = None,
+    ) -> WorkflowDefinitionModel:
+        """Create or update a draft version for this workflow.
+
+        If a draft already exists, it is updated in place.
+        If no draft exists, a new one is created with the next version number.
+        """
+        async with self.async_session() as session:
+            # Check for existing draft
+            result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowDefinitionModel.status == "draft",
+                )
+            )
+            draft = result.scalars().first()
+
+            if draft:
+                # Update existing draft in place
+                if workflow_definition is not None:
+                    draft.workflow_json = workflow_definition
+                if workflow_configurations is not None:
+                    draft.workflow_configurations = workflow_configurations
+                if template_context_variables is not None:
+                    draft.template_context_variables = template_context_variables
+            else:
+                # Get current published to use as base for unspecified fields
+                pub_result = await session.execute(
+                    select(WorkflowDefinitionModel).where(
+                        WorkflowDefinitionModel.workflow_id == workflow_id,
+                        WorkflowDefinitionModel.status == "published",
+                    )
+                )
+                published = pub_result.scalars().first()
+
+                next_version = await self._next_version_number(session, workflow_id)
+
+                draft = WorkflowDefinitionModel(
+                    workflow_id=workflow_id,
+                    workflow_json=workflow_definition
+                    if workflow_definition is not None
+                    else (published.workflow_json if published else {}),
+                    workflow_configurations=workflow_configurations
+                    if workflow_configurations is not None
+                    else (published.workflow_configurations if published else {}),
+                    template_context_variables=template_context_variables
+                    if template_context_variables is not None
+                    else (published.template_context_variables if published else {}),
+                    status="draft",
+                    version_number=next_version,
+                    is_current=False,
+                )
+                session.add(draft)
+
+            # Keep legacy columns on workflows table in sync with draft
+            wf_result = await session.execute(
+                select(WorkflowModel).where(WorkflowModel.id == workflow_id)
+            )
+            workflow = wf_result.scalars().first()
+            if workflow:
+                workflow.workflow_definition = draft.workflow_json
+                workflow.workflow_configurations = draft.workflow_configurations
+                workflow.template_context_variables = draft.template_context_variables
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(draft)
+        return draft
+
+    async def publish_workflow_draft(
+        self,
+        workflow_id: int,
+    ) -> WorkflowDefinitionModel:
+        """Promote the current draft to published.
+
+        - Draft → published
+        - Previous published → archived
+        - Updates released_definition_id on the workflow
+        - Sets is_current for backward compatibility
+        """
+        async with self.async_session() as session:
+            # Find the draft
+            result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowDefinitionModel.status == "draft",
+                )
+            )
+            draft = result.scalars().first()
+            if not draft:
+                raise ValueError(f"No draft exists for workflow {workflow_id}")
+
+            # Archive the current published version
+            await session.execute(
+                update(WorkflowDefinitionModel)
+                .where(
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowDefinitionModel.status == "published",
+                )
+                .values(status="archived", is_current=False)
+            )
+
+            # Promote draft → published
+            draft.status = "published"
+            draft.published_at = datetime.now(UTC)
+            draft.is_current = True
+
+            # Update workflow's released pointer + legacy fields
+            wf_result = await session.execute(
+                select(WorkflowModel).where(WorkflowModel.id == workflow_id)
+            )
+            workflow = wf_result.scalars().first()
+            workflow.released_definition_id = draft.id
+            workflow.workflow_definition = draft.workflow_json
+            workflow.workflow_configurations = draft.workflow_configurations
+            workflow.template_context_variables = draft.template_context_variables
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(draft)
+        return draft
+
+    async def discard_workflow_draft(
+        self,
+        workflow_id: int,
+    ) -> None:
+        """Delete the current draft version."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowDefinitionModel.status == "draft",
+                )
+            )
+            draft = result.scalars().first()
+            if not draft:
+                raise ValueError(f"No draft exists for workflow {workflow_id}")
+
+            await session.delete(draft)
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+
+    async def revert_to_version(
+        self,
+        workflow_id: int,
+        definition_id: int,
+    ) -> WorkflowDefinitionModel:
+        """Create a new draft from an archived version's snapshot.
+
+        Raises ValueError if a draft already exists (must discard first).
+        """
+        async with self.async_session() as session:
+            # Ensure no existing draft
+            draft_result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowDefinitionModel.status == "draft",
+                )
+            )
+            if draft_result.scalars().first():
+                raise ValueError(
+                    f"Draft already exists for workflow {workflow_id}. "
+                    "Discard it before reverting."
+                )
+
+            # Fetch the source version
+            source_result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.id == definition_id,
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                )
+            )
+            source = source_result.scalars().first()
+            if not source:
+                raise ValueError(
+                    f"Version {definition_id} not found for workflow {workflow_id}"
+                )
+
+            next_version = await self._next_version_number(session, workflow_id)
+
+            # Create new draft from the source snapshot
+            draft = WorkflowDefinitionModel(
+                workflow_id=workflow_id,
+                workflow_json=source.workflow_json,
+                workflow_configurations=source.workflow_configurations,
+                template_context_variables=source.template_context_variables,
+                status="draft",
+                version_number=next_version,
+                is_current=False,
+            )
+            session.add(draft)
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(draft)
+        return draft
+
+    async def get_draft_version(
+        self,
+        workflow_id: int,
+    ) -> WorkflowDefinitionModel | None:
+        """Get the draft version for a workflow, or None if no draft exists."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowDefinitionModel).where(
+                    WorkflowDefinitionModel.workflow_id == workflow_id,
+                    WorkflowDefinitionModel.status == "draft",
+                )
+            )
+            return result.scalars().first()
+
+    async def get_workflow_versions(
+        self,
+        workflow_id: int,
+    ) -> list[WorkflowDefinitionModel]:
+        """List all versions for a workflow, newest first."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowDefinitionModel)
+                .where(WorkflowDefinitionModel.workflow_id == workflow_id)
+                .order_by(WorkflowDefinitionModel.version_number.desc())
+            )
+            return result.scalars().all()
 
     async def get_all_workflows(
         self, user_id: int = None, organization_id: int = None, status: str = None
@@ -191,7 +412,10 @@ class WorkflowClient(BaseDBClient):
         async with self.async_session() as session:
             query = (
                 select(WorkflowModel)
-                .options(selectinload(WorkflowModel.current_definition))
+                .options(
+                    selectinload(WorkflowModel.current_definition),
+                    selectinload(WorkflowModel.released_definition),
+                )
                 .where(WorkflowModel.id == workflow_id)
             )
 
@@ -209,7 +433,10 @@ class WorkflowClient(BaseDBClient):
         async with self.async_session() as session:
             result = await session.execute(
                 select(WorkflowModel)
-                .options(selectinload(WorkflowModel.current_definition))
+                .options(
+                    selectinload(WorkflowModel.current_definition),
+                    selectinload(WorkflowModel.released_definition),
+                )
                 .where(WorkflowModel.id == workflow_id)
             )
             return result.scalars().first()
@@ -227,11 +454,16 @@ class WorkflowClient(BaseDBClient):
         """
         Update an existing workflow in the database.
 
+        Name changes are applied directly to the workflow.
+        Definition/config/template_var changes are saved as a draft version
+        via save_workflow_draft, keeping the published version unchanged.
+
         Args:
             workflow_id: The ID of the workflow to update
             name: The new name for the workflow
             workflow_definition: The new workflow definition
             template_context_variables: The template context variables
+            workflow_configurations: The workflow configurations
             user_id: The user ID (for backwards compatibility)
             organization_id: The organization ID
 
@@ -249,10 +481,8 @@ class WorkflowClient(BaseDBClient):
             )
 
             if organization_id:
-                # Filter by organization_id when provided
                 query = query.where(WorkflowModel.organization_id == organization_id)
             elif user_id:
-                # Fallback to user_id for backwards compatibility
                 query = query.where(WorkflowModel.user_id == user_id)
 
             result = await session.execute(query)
@@ -260,35 +490,9 @@ class WorkflowClient(BaseDBClient):
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
+            # Name is a workflow-level field, not versioned
             if name is not None:
                 workflow.name = name
-
-            if template_context_variables is not None:
-                workflow.template_context_variables = template_context_variables
-
-            if workflow_configurations is not None:
-                workflow.workflow_configurations = workflow_configurations
-
-            # In case of only name update, the workflow_definition can be None
-            if workflow_definition:
-                # Get or create new workflow definition
-                definition = await self._get_or_create_workflow_definition(
-                    workflow_definition, session, workflow_id
-                )
-
-                # Update legacy field for backwards compatibility
-                workflow.workflow_definition = workflow_definition
-
-                # Mark new definition as current and reset others
-                definition.is_current = True
-                await session.execute(
-                    update(WorkflowDefinitionModel)
-                    .where(
-                        WorkflowDefinitionModel.workflow_id == workflow_id,
-                        WorkflowDefinitionModel.id != definition.id,
-                    )
-                    .values(is_current=False)
-                )
 
             try:
                 await session.commit()
@@ -296,6 +500,28 @@ class WorkflowClient(BaseDBClient):
                 await session.rollback()
                 raise e
             await session.refresh(workflow)
+
+        # Save versioned changes as a draft
+        has_versioned_changes = any(
+            v is not None
+            for v in [
+                workflow_definition,
+                workflow_configurations,
+                template_context_variables,
+            ]
+        )
+        if has_versioned_changes:
+            await self.save_workflow_draft(
+                workflow_id=workflow_id,
+                workflow_definition=workflow_definition,
+                workflow_configurations=workflow_configurations,
+                template_context_variables=template_context_variables,
+            )
+            # Re-fetch with updated state
+            workflow = await self.get_workflow(
+                workflow_id, user_id=user_id, organization_id=organization_id
+            )
+
         return workflow
 
     async def get_workflows_by_ids(
@@ -353,7 +579,10 @@ class WorkflowClient(BaseDBClient):
         async with self.async_session() as session:
             query = (
                 select(WorkflowModel)
-                .options(selectinload(WorkflowModel.current_definition))
+                .options(
+                    selectinload(WorkflowModel.current_definition),
+                    selectinload(WorkflowModel.released_definition),
+                )
                 .where(WorkflowModel.id == workflow_id)
             )
 

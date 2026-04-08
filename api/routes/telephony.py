@@ -143,7 +143,8 @@ class StatusCallbackRequest(BaseModel):
 async def initiate_call(
     request: InitiateCallRequest, user: UserModel = Depends(get_user)
 ):
-    """Initiate a call using the configured telephony provider."""
+    """Initiate a call using the configured telephony provider from web browser. This is
+    supposed to be a test call method for the draft version of the agent."""
 
     # Get the telephony provider for the organization
     provider = await get_telephony_provider(user.selected_organization_id)
@@ -190,6 +191,7 @@ async def initiate_call(
                 "called_number": phone_number,
                 "provider": provider.PROVIDER_NAME,
             },
+            use_draft=True,
         )
         workflow_run_id = workflow_run.id
     else:

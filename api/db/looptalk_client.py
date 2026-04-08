@@ -9,6 +9,7 @@ from api.db.base_client import BaseDBClient
 from api.db.models import (
     LoopTalkConversation,
     LoopTalkTestSession,
+    WorkflowModel,
 )
 
 
@@ -50,8 +51,12 @@ class LoopTalkClient(BaseDBClient):
             result = await session.execute(
                 select(LoopTalkTestSession)
                 .options(
-                    selectinload(LoopTalkTestSession.actor_workflow),
-                    selectinload(LoopTalkTestSession.adversary_workflow),
+                    selectinload(LoopTalkTestSession.actor_workflow).selectinload(
+                        WorkflowModel.released_definition
+                    ),
+                    selectinload(LoopTalkTestSession.adversary_workflow).selectinload(
+                        WorkflowModel.released_definition
+                    ),
                     selectinload(LoopTalkTestSession.conversations),
                 )
                 .where(

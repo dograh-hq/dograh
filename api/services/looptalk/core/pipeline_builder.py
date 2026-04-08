@@ -76,19 +76,27 @@ class LoopTalkPipelineBuilder:
             pipeline_sample_rate=16000,
         )
 
+        # Use published definition for graph + configs
+        released_def = workflow.released_definition
+        wf_json = released_def.workflow_json
+        wf_configs = released_def.workflow_configurations or {}
+
         # Extract keyterms from workflow configurations
         keyterms = None
-        if (
-            workflow.workflow_configurations
-            and "dictionary" in workflow.workflow_configurations
-        ):
-            dictionary = workflow.workflow_configurations["dictionary"]
+        if wf_configs and "dictionary" in wf_configs:
+            dictionary = wf_configs["dictionary"]
             if dictionary and isinstance(dictionary, str):
                 keyterms = [
                     term.strip() for term in dictionary.split(",") if term.strip()
                 ]
                 if keyterms:
                     logger.info(f"Using {len(keyterms)} keyterms for STT: {keyterms}")
+
+        # Resolve model overrides from the version onto global user config
+        from api.services.configuration.resolve import resolve_effective_config
+
+        model_overrides = wf_configs.get("model_overrides")
+        user_config = resolve_effective_config(user_config, model_overrides)
 
         # Create services
         stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
@@ -98,9 +106,7 @@ class LoopTalkPipelineBuilder:
         logger.debug(f"Created services for {role}: STT={stt}, LLM={llm}, TTS={tts}")
 
         # Get workflow graph
-        workflow_graph = WorkflowGraph(
-            ReactFlowDTO.model_validate(workflow.workflow_definition_with_fallback)
-        )
+        workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(wf_json))
 
         # Create engine first (needed for create_pipeline_components)
         engine = PipecatEngine(

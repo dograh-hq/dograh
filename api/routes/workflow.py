@@ -104,6 +104,7 @@ class WorkflowResponse(BaseModel):
     call_disposition_codes: CallDispositionCodes | None = None
     total_runs: int | None = None
     workflow_configurations: dict | None = None
+    has_draft: bool = False
 
 
 class WorkflowListResponse(BaseModel):
@@ -200,8 +201,11 @@ async def validate_workflow(
 
     errors: list[WorkflowError] = []
 
-    # Get workflow definition from WorkflowDefinition table, fallback to workflow_definition field
-    workflow_definition = workflow.workflow_definition_with_fallback
+    # Validate draft if it exists (user is editing), else validate published
+    draft = await db_client.get_draft_version(workflow_id)
+    workflow_definition = (
+        draft.workflow_json if draft else workflow.released_definition.workflow_json
+    )
 
     # ----------- DTO Validation ------------
     dto: Optional[ReactFlowDTO] = None
@@ -282,9 +286,7 @@ async def create_workflow(
         "name": workflow.name,
         "status": workflow.status,
         "created_at": workflow.created_at,
-        "workflow_definition": mask_workflow_definition(
-            workflow.workflow_definition_with_fallback
-        ),
+        "workflow_definition": mask_workflow_definition(request.workflow_definition),
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": workflow.template_context_variables,
         "call_disposition_codes": workflow.call_disposition_codes,
@@ -362,9 +364,7 @@ async def create_workflow_from_template(
             "name": workflow.name,
             "status": workflow.status,
             "created_at": workflow.created_at,
-            "workflow_definition": mask_workflow_definition(
-                workflow.workflow_definition_with_fallback
-            ),
+            "workflow_definition": mask_workflow_definition(workflow_def),
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
             "call_disposition_codes": workflow.call_disposition_codes,
@@ -461,7 +461,11 @@ async def get_workflow(
     workflow_id: int,
     user: UserModel = Depends(get_user),
 ) -> WorkflowResponse:
-    """Get a single workflow by ID"""
+    """Get a single workflow by ID.
+
+    If a draft version exists, returns the draft content for editing.
+    Otherwise returns the published version's content.
+    """
     workflow = await db_client.get_workflow(
         workflow_id, organization_id=user.selected_organization_id
     )
@@ -470,18 +474,30 @@ async def get_workflow(
             status_code=404, detail=f"Workflow with id {workflow_id} not found"
         )
 
+    # Check for draft — editor should show draft content if it exists
+    draft = await db_client.get_draft_version(workflow_id)
+
+    if draft:
+        workflow_def = draft.workflow_json
+        workflow_configs = draft.workflow_configurations
+        template_vars = draft.template_context_variables
+    else:
+        published = workflow.released_definition
+        workflow_def = published.workflow_json
+        workflow_configs = published.workflow_configurations
+        template_vars = published.template_context_variables
+
     return {
         "id": workflow.id,
         "name": workflow.name,
         "status": workflow.status,
         "created_at": workflow.created_at,
-        "workflow_definition": mask_workflow_definition(
-            workflow.workflow_definition_with_fallback
-        ),
+        "workflow_definition": mask_workflow_definition(workflow_def),
         "current_definition_id": workflow.current_definition_id,
-        "template_context_variables": workflow.template_context_variables,
+        "template_context_variables": template_vars,
         "call_disposition_codes": workflow.call_disposition_codes,
-        "workflow_configurations": workflow.workflow_configurations,
+        "workflow_configurations": workflow_configs,
+        "has_draft": draft is not None,
     }
 
 
@@ -528,7 +544,7 @@ async def update_workflow_status(
             "status": workflow.status,
             "created_at": workflow.created_at,
             "workflow_definition": mask_workflow_definition(
-                workflow.workflow_definition_with_fallback
+                workflow.released_definition.workflow_json
             ),
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
@@ -569,9 +585,16 @@ async def update_workflow(
                 workflow_id, organization_id=user.selected_organization_id
             )
             if existing_workflow:
+                # Merge against what the user was editing (draft or published)
+                existing_draft = await db_client.get_draft_version(workflow_id)
+                existing_def = (
+                    existing_draft.workflow_json
+                    if existing_draft
+                    else existing_workflow.released_definition.workflow_json
+                )
                 workflow_definition = merge_workflow_api_keys(
                     workflow_definition,
-                    existing_workflow.workflow_definition_with_fallback,
+                    existing_def,
                 )
 
         workflow = await db_client.update_workflow(
@@ -592,18 +615,29 @@ async def update_workflow(
                 trigger_paths=trigger_paths,
             )
 
+        # Return draft content if one exists (save creates a draft)
+        draft = await db_client.get_draft_version(workflow_id)
+        if draft:
+            workflow_def = draft.workflow_json
+            workflow_configs = draft.workflow_configurations
+            template_vars = draft.template_context_variables
+        else:
+            published = workflow.released_definition
+            workflow_def = published.workflow_json
+            workflow_configs = published.workflow_configurations
+            template_vars = published.template_context_variables
+
         return {
             "id": workflow.id,
             "name": workflow.name,
             "status": workflow.status,
             "created_at": workflow.created_at,
-            "workflow_definition": mask_workflow_definition(
-                workflow.workflow_definition_with_fallback
-            ),
+            "workflow_definition": mask_workflow_definition(workflow_def),
             "current_definition_id": workflow.current_definition_id,
-            "template_context_variables": workflow.template_context_variables,
+            "template_context_variables": template_vars,
             "call_disposition_codes": workflow.call_disposition_codes,
-            "workflow_configurations": workflow.workflow_configurations,
+            "workflow_configurations": workflow_configs,
+            "has_draft": draft is not None,
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -629,7 +663,7 @@ async def duplicate_workflow_endpoint(
             "status": workflow.status,
             "created_at": workflow.created_at,
             "workflow_definition": mask_workflow_definition(
-                workflow.workflow_definition_with_fallback
+                workflow.released_definition.workflow_json
             ),
             "current_definition_id": workflow.current_definition_id,
             "template_context_variables": workflow.template_context_variables,
@@ -658,7 +692,7 @@ async def create_workflow_run(
         user: The user to create the workflow run for
     """
     run = await db_client.create_workflow_run(
-        request.name, workflow_id, request.mode, user.id
+        request.name, workflow_id, request.mode, user.id, use_draft=True
     )
     return {
         "id": run.id,
@@ -862,9 +896,7 @@ async def duplicate_workflow_template(
         "name": workflow.name,
         "status": workflow.status,
         "created_at": workflow.created_at,
-        "workflow_definition": mask_workflow_definition(
-            workflow.workflow_definition_with_fallback
-        ),
+        "workflow_definition": mask_workflow_definition(workflow_def),
         "current_definition_id": workflow.current_definition_id,
         "template_context_variables": workflow.template_context_variables,
         "call_disposition_codes": workflow.call_disposition_codes,

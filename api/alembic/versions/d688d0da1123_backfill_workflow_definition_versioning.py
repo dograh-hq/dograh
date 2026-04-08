@@ -44,11 +44,11 @@ def upgrade() -> None:
     """)
     )
 
-    # Step 2: Archive all definitions that are NOT is_current.
+    # Step 2: Mark all pre-versioning non-current definitions as legacy.
     conn.execute(
         sa.text("""
         UPDATE workflow_definitions
-        SET status = 'archived'
+        SET status = 'legacy'
         WHERE is_current = false
     """)
     )

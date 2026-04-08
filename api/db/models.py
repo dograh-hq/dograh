@@ -1,7 +1,6 @@
 import uuid
 from datetime import UTC, datetime
 
-from loguru import logger
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
@@ -307,36 +306,6 @@ class WorkflowModel(Base):
         # risking an implicit lazy load on a detached instance. Return ``None`` in
         # that scenario so callers can handle the absence explicitly.
         return None
-
-    @property
-    def workflow_definition_with_fallback(self):
-        """
-        Get workflow definition with fallback to legacy workflow_definition field.
-
-        Returns:
-            dict: The workflow definition JSON
-        """
-        # Access the relationship only if it has ALREADY been eagerly loaded on this
-        # instance to avoid triggering an implicit lazy load once the SQLAlchemy
-        # Session has been closed (which would raise a DetachedInstanceError).
-
-        # ``__dict__`` will contain "current_definition" **only** when the attribute
-        # has been populated (e.g. via `selectinload` or an explicit access while
-        # the session was still open). Using ``__dict__.get`` guarantees that we
-        # do not accidentally issue a lazy load query on a detached instance.
-
-        current_definition = self.__dict__.get("current_definition")
-
-        if current_definition is not None:
-            return current_definition.workflow_json
-
-        # Fallback for backwards-compatibility when the relationship is not (yet)
-        # loaded. In this case we fall back to the legacy ``workflow_definition``
-        # column that always contains the most recent definition JSON.
-        logger.warning(
-            f"Workflow {self.id} has no loaded current definition, using workflow_definition as fallback",
-        )
-        return self.workflow_definition
 
 
 class WorkflowTemplates(Base):

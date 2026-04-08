@@ -103,14 +103,13 @@ async def initiate_call(
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
-    # Get workflow definition (with fallback to legacy field)
-    workflow_definition = workflow.workflow_definition_with_fallback
+    workflow_definition = workflow.released_definition.workflow_json
 
     # Validate trigger node still exists in the workflow definition
     if not trigger_exists_in_workflow(workflow_definition, uuid):
         raise HTTPException(
             status_code=404,
-            detail="Trigger not found or has been removed from workflow",
+            detail="Trigger not found in the published Agent",
         )
 
     # 6. Get telephony provider for the organization

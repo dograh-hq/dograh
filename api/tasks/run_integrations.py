@@ -187,15 +187,9 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 secret_key=langfuse_config.get("secret_key"),
             )
 
-        # Step 2: Get workflow definition (prefer the run-specific definition)
-        if workflow_run.definition:
-            workflow_definition = workflow_run.definition.workflow_json
-            definition_id = workflow_run.definition.id
-        else:
-            workflow_definition = (
-                workflow_run.workflow.workflow_definition_with_fallback
-            )
-            definition_id = workflow_run.workflow.current_definition_id
+        # Step 2: Get workflow definition from the run's pinned version
+        workflow_definition = workflow_run.definition.workflow_json
+        definition_id = workflow_run.definition.id
 
         if not workflow_definition:
             logger.debug("No workflow definition, skipping integrations")

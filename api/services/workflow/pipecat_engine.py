@@ -341,7 +341,12 @@ class PipecatEngine:
         parent_context = self._get_otel_context()
 
         extraction_prompt = self._format_prompt(node.extraction_prompt)
-        extraction_variables = node.extraction_variables
+        extraction_variables = [
+            v.model_copy(update={"prompt": self._format_prompt(v.prompt)})
+            if v.prompt
+            else v
+            for v in node.extraction_variables
+        ]
 
         async def _do_extraction():
             try:

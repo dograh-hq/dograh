@@ -97,7 +97,7 @@ export function ToolSelector({
                                         {tool.name}
                                     </span>
                                     {tool.description && (
-                                        <span className="text-xs text-muted-foreground truncate">
+                                        <span className="text-xs text-muted-foreground break-words">
                                             {tool.description}
                                         </span>
                                     )}

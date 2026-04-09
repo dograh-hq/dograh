@@ -940,6 +940,14 @@ class KnowledgeBaseDocumentModel(Base):
     file_hash = Column(String(64), nullable=True)  # SHA-256 hash for deduplication
     mime_type = Column(String(100), nullable=True)
 
+    # Retrieval mode: "chunked" (vector search) or "full_document" (return full text)
+    retrieval_mode = Column(
+        String(20), nullable=False, default="chunked", server_default="chunked"
+    )
+    full_text = Column(
+        Text, nullable=True
+    )  # Stored when retrieval_mode is "full_document"
+
     # Processing metadata
     source_url = Column(String, nullable=True)  # If document was fetched from URL
     total_chunks = Column(Integer, nullable=False, default=0)

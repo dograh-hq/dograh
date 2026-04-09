@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
     createRecordingsApiV1WorkflowRecordingsPost,
     deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete,
-    getSignedUrlApiV1S3SignedUrlGet,
     getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost,
     listRecordingsApiV1WorkflowRecordingsGet,
     transcribeAudioApiV1WorkflowRecordingsTranscribePost,
@@ -30,6 +29,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
+import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 
 interface RecordingsDialogProps {
     open: boolean;
@@ -74,8 +74,7 @@ export const RecordingsDialog = ({
     const [recordingStep, setRecordingStep] = useState<RecordingStep>("idle");
     const [recordingFilename, setRecordingFilename] = useState("");
     const [recordingDuration, setRecordingDuration] = useState(0);
-    const [playingId, setPlayingId] = useState<string | null>(null);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const { playingId, toggle: togglePlayback, stop: stopPlayback } = useAudioPlayback();
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -128,13 +127,6 @@ export const RecordingsDialog = ({
         setRecordingDuration(0);
     }, []);
 
-    const stopPlayback = useCallback(() => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
-        }
-        setPlayingId(null);
-    }, []);
 
     useEffect(() => {
         if (open) {
@@ -363,27 +355,8 @@ export const RecordingsDialog = ({
     };
 
     const handlePlay = async (rec: RecordingResponseSchema) => {
-        if (playingId === rec.recording_id) {
-            stopPlayback();
-            return;
-        }
-        stopPlayback();
         try {
-            const result = await getSignedUrlApiV1S3SignedUrlGet({
-                query: {
-                    key: rec.storage_key,
-                    storage_backend: rec.storage_backend,
-                },
-            });
-            if (!result.data?.url) {
-                setError("Failed to get audio URL");
-                return;
-            }
-            const audio = new Audio(result.data.url);
-            audio.onended = () => setPlayingId(null);
-            audioRef.current = audio;
-            setPlayingId(rec.recording_id);
-            await audio.play();
+            await togglePlayback(rec.recording_id, rec.storage_key, rec.storage_backend);
         } catch {
             setError("Failed to play recording");
         }

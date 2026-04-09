@@ -29,6 +29,10 @@ class ProcessDocumentRequestSchema(BaseModel):
 
     document_uuid: str = Field(..., description="Document UUID to process")
     s3_key: str = Field(..., description="S3 key of the uploaded file")
+    retrieval_mode: str = Field(
+        default="chunked",
+        description="Retrieval mode: 'chunked' for vector search or 'full_document' for full text retrieval",
+    )
 
 
 class DocumentResponseSchema(BaseModel):
@@ -43,6 +47,7 @@ class DocumentResponseSchema(BaseModel):
     processing_status: str  # pending, processing, completed, failed
     processing_error: Optional[str] = None
     total_chunks: int
+    retrieval_mode: str = "chunked"
     custom_metadata: Dict[str, Any]
     docling_metadata: Dict[str, Any]
     source_url: Optional[str] = None

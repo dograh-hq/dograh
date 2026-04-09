@@ -1,22 +1,27 @@
 'use client';
 
-import { Check, Copy, ExternalLink, FileText, Video } from 'lucide-react';
+import { Check, Copy, ExternalLink, FileText, LoaderCircle, Phone, Video } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
 import { RealtimeFeedback, WorkflowRunLogs } from '@/app/workflow/[workflowId]/run/[runId]/components/RealtimeFeedback';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
-import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
+import {
+    createWorkflowRunApiV1WorkflowWorkflowIdRunsPost,
+    getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet,
+} from '@/client/sdk.gen';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOnboarding } from '@/context/OnboardingContext';
 import { useAuth } from '@/lib/auth';
 import { downloadFile } from '@/lib/files';
+import { getRandomId } from '@/lib/utils';
 
 interface WorkflowRunResponse {
     is_completed: boolean;
@@ -72,7 +77,9 @@ function ContextDisplay({ title, context }: { title: string; context: Record<str
 
 export default function WorkflowRunPage() {
     const params = useParams();
+    const router = useRouter();
     const [isLoading, setIsLoading] = useState(true);
+    const [startingCall, setStartingCall] = useState(false);
     const auth = useAuth();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
     const { hasSeenTooltip, markTooltipSeen } = useOnboarding();
@@ -120,6 +127,24 @@ export default function WorkflowRunPage() {
         fetchWorkflowRun();
     }, [params.workflowId, params.runId, auth]);
 
+    const handleTestAgain = async () => {
+        if (startingCall) return;
+        setStartingCall(true);
+        try {
+            const workflowId = Number(params.workflowId);
+            const workflowRunName = `WR-${getRandomId()}`;
+            const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({
+                path: { workflow_id: workflowId },
+                body: { mode: WORKFLOW_RUN_MODES.SMALL_WEBRTC, name: workflowRunName },
+            });
+            if (response.data?.id) {
+                router.push(`/workflow/${workflowId}/run/${response.data.id}`);
+            }
+        } finally {
+            setStartingCall(false);
+        }
+    };
+
     let returnValue = null;
 
     if (isLoading) {
@@ -160,22 +185,37 @@ export default function WorkflowRunPage() {
                                     </svg>
                                 </div>
                             </div>
-                            <Link href={`/workflow/${params.workflowId}`}>
+                            <div className="flex items-center gap-2">
                                 <Button
-                                    ref={customizeButtonRef}
+                                    onClick={handleTestAgain}
+                                    disabled={startingCall}
+                                    variant="outline"
                                     className="gap-2"
-                                    onClick={() => {
-                                        if (!hasSeenTooltip('customize_workflow')) {
-                                            markTooltipSeen('customize_workflow');
-                                        }
-                                    }}
                                 >
-                                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                    </svg>
-                                    Customize Agent
+                                    {startingCall ? (
+                                        <LoaderCircle className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                        <Phone className="h-4 w-4" />
+                                    )}
+                                    {startingCall ? 'Starting...' : 'Test Again'}
                                 </Button>
-                            </Link>
+                                <Link href={`/workflow/${params.workflowId}`}>
+                                    <Button
+                                        ref={customizeButtonRef}
+                                        className="gap-2"
+                                        onClick={() => {
+                                            if (!hasSeenTooltip('customize_workflow')) {
+                                                markTooltipSeen('customize_workflow');
+                                            }
+                                        }}
+                                    >
+                                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                        </svg>
+                                        Customize Agent
+                                    </Button>
+                                </Link>
+                            </div>
                         </CardHeader>
                         <CardContent>
                             <p className="text-muted-foreground mb-8">Your voice agent run has been completed successfully. You can preview or download the transcript and recording.</p>

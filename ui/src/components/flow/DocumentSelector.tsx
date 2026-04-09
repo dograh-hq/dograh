@@ -123,7 +123,7 @@ export const DocumentSelector = ({
                                             {doc.filename}
                                         </div>
                                         <div className="text-xs text-muted-foreground">
-                                            {formatFileSize(doc.file_size_bytes)} • {doc.total_chunks} chunks
+                                            {formatFileSize(doc.file_size_bytes)} • {doc.retrieval_mode === 'full_document' ? 'Full Document' : `${doc.total_chunks} chunks`}
                                         </div>
                                     </div>
                                 </label>

@@ -8,6 +8,9 @@ export interface VADConfiguration {
 export interface AmbientNoiseConfiguration {
     enabled: boolean;
     volume: number;
+    storage_key?: string;
+    storage_backend?: string;
+    original_filename?: string;
 }
 
 export type TurnStopStrategy = 'transcription' | 'turn_analyzer';

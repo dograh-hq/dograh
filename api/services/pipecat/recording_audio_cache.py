@@ -6,29 +6,30 @@ leading/trailing silence, and caches the processed bytes on disk so
 subsequent plays (even from other workers) are instantaneous.
 """
 
-import asyncio
 import os
-import shutil
-import tempfile
 from typing import Awaitable, Callable, Optional
 
 import numpy as np
 from loguru import logger
 
-from api.constants import APP_ROOT_DIR
 from pipecat.audio.utils import SPEAKING_THRESHOLD
 
-# ---------------------------------------------------------------------------
-# Filesystem cache directory
-# ---------------------------------------------------------------------------
+from .audio_file_cache import (
+    CACHE_DIR,
+    convert_audio_file,
+    download_storage_file,
+    read_cached_file,
+    write_cache_file,
+)
 
-_CACHE_DIR = os.path.join(os.path.dirname(APP_ROOT_DIR), "dograh_pcm_cache")
-os.makedirs(_CACHE_DIR, exist_ok=True)
+# ---------------------------------------------------------------------------
+# Cache path helper
+# ---------------------------------------------------------------------------
 
 
 def _cache_path(recording_id: str, sample_rate: int) -> str:
     """Return the on-disk path for a cached PCM file."""
-    return os.path.join(_CACHE_DIR, f"{recording_id}_{sample_rate}.pcm")
+    return os.path.join(CACHE_DIR, f"{recording_id}_{sample_rate}.pcm")
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +73,7 @@ def create_recording_audio_fetcher(
         # 1. Serve from filesystem cache
         if os.path.exists(cached):
             logger.debug(f"Recording {recording_id} served from disk cache")
-            return _read_file(cached)
+            return read_cached_file(cached)
 
         # 2. DB lookup
         recording = await db_client.get_recording_by_recording_id(
@@ -172,109 +173,33 @@ async def _download_and_convert(
 
     Returns the processed PCM bytes, or None on failure.
     """
-    ext = _ext_from_key(recording.storage_key)
-    fd, tmp_path = tempfile.mkstemp(
-        suffix=ext, prefix=f"dograh_dl_{recording.recording_id}_"
+    tmp_path = await download_storage_file(
+        recording.storage_key, recording.storage_backend, get_storage_fn
     )
-    os.close(fd)
-    try:
-        storage = get_storage_fn(recording.storage_backend)
-        success = await storage.adownload_file(recording.storage_key, tmp_path)
-        if not success:
-            logger.error(f"Failed to download recording {recording.recording_id}")
-            return None
+    if not tmp_path:
+        return None
 
-        pcm_data = await _audio_file_to_pcm(tmp_path, sample_rate)
+    try:
+        pcm_data = await convert_audio_file(tmp_path, sample_rate, output_format="pcm")
         if pcm_data is None:
             return None
 
         pcm_data = _trim_silence(pcm_data, sample_rate)
 
-        # Write to disk cache atomically (write to tmp then rename)
+        # Write to disk cache
         cached = _cache_path(recording.recording_id, sample_rate)
-        fd, tmp_cache = tempfile.mkstemp(dir=_CACHE_DIR, suffix=".pcm.tmp")
-        os.close(fd)
-        _write_file(tmp_cache, pcm_data)
-        os.replace(tmp_cache, cached)
+        write_cache_file(cached, pcm_data)
 
         return pcm_data
     except Exception:
         logger.exception(f"Error fetching recording {recording.recording_id}")
         return None
     finally:
-        if os.path.exists(tmp_path):
-            try:
+        try:
+            if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
-            except OSError:
-                pass
-
-
-# ---------------------------------------------------------------------------
-# File I/O helpers (run via asyncio.to_thread)
-# ---------------------------------------------------------------------------
-
-
-def _read_file(path: str) -> bytes:
-    with open(path, "rb") as f:
-        return f.read()
-
-
-def _write_file(path: str, data: bytes) -> None:
-    with open(path, "wb") as f:
-        f.write(data)
-
-
-# ---------------------------------------------------------------------------
-# Audio conversion
-# ---------------------------------------------------------------------------
-
-
-async def _audio_file_to_pcm(
-    file_path: str, target_sample_rate: int
-) -> Optional[bytes]:
-    """Convert an audio file to raw 16-bit mono PCM bytes via ffmpeg."""
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        logger.error("ffmpeg not found on PATH — cannot decode recording")
-        return None
-
-    cmd = [
-        ffmpeg,
-        "-i",
-        file_path,
-        "-f",
-        "s16le",  # raw 16-bit signed little-endian PCM
-        "-acodec",
-        "pcm_s16le",
-        "-ac",
-        "1",  # mono
-        "-ar",
-        str(target_sample_rate),
-        "-loglevel",
-        "error",
-        "pipe:1",  # output to stdout
-    ]
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-
-        if proc.returncode != 0:
-            logger.error(f"ffmpeg failed (rc={proc.returncode}): {stderr.decode()}")
-            return None
-
-        if not stdout:
-            logger.error("ffmpeg produced no output")
-            return None
-
-        return stdout
-    except Exception:
-        logger.exception("ffmpeg subprocess error")
-        return None
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -327,14 +252,3 @@ def _trim_silence(pcm_data: bytes, sample_rate: int) -> bytes:
         )
 
     return trimmed.tobytes()
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _ext_from_key(storage_key: str) -> str:
-    """Extract file extension from a storage key, defaulting to .wav."""
-    _, ext = os.path.splitext(storage_key)
-    return ext if ext else ".wav"

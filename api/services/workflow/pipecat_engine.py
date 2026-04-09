@@ -301,12 +301,6 @@ class PipecatEngine:
                         "Organization ID not available for knowledge base retrieval"
                     )
 
-                if not self._embeddings_api_key:
-                    raise ValueError(
-                        "Embeddings API key not configured. Please set your API key in "
-                        "Model Configurations > Embedding."
-                    )
-
                 result = await retrieve_from_knowledge_base(
                     query=query,
                     organization_id=organization_id,

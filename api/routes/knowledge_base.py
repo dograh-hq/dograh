@@ -124,6 +124,7 @@ async def process_document(
             mime_type="application/octet-stream",  # Will be detected by background task
             custom_metadata={"s3_key": request.s3_key},
             document_uuid=request.document_uuid,  # Use UUID from upload
+            retrieval_mode=request.retrieval_mode,
         )
 
         # Enqueue background task for processing
@@ -133,6 +134,7 @@ async def process_document(
             request.s3_key,
             user.selected_organization_id,
             128,  # max_tokens (default)
+            request.retrieval_mode,
         )
 
         logger.info(
@@ -150,6 +152,7 @@ async def process_document(
             processing_status="pending",
             processing_error=None,
             total_chunks=0,
+            retrieval_mode=request.retrieval_mode,
             custom_metadata={"s3_key": request.s3_key},
             docling_metadata={},
             source_url=None,
@@ -209,6 +212,7 @@ async def list_documents(
                 processing_status=doc.processing_status,
                 processing_error=doc.processing_error,
                 total_chunks=doc.total_chunks,
+                retrieval_mode=doc.retrieval_mode,
                 custom_metadata=doc.custom_metadata,
                 docling_metadata=doc.docling_metadata,
                 source_url=doc.source_url,
@@ -267,6 +271,7 @@ async def get_document(
             processing_status=document.processing_status,
             processing_error=document.processing_error,
             total_chunks=document.total_chunks,
+            retrieval_mode=document.retrieval_mode,
             custom_metadata=document.custom_metadata,
             docling_metadata=document.docling_metadata,
             source_url=document.source_url,

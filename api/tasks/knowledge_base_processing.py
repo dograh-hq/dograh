@@ -25,6 +25,7 @@ async def process_knowledge_base_document(
     s3_key: str,
     organization_id: int,
     max_tokens: int = 128,
+    retrieval_mode: str = "chunked",
 ):
     """Process a knowledge base document: download, chunk, embed, and store.
 
@@ -34,6 +35,7 @@ async def process_knowledge_base_document(
         s3_key: S3 key where the file is stored
         organization_id: Organization ID
         max_tokens: Maximum number of tokens per chunk (default: 128)
+        retrieval_mode: "chunked" for vector search or "full_document" for full text
     """
     logger.info(
         f"Starting knowledge base document processing for document_id={document_id}, "
@@ -127,6 +129,47 @@ async def process_knowledge_base_document(
             file_hash=file_hash,
             mime_type=mime_type,
         )
+
+        # Full document mode: extract text and store it, skip chunking/embedding
+        if retrieval_mode == "full_document":
+            logger.info(f"Document {document_id}: full_document mode, extracting text")
+
+            plain_text_extensions = {".txt", ".json"}
+            if file_extension.lower() in plain_text_extensions:
+                with open(temp_file_path, "r", encoding="utf-8") as f:
+                    full_text = f.read()
+                if file_extension.lower() == ".json":
+                    try:
+                        parsed = json.loads(full_text)
+                        full_text = json.dumps(parsed, indent=2, ensure_ascii=False)
+                    except json.JSONDecodeError:
+                        pass
+                docling_metadata = {"document_type": "PlainText"}
+            else:
+                converter = DocumentConverter()
+                conversion_result = converter.convert(temp_file_path)
+                doc = conversion_result.document
+                full_text = doc.export_to_text()
+                docling_metadata = {
+                    "num_pages": len(doc.pages) if hasattr(doc, "pages") else None,
+                    "document_type": type(doc).__name__,
+                }
+
+            # Store full text on the document record
+            await db_client.update_document_full_text(document_id, full_text)
+
+            await db_client.update_document_status(
+                document_id,
+                "completed",
+                total_chunks=0,
+                docling_metadata=docling_metadata,
+            )
+
+            logger.info(
+                f"Successfully processed full_document {document_id}. "
+                f"Text length: {len(full_text)} chars"
+            )
+            return
 
         # Initialize the OpenAI embedding service
         logger.info(

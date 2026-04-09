@@ -204,37 +204,66 @@ async def _perform_retrieval(
     """Internal function to perform the actual retrieval operation.
 
     Separated from tracing logic for cleaner code organization.
-    Uses OpenAI embeddings by default for high-quality retrieval.
+    Handles both chunked (vector search) and full_document (full text) modes.
     """
     try:
-        # Create a new embedding service instance
-        # Uses OpenAI text-embedding-3-small by default, or user-provided config
-        embedding_service = OpenAIEmbeddingService(
-            db_client=db_client,
-            max_tokens=128,  # This is only used for chunking, not for retrieval
-            api_key=embeddings_api_key,
-            model_id=embeddings_model or "text-embedding-3-small",
-            base_url=embeddings_base_url,
-        )
-
-        # Perform vector similarity search
-        results = await embedding_service.search_similar_chunks(
-            query=query,
-            organization_id=organization_id,
-            limit=limit,
-            document_uuids=document_uuids,
-        )
-
-        # Format results for LLM consumption
         chunks = []
-        for result in results:
-            chunk_info = {
-                "text": result.get("contextualized_text") or result.get("chunk_text"),
-                "filename": result.get("filename"),
-                "similarity": round(result.get("similarity", 0), 4),
-                "chunk_index": result.get("chunk_index"),
-            }
-            chunks.append(chunk_info)
+
+        # Check for full_document mode documents and return their full text
+        if document_uuids:
+            full_text_docs = await db_client.get_full_text_documents(
+                organization_id=organization_id,
+                document_uuids=document_uuids,
+            )
+            for doc in full_text_docs:
+                if doc.full_text:
+                    chunks.append(
+                        {
+                            "text": doc.full_text,
+                            "filename": doc.filename,
+                            "similarity": 1.0,
+                            "chunk_index": 0,
+                        }
+                    )
+
+            # Filter out full_document UUIDs so vector search only hits chunked docs
+            full_doc_uuids = {doc.document_uuid for doc in full_text_docs}
+            chunked_uuids = [u for u in document_uuids if u not in full_doc_uuids]
+        else:
+            chunked_uuids = document_uuids
+
+        # Perform vector similarity search on chunked documents
+        if chunked_uuids is None or len(chunked_uuids) > 0:
+            if not embeddings_api_key:
+                raise ValueError(
+                    "Embeddings API key not configured. Please set your API key in "
+                    "Model Configurations > Embedding."
+                )
+
+            embedding_service = OpenAIEmbeddingService(
+                db_client=db_client,
+                max_tokens=128,
+                api_key=embeddings_api_key,
+                model_id=embeddings_model or "text-embedding-3-small",
+                base_url=embeddings_base_url,
+            )
+
+            results = await embedding_service.search_similar_chunks(
+                query=query,
+                organization_id=organization_id,
+                limit=limit,
+                document_uuids=chunked_uuids if chunked_uuids else None,
+            )
+
+            for result in results:
+                chunk_info = {
+                    "text": result.get("contextualized_text")
+                    or result.get("chunk_text"),
+                    "filename": result.get("filename"),
+                    "similarity": round(result.get("similarity", 0), 4),
+                    "chunk_index": result.get("chunk_index"),
+                }
+                chunks.append(chunk_info)
 
         logger.info(
             f"Knowledge base retrieval: query='{query}', "

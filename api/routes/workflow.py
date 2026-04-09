@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import datetime
 from typing import List, Literal, Optional
@@ -6,13 +7,13 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from httpx import HTTPStatusError
 from loguru import logger
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
-from api.enums import CallType
+from api.enums import CallType, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -22,6 +23,7 @@ from api.services.configuration.masking import (
 )
 from api.services.configuration.resolve import resolve_effective_config
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.storage import storage_fs
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
@@ -1030,3 +1032,60 @@ async def duplicate_workflow_template(
         "call_disposition_codes": workflow.call_disposition_codes,
         "workflow_configurations": workflow.workflow_configurations,
     }
+
+
+# ---------------------------------------------------------------------------
+# Ambient Noise Upload
+# ---------------------------------------------------------------------------
+
+
+class AmbientNoiseUploadRequest(BaseModel):
+    workflow_id: int
+    filename: str
+    mime_type: str = "audio/wav"
+    file_size: int = Field(..., gt=0, le=10_485_760, description="Max 10MB")
+
+
+class AmbientNoiseUploadResponse(BaseModel):
+    upload_url: str
+    storage_key: str
+    storage_backend: str
+
+
+@router.post(
+    "/ambient-noise/upload-url",
+    response_model=AmbientNoiseUploadResponse,
+    summary="Get a presigned URL to upload a custom ambient noise audio file",
+)
+async def get_ambient_noise_upload_url(
+    request: AmbientNoiseUploadRequest,
+    user=Depends(get_user),
+):
+    """Generate a presigned PUT URL for uploading a custom ambient noise file."""
+    # Verify user owns this workflow
+    workflow = await db_client.get_workflow(
+        request.workflow_id, organization_id=user.selected_organization_id
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    sanitized = re.sub(r"[^a-zA-Z0-9._-]", "_", request.filename)
+    storage_key = (
+        f"ambient-noise/{user.selected_organization_id}"
+        f"/{request.workflow_id}/{uuid.uuid4()}_{sanitized}"
+    )
+
+    upload_url = await storage_fs.aget_presigned_put_url(
+        file_path=storage_key,
+        expiration=1800,
+        content_type=request.mime_type,
+        max_size=request.file_size,
+    )
+    if not upload_url:
+        raise HTTPException(status_code=500, detail="Failed to generate upload URL")
+
+    return AmbientNoiseUploadResponse(
+        upload_url=upload_url,
+        storage_key=storage_key,
+        storage_backend=StorageBackend.get_current_backend().value,
+    )

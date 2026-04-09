@@ -27,6 +27,7 @@ class KnowledgeBaseClient(BaseDBClient):
         custom_metadata: Optional[dict] = None,
         docling_metadata: Optional[dict] = None,
         document_uuid: Optional[str] = None,
+        retrieval_mode: str = "chunked",
     ) -> KnowledgeBaseDocumentModel:
         """Create a new knowledge base document record.
 
@@ -58,6 +59,7 @@ class KnowledgeBaseClient(BaseDBClient):
                 docling_metadata=docling_metadata or {},
                 processing_status="pending",
                 total_chunks=0,
+                retrieval_mode=retrieval_mode,
             )
 
             # Use provided UUID or let the model generate one
@@ -424,6 +426,55 @@ class KnowledgeBaseClient(BaseDBClient):
 
             # Convert asyncpg records to dictionaries
             return [dict(row) for row in rows]
+
+    async def update_document_full_text(
+        self,
+        document_id: int,
+        full_text: str,
+    ) -> None:
+        """Store full document text for full_document retrieval mode.
+
+        Args:
+            document_id: ID of the document
+            full_text: The full extracted text content
+        """
+        async with self.async_session() as session:
+            query = select(KnowledgeBaseDocumentModel).where(
+                KnowledgeBaseDocumentModel.id == document_id
+            )
+            result = await session.execute(query)
+            document = result.scalar_one_or_none()
+            if document:
+                document.full_text = full_text
+                await session.commit()
+                logger.info(
+                    f"Stored full text for document {document_id} ({len(full_text)} chars)"
+                )
+
+    async def get_full_text_documents(
+        self,
+        organization_id: int,
+        document_uuids: List[str],
+    ) -> List[KnowledgeBaseDocumentModel]:
+        """Get full_document mode documents by their UUIDs.
+
+        Args:
+            organization_id: Organization ID for scoping
+            document_uuids: List of document UUIDs to fetch
+
+        Returns:
+            List of documents with retrieval_mode='full_document' and full_text set
+        """
+        async with self.async_session() as session:
+            query = select(KnowledgeBaseDocumentModel).where(
+                KnowledgeBaseDocumentModel.organization_id == organization_id,
+                KnowledgeBaseDocumentModel.document_uuid.in_(document_uuids),
+                KnowledgeBaseDocumentModel.retrieval_mode == "full_document",
+                KnowledgeBaseDocumentModel.is_active == True,
+                KnowledgeBaseDocumentModel.processing_status == "completed",
+            )
+            result = await session.execute(query)
+            return list(result.scalars().all())
 
     async def delete_document(
         self,

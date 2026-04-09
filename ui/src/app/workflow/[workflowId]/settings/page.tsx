@@ -1,10 +1,10 @@
 "use client";
 
-import { ArrowLeft, BookA, Brain, ExternalLink, Mic, PhoneOff, Rocket, Settings, Trash2Icon, Variable } from "lucide-react";
+import { ArrowLeft, BookA, Brain, ExternalLink, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { getWorkflowApiV1WorkflowFetchWorkflowIdGet } from "@/client/sdk.gen";
+import { getAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPost, getWorkflowApiV1WorkflowFetchWorkflowIdGet } from "@/client/sdk.gen";
 import type { WorkflowResponse } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { LLMConfigSelector } from "@/components/LLMConfigSelector";
@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { useAuth } from "@/lib/auth";
 import logger from "@/lib/logger";
 import {
@@ -80,13 +81,17 @@ const NAV_ITEMS = [
 // Section: General
 // ---------------------------------------------------------------------------
 
+const MAX_AMBIENT_NOISE_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 function GeneralSection({
     workflowConfigurations,
     workflowName,
+    workflowId,
     onSave,
 }: {
     workflowConfigurations: WorkflowConfigurations;
     workflowName: string;
+    workflowId: number;
     onSave: (configurations: WorkflowConfigurations, workflowName: string) => Promise<void>;
 }) {
     const [name, setName] = useState(workflowName);
@@ -103,6 +108,68 @@ function GeneralSection({
         workflowConfigurations.context_compaction_enabled ?? false,
     );
     const [isSaving, setIsSaving] = useState(false);
+    const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+    const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
+    const ambientFileInputRef = useRef<HTMLInputElement>(null);
+    const { playingId, toggle: togglePlayback } = useAudioPlayback();
+
+    const handleAmbientFileUpload = async (file: File) => {
+        if (file.size > MAX_AMBIENT_NOISE_FILE_SIZE) {
+            setAudioUploadError(`File too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum is 10MB.`);
+            return;
+        }
+
+        setIsUploadingAudio(true);
+        setAudioUploadError(null);
+
+        try {
+            // 1. Get presigned upload URL
+            const res = await getAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPost({
+                body: {
+                    workflow_id: Number(workflowId),
+                    filename: file.name,
+                    mime_type: file.type || "audio/wav",
+                    file_size: file.size,
+                },
+            });
+
+            if (res.error || !res.data?.upload_url) {
+                throw new Error("Failed to get upload URL");
+            }
+
+            const data = res.data;
+
+            // 2. Upload file to storage
+            const uploadRes = await fetch(data.upload_url, {
+                method: "PUT",
+                body: file,
+                headers: { "Content-Type": file.type || "audio/wav" },
+            });
+            if (!uploadRes.ok) {
+                throw new Error("File upload failed");
+            }
+
+            // 3. Update config with storage reference
+            setAmbientNoiseConfig((prev) => ({
+                ...prev,
+                storage_key: data.storage_key,
+                storage_backend: data.storage_backend,
+                original_filename: file.name,
+            }));
+        } catch (err) {
+            setAudioUploadError(err instanceof Error ? err.message : "Upload failed");
+        } finally {
+            setIsUploadingAudio(false);
+            if (ambientFileInputRef.current) ambientFileInputRef.current.value = "";
+        }
+    };
+
+    const handleRemoveCustomAudio = () => {
+        setAmbientNoiseConfig((prev) => ({
+            enabled: prev.enabled,
+            volume: prev.volume,
+        }));
+    };
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -156,7 +223,7 @@ function GeneralSection({
                     <div>
                         <h3 className="text-sm font-medium">Ambient Noise</h3>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                            Add background office ambient noise to make the conversation sound more natural.
+                            Add background ambient noise to make the conversation sound more natural.
                         </p>
                     </div>
                     <div className="flex items-center justify-between">
@@ -170,20 +237,108 @@ function GeneralSection({
                         />
                     </div>
                     {ambientNoiseConfig.enabled && (
-                        <div className="space-y-2">
-                            <Label htmlFor="ambient-volume" className="text-xs">Volume</Label>
-                            <Input
-                                id="ambient-volume"
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                max="1"
-                                value={ambientNoiseConfig.volume}
-                                onChange={(e) => {
-                                    const value = parseFloat(e.target.value);
-                                    if (!isNaN(value)) setAmbientNoiseConfig((prev) => ({ ...prev, volume: value }));
-                                }}
-                            />
+                        <div className="space-y-4">
+                            <div className="space-y-2">
+                                <Label htmlFor="ambient-volume" className="text-xs">Volume</Label>
+                                <Input
+                                    id="ambient-volume"
+                                    type="number"
+                                    step="0.1"
+                                    min="0"
+                                    max="1"
+                                    value={ambientNoiseConfig.volume}
+                                    onChange={(e) => {
+                                        const value = parseFloat(e.target.value);
+                                        if (!isNaN(value)) setAmbientNoiseConfig((prev) => ({ ...prev, volume: value }));
+                                    }}
+                                />
+                            </div>
+
+                            {/* Custom Audio File */}
+                            <div className="space-y-2">
+                                <Label className="text-xs">Custom Audio File</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Upload your own audio file or use the default office ambience.
+                                </p>
+
+                                {ambientNoiseConfig.storage_key ? (
+                                    <div className="flex items-center gap-2 rounded-md border p-2 bg-muted/10">
+                                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate flex-1">
+                                            {ambientNoiseConfig.original_filename || "Custom audio"}
+                                        </code>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-6 w-6 p-0 shrink-0"
+                                            onClick={async () => {
+                                                try {
+                                                    await togglePlayback(
+                                                        "ambient-noise",
+                                                        ambientNoiseConfig.storage_key!,
+                                                        ambientNoiseConfig.storage_backend,
+                                                    );
+                                                } catch {
+                                                    setAudioUploadError("Failed to play audio");
+                                                }
+                                            }}
+                                        >
+                                            {playingId === "ambient-noise" ? (
+                                                <Pause className="w-3.5 h-3.5" />
+                                            ) : (
+                                                <Play className="w-3.5 h-3.5" />
+                                            )}
+                                        </Button>
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-6 w-6 p-0 shrink-0"
+                                            onClick={handleRemoveCustomAudio}
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </Button>
+                                    </div>
+                                ) : (
+                                    <div>
+                                        <input
+                                            ref={ambientFileInputRef}
+                                            type="file"
+                                            accept="audio/*"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) handleAmbientFileUpload(file);
+                                            }}
+                                            className="hidden"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="text-sm font-normal"
+                                            onClick={() => ambientFileInputRef.current?.click()}
+                                            disabled={isUploadingAudio}
+                                        >
+                                            {isUploadingAudio ? (
+                                                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                            ) : (
+                                                <Upload className="w-4 h-4 mr-2" />
+                                            )}
+                                            {isUploadingAudio ? "Uploading..." : "Upload audio file (max 10MB)"}
+                                        </Button>
+                                    </div>
+                                )}
+
+                                {audioUploadError && (
+                                    <p className="text-xs text-destructive">{audioUploadError}</p>
+                                )}
+
+                                {!ambientNoiseConfig.storage_key && (
+                                    <p className="text-xs text-muted-foreground italic">
+                                        Using default office ambience
+                                    </p>
+                                )}
+                            </div>
                         </div>
                     )}
                 </div>
@@ -786,6 +941,7 @@ function WorkflowSettingsContent({
                             <GeneralSection
                                 workflowConfigurations={workflowConfigurations}
                                 workflowName={workflowName || workflow.name}
+                                workflowId={workflowId}
                                 onSave={saveWorkflowConfigurations}
                             />
 

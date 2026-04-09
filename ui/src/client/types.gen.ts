@@ -169,6 +169,48 @@ export type AccessTokenResponse = {
 };
 
 /**
+ * AmbientNoiseUploadRequest
+ */
+export type AmbientNoiseUploadRequest = {
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Filename
+     */
+    filename: string;
+    /**
+     * Mime Type
+     */
+    mime_type?: string;
+    /**
+     * File Size
+     *
+     * Max 10MB
+     */
+    file_size: number;
+};
+
+/**
+ * AmbientNoiseUploadResponse
+ */
+export type AmbientNoiseUploadResponse = {
+    /**
+     * Upload Url
+     */
+    upload_url: string;
+    /**
+     * Storage Key
+     */
+    storage_key: string;
+    /**
+     * Storage Backend
+     */
+    storage_backend: string;
+};
+
+/**
  * AuthResponse
  */
 export type AuthResponse = {
@@ -1296,6 +1338,10 @@ export type DocumentResponseSchema = {
      */
     total_chunks: number;
     /**
+     * Retrieval Mode
+     */
+    retrieval_mode?: string;
+    /**
      * Custom Metadata
      */
     custom_metadata: {
@@ -2036,6 +2082,12 @@ export type ProcessDocumentRequestSchema = {
      * S3 key of the uploaded file
      */
     s3_key: string;
+    /**
+     * Retrieval Mode
+     *
+     * Retrieval mode: 'chunked' for vector search or 'full_document' for full text retrieval
+     */
+    retrieval_mode?: string;
 };
 
 /**
@@ -5174,6 +5226,45 @@ export type DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostResponse
 };
 
 export type DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostResponse = DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostResponses[keyof DuplicateWorkflowTemplateApiV1WorkflowTemplatesDuplicatePostResponses];
+
+export type GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostData = {
+    body: AmbientNoiseUploadRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/workflow/ambient-noise/upload-url';
+};
+
+export type GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostError = GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostErrors[keyof GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostErrors];
+
+export type GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AmbientNoiseUploadResponse;
+};
+
+export type GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponse = GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponses[keyof GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponses];
 
 export type GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetData = {
     body?: never;

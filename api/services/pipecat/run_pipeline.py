@@ -510,7 +510,7 @@ async def run_pipeline_smallwebrtc(
     # Create audio configuration for WebRTC
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
 
-    transport = create_webrtc_transport(
+    transport = await create_webrtc_transport(
         webrtc_connection,
         workflow_run_id,
         audio_config,

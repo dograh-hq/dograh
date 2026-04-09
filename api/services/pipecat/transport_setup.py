@@ -1,11 +1,13 @@
 import os
 
 from fastapi import WebSocket
+from loguru import logger
 
 from api.constants import APP_ROOT_DIR
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.audio_file_cache import get_cached_ambient_noise_path
 from api.services.telephony.providers.ari_call_strategies import (
     ARIBridgeSwapStrategy,
     ARIHangupStrategy,
@@ -35,6 +37,49 @@ from pipecat.transports.websocket.fastapi import (
 librnnoise_path = os.path.normpath(
     str(APP_ROOT_DIR / "native" / "rnnoise" / "librnnoise.so")
 )
+
+
+async def _build_audio_out_mixer(
+    audio_out_sample_rate: int,
+    ambient_noise_config: dict | None,
+):
+    """Build the audio output mixer based on the ambient noise configuration.
+
+    Returns a ``SoundfileMixer`` when ambient noise is enabled, or a
+    ``SilenceAudioMixer`` otherwise.  Supports custom user-uploaded audio
+    files via the ``storage_key`` / ``storage_backend`` fields in the config.
+    """
+    if not ambient_noise_config or not ambient_noise_config.get("enabled", False):
+        return SilenceAudioMixer()
+
+    volume = ambient_noise_config.get("volume", 0.3)
+
+    # Check for a custom uploaded ambient noise file
+    storage_key = ambient_noise_config.get("storage_key")
+    storage_backend = ambient_noise_config.get("storage_backend")
+
+    if storage_key and storage_backend:
+        cached_path = await get_cached_ambient_noise_path(
+            storage_key, storage_backend, audio_out_sample_rate
+        )
+        if cached_path:
+            return SoundfileMixer(
+                sound_files={"custom": cached_path},
+                default_sound="custom",
+                volume=volume,
+            )
+        logger.warning("Custom ambient noise file unavailable, falling back to default")
+
+    # Default built-in office ambience
+    return SoundfileMixer(
+        sound_files={
+            "office": APP_ROOT_DIR
+            / "assets"
+            / f"office-ambience-{audio_out_sample_rate}-mono.wav"
+        },
+        default_sound="office",
+        volume=volume,
+    )
 
 
 async def create_twilio_transport(
@@ -79,6 +124,10 @@ async def create_twilio_transport(
         hangup_strategy=hangup_strategy,
     )
 
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
     return FastAPIWebsocketTransport(
         websocket=websocket_client,
         params=FastAPIWebsocketParams(
@@ -86,19 +135,7 @@ async def create_twilio_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
+            audio_out_mixer=mixer,
             serializer=serializer,
         ),
     )
@@ -144,6 +181,10 @@ async def create_cloudonix_transport(
         hangup_strategy=hangup_strategy,
     )
 
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
     return FastAPIWebsocketTransport(
         websocket=websocket_client,
         params=FastAPIWebsocketParams(
@@ -151,19 +192,7 @@ async def create_cloudonix_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
+            audio_out_mixer=mixer,
             serializer=serializer,
             audio_out_10ms_chunks=2,
         ),
@@ -209,6 +238,10 @@ async def create_telnyx_transport(
         inbound_encoding="PCMU",
     )
 
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
     return FastAPIWebsocketTransport(
         websocket=websocket_client,
         params=FastAPIWebsocketParams(
@@ -216,19 +249,7 @@ async def create_telnyx_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
+            audio_out_mixer=mixer,
             serializer=serializer,
         ),
     )
@@ -278,6 +299,10 @@ async def create_ari_transport(
         ),
     )
 
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
     return FastAPIWebsocketTransport(
         websocket=websocket_client,
         params=FastAPIWebsocketParams(
@@ -285,19 +310,7 @@ async def create_ari_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
+            audio_out_mixer=mixer,
             serializer=serializer,
         ),
     )
@@ -340,6 +353,10 @@ async def create_vonage_transport(
         ),
     )
 
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
     # Important: Vonage uses binary WebSocket mode, not text
     return FastAPIWebsocketTransport(
         websocket=websocket_client,
@@ -348,19 +365,7 @@ async def create_vonage_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
+            audio_out_mixer=mixer,
             serializer=serializer,
         ),
     )
@@ -428,6 +433,10 @@ async def create_vobiz_transport(
         f"transport_rate=8000Hz, pipeline_rate={audio_config.pipeline_sample_rate}Hz"
     )
 
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
     # Create WebSocket transport (same structure as Twilio/Vonage)
     transport = FastAPIWebsocketTransport(
         websocket=websocket_client,
@@ -436,19 +445,7 @@ async def create_vobiz_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
+            audio_out_mixer=mixer,
             serializer=serializer,
         ),
     )
@@ -459,7 +456,7 @@ async def create_vobiz_transport(
     return transport
 
 
-def create_webrtc_transport(
+async def create_webrtc_transport(
     webrtc_connection: SmallWebRTCConnection,
     workflow_run_id: int,
     audio_config: AudioConfig,
@@ -468,6 +465,10 @@ def create_webrtc_transport(
 ):
     """Create a transport for WebRTC connections"""
 
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
     return SmallWebRTCTransport(
         webrtc_connection=webrtc_connection,
         params=TransportParams(
@@ -475,19 +476,7 @@ def create_webrtc_transport(
             audio_out_enabled=True,
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
-            audio_out_mixer=(
-                SoundfileMixer(
-                    sound_files={
-                        "office": APP_ROOT_DIR
-                        / "assets"
-                        / f"office-ambience-{audio_config.transport_out_sample_rate}-mono.wav"
-                    },
-                    default_sound="office",
-                    volume=ambient_noise_config.get("volume", 0.3),
-                )
-                if ambient_noise_config and ambient_noise_config.get("enabled", False)
-                else SilenceAudioMixer()
-            ),
+            audio_out_mixer=mixer,
         ),
     )
 

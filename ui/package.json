@@ -1,6 +1,6 @@
 {
   "name": "ui",
-  "version": "1.20.0",
+  "version": "1.21.0",
   "private": true,
   "scripts": {
     "dev": "cross-env NODE_OPTIONS=--enable-source-maps next dev --turbopack",

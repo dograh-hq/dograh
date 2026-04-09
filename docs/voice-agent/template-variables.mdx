@@ -24,5 +24,15 @@ You can write your prompt to access the user's name as below
 
 Prompt: `You are Alice, who is talking to {{initial_context.user.name}}.`
 
+### Using Template Variables for Testing
+
+Template variables defined in your workflow **Settings > Context Variables** are included in test calls (both web and phone) made from the workflow editor. This is useful for simulating data that would normally come from telephony or an API trigger.
+
+For example, you can set `caller_number` and `called_number` as context variables to test [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch#testing-with-test-calls) without needing a real inbound call.
+
+<Note>
+These context variables are only used during test calls from the workflow editor. On production inbound calls and campaign outbound calls, the actual telephony data is used and these values are ignored.
+</Note>
+
 ### Nodes
 Dograh Voice Agents are composed of various nodes. These nodes can provide instructions to the voice agent, help you setup a [trigger](/voice-agent/api-trigger) where you can trigger the voice agent to call someone, or help you setup a [webhook](/voice-agent/webhook), where you can update the results of the call in your CRM or trigger a downstream workflow in n8n. In the next steps, we will be documenting the nodes that you can use in building the voice agent.

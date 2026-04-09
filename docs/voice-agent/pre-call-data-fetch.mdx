@@ -111,6 +111,31 @@ Access in prompts as `{{customer.name}}` and `{{customer.address.city}}`.
 
 The request has a **10-second timeout**. If your API does not respond within this window, the call proceeds without the fetched data. Design your endpoint to respond as quickly as possible to minimize the ring-back tone duration.
 
+## Testing with Test Calls
+
+<iframe
+  src="https://www.tella.tv/video/vid_cmnrnu19v011z04l1hvwiezaz/embed?b=0&title=0&a=1&loop=0&autoPlay=false&t=0&wt=0"
+  allowFullScreen
+  allowTransparency
+  style={{ width: "100%", aspectRatio: "16/9", border: "none", borderRadius: "12px" }}
+/>
+
+When a real phone call comes in, the `caller_number` and `called_number` context variables are automatically set by the telephony provider and included in the pre-call data fetch request as `from_number` and `to_number`. However, when you make a test call — either a **web call** (WebRTC) or a **phone test call** from the workflow editor — these variables are not available by default.
+
+To simulate telephony data during testing:
+
+1. Open your workflow and go to **Settings**.
+2. Under **Context Variables**, add the following variables:
+   - `caller_number` — set to a phone number you want to simulate as the caller (e.g., `+12137771234`).
+   - `called_number` — set to the number that would be dialed (e.g., `+12137771235`).
+3. Save the settings.
+
+Now when you make a test call (web or phone), these values will be sent in the pre-call data fetch request to your endpoint, allowing you to test the full flow as if a real inbound call were coming in.
+
+<Note>
+These context variables are only used during test calls from the workflow editor. On production inbound calls and campaign outbound calls, the actual telephony data is used and these values are ignored.
+</Note>
+
 ## Example Integration
 
 A simple Node.js endpoint that looks up a customer by phone number:

@@ -1,9 +1,15 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
+
 import { ServiceConfigurationForm } from "@/components/ServiceConfigurationForm";
 import { useUserConfig } from "@/context/UserConfigContext";
 
-export default function ServiceConfiguration() {
+interface ServiceConfigurationProps {
+    docsUrl?: string;
+}
+
+export default function ServiceConfiguration({ docsUrl }: ServiceConfigurationProps) {
     const { saveUserConfig } = useUserConfig();
 
     return (
@@ -11,7 +17,12 @@ export default function ServiceConfiguration() {
             <div className="mb-6">
                 <h1 className="text-3xl font-bold mb-2">AI Models Configuration</h1>
                 <p className="text-muted-foreground">
-                    Configure your AI model, voice, and transcription services.
+                    Configure your AI model, voice, and transcription services.{" "}
+                    {docsUrl && (
+                        <a href={docsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                            Learn more <ExternalLink className="h-3 w-3" />
+                        </a>
+                    )}
                 </p>
             </div>
 

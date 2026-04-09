@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { ExternalLink, Plus, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -318,7 +318,10 @@ export default function ConfigureTelephonyPage() {
       <div className="container mx-auto px-4 py-8">
         <h1 className="text-3xl font-bold mb-2">Configure Telephony</h1>
         <p className="text-muted-foreground mb-6">
-          Set up your telephony provider to make phone calls
+          Set up your telephony provider to make phone calls.{" "}
+          <a href="https://docs.dograh.com/integrations/telephony/overview" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+            Learn more <ExternalLink className="h-3 w-3" />
+          </a>
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

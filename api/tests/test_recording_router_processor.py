@@ -13,6 +13,7 @@ from typing import Optional
 
 import pytest
 
+from api.services.pipecat.recording_audio_cache import RecordingAudio
 from api.services.pipecat.recording_router_processor import (
     RecordingRouterProcessor,
 )
@@ -37,9 +38,9 @@ from pipecat.tests import run_test
 FAKE_AUDIO = b"\x00\x01" * 8000  # 1 second of 16-bit mono @ 16 kHz
 
 
-async def _fake_fetch(recording_id: str) -> Optional[bytes]:
+async def _fake_fetch(recording_id: str) -> Optional[RecordingAudio]:
     """Stub that returns fake PCM audio for any recording_id."""
-    return FAKE_AUDIO
+    return RecordingAudio(audio=FAKE_AUDIO)
 
 
 def _make_processor(**kwargs) -> RecordingRouterProcessor:
@@ -189,7 +190,7 @@ class TestMixedMarkerSuppression:
 
         async def tracking_fetch(recording_id: str):
             fetched_ids.append(recording_id)
-            return FAKE_AUDIO
+            return RecordingAudio(audio=FAKE_AUDIO)
 
         processor = _make_processor(fetch=tracking_fetch)
 

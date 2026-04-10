@@ -1,15 +1,14 @@
-import { Loader2, Mic, Pause, Play, Square, Trash2Icon, Upload, X } from "lucide-react";
-import posthog from "posthog-js";
+"use client";
+
+import { Loader2, Mic, Square, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
     createRecordingsApiV1WorkflowRecordingsPost,
-    deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete,
     getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost,
-    listRecordingsApiV1WorkflowRecordingsGet,
     transcribeAudioApiV1WorkflowRecordingsTranscribePost,
 } from "@/client";
-import type { RecordingResponseSchema, RecordingUploadResponseSchema } from "@/client/types.gen";
+import type { RecordingUploadResponseSchema } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -29,25 +28,13 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
-import { PostHogEvent } from "@/constants/posthog-events";
-import { useUserConfig } from "@/context/UserConfigContext";
-import { useAudioPlayback } from "@/hooks/useAudioPlayback";
-
-interface RecordingsDialogProps {
+interface RecordingsUploadDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
-    workflowId: number;
-    onRecordingsChange?: (recordings: RecordingResponseSchema[]) => void;
-    ttsOverrides?: {
-        provider?: string;
-        model?: string;
-        voice?: string;
-    };
+    onUploadComplete?: () => void;
 }
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-
-type RecordingStep = "idle" | "naming" | "recording";
 
 interface PendingFile {
     id: string;
@@ -59,53 +46,24 @@ interface PendingFile {
 
 let pendingFileCounter = 0;
 
-export const RecordingsDialog = ({
+export const RecordingsUploadDialog = ({
     open,
     onOpenChange,
-    onRecordingsChange,
-    ttsOverrides,
-}: RecordingsDialogProps) => {
-    const { userConfig } = useUserConfig();
-    const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
-    const [loading, setLoading] = useState(false);
+    onUploadComplete,
+}: RecordingsUploadDialogProps) => {
     const [uploading, setUploading] = useState(false);
     const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [language, setLanguage] = useState("multi");
-    const [recordingStep, setRecordingStep] = useState<RecordingStep>("idle");
+    const [recordingStep, setRecordingStep] = useState<"idle" | "naming" | "recording">("idle");
     const [recordingFilename, setRecordingFilename] = useState("");
     const [recordingDuration, setRecordingDuration] = useState(0);
-    const { playingId, toggle: togglePlayback, stop: stopPlayback } = useAudioPlayback();
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const languageRef = useRef(language);
     languageRef.current = language;
-
-    const ttsProvider = ttsOverrides?.provider ?? (userConfig?.tts?.provider as string) ?? "";
-    const ttsModel = ttsOverrides?.model ?? (userConfig?.tts?.model as string) ?? "";
-    const ttsVoiceId = ttsOverrides?.voice ?? (userConfig?.tts?.voice as string) ?? "";
-
-    const fetchRecordings = useCallback(async () => {
-        setLoading(true);
-        try {
-            const result = await listRecordingsApiV1WorkflowRecordingsGet({
-                query: {
-                    tts_provider: ttsProvider || undefined,
-                    tts_model: ttsModel || undefined,
-                    tts_voice_id: ttsVoiceId || undefined,
-                },
-            });
-            const recs = result.data?.recordings ?? [];
-            setRecordings(recs);
-            onRecordingsChange?.(recs);
-        } catch {
-            setError("Failed to load recordings");
-        } finally {
-            setLoading(false);
-        }
-    }, [ttsProvider, ttsModel, ttsVoiceId, onRecordingsChange]);
 
     const stopRecordingTimer = useCallback(() => {
         if (recordingTimerRef.current) {
@@ -126,24 +84,21 @@ export const RecordingsDialog = ({
         setRecordingDuration(0);
     }, []);
 
-
     useEffect(() => {
         if (open) {
-            fetchRecordings();
             setError(null);
             setPendingFiles([]);
             setLanguage("multi");
             resetRecordingState();
         }
-    }, [open, fetchRecordings, resetRecordingState]);
+    }, [open, resetRecordingState]);
 
     useEffect(() => {
         if (!open) {
             stopRecording();
             stopRecordingTimer();
-            stopPlayback();
         }
-    }, [open, stopRecording, stopRecordingTimer, stopPlayback]);
+    }, [open, stopRecording, stopRecordingTimer]);
 
     const transcribeFile = async (pendingId: string, file: File) => {
         setPendingFiles((prev) =>
@@ -246,10 +201,6 @@ export const RecordingsDialog = ({
         }
     };
 
-    const handleStopRecording = () => {
-        stopRecording();
-    };
-
     const handleFileSelect = (fileList: FileList | null) => {
         if (!fileList || fileList.length === 0) return;
         addPendingFiles(Array.from(fileList));
@@ -259,28 +210,20 @@ export const RecordingsDialog = ({
     const handleUpload = async () => {
         const ready = pendingFiles.filter((p) => p.transcript.trim() && !p.isTranscribing);
         if (ready.length === 0) return;
-        if (!ttsProvider || !ttsModel || !ttsVoiceId) {
-            setError(
-                "TTS configuration (provider, model, voice) must be set in your user configuration before uploading."
-            );
-            return;
-        }
 
         setUploading(true);
         setError(null);
 
         try {
-            // Step 1: Get presigned URLs for all files
-            const uploadUrlResponse =
-                await getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost({
-                    body: {
-                        files: ready.map((p) => ({
-                            filename: p.file.name,
-                            mime_type: p.file.type || "audio/wav",
-                            file_size: p.file.size,
-                        })),
-                    },
-                });
+            const uploadUrlResponse = await getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost({
+                body: {
+                    files: ready.map((p) => ({
+                        filename: p.file.name,
+                        mime_type: p.file.type || "audio/wav",
+                        file_size: p.file.size,
+                    })),
+                },
+            });
 
             if (!uploadUrlResponse.data?.items) {
                 throw new Error("Failed to get upload URLs");
@@ -288,16 +231,13 @@ export const RecordingsDialog = ({
 
             const items = uploadUrlResponse.data.items;
 
-            // Step 2: Upload all files to storage in parallel
             await Promise.all(
                 items.map(async (item: RecordingUploadResponseSchema, idx: number) => {
                     const file = ready[idx].file;
                     const uploadResponse = await fetch(item.upload_url, {
                         method: "PUT",
                         body: file,
-                        headers: {
-                            "Content-Type": file.type || "audio/wav",
-                        },
+                        headers: { "Content-Type": file.type || "audio/wav" },
                     });
                     if (!uploadResponse.ok) {
                         throw new Error(`File upload failed for ${file.name}`);
@@ -305,14 +245,10 @@ export const RecordingsDialog = ({
                 })
             );
 
-            // Step 3: Create all recording records
             await createRecordingsApiV1WorkflowRecordingsPost({
                 body: {
                     recordings: items.map((item: RecordingUploadResponseSchema, idx: number) => ({
                         recording_id: item.recording_id,
-                        tts_provider: ttsProvider,
-                        tts_model: ttsModel,
-                        tts_voice_id: ttsVoiceId,
                         transcript: ready[idx].transcript.trim(),
                         storage_key: item.storage_key,
                         metadata: {
@@ -325,41 +261,16 @@ export const RecordingsDialog = ({
                 },
             });
 
-            // Reset form and refresh list
             setPendingFiles([]);
             setLanguage("multi");
             resetRecordingState();
             if (fileInputRef.current) fileInputRef.current.value = "";
-            await fetchRecordings();
+            onUploadComplete?.();
+            onOpenChange(false);
         } catch (err) {
-            setError(
-                err instanceof Error ? err.message : "Failed to upload recordings"
-            );
+            setError(err instanceof Error ? err.message : "Failed to upload recordings");
         } finally {
             setUploading(false);
-        }
-    };
-
-    const handleDelete = async (recordingId: string) => {
-        try {
-            await deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete({
-                path: { recording_id: recordingId },
-            });
-            await fetchRecordings();
-        } catch {
-            setError("Failed to delete recording");
-        }
-    };
-
-    const handlePlay = async (rec: RecordingResponseSchema) => {
-        try {
-            await togglePlayback(rec.recording_id, rec.storage_key, rec.storage_backend);
-            posthog.capture(PostHogEvent.RECORDING_PLAYED, {
-                recording_id: rec.recording_id,
-                source: 'recordings_dialog',
-            });
-        } catch {
-            setError("Failed to play recording");
         }
     };
 
@@ -372,38 +283,13 @@ export const RecordingsDialog = ({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle>Workflow Recordings</DialogTitle>
+                    <DialogTitle>Upload Recordings</DialogTitle>
                     <DialogDescription>
-                        Upload or record audio for hybrid prompts. Recordings are
-                        scoped to your current TTS configuration. Use{" "}
+                        Upload or record audio files. Use{" "}
                         <code className="text-xs bg-muted px-1 rounded">@</code> in
-                        prompt fields to insert them.
+                        prompt fields to insert them into your agents.
                     </DialogDescription>
                 </DialogHeader>
-
-                {/* Current TTS Config */}
-                <div className="rounded-md border p-3 bg-muted/30 text-sm space-y-1">
-                    <div className="font-medium text-xs text-muted-foreground uppercase tracking-wide">
-                        Current TTS Configuration
-                    </div>
-                    {ttsProvider ? (
-                        <div className="flex flex-wrap gap-2 text-xs">
-                            <span className="bg-background px-2 py-0.5 rounded border">
-                                Provider: {ttsProvider}
-                            </span>
-                            <span className="bg-background px-2 py-0.5 rounded border">
-                                Model: {ttsModel}
-                            </span>
-                            <span className="bg-background px-2 py-0.5 rounded border truncate max-w-[200px]">
-                                VoiceID: {ttsVoiceId}
-                            </span>
-                        </div>
-                    ) : (
-                        <p className="text-xs text-destructive">
-                            No TTS configuration found. Set it in Model Configurations.
-                        </p>
-                    )}
-                </div>
 
                 {error && (
                     <div className="text-sm text-destructive bg-destructive/10 rounded-md p-2">
@@ -412,14 +298,10 @@ export const RecordingsDialog = ({
                 )}
 
                 {/* Upload Section */}
-                <div className="space-y-3 border rounded-md p-3">
-                    <Label className="text-sm font-medium">Add New Recordings</Label>
-
+                <div className="space-y-3">
                     {/* Audio source: file picker or record */}
                     <div>
-                        <Label className="text-xs text-muted-foreground">
-                            Audio Files
-                        </Label>
+                        <Label className="text-xs text-muted-foreground">Audio Files</Label>
                         <div className="flex gap-2">
                             <input
                                 ref={fileInputRef}
@@ -461,9 +343,7 @@ export const RecordingsDialog = ({
                             {recordingStep === "naming" && (
                                 <>
                                     <div>
-                                        <Label className="text-xs text-muted-foreground">
-                                            Recording Name
-                                        </Label>
+                                        <Label className="text-xs text-muted-foreground">Recording Name</Label>
                                         <Input
                                             placeholder="e.g. greeting, hold-message"
                                             value={recordingFilename}
@@ -472,19 +352,11 @@ export const RecordingsDialog = ({
                                         />
                                     </div>
                                     <div className="flex gap-2">
-                                        <Button
-                                            size="sm"
-                                            onClick={startRecording}
-                                            disabled={!recordingFilename.trim()}
-                                        >
+                                        <Button size="sm" onClick={startRecording} disabled={!recordingFilename.trim()}>
                                             <Mic className="w-4 h-4 mr-1" />
                                             Start Recording
                                         </Button>
-                                        <Button
-                                            size="sm"
-                                            variant="ghost"
-                                            onClick={resetRecordingState}
-                                        >
+                                        <Button size="sm" variant="ghost" onClick={resetRecordingState}>
                                             Cancel
                                         </Button>
                                     </div>
@@ -503,7 +375,7 @@ export const RecordingsDialog = ({
                                     <Button
                                         size="sm"
                                         variant="destructive"
-                                        onClick={handleStopRecording}
+                                        onClick={() => stopRecording()}
                                         className="ml-auto"
                                     >
                                         <Square className="w-4 h-4 mr-1" />
@@ -557,9 +429,7 @@ export const RecordingsDialog = ({
 
                     {/* Language */}
                     <div>
-                        <Label className="text-xs text-muted-foreground">
-                            Language
-                        </Label>
+                        <Label className="text-xs text-muted-foreground">Language</Label>
                         <Select value={language} onValueChange={setLanguage}>
                             <SelectTrigger className="h-9 text-sm">
                                 <SelectValue />
@@ -588,63 +458,6 @@ export const RecordingsDialog = ({
                             ? "Uploading..."
                             : `Upload ${readyCount} Recording${readyCount !== 1 ? "s" : ""}`}
                     </Button>
-                </div>
-
-                {/* Recordings List */}
-                <div className="space-y-2">
-                    <Label className="text-sm font-medium">
-                        Recordings{" "}
-                        {!loading && (
-                            <span className="text-muted-foreground font-normal">
-                                ({recordings.length})
-                            </span>
-                        )}
-                    </Label>
-                    {loading ? (
-                        <div className="flex items-center justify-center py-4">
-                            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                        </div>
-                    ) : recordings.length === 0 ? (
-                        <p className="text-sm text-muted-foreground py-2">
-                            No recordings yet for this TTS configuration.
-                        </p>
-                    ) : (
-                        recordings.map((rec) => (
-                            <div
-                                key={rec.recording_id}
-                                className="flex items-start gap-2 p-2 border rounded-md"
-                            >
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate max-w-[300px]">
-                                            {(rec.metadata?.original_filename as string) || rec.recording_id}
-                                        </code>
-                                    </div>
-                                    <p className="text-sm text-muted-foreground mt-1 break-all line-clamp-2">
-                                        {rec.transcript}
-                                    </p>
-                                </div>
-                                <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handlePlay(rec)}
-                                >
-                                    {playingId === rec.recording_id ? (
-                                        <Pause className="w-4 h-4" />
-                                    ) : (
-                                        <Play className="w-4 h-4" />
-                                    )}
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    onClick={() => handleDelete(rec.recording_id)}
-                                >
-                                    <Trash2Icon className="w-4 h-4" />
-                                </Button>
-                            </div>
-                        ))
-                    )}
                 </div>
             </DialogContent>
         </Dialog>

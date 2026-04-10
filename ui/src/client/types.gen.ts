@@ -270,12 +270,6 @@ export type BatchRecordingCreateResponseSchema = {
  */
 export type BatchRecordingUploadRequestSchema = {
     /**
-     * Workflow Id
-     *
-     * Workflow ID these recordings belong to
-     */
-    workflow_id: number;
-    /**
      * Files
      *
      * List of files to upload
@@ -1572,13 +1566,19 @@ export type EndCallConfig = {
      *
      * Type of goodbye message
      */
-    messageType?: 'none' | 'custom';
+    messageType?: 'none' | 'custom' | 'audio';
     /**
      * Custommessage
      *
      * Custom message to play before ending the call
      */
     customMessage?: string | null;
+    /**
+     * Audiorecordingid
+     *
+     * Recording ID for audio goodbye message
+     */
+    audioRecordingId?: string | null;
     /**
      * Endcallreason
      *
@@ -1739,6 +1739,24 @@ export type HttpApiConfig = {
      * Request timeout in milliseconds
      */
     timeout_ms?: number | null;
+    /**
+     * Custommessage
+     *
+     * Custom message to play after tool execution
+     */
+    customMessage?: string | null;
+    /**
+     * Custommessagetype
+     *
+     * Type of custom message: text or audio
+     */
+    customMessageType?: 'text' | 'audio' | null;
+    /**
+     * Custommessagerecordingid
+     *
+     * Recording ID for audio custom message
+     */
+    customMessageRecordingId?: string | null;
 };
 
 /**
@@ -2103,29 +2121,23 @@ export type RecordingCreateRequestSchema = {
      */
     recording_id: string;
     /**
-     * Workflow Id
-     *
-     * Workflow ID
-     */
-    workflow_id: number;
-    /**
      * Tts Provider
      *
      * TTS provider (e.g. elevenlabs)
      */
-    tts_provider: string;
+    tts_provider?: string | null;
     /**
      * Tts Model
      *
      * TTS model name
      */
-    tts_model: string;
+    tts_model?: string | null;
     /**
      * Tts Voice Id
      *
      * TTS voice identifier
      */
-    tts_voice_id: string;
+    tts_voice_id?: string | null;
     /**
      * Transcript
      *
@@ -2181,7 +2193,7 @@ export type RecordingResponseSchema = {
     /**
      * Workflow Id
      */
-    workflow_id: number;
+    workflow_id?: number | null;
     /**
      * Organization Id
      */
@@ -2189,15 +2201,15 @@ export type RecordingResponseSchema = {
     /**
      * Tts Provider
      */
-    tts_provider: string;
+    tts_provider?: string | null;
     /**
      * Tts Model
      */
-    tts_model: string;
+    tts_model?: string | null;
     /**
      * Tts Voice Id
      */
-    tts_voice_id: string;
+    tts_voice_id?: string | null;
     /**
      * Transcript
      */
@@ -2228,6 +2240,20 @@ export type RecordingResponseSchema = {
      * Is Active
      */
     is_active: boolean;
+};
+
+/**
+ * RecordingUpdateRequestSchema
+ *
+ * Request schema for updating a recording's ID.
+ */
+export type RecordingUpdateRequestSchema = {
+    /**
+     * Recording Id
+     *
+     * New descriptive recording ID (letters, numbers, hyphens, underscores only)
+     */
+    recording_id: string;
 };
 
 /**
@@ -2814,13 +2840,19 @@ export type TransferCallConfig = {
      *
      * Type of message to play before transfer
      */
-    messageType?: 'none' | 'custom';
+    messageType?: 'none' | 'custom' | 'audio';
     /**
      * Custommessage
      *
      * Custom message to play before transferring the call
      */
     customMessage?: string | null;
+    /**
+     * Audiorecordingid
+     *
+     * Recording ID for audio message before transfer
+     */
+    audioRecordingId?: string | null;
     /**
      * Timeout
      *
@@ -8885,13 +8917,13 @@ export type ListRecordingsApiV1WorkflowRecordingsGetData = {
         'X-API-Key'?: string | null;
     };
     path?: never;
-    query: {
+    query?: {
         /**
          * Workflow Id
          *
-         * Workflow ID
+         * Filter by workflow ID
          */
-        workflow_id: number;
+        workflow_id?: number | null;
         /**
          * Tts Provider
          *
@@ -9016,6 +9048,50 @@ export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteResponses = {
      */
     200: unknown;
 };
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchData = {
+    body: RecordingUpdateRequestSchema;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Id
+         */
+        id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow-recordings/{id}';
+};
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchError = UpdateRecordingApiV1WorkflowRecordingsIdPatchErrors[keyof UpdateRecordingApiV1WorkflowRecordingsIdPatchErrors];
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: RecordingResponseSchema;
+};
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchResponse = UpdateRecordingApiV1WorkflowRecordingsIdPatchResponses[keyof UpdateRecordingApiV1WorkflowRecordingsIdPatchResponses];
 
 export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostData = {
     body: BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost;

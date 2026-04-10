@@ -6,15 +6,6 @@ tag: "NEW"
 
 Custom recordings allow you to build **hybrid voice agents** that use your own pre-recorded audio for key parts of the conversation, while falling back to LLM-generated speech (via a cloned voice) for dynamic responses. This gives you the best of both worlds — the emotional depth of real human speech and the flexibility of AI-generated dialogue.
 
-<iframe
-  className="w-full aspect-video rounded-xl"
-  src="https://www.youtube.com/embed/1uZqhG0_cIo"
-  title="Dograh Twilio Setup"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-  allowFullScreen
-></iframe>
-
-
 ## Why use custom recordings?
 
 - **Reduced TTS cost** — Pre-recorded audio is played directly, so you are not charged for TTS synthesis on those segments.
@@ -50,23 +41,20 @@ You can use any TTS provider that supports voice cloning. The steps will vary by
 
 ## Step 3: Upload recordings
 
-Navigate to your agent in the workflow builder and open the **Recordings** panel. You can either upload pre-recorded audio files or record directly in the browser.
+Navigate to the **Recordings** page in the Dograh dashboard. Recordings are shared across all agents in your organization. You can either upload pre-recorded audio files or record directly in the browser.
 
 For each recording:
 
-1. Click **Record** (or upload a file).
-2. Speak the exact phrase you want the agent to use.
-3. Give the recording a descriptive name (e.g., `greeting`, `invitation`, `venue`).
-4. Verify the transcription is correct — edit it if needed.
-5. Click **Upload**.
+1. Click **Upload Recording**.
+2. Choose an audio file or click **Record** to record in the browser.
+3. Verify the transcription is correct — edit it if needed.
+4. Click **Upload**.
 
-<Warning>
-Recordings are scoped to a specific **provider and Voice ID**. If you change either, you will need to re-upload your recordings to ensure consistency between the recorded audio and the cloned voice used for dynamic responses.
-</Warning>
+You can rename a recording's ID at any time by clicking the edit icon next to it in the recordings list.
 
 ## Step 4: Build the workflow
 
-Open your agent's workflow and write the conversation flow in natural language. To insert a recording, type **`@`** in the prompt editor — this will show a list of all available recordings scoped to your current Voice ID.
+Open your agent's workflow and write the conversation flow in natural language. To insert a recording, type **`@`** in the prompt editor — this will show a list of all available recordings in your organization.
 
 For any user question that falls outside your recordings, the agent automatically generates a dynamic response using the LLM, which is then synthesized using your cloned voice via TTS.
 

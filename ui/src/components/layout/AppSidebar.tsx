@@ -2,6 +2,7 @@
 
 import type { Team } from "@stackframe/stack";
 import {
+  AudioLines,
   Brain,
   ChevronLeft,
   ChevronRight,
@@ -134,6 +135,11 @@ export function AppSidebar() {
           title: "Files",
           url: "/files",
           icon: Database,
+        },
+        {
+          title: "Recordings",
+          url: "/recordings",
+          icon: AudioLines,
         },
         // {
         //   title: "Integrations",

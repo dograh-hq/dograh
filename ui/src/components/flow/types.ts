@@ -24,6 +24,8 @@ export type FlowNodeData = {
     extraction_variables?: ExtractionVariable[];
     add_global_prompt?: boolean;
     greeting?: string;
+    greeting_type?: 'text' | 'audio';
+    greeting_recording_id?: string;
     wait_for_user_greeting?: boolean;
     detect_voicemail?: boolean;
     delayed_start?: boolean;
@@ -79,6 +81,8 @@ export type FlowEdgeData = {
     condition: string;
     label: string;
     transition_speech?: string;
+    transition_speech_type?: 'text' | 'audio';
+    transition_speech_recording_id?: string;
     invalid?: boolean;
     validationMessage?: string | null;
 }

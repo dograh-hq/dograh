@@ -32,7 +32,6 @@ class FileDescriptor(BaseModel):
 class BatchRecordingUploadRequestSchema(BaseModel):
     """Request schema for getting presigned upload URLs for one or more files."""
 
-    workflow_id: int = Field(..., description="Workflow ID these recordings belong to")
     files: List[FileDescriptor] = Field(
         ..., min_length=1, max_length=20, description="List of files to upload"
     )
@@ -50,10 +49,13 @@ class RecordingCreateRequestSchema(BaseModel):
     """Request schema for creating a recording record after upload."""
 
     recording_id: str = Field(..., description="Short recording ID from upload step")
-    workflow_id: int = Field(..., description="Workflow ID")
-    tts_provider: str = Field(..., description="TTS provider (e.g. elevenlabs)")
-    tts_model: str = Field(..., description="TTS model name")
-    tts_voice_id: str = Field(..., description="TTS voice identifier")
+    tts_provider: Optional[str] = Field(
+        default=None, description="TTS provider (e.g. elevenlabs)"
+    )
+    tts_model: Optional[str] = Field(default=None, description="TTS model name")
+    tts_voice_id: Optional[str] = Field(
+        default=None, description="TTS voice identifier"
+    )
     transcript: str = Field(
         ..., description="User-provided transcript of the recording"
     )
@@ -68,11 +70,11 @@ class RecordingResponseSchema(BaseModel):
 
     id: int
     recording_id: str
-    workflow_id: int
+    workflow_id: Optional[int] = None
     organization_id: int
-    tts_provider: str
-    tts_model: str
-    tts_voice_id: str
+    tts_provider: Optional[str] = None
+    tts_model: Optional[str] = None
+    tts_voice_id: Optional[str] = None
     transcript: str
     storage_key: str
     storage_backend: str
@@ -95,6 +97,18 @@ class BatchRecordingCreateResponseSchema(BaseModel):
 
     recordings: List[RecordingResponseSchema] = Field(
         ..., description="Created recording records"
+    )
+
+
+class RecordingUpdateRequestSchema(BaseModel):
+    """Request schema for updating a recording's ID."""
+
+    recording_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+        description="New descriptive recording ID (letters, numbers, hyphens, underscores only)",
     )
 
 

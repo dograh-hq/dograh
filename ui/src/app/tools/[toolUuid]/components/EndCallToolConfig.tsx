@@ -2,6 +2,8 @@
 
 import { AlertCircle } from "lucide-react";
 
+import type { RecordingResponseSchema } from "@/client/types.gen";
+import { RecordingSelect } from "@/components/flow/TextOrAudioInput";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +22,9 @@ export interface EndCallToolConfigProps {
     onMessageTypeChange: (messageType: EndCallMessageType) => void;
     customMessage: string;
     onCustomMessageChange: (message: string) => void;
+    audioRecordingId: string;
+    onAudioRecordingIdChange: (id: string) => void;
+    recordings?: RecordingResponseSchema[];
     endCallReason: boolean;
     onEndCallReasonChange: (enabled: boolean) => void;
     endCallReasonDescription: string;
@@ -35,6 +40,9 @@ export function EndCallToolConfig({
     onMessageTypeChange,
     customMessage,
     onCustomMessageChange,
+    audioRecordingId,
+    onAudioRecordingIdChange,
+    recordings = [],
     endCallReason,
     onEndCallReasonChange,
     endCallReasonDescription,
@@ -145,6 +153,24 @@ export function EndCallToolConfig({
                                     onChange={(e) => onCustomMessageChange(e.target.value)}
                                     placeholder="e.g., Thank you for calling. Goodbye!"
                                     rows={2}
+                                />
+                            </div>
+                        )}
+                        <div className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50">
+                            <RadioGroupItem value="audio" id="audio" className="mt-1" />
+                            <label htmlFor="audio" className="flex-1 space-y-2 cursor-pointer">
+                                <span className="font-medium">Pre-recorded Audio</span>
+                                <p className="text-xs text-muted-foreground">
+                                    Play a pre-recorded audio file before disconnecting
+                                </p>
+                            </label>
+                        </div>
+                        {messageType === "audio" && (
+                            <div className="pl-8">
+                                <RecordingSelect
+                                    value={audioRecordingId}
+                                    onChange={onAudioRecordingIdChange}
+                                    recordings={recordings}
                                 />
                             </div>
                         )}

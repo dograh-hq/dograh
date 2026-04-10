@@ -45,16 +45,28 @@ class HttpApiConfig(BaseModel):
     timeout_ms: Optional[int] = Field(
         default=5000, description="Request timeout in milliseconds"
     )
+    customMessage: Optional[str] = Field(
+        default=None, description="Custom message to play after tool execution"
+    )
+    customMessageType: Optional[Literal["text", "audio"]] = Field(
+        default=None, description="Type of custom message: text or audio"
+    )
+    customMessageRecordingId: Optional[str] = Field(
+        default=None, description="Recording ID for audio custom message"
+    )
 
 
 class EndCallConfig(BaseModel):
     """Configuration for End Call tools."""
 
-    messageType: Literal["none", "custom"] = Field(
+    messageType: Literal["none", "custom", "audio"] = Field(
         default="none", description="Type of goodbye message"
     )
     customMessage: Optional[str] = Field(
         default=None, description="Custom message to play before ending the call"
+    )
+    audioRecordingId: Optional[str] = Field(
+        default=None, description="Recording ID for audio goodbye message"
     )
     endCallReason: bool = Field(
         default=False,
@@ -74,11 +86,14 @@ class TransferCallConfig(BaseModel):
     destination: str = Field(
         description="Phone number or SIP endpoint to transfer the call to (E.164 format e.g., +1234567890, or SIP endpoint e.g., PJSIP/1234)"
     )
-    messageType: Literal["none", "custom"] = Field(
+    messageType: Literal["none", "custom", "audio"] = Field(
         default="none", description="Type of message to play before transfer"
     )
     customMessage: Optional[str] = Field(
         default=None, description="Custom message to play before transferring the call"
+    )
+    audioRecordingId: Optional[str] = Field(
+        default=None, description="Recording ID for audio message before transfer"
     )
     timeout: int = Field(
         default=30,

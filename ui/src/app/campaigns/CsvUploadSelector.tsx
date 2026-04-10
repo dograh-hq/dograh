@@ -3,25 +3,19 @@
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
+import { getPresignedUploadUrlApiV1S3PresignedUploadUrlPost } from '@/client/sdk.gen';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import logger from '@/lib/logger';
 
 interface CsvUploadSelectorProps {
-  accessToken: string;
   onFileUploaded: (fileKey: string, fileName: string) => void;
   selectedFileName?: string;
 }
 
-interface PresignedUploadUrlResponse {
-  upload_url: string;
-  file_key: string;
-  expires_in: number;
-}
-
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-export default function CsvUploadSelector({ accessToken, onFileUploaded, selectedFileName }: CsvUploadSelectorProps) {
+export default function CsvUploadSelector({ onFileUploaded, selectedFileName }: CsvUploadSelectorProps) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -48,25 +42,18 @@ export default function CsvUploadSelector({ accessToken, onFileUploaded, selecte
     try {
       // Step 1: Request presigned upload URL
       logger.info('Requesting presigned upload URL for:', file.name);
-      const presignedResponse = await fetch('/api/v1/s3/presigned-upload-url', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
+      const { data: presignedData, error } = await getPresignedUploadUrlApiV1S3PresignedUploadUrlPost({
+        body: {
           file_name: file.name,
           file_size: file.size,
           content_type: 'text/csv',
-        }),
+        },
       });
 
-      if (!presignedResponse.ok) {
-        const error = await presignedResponse.json();
-        throw new Error(error.detail || 'Failed to get upload URL');
+      if (error || !presignedData) {
+        throw new Error('Failed to get upload URL');
       }
 
-      const presignedData: PresignedUploadUrlResponse = await presignedResponse.json();
       logger.info('Received presigned URL, uploading file...');
 
       // Step 2: Upload file directly to S3/MinIO

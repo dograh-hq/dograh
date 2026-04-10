@@ -6,6 +6,7 @@ from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.pipecat.in_memory_buffers import (
     InMemoryAudioBuffer,
     InMemoryLogsBuffer,
@@ -16,8 +17,11 @@ from api.services.posthog_client import capture_event
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
-from api.utils.hold_audio import play_hold_audio_loop
-from pipecat.frames.frames import Frame, LLMContextFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    Frame,
+    LLMContextFrame,
+    TTSSpeakFrame,
+)
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.enums import EndTaskReason
@@ -64,6 +68,7 @@ def register_event_handlers(
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
     pre_call_fetch_task: asyncio.Task | None = None,
+    fetch_recording_audio=None,
     user_provider_id: str | None = None,
 ):
     """Register all event handlers for transport and task events.
@@ -123,7 +128,11 @@ def register_event_handlers(
                     stop_ringer = asyncio.Event()
                     sample_rate = audio_config.pipeline_sample_rate or 16000
                     ringer_task = asyncio.create_task(
-                        play_hold_audio_loop(task, stop_ringer, sample_rate)
+                        play_audio_loop(
+                            stop_event=stop_ringer,
+                            sample_rate=sample_rate,
+                            queue_frame=transport.output().queue_frame,
+                        )
                     )
                     try:
                         fetch_result = await pre_call_fetch_task
@@ -151,12 +160,35 @@ def register_event_handlers(
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)
 
-            greeting = engine.get_start_greeting()
-            if greeting:
-                logger.debug(
-                    "Both pipeline_started and client_connected received - playing greeting via TTS"
-                )
-                await task.queue_frame(TTSSpeakFrame(greeting))
+            greeting_info = engine.get_start_greeting()
+            if greeting_info:
+                greeting_type, greeting_value = greeting_info
+                if (
+                    greeting_type == "audio"
+                    and greeting_value
+                    and fetch_recording_audio
+                ):
+                    logger.debug(f"Playing audio greeting recording: {greeting_value}")
+                    result = await fetch_recording_audio(
+                        recording_pk=int(greeting_value)
+                    )
+                    if result:
+                        await play_audio(
+                            result.audio,
+                            sample_rate=audio_config.pipeline_sample_rate or 16000,
+                            queue_frame=transport.output().queue_frame,
+                            transcript=result.transcript,
+                            append_to_context=True,
+                        )
+                    else:
+                        logger.warning(
+                            f"Failed to fetch audio greeting {greeting_value}, "
+                            "falling back to LLM generation"
+                        )
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                else:
+                    logger.debug("Playing text greeting via TTS")
+                    await task.queue_frame(TTSSpeakFrame(greeting_value))
             else:
                 logger.debug(
                     "Both pipeline_started and client_connected received - triggering initial LLM generation"

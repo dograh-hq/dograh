@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useWorkflow, useWorkflowOptional } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
+import { TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -24,9 +25,12 @@ interface EdgeDetailsDialogProps {
 
 const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDialogProps) => {
     const readOnly = useWorkflowOptional()?.readOnly ?? false;
+    const { recordings } = useWorkflow();
     const [condition, setCondition] = useState(data?.condition ?? '');
     const [label, setLabel] = useState(data?.label ?? '');
     const [transitionSpeech, setTransitionSpeech] = useState(data?.transition_speech ?? '');
+    const [transitionSpeechType, setTransitionSpeechType] = useState<'text' | 'audio'>(data?.transition_speech_type ?? 'text');
+    const [transitionSpeechRecordingId, setTransitionSpeechRecordingId] = useState(data?.transition_speech_recording_id ?? '');
 
     // Update form state when data changes (e.g., from undo/redo)
     useEffect(() => {
@@ -34,13 +38,21 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
             setCondition(data?.condition ?? '');
             setLabel(data?.label ?? '');
             setTransitionSpeech(data?.transition_speech ?? '');
+            setTransitionSpeechType(data?.transition_speech_type ?? 'text');
+            setTransitionSpeechRecordingId(data?.transition_speech_recording_id ?? '');
         }
     }, [data, open]);
 
     const handleSave = useCallback(() => {
-        onSave({ condition: condition, label: label, transition_speech: transitionSpeech || undefined });
+        onSave({
+            condition,
+            label,
+            transition_speech: transitionSpeechType === 'text' ? (transitionSpeech || undefined) : undefined,
+            transition_speech_type: transitionSpeechType,
+            transition_speech_recording_id: transitionSpeechType === 'audio' ? (transitionSpeechRecordingId || undefined) : undefined,
+        });
         onOpenChange(false);
-    }, [condition, label, transitionSpeech, onSave, onOpenChange]);
+    }, [condition, label, transitionSpeech, transitionSpeechType, transitionSpeechRecordingId, onSave, onOpenChange]);
 
     // Handle Cmd+S / Ctrl+S keyboard shortcut to save
     useEffect(() => {
@@ -60,7 +72,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent>
+            <DialogContent className="max-h-[85vh] flex flex-col">
                 <DialogHeader>
                     <DialogTitle>Edit Condition</DialogTitle>
                     {data?.invalid && data.validationMessage && (
@@ -70,7 +82,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                         </div>
                     )}
                 </DialogHeader>
-                <div className="grid gap-4 py-4">
+                <div className="grid gap-4 py-4 overflow-y-auto">
                     <div className="grid gap-2">
                         <Label>Condition Label</Label>
                         <Label className="text-xs text-muted-foreground">
@@ -99,18 +111,28 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                     <div className="grid gap-2">
                         <Label>Transition Speech</Label>
                         <Label className="text-xs text-muted-foreground">
-                            Optional text the assistant will speak right before transitioning to the node.
-                            This text will not be attached in Conversation Context. Use this as simple filler to reduce latency.
+                            Optional text or audio the assistant will play right before transitioning to the node.
+                            This will not be attached in Conversation Context. Use this as simple filler to reduce latency.
                         </Label>
-                        <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
-                            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                            <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
-                        </div>
-                        <Textarea
-                            value={transitionSpeech}
-                            placeholder="e.g. Let me transfer you to our billing department..."
-                            onChange={(e) => setTransitionSpeech(e.target.value)}
-                        />
+                        <TextOrAudioInput
+                            type={transitionSpeechType}
+                            onTypeChange={setTransitionSpeechType}
+                            recordingId={transitionSpeechRecordingId}
+                            onRecordingIdChange={setTransitionSpeechRecordingId}
+                            recordings={recordings ?? []}
+                        >
+                            <>
+                                <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
+                                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                                    <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
+                                </div>
+                                <Textarea
+                                    value={transitionSpeech}
+                                    placeholder="e.g. Let me transfer you to our billing department..."
+                                    onChange={(e) => setTransitionSpeech(e.target.value)}
+                                />
+                            </>
+                        </TextOrAudioInput>
                     </div>
                 </div>
                 <DialogFooter>

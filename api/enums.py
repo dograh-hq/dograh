@@ -140,3 +140,18 @@ class ToolStatus(Enum):
     ACTIVE = "active"  # Tool is available for use
     ARCHIVED = "archived"  # Tool is soft-deleted
     DRAFT = "draft"  # Tool is being configured (not ready for use)
+
+
+class PostHogEvent(str, Enum):
+    """PostHog event names — backend events only."""
+
+    WORKFLOW_CREATED = "workflow_created"
+    WORKFLOW_PUBLISHED = "workflow_published"
+    WORKFLOW_DUPLICATED = "workflow_duplicated"
+    CALL_STARTED = "call_started"
+    CALL_COMPLETED = "call_completed"
+    CALL_FAILED = "call_failed"
+    TELEPHONY_CONFIGURED = "telephony_configured"
+    KNOWLEDGE_BASE_CREATED = "knowledge_base_created"
+    TOOL_CREATED = "tool_created"
+    AGENT_EMBEDDED = "agent_embedded"

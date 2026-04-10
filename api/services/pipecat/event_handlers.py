@@ -3,7 +3,7 @@ import asyncio
 from loguru import logger
 
 from api.db import db_client
-from api.enums import WorkflowRunState
+from api.enums import PostHogEvent, WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.in_memory_buffers import (
@@ -109,7 +109,9 @@ def register_event_handlers(
             ready_state["initial_response_triggered"] = True
 
             asyncio.create_task(
-                _capture_call_event(workflow_run_id, user_provider_id, "call_started")
+                _capture_call_event(
+                    workflow_run_id, user_provider_id, PostHogEvent.CALL_STARTED
+                )
             )
 
             # Wait for pre-call fetch if in progress, playing ringer meanwhile
@@ -202,7 +204,7 @@ def register_event_handlers(
                 _capture_call_event(
                     workflow_run_id,
                     user_provider_id,
-                    "call_failed",
+                    PostHogEvent.CALL_FAILED,
                     extra_properties={"error_reason": "pipeline_error"},
                 )
             )
@@ -315,7 +317,9 @@ def register_event_handlers(
         )
 
         asyncio.create_task(
-            _capture_call_event(workflow_run_id, user_provider_id, "call_completed")
+            _capture_call_event(
+                workflow_run_id, user_provider_id, PostHogEvent.CALL_COMPLETED
+            )
         )
 
         # Save real-time feedback logs to workflow run

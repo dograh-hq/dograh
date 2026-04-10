@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import OrganizationConfigurationKey
+from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.telephony_config import (
     ARIConfigurationRequest,
     ARIConfigurationResponse,
@@ -260,7 +260,7 @@ async def save_telephony_configuration(
 
     capture_event(
         distinct_id=str(user.provider_id),
-        event="telephony_configured",
+        event=PostHogEvent.TELEPHONY_CONFIGURED,
         properties={
             "provider": request.provider,
             "phone_number_count": len(request.from_numbers),

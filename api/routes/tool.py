@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import ToolCategory, ToolStatus
+from api.enums import PostHogEvent, ToolCategory, ToolStatus
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
 
@@ -330,7 +330,7 @@ async def create_tool(
 
     capture_event(
         distinct_id=str(user.provider_id),
-        event="tool_created",
+        event=PostHogEvent.TOOL_CREATED,
         properties={
             "tool_name": request.name,
             "tool_category": request.category,

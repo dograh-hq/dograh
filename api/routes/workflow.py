@@ -13,7 +13,7 @@ from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
-from api.enums import CallType, StorageBackend
+from api.enums import CallType, PostHogEvent, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -290,7 +290,7 @@ async def create_workflow(
 
     capture_event(
         distinct_id=str(user.provider_id),
-        event="workflow_created",
+        event=PostHogEvent.WORKFLOW_CREATED,
         properties={
             "workflow_id": workflow.id,
             "workflow_name": workflow.name,
@@ -379,7 +379,7 @@ async def create_workflow_from_template(
 
         capture_event(
             distinct_id=str(user.provider_id),
-            event="workflow_created",
+            event=PostHogEvent.WORKFLOW_CREATED,
             properties={
                 "workflow_id": workflow.id,
                 "workflow_name": workflow.name,
@@ -596,7 +596,7 @@ async def publish_workflow(
 
     capture_event(
         distinct_id=str(user.provider_id),
-        event="workflow_published",
+        event=PostHogEvent.WORKFLOW_PUBLISHED,
         properties={
             "workflow_id": workflow_id,
             "version_number": published.version_number,
@@ -825,7 +825,7 @@ async def duplicate_workflow_endpoint(
 
         capture_event(
             distinct_id=str(user.provider_id),
-            event="workflow_duplicated",
+            event=PostHogEvent.WORKFLOW_DUPLICATED,
             properties={
                 "workflow_id": workflow.id,
                 "workflow_name": workflow.name,

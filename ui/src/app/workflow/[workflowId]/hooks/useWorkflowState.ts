@@ -19,6 +19,7 @@ import {
 } from "@/client";
 import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
+import { PostHogEvent } from "@/constants/posthog-events";
 import logger from '@/lib/logger';
 import { getNextNodeId, getRandomId } from "@/lib/utils";
 import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from "@/types/workflow-configurations";
@@ -291,7 +292,7 @@ export const useWorkflowState = ({
 
         // Use addNodes from ReactFlow instance
         rfInstance.current.addNodes([newNode]);
-        posthog.capture('workflow_node_added', {
+        posthog.capture(PostHogEvent.WORKFLOW_NODE_ADDED, {
             node_type: nodeType,
             workflow_id: workflowId,
         });

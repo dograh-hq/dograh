@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from api.constants import BACKEND_API_ENDPOINT, ENVIRONMENT, UI_APP_URL
 from api.db import db_client
 from api.db.models import EmbedTokenModel, UserModel
+from api.enums import PostHogEvent
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
 
@@ -106,7 +107,7 @@ async def create_or_update_embed_token(
 
     capture_event(
         distinct_id=str(user.provider_id),
-        event="agent_embedded",
+        event=PostHogEvent.AGENT_EMBEDDED,
         properties={
             "workflow_id": workflow_id,
             "is_new_token": len(existing_tokens) == 0,

@@ -18,6 +18,7 @@ import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOnboarding } from '@/context/OnboardingContext';
 import { useAuth } from '@/lib/auth';
@@ -125,7 +126,7 @@ export default function WorkflowRunPage() {
                 annotations: response.data?.annotations as Record<string, unknown> | null ?? null,
             };
             setWorkflowRun(runData);
-            posthog.capture('workflow_run_details_viewed', {
+            posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
                 workflow_id: Number(workflowId),
                 run_id: Number(runId),
                 is_completed: runData.is_completed,

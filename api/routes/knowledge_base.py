@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 
 from api.db import db_client
+from api.enums import PostHogEvent
 from api.schemas.knowledge_base import (
     ChunkSearchRequestSchema,
     ChunkSearchResponseSchema,
@@ -145,7 +146,7 @@ async def process_document(
 
         capture_event(
             distinct_id=str(user.provider_id),
-            event="knowledge_base_created",
+            event=PostHogEvent.KNOWLEDGE_BASE_CREATED,
             properties={
                 "document_id": document.id,
                 "document_uuid": str(request.document_uuid),

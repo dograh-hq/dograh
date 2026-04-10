@@ -13,6 +13,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
+import { PostHogEvent } from '@/constants/posthog-events';
 import { downloadFile, getSignedUrl } from '@/lib/files';
 
 export function MediaPreviewDialog() {
@@ -49,7 +50,7 @@ export function MediaPreviewDialog() {
                     const response = await fetch(transcriptResult);
                     const text = await response.text();
                     setTranscriptContent(text);
-                    posthog.capture('transcript_viewed', {
+                    posthog.capture(PostHogEvent.TRANSCRIPT_VIEWED, {
                         run_id: runId,
                         source: 'media_preview_dialog',
                         transcript_length: text.length,
@@ -89,7 +90,7 @@ export function MediaPreviewDialog() {
                             controls
                             autoPlay
                             className="w-full mt-4"
-                            onPlay={() => posthog.capture('recording_played', {
+                            onPlay={() => posthog.capture(PostHogEvent.RECORDING_PLAYED, {
                                 run_id: selectedRunId,
                                 source: 'media_preview_dialog',
                             })}

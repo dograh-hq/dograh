@@ -25,6 +25,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
+import { PostHogEvent } from "@/constants/posthog-events";
 import { WORKFLOW_RUN_MODES } from "@/constants/workflowRunModes";
 
 interface WorkflowEditorHeaderProps {
@@ -261,7 +262,7 @@ export const WorkflowEditorHeader = ({
                         <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
                             <DropdownMenuItem
                                 onClick={() => {
-                                    posthog.capture('web_call_initiated', {
+                                    posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
                                         workflow_id: workflowId,
                                         workflow_name: workflowName,
                                     });

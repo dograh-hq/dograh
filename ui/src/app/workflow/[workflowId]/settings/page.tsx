@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, BookA, Brain, ExternalLink, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -33,7 +34,6 @@ import {
 } from "@/types/workflow-configurations";
 
 import { EmbedDialog } from "../components/EmbedDialog";
-import { RecordingsDialog } from "../components/RecordingsDialog";
 import { useWorkflowState } from "../hooks/useWorkflowState";
 
 // ---------------------------------------------------------------------------
@@ -915,7 +915,6 @@ function WorkflowSettingsInner({
     const router = useRouter();
     const { dirtySections, confirmNavigate } = useUnsavedChangesContext();
 
-    const [isRecordingsDialogOpen, setIsRecordingsDialogOpen] = useState(false);
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [activeSection, setActiveSection] = useState("general");
 
@@ -1057,7 +1056,7 @@ function WorkflowSettingsInner({
                                 onSave={saveWorkflowConfigurations}
                             />
 
-                            {/* Recordings (dialog trigger) */}
+                            {/* Recordings – moved to org-level page */}
                             <Card id="recordings">
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2 text-base">
@@ -1065,15 +1064,17 @@ function WorkflowSettingsInner({
                                         Recordings
                                     </CardTitle>
                                     <CardDescription>
-                                        Upload or record audio for hybrid prompts. Use{" "}
-                                        <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to
-                                        insert them.{" "}
+                                        Recordings are now managed at the organization level and shared across all agents.
+                                        Use <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them.{" "}
                                         <a href={SETTINGS_DOCUMENTATION_URLS.recordings} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">Learn more <ExternalLink className="h-3 w-3" /></a>
                                     </CardDescription>
                                 </CardHeader>
                                 <CardFooter className="border-t pt-6">
-                                    <Button variant="outline" onClick={() => setIsRecordingsDialogOpen(true)}>
-                                        Manage Recordings
+                                    <Button variant="outline" asChild>
+                                        <Link href="/recordings">
+                                            Go to Recordings
+                                            <ExternalLink className="ml-2 h-4 w-4" />
+                                        </Link>
                                     </Button>
                                 </CardFooter>
                             </Card>
@@ -1128,12 +1129,6 @@ function WorkflowSettingsInner({
             </div>
 
             {/* Dialogs for complex sections */}
-            <RecordingsDialog
-                open={isRecordingsDialogOpen}
-                onOpenChange={setIsRecordingsDialogOpen}
-                workflowId={workflowId}
-                ttsOverrides={workflowConfigurations?.model_overrides?.tts}
-            />
             <EmbedDialog
                 open={isEmbedDialogOpen}
                 onOpenChange={setIsEmbedDialogOpen}

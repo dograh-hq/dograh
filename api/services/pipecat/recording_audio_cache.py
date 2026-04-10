@@ -7,7 +7,7 @@ subsequent plays (even from other workers) are instantaneous.
 """
 
 import os
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, NamedTuple, Optional
 
 import numpy as np
 from loguru import logger
@@ -22,17 +22,23 @@ from .audio_file_cache import (
     write_cache_file,
 )
 
+
+class RecordingAudio(NamedTuple):
+    """Audio bytes paired with the recording's transcript (when available)."""
+
+    audio: bytes
+    transcript: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Cache path helper
 # ---------------------------------------------------------------------------
 
 
-def _cache_path(
-    organization_id: int, workflow_id: int, recording_id: str, sample_rate: int
-) -> str:
+def _cache_path(organization_id: int, recording_id: str, sample_rate: int) -> str:
     """Return the on-disk path for a cached PCM file."""
     return os.path.join(
-        CACHE_DIR, f"{organization_id}_{workflow_id}_{recording_id}_{sample_rate}.pcm"
+        CACHE_DIR, f"{organization_id}_{recording_id}_{sample_rate}.pcm"
     )
 
 
@@ -43,59 +49,96 @@ def _cache_path(
 
 def create_recording_audio_fetcher(
     organization_id: int,
-    workflow_id: int,
     pipeline_sample_rate: int,
-) -> Callable[[str], Awaitable[Optional[bytes]]]:
-    """Create an async callback that returns raw PCM bytes for a recording_id.
+) -> Callable[..., Awaitable[Optional[bytes]]]:
+    """Create an async callback that returns raw PCM bytes for a recording.
 
-    The returned callable:
-    1. Checks the filesystem cache (keyed by org/workflow/recording + sample rate).
-    2. On miss, looks up the recording in the DB, downloads the audio file
-       from S3/MinIO, converts it to 16-bit mono PCM at *pipeline_sample_rate*,
-       trims leading/trailing silence, caches the result on disk, and returns it.
+    The returned callable accepts **one** of two keyword arguments:
+    - ``recording_pk``  – the immutable integer primary key (used by
+      dropdown-based selections: greeting, edges, tool configs).
+    - ``recording_id``  – the human-readable string ID (used by
+      prompt-based ``RECORDING_ID: xxx`` references).
+
+    Flow:
+    1. Checks the filesystem cache (keyed by org + pk + sample rate).
+    2. On miss, looks up the recording in the DB, downloads the audio
+       from S3/MinIO, converts to 16-bit mono PCM, trims silence, and
+       caches the result on disk.
 
     Args:
         organization_id: Organization owning the recordings.
-        workflow_id: Workflow the recordings belong to.
         pipeline_sample_rate: Target PCM sample rate for the pipeline.
-
-    Returns:
-        ``async (recording_id: str) -> Optional[bytes]``
     """
     from api.db import db_client
     from api.services.storage import get_storage_for_backend
 
-    # Resolve storage instances once per backend at creation time, not per fetch.
     _storage_cache: dict[str, object] = {}
+    _transcript_cache: dict[str, Optional[str]] = {}
 
     def _get_storage(backend: str):
         if backend not in _storage_cache:
             _storage_cache[backend] = get_storage_for_backend(backend)
         return _storage_cache[backend]
 
-    async def fetch(recording_id: str) -> Optional[bytes]:
-        cached = _cache_path(
-            organization_id, workflow_id, recording_id, pipeline_sample_rate
-        )
+    async def _lookup_recording(
+        cache_key: str,
+        recording_pk: Optional[int],
+        recording_id: Optional[str],
+    ):
+        """DB lookup with transcript caching."""
+        if recording_pk is not None:
+            recording = await db_client.get_recording_by_id(
+                recording_pk, organization_id
+            )
+        else:
+            recording = await db_client.get_recording_by_recording_id(
+                recording_id, organization_id
+            )
+        if recording:
+            _transcript_cache[cache_key] = recording.transcript or None
+        return recording
+
+    async def fetch(
+        *,
+        recording_pk: Optional[int] = None,
+        recording_id: Optional[str] = None,
+    ) -> Optional[RecordingAudio]:
+        if recording_pk is None and recording_id is None:
+            logger.warning("fetch called with neither recording_pk nor recording_id")
+            return None
+
+        # Use pk for cache key when available, otherwise recording_id
+        cache_key = str(recording_pk) if recording_pk is not None else recording_id
+        cached = _cache_path(organization_id, cache_key, pipeline_sample_rate)
 
         # 1. Serve from filesystem cache
         if os.path.exists(cached):
-            logger.debug(f"Recording {recording_id} served from disk cache")
-            return read_cached_file(cached)
+            logger.debug(f"Recording {cache_key} served from disk cache")
+            audio = read_cached_file(cached)
+            # Transcript may already be in memory from a prior fetch;
+            # if not, do a lightweight DB lookup.
+            if cache_key not in _transcript_cache:
+                await _lookup_recording(cache_key, recording_pk, recording_id)
+            return RecordingAudio(
+                audio=audio, transcript=_transcript_cache.get(cache_key)
+            )
 
         # 2. DB lookup
-        recording = await db_client.get_recording_by_recording_id(
-            recording_id, organization_id, workflow_id
-        )
+        recording = await _lookup_recording(cache_key, recording_pk, recording_id)
+
         if not recording:
-            logger.warning(f"Recording {recording_id} not found in database")
+            logger.warning(f"Recording {cache_key} not found in database")
             return None
 
         # 3. Download, convert, trim, and cache
         pcm_data = await _download_and_convert(
             recording, pipeline_sample_rate, _get_storage
         )
-        return pcm_data
+        if pcm_data is None:
+            return None
+        return RecordingAudio(
+            audio=pcm_data, transcript=_transcript_cache.get(cache_key)
+        )
 
     return fetch
 
@@ -106,11 +149,10 @@ def create_recording_audio_fetcher(
 
 
 async def warm_recording_cache(
-    workflow_id: int,
     organization_id: int,
     pipeline_sample_rate: int,
 ) -> None:
-    """Pre-fetch all active recordings for a workflow into the disk cache.
+    """Pre-fetch all active recordings for an organization into the disk cache.
 
     Launched as a background ``asyncio.Task`` at pipeline startup so that
     recordings are ready before the first playback request. Errors are logged
@@ -120,9 +162,7 @@ async def warm_recording_cache(
     from api.services.storage import get_storage_for_backend
 
     try:
-        recordings = await db_client.get_recordings(
-            organization_id=organization_id, workflow_id=workflow_id
-        )
+        recordings = await db_client.get_recordings(organization_id=organization_id)
         if not recordings:
             return
 
@@ -131,18 +171,19 @@ async def warm_recording_cache(
             r
             for r in recordings
             if not os.path.exists(
-                _cache_path(
-                    organization_id, workflow_id, r.recording_id, pipeline_sample_rate
-                )
+                _cache_path(organization_id, str(r.id), pipeline_sample_rate)
+            )
+            and not os.path.exists(
+                _cache_path(organization_id, r.recording_id, pipeline_sample_rate)
             )
         ]
         if not uncached:
-            logger.debug(f"Recording cache already warm for workflow {workflow_id}")
+            logger.debug(f"Recording cache already warm for org {organization_id}")
             return
 
         logger.info(
             f"Warming recording cache: {len(uncached)}/{len(recordings)} "
-            f"recording(s) for workflow {workflow_id}"
+            f"recording(s) for org {organization_id}"
         )
 
         # Resolve storage instances once per backend, not per recording
@@ -168,7 +209,7 @@ async def warm_recording_cache(
                     f"Cache warm: error processing {recording.recording_id}"
                 )
 
-        logger.info(f"Recording cache warm complete for workflow {workflow_id}")
+        logger.info(f"Recording cache warm complete for org {organization_id}")
     except Exception:
         logger.exception("Recording cache warm failed")
 
@@ -201,7 +242,6 @@ async def _download_and_convert(
         # Write to disk cache
         cached = _cache_path(
             recording.organization_id,
-            recording.workflow_id,
             recording.recording_id,
             sample_rate,
         )

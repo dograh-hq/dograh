@@ -1389,7 +1389,7 @@ export const getUploadUrlsApiV1WorkflowRecordingsUploadUrlPost = <ThrowOnError e
 /**
  * List recordings
  *
- * List recordings for the organization, optionally filtered by workflow and TTS configuration.
+ * List recordings for the organization, optionally filtered.
  */
 export const listRecordingsApiV1WorkflowRecordingsGet = <ThrowOnError extends boolean = false>(options?: Options<ListRecordingsApiV1WorkflowRecordingsGetData, ThrowOnError>) => (options?.client ?? client).get<ListRecordingsApiV1WorkflowRecordingsGetResponses, ListRecordingsApiV1WorkflowRecordingsGetErrors, ThrowOnError>({ url: '/api/v1/workflow-recordings/', ...options });
 

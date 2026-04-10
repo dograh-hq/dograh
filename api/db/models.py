@@ -1005,7 +1005,7 @@ class KnowledgeBaseDocumentModel(Base):
 
 
 class WorkflowRecordingModel(Base):
-    """Model for storing audio recordings scoped to a workflow and TTS configuration.
+    """Model for storing audio recordings scoped to an organization.
 
     Recordings are used in hybrid prompts where parts of the output are pre-recorded
     audio rather than dynamically generated TTS.
@@ -1020,16 +1020,16 @@ class WorkflowRecordingModel(Base):
 
     # Scoping
     workflow_id = Column(
-        Integer, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+        Integer, ForeignKey("workflows.id", ondelete="CASCADE"), nullable=True
     )
     organization_id = Column(
         Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
     )
 
-    # TTS configuration scope
-    tts_provider = Column(String, nullable=False)
-    tts_model = Column(String, nullable=False)
-    tts_voice_id = Column(String, nullable=False)
+    # TTS configuration metadata (optional, legacy)
+    tts_provider = Column(String, nullable=True)
+    tts_model = Column(String, nullable=True)
+    tts_voice_id = Column(String, nullable=True)
 
     # Content
     transcript = Column(Text, nullable=False)
@@ -1065,19 +1065,11 @@ class WorkflowRecordingModel(Base):
         UniqueConstraint(
             "recording_id",
             "organization_id",
-            "workflow_id",
-            name="uq_workflow_recordings_recording_id_org_wf",
+            name="uq_workflow_recordings_recording_id_org",
         ),
         Index("ix_workflow_recordings_workflow_id", "workflow_id"),
         Index("ix_workflow_recordings_org_id", "organization_id"),
         Index("ix_workflow_recordings_recording_id", "recording_id"),
-        Index(
-            "ix_workflow_recordings_tts_scope",
-            "workflow_id",
-            "tts_provider",
-            "tts_model",
-            "tts_voice_id",
-        ),
     )
 
 

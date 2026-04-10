@@ -168,7 +168,6 @@ def create_aggregation_correction_callback(engine: "PipecatEngine"):
         reference = engine._current_llm_generation_reference_text
 
         if not reference:
-            logger.warning("No reference text available for aggregation correction")
             return corrupted
 
         # Apply the correction algorithm

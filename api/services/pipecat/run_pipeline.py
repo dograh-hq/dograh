@@ -695,9 +695,7 @@ async def _run_pipeline(
 
     # Check if the workflow has any active recordings so the engine can
     # include recording response mode instructions in all node prompts.
-    has_recordings = await db_client.has_active_recordings(
-        workflow_id, workflow.organization_id
-    )
+    has_recordings = await db_client.has_active_recordings(workflow.organization_id)
 
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
         "context_compaction_enabled", False
@@ -832,7 +830,6 @@ async def _run_pipeline(
     # and audio transition speech)
     fetch_audio = create_recording_audio_fetcher(
         organization_id=workflow.organization_id,
-        workflow_id=workflow_id,
         pipeline_sample_rate=audio_config.pipeline_sample_rate,
     )
     engine.set_fetch_recording_audio(fetch_audio)
@@ -885,7 +882,6 @@ async def _run_pipeline(
             # before the first playback request.
             asyncio.create_task(
                 warm_recording_cache(
-                    workflow_id=workflow_id,
                     organization_id=workflow.organization_id,
                     pipeline_sample_rate=audio_config.pipeline_sample_rate,
                 )
@@ -920,8 +916,9 @@ async def _run_pipeline(
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
 
-    # Now set the task on the engine
+    # Now set the task and transport output on the engine
     engine.set_task(task)
+    engine.set_transport_output(transport.output())
 
     # Initialize the engine to set the initial context with
     # System Prompt and Tools

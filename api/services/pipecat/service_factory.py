@@ -230,7 +230,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             settings=DeepgramTTSSettings(voice=user_config.tts.voice),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
@@ -238,7 +238,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.ELEVENLABS.value:
@@ -258,7 +258,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 similarity_boost=0.75,
             ),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.CARTESIA.value:
@@ -284,7 +284,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 ),
             ),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.DOGRAH.value:
@@ -299,7 +299,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 speed=user_config.tts.speed,
             ),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.CAMB.value:
@@ -312,7 +312,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             voice_id=voice_id,
             model=user_config.tts.model,
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
         )
         # Set language directly as BCP-47 code (bypasses Language enum conversion)
         tts._settings.language = language
@@ -327,7 +327,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 speed=user_config.tts.speed,
             ),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.RIME.value:
@@ -352,7 +352,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             api_key=user_config.tts.api_key,
             settings=RimeTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.SARVAM.value:
@@ -382,7 +382,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 language=pipecat_language,
             ),
             text_filters=[xml_function_tag_filter],
-            skip_aggregator_types=["recording_router"],
+            skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
     else:

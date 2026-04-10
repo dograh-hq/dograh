@@ -26,13 +26,11 @@ from api.services.storage import storage_fs
 router = APIRouter(prefix="/workflow-recordings", tags=["workflow-recordings"])
 
 
-async def _generate_unique_recording_id(organization_id: int, workflow_id: int) -> str:
-    """Generate a unique short recording ID within an organization and workflow."""
+async def _generate_unique_recording_id(organization_id: int) -> str:
+    """Generate a unique short recording ID within an organization."""
     for _ in range(10):
         rid = generate_short_id(8)
-        exists = await db_client.check_recording_id_exists(
-            rid, organization_id, workflow_id
-        )
+        exists = await db_client.check_recording_id_exists(rid, organization_id)
         if not exists:
             return rid
     raise HTTPException(
@@ -73,12 +71,12 @@ async def get_upload_urls(
         items = []
         for fd in request.files:
             recording_id = await _generate_unique_recording_id(
-                user.selected_organization_id, request.workflow_id
+                user.selected_organization_id
             )
 
             storage_key = (
                 f"recordings/{user.selected_organization_id}"
-                f"/{request.workflow_id}/{recording_id}"
+                f"/{recording_id}"
                 f"/{fd.filename}"
             )
 
@@ -105,7 +103,7 @@ async def get_upload_urls(
 
         logger.info(
             f"Generated {len(items)} recording upload URL(s), "
-            f"workflow {request.workflow_id}, org {user.selected_organization_id}"
+            f"org {user.selected_organization_id}"
         )
 
         return BatchRecordingUploadResponseSchema(items=items)
@@ -136,22 +134,20 @@ async def create_recordings(
         for rec_req in request.recordings:
             recording = await db_client.create_recording(
                 recording_id=rec_req.recording_id,
-                workflow_id=rec_req.workflow_id,
                 organization_id=user.selected_organization_id,
-                tts_provider=rec_req.tts_provider,
-                tts_model=rec_req.tts_model,
-                tts_voice_id=rec_req.tts_voice_id,
                 transcript=rec_req.transcript,
                 storage_key=rec_req.storage_key,
                 storage_backend=backend.value,
                 created_by=user.id,
+                tts_provider=rec_req.tts_provider,
+                tts_model=rec_req.tts_model,
+                tts_voice_id=rec_req.tts_voice_id,
                 metadata=rec_req.metadata,
             )
             results.append(_build_response(recording))
 
         logger.info(
-            f"Created {len(results)} recording(s) for "
-            f"workflow {request.recordings[0].workflow_id}"
+            f"Created {len(results)} recording(s) for org {user.selected_organization_id}"
         )
 
         return BatchRecordingCreateResponseSchema(recordings=results)
@@ -185,7 +181,7 @@ async def list_recordings(
     ] = None,
     user=Depends(get_user),
 ):
-    """List recordings for the organization, optionally filtered by workflow and TTS configuration."""
+    """List recordings for the organization, optionally filtered."""
     try:
         recordings = await db_client.get_recordings(
             organization_id=user.selected_organization_id,
@@ -256,7 +252,6 @@ async def update_recording(
         if not new_id:
             raise HTTPException(status_code=400, detail="Recording ID cannot be empty")
 
-        # Look up by integer PK — globally unique, no ambiguity
         existing = await db_client.get_recording_by_id(
             id, user.selected_organization_id
         )
@@ -266,15 +261,16 @@ async def update_recording(
         if new_id == existing.recording_id:
             return _build_response(existing)
 
-        # Check if the new ID is already taken within this org + workflow
         exists = await db_client.check_recording_id_exists(
-            new_id, user.selected_organization_id, existing.workflow_id
+            new_id, user.selected_organization_id
         )
         if exists:
             raise HTTPException(
                 status_code=409,
-                detail=f"Recording ID '{new_id}' is already in use in this workflow",
+                detail=f"Recording ID '{new_id}' is already in use",
             )
+
+        old_id = existing.recording_id
 
         recording = await db_client.update_recording_id(
             id=id,
@@ -284,6 +280,18 @@ async def update_recording(
 
         if not recording:
             raise HTTPException(status_code=404, detail="Recording not found")
+
+        # Replace old recording ID in all non-legacy workflow definitions
+        updated = await db_client.replace_recording_id_in_workflows(
+            old_id=old_id,
+            new_id=new_id,
+            organization_id=user.selected_organization_id,
+        )
+        if updated:
+            logger.info(
+                f"Updated {updated} workflow definition(s) with new recording ID "
+                f"'{old_id}' -> '{new_id}'"
+            )
 
         return _build_response(recording)
 

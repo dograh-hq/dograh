@@ -6,17 +6,16 @@ from api.db import db_client
 from api.enums import WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.pipecat.in_memory_buffers import (
     InMemoryAudioBuffer,
     InMemoryLogsBuffer,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
-from api.services.pipecat.recording_playback import queue_recording_audio
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
-from api.utils.hold_audio import play_hold_audio_loop
 from pipecat.frames.frames import (
     Frame,
     LLMContextFrame,
@@ -90,7 +89,11 @@ def register_event_handlers(
                     stop_ringer = asyncio.Event()
                     sample_rate = audio_config.pipeline_sample_rate or 16000
                     ringer_task = asyncio.create_task(
-                        play_hold_audio_loop(task, stop_ringer, sample_rate)
+                        play_audio_loop(
+                            stop_event=stop_ringer,
+                            sample_rate=sample_rate,
+                            queue_frame=transport.output().queue_frame,
+                        )
                     )
                     try:
                         fetch_result = await pre_call_fetch_task
@@ -127,12 +130,16 @@ def register_event_handlers(
                     and fetch_recording_audio
                 ):
                     logger.debug(f"Playing audio greeting recording: {greeting_value}")
-                    audio_data = await fetch_recording_audio(greeting_value)
-                    if audio_data:
-                        await queue_recording_audio(
-                            audio_data,
+                    result = await fetch_recording_audio(
+                        recording_pk=int(greeting_value)
+                    )
+                    if result:
+                        await play_audio(
+                            result.audio,
                             sample_rate=audio_config.pipeline_sample_rate or 16000,
-                            queue_frame=task.queue_frame,
+                            queue_frame=transport.output().queue_frame,
+                            transcript=result.transcript,
+                            append_to_context=True,
                         )
                     else:
                         logger.warning(

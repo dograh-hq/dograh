@@ -1,67 +1,33 @@
 "use client";
 
 import { AudioLines, Check, Pause, Pencil, Play, RefreshCw, Search, Trash2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
     deleteRecordingApiV1WorkflowRecordingsRecordingIdDelete,
-    getWorkflowsSummaryApiV1WorkflowSummaryGet,
     listRecordingsApiV1WorkflowRecordingsGet,
     updateRecordingApiV1WorkflowRecordingsIdPatch,
 } from "@/client/sdk.gen";
-import type { RecordingResponseSchema, WorkflowSummaryResponse } from "@/client/types.gen";
-import { Badge } from "@/components/ui/badge";
+import type { RecordingResponseSchema } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import logger from "@/lib/logger";
 
-const ALL_VALUE = "__all__";
-
-export default function RecordingsList() {
+export default function RecordingsList({ refreshKey }: { refreshKey?: number }) {
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
-    const [workflows, setWorkflows] = useState<WorkflowSummaryResponse[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState("");
     const [error, setError] = useState<string | null>(null);
 
-    // Filters
-    const [selectedWorkflow, setSelectedWorkflow] = useState<string>(ALL_VALUE);
-
     // Inline edit state
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editValue, setEditValue] = useState("");
+    const [editError, setEditError] = useState<string | null>(null);
 
     const { playingId, toggle: togglePlayback, stop: stopPlayback } = useAudioPlayback();
-    const hasFetchedWorkflows = useRef(false);
-
-    const workflowMap = useMemo(() => {
-        const map = new Map<number, string>();
-        for (const w of workflows) {
-            map.set(w.id, w.name);
-        }
-        return map;
-    }, [workflows]);
-
-    const fetchWorkflows = useCallback(async () => {
-        try {
-            const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet();
-            if (response.data) {
-                setWorkflows(response.data);
-            }
-        } catch (err) {
-            logger.error("Error fetching workflows:", err);
-        }
-    }, []);
 
     const fetchRecordings = useCallback(async () => {
         try {
@@ -69,9 +35,7 @@ export default function RecordingsList() {
             setError(null);
 
             const response = await listRecordingsApiV1WorkflowRecordingsGet({
-                query: {
-                    workflow_id: selectedWorkflow !== ALL_VALUE ? Number(selectedWorkflow) : undefined,
-                },
+                query: {},
             });
 
             if (response.error || !response.data) {
@@ -85,18 +49,11 @@ export default function RecordingsList() {
         } finally {
             setIsLoading(false);
         }
-    }, [selectedWorkflow]);
-
-    useEffect(() => {
-        if (!hasFetchedWorkflows.current) {
-            hasFetchedWorkflows.current = true;
-            fetchWorkflows();
-        }
-    }, [fetchWorkflows]);
+    }, []);
 
     useEffect(() => {
         fetchRecordings();
-    }, [fetchRecordings]);
+    }, [fetchRecordings, refreshKey]);
 
     const handleDelete = async (recordingId: string) => {
         if (!confirm("Are you sure you want to delete this recording?")) return;
@@ -129,17 +86,23 @@ export default function RecordingsList() {
     const startEditing = (rec: RecordingResponseSchema) => {
         setEditingId(rec.recording_id);
         setEditValue(rec.recording_id);
+        setEditError(null);
     };
 
     const cancelEditing = () => {
         setEditingId(null);
         setEditValue("");
+        setEditError(null);
     };
 
     const saveRecordingId = async (rec: RecordingResponseSchema) => {
         const newId = editValue.trim();
         if (!newId) {
-            toast.error("Recording ID cannot be empty");
+            setEditError("ID cannot be empty");
+            return;
+        }
+        if (!/^[a-zA-Z0-9_-]+$/.test(newId)) {
+            setEditError("Only letters, numbers, hyphens, and underscores");
             return;
         }
         if (newId === rec.recording_id) {
@@ -147,6 +110,7 @@ export default function RecordingsList() {
             return;
         }
 
+        setEditError(null);
         try {
             const response = await updateRecordingApiV1WorkflowRecordingsIdPatch({
                 path: { id: rec.id },
@@ -158,11 +122,11 @@ export default function RecordingsList() {
                 throw new Error(errData?.detail || "Failed to update recording ID");
             }
 
-            toast.success(`Recording ID updated to "${newId}"`);
+            toast.success(`Recording ID updated to "${newId}". All workflow references have been updated.`);
             cancelEditing();
             fetchRecordings();
         } catch (err) {
-            toast.error(err instanceof Error ? err.message : "Failed to update recording ID");
+            setEditError(err instanceof Error ? err.message : "Failed to update recording ID");
         }
     };
 
@@ -208,24 +172,6 @@ export default function RecordingsList() {
 
     return (
         <div className="space-y-4">
-            {/* Filter */}
-            <div className="max-w-xs">
-                <label className="text-xs text-muted-foreground mb-1 block">Voice Agent</label>
-                <Select value={selectedWorkflow} onValueChange={setSelectedWorkflow}>
-                    <SelectTrigger className="h-9 text-sm">
-                        <SelectValue placeholder="All agents" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value={ALL_VALUE}>All agents</SelectItem>
-                        {workflows.map((w) => (
-                            <SelectItem key={w.id} value={String(w.id)}>
-                                {w.name}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-
             {/* Search and Refresh */}
             <div className="flex items-center gap-4">
                 <div className="relative flex-1">
@@ -260,14 +206,13 @@ export default function RecordingsList() {
                     <p className="text-muted-foreground">
                         {searchQuery
                             ? "No recordings match your search"
-                            : "No recordings found for the selected filters"}
+                            : "No recordings yet"}
                     </p>
                 </div>
             ) : (
                 <div className="space-y-3">
                     {filteredRecordings.map((rec) => {
                         const filename = (rec.metadata?.original_filename as string) || "";
-                        const workflowName = workflowMap.get(rec.workflow_id);
                         const isEditing = editingId === rec.recording_id;
 
                         return (
@@ -283,15 +228,15 @@ export default function RecordingsList() {
                                         {/* Recording ID (editable) */}
                                         <div className="flex items-center gap-2 mb-1">
                                             {isEditing ? (
-                                                <div className="flex items-center gap-1">
+                                                <div className="flex items-center gap-1 flex-wrap">
                                                     <Input
                                                         value={editValue}
-                                                        onChange={(e) => setEditValue(e.target.value)}
+                                                        onChange={(e) => { setEditValue(e.target.value); setEditError(null); }}
                                                         onKeyDown={(e) => {
                                                             if (e.key === "Enter") saveRecordingId(rec);
                                                             if (e.key === "Escape") cancelEditing();
                                                         }}
-                                                        className="h-7 text-sm font-mono w-48"
+                                                        className={`h-7 text-sm font-mono w-48 ${editError ? "border-destructive" : ""}`}
                                                         maxLength={64}
                                                         autoFocus
                                                     />
@@ -311,26 +256,25 @@ export default function RecordingsList() {
                                                     >
                                                         <X className="w-3.5 h-3.5" />
                                                     </Button>
+                                                    {editError && (
+                                                        <span className="text-xs text-destructive">{editError}</span>
+                                                    )}
                                                 </div>
                                             ) : (
-                                                <div className="flex items-center gap-1.5 group">
+                                                <div className="flex items-center gap-1.5">
                                                     <code className="text-sm font-mono bg-muted px-1.5 py-0.5 rounded truncate max-w-[250px]">
                                                         {rec.recording_id}
                                                     </code>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                        className="h-6 px-1.5 text-xs text-muted-foreground gap-1"
                                                         onClick={() => startEditing(rec)}
                                                     >
                                                         <Pencil className="w-3 h-3" />
+                                                        Edit ID
                                                     </Button>
                                                 </div>
-                                            )}
-                                            {workflowName && (
-                                                <Badge variant="outline" className="text-xs shrink-0">
-                                                    {workflowName}
-                                                </Badge>
                                             )}
                                         </div>
                                         {/* Filename */}
@@ -344,9 +288,6 @@ export default function RecordingsList() {
                                             {rec.transcript}
                                         </p>
                                         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                                            <span>{rec.tts_provider}</span>
-                                            <span>{rec.tts_model}</span>
-                                            <span className="truncate max-w-[150px]">{rec.tts_voice_id}</span>
                                             <span>{formatDate(rec.created_at)}</span>
                                         </div>
                                     </div>

@@ -270,12 +270,6 @@ export type BatchRecordingCreateResponseSchema = {
  */
 export type BatchRecordingUploadRequestSchema = {
     /**
-     * Workflow Id
-     *
-     * Workflow ID these recordings belong to
-     */
-    workflow_id: number;
-    /**
      * Files
      *
      * List of files to upload
@@ -1572,13 +1566,19 @@ export type EndCallConfig = {
      *
      * Type of goodbye message
      */
-    messageType?: 'none' | 'custom';
+    messageType?: 'none' | 'custom' | 'audio';
     /**
      * Custommessage
      *
      * Custom message to play before ending the call
      */
     customMessage?: string | null;
+    /**
+     * Audiorecordingid
+     *
+     * Recording ID for audio goodbye message
+     */
+    audioRecordingId?: string | null;
     /**
      * Endcallreason
      *
@@ -1739,6 +1739,24 @@ export type HttpApiConfig = {
      * Request timeout in milliseconds
      */
     timeout_ms?: number | null;
+    /**
+     * Custommessage
+     *
+     * Custom message to play after tool execution
+     */
+    customMessage?: string | null;
+    /**
+     * Custommessagetype
+     *
+     * Type of custom message: text or audio
+     */
+    customMessageType?: 'text' | 'audio' | null;
+    /**
+     * Custommessagerecordingid
+     *
+     * Recording ID for audio custom message
+     */
+    customMessageRecordingId?: string | null;
 };
 
 /**
@@ -2103,29 +2121,23 @@ export type RecordingCreateRequestSchema = {
      */
     recording_id: string;
     /**
-     * Workflow Id
-     *
-     * Workflow ID
-     */
-    workflow_id: number;
-    /**
      * Tts Provider
      *
      * TTS provider (e.g. elevenlabs)
      */
-    tts_provider: string;
+    tts_provider?: string | null;
     /**
      * Tts Model
      *
      * TTS model name
      */
-    tts_model: string;
+    tts_model?: string | null;
     /**
      * Tts Voice Id
      *
      * TTS voice identifier
      */
-    tts_voice_id: string;
+    tts_voice_id?: string | null;
     /**
      * Transcript
      *
@@ -2181,7 +2193,7 @@ export type RecordingResponseSchema = {
     /**
      * Workflow Id
      */
-    workflow_id: number;
+    workflow_id?: number | null;
     /**
      * Organization Id
      */
@@ -2189,15 +2201,15 @@ export type RecordingResponseSchema = {
     /**
      * Tts Provider
      */
-    tts_provider: string;
+    tts_provider?: string | null;
     /**
      * Tts Model
      */
-    tts_model: string;
+    tts_model?: string | null;
     /**
      * Tts Voice Id
      */
-    tts_voice_id: string;
+    tts_voice_id?: string | null;
     /**
      * Transcript
      */
@@ -2239,7 +2251,7 @@ export type RecordingUpdateRequestSchema = {
     /**
      * Recording Id
      *
-     * New descriptive recording ID
+     * New descriptive recording ID (letters, numbers, hyphens, underscores only)
      */
     recording_id: string;
 };
@@ -2828,13 +2840,19 @@ export type TransferCallConfig = {
      *
      * Type of message to play before transfer
      */
-    messageType?: 'none' | 'custom';
+    messageType?: 'none' | 'custom' | 'audio';
     /**
      * Custommessage
      *
      * Custom message to play before transferring the call
      */
     customMessage?: string | null;
+    /**
+     * Audiorecordingid
+     *
+     * Recording ID for audio message before transfer
+     */
+    audioRecordingId?: string | null;
     /**
      * Timeout
      *

@@ -1,4 +1,4 @@
-"""Service for duplicating workflows including recordings."""
+"""Service for duplicating workflows."""
 
 import copy
 import posixpath
@@ -44,7 +44,9 @@ async def duplicate_workflow(
     organization_id: int,
     user_id: int,
 ):
-    """Duplicate a workflow including its definition, config, recordings, and triggers.
+    """Duplicate a workflow including its definition, config, and triggers.
+
+    Recordings are org-scoped and shared, so they are not duplicated.
 
     Args:
         workflow_id: The source workflow ID to duplicate
@@ -118,15 +120,7 @@ async def duplicate_workflow(
             organization_id=organization_id,
         )
 
-    # 6. Copy recordings (recording_ids are preserved since they're scoped per workflow)
-    await _duplicate_recordings(
-        source_workflow_id=workflow_id,
-        new_workflow_id=new_workflow.id,
-        organization_id=organization_id,
-        user_id=user_id,
-    )
-
-    # 7. Sync triggers for the new workflow
+    # 6. Sync triggers for the new workflow
     if workflow_definition:
         trigger_paths = _extract_trigger_paths(workflow_definition)
         if trigger_paths:
@@ -137,66 +131,6 @@ async def duplicate_workflow(
             )
 
     return new_workflow
-
-
-async def _duplicate_recordings(
-    source_workflow_id: int,
-    new_workflow_id: int,
-    organization_id: int,
-    user_id: int,
-) -> None:
-    """Duplicate all recordings for a workflow.
-
-    Copies each recording file to a new storage path scoped under the new
-    workflow ID. Recording IDs are preserved since they are unique per
-    (org, workflow).
-    """
-    recordings = await db_client.get_recordings(
-        workflow_id=source_workflow_id,
-        organization_id=organization_id,
-    )
-
-    if not recordings:
-        return
-
-    for rec in recordings:
-        try:
-            # Build new storage key: recordings/{org_id}/{new_workflow_id}/{recording_id}/{filename}
-            filename = posixpath.basename(rec.storage_key)
-            new_storage_key = (
-                f"recordings/{organization_id}"
-                f"/{new_workflow_id}/{rec.recording_id}"
-                f"/{filename}"
-            )
-
-            copied = await _copy_storage_object(
-                rec.storage_key, new_storage_key, rec.storage_backend
-            )
-            if not copied:
-                logger.warning(
-                    f"Failed to copy recording file {rec.recording_id}, skipping"
-                )
-                continue
-
-            await db_client.create_recording(
-                recording_id=rec.recording_id,
-                workflow_id=new_workflow_id,
-                organization_id=organization_id,
-                tts_provider=rec.tts_provider,
-                tts_model=rec.tts_model,
-                tts_voice_id=rec.tts_voice_id,
-                transcript=rec.transcript,
-                storage_key=new_storage_key,
-                storage_backend=rec.storage_backend,
-                created_by=user_id,
-                metadata=copy.deepcopy(rec.recording_metadata),
-            )
-
-            logger.info(f"Duplicated recording {rec.recording_id}")
-
-        except Exception as e:
-            logger.error(f"Error duplicating recording {rec.recording_id}: {e}")
-            continue
 
 
 async def _copy_storage_object(

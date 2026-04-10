@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
 
-from api.services.pipecat.recording_playback import queue_recording_audio
+from api.services.pipecat.audio_playback import play_audio
 from api.services.workflow.disposition_mapper import (
     apply_disposition_mapping,
     get_organization_id_from_workflow_run,
@@ -115,6 +115,10 @@ class PipecatEngine:
         # Audio configuration (set via set_audio_config from _run_pipeline)
         self._audio_config = None
 
+        # Transport output processor for injecting audio directly into the
+        # output, bypassing STT (set via set_transport_output from _run_pipeline)
+        self._transport_output = None
+
         # Recording audio fetcher (set via set_fetch_recording_audio from _run_pipeline)
         self._fetch_recording_audio = None
 
@@ -221,16 +225,17 @@ class PipecatEngine:
                         f"Playing transition audio: {transition_speech_recording_id}"
                     )
                     self._queued_speech_mute_state = "waiting"
-                    audio_data = await self._fetch_recording_audio(
-                        transition_speech_recording_id
+                    result = await self._fetch_recording_audio(
+                        recording_pk=int(transition_speech_recording_id)
                     )
-                    if audio_data:
-                        await queue_recording_audio(
-                            audio_data,
+                    if result:
+                        await play_audio(
+                            result.audio,
                             sample_rate=self._audio_config.pipeline_sample_rate
                             if self._audio_config
                             else 16000,
-                            queue_frame=self.task.queue_frame,
+                            queue_frame=self._transport_output.queue_frame,
+                            transcript=result.transcript,
                         )
                     else:
                         logger.warning(
@@ -752,6 +757,14 @@ class PipecatEngine:
     def set_audio_config(self, audio_config) -> None:
         """Set the audio configuration for the pipeline."""
         self._audio_config = audio_config
+
+    def set_transport_output(self, transport_output) -> None:
+        """Set the transport output processor for direct audio playback.
+
+        Audio queued here bypasses STT and the rest of the pipeline,
+        going straight to the caller.
+        """
+        self._transport_output = transport_output
 
     def set_fetch_recording_audio(self, fetch_fn) -> None:
         """Set the recording audio fetcher callback."""

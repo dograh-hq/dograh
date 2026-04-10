@@ -17,6 +17,7 @@ from typing import Awaitable, Callable, Optional
 
 from loguru import logger
 
+from api.services.pipecat.recording_audio_cache import RecordingAudio
 from api.services.workflow.pipecat_engine_context_composer import (
     RECORDING_MARKER,
     TTS_MARKER,
@@ -48,14 +49,14 @@ class RecordingRouterProcessor(FrameProcessor):
     Args:
         audio_sample_rate: Pipeline sample rate for OutputAudioRawFrame.
         fetch_recording_audio: Async callback that takes a recording_id and
-            returns raw 16-bit mono PCM bytes, or None on failure.
+            returns a RecordingAudio (audio + transcript), or None on failure.
     """
 
     def __init__(
         self,
         *,
         audio_sample_rate: int,
-        fetch_recording_audio: Callable[[str], Awaitable[Optional[bytes]]],
+        fetch_recording_audio: Callable[..., Awaitable[Optional[RecordingAudio]]],
         **kwargs,
     ):
         super().__init__(**kwargs)

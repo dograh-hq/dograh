@@ -178,6 +178,11 @@ async def initiate_call(
     workflow_run_id = request.workflow_run_id
 
     if not workflow_run_id:
+        # Fetch workflow to merge template context variables (e.g. caller_number,
+        # called_number set in workflow settings for testing pre-call data fetch)
+        workflow = await db_client.get_workflow_by_id(request.workflow_id)
+        template_vars = (workflow.template_context_variables or {}) if workflow else {}
+
         numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
         workflow_run_name = f"WR-TEL-OUT-{numeric_suffix:08d}"
         workflow_run = await db_client.create_workflow_run(
@@ -187,6 +192,7 @@ async def initiate_call(
             user_id=user.id,
             call_type=CallType.OUTBOUND,
             initial_context={
+                **template_vars,
                 "phone_number": phone_number,
                 "called_number": phone_number,
                 "provider": provider.PROVIDER_NAME,

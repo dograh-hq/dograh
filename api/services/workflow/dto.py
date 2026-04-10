@@ -54,6 +54,8 @@ class NodeDataDTO(BaseModel):
     extraction_variables: Optional[list[ExtractionVariableDTO]] = None
     add_global_prompt: bool = True
     greeting: Optional[str] = None
+    greeting_type: Optional[str] = None  # 'text' or 'audio'
+    greeting_recording_id: Optional[str] = None
     wait_for_user_response: bool = False
     wait_for_user_response_timeout: Optional[float] = None
     detect_voicemail: bool = False
@@ -102,6 +104,8 @@ class EdgeDataDTO(BaseModel):
     label: str = Field(..., min_length=1)
     condition: str = Field(..., min_length=1)
     transition_speech: Optional[str] = None
+    transition_speech_type: Optional[str] = None  # 'text' or 'audio'
+    transition_speech_recording_id: Optional[str] = None
 
 
 class RFEdgeDTO(BaseModel):

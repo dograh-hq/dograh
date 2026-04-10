@@ -2231,6 +2231,20 @@ export type RecordingResponseSchema = {
 };
 
 /**
+ * RecordingUpdateRequestSchema
+ *
+ * Request schema for updating a recording's ID.
+ */
+export type RecordingUpdateRequestSchema = {
+    /**
+     * Recording Id
+     *
+     * New descriptive recording ID
+     */
+    recording_id: string;
+};
+
+/**
  * RecordingUploadResponseSchema
  *
  * Response schema with presigned upload URL.
@@ -8885,13 +8899,13 @@ export type ListRecordingsApiV1WorkflowRecordingsGetData = {
         'X-API-Key'?: string | null;
     };
     path?: never;
-    query: {
+    query?: {
         /**
          * Workflow Id
          *
-         * Workflow ID
+         * Filter by workflow ID
          */
-        workflow_id: number;
+        workflow_id?: number | null;
         /**
          * Tts Provider
          *
@@ -9016,6 +9030,50 @@ export type DeleteRecordingApiV1WorkflowRecordingsRecordingIdDeleteResponses = {
      */
     200: unknown;
 };
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchData = {
+    body: RecordingUpdateRequestSchema;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Id
+         */
+        id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow-recordings/{id}';
+};
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchError = UpdateRecordingApiV1WorkflowRecordingsIdPatchErrors[keyof UpdateRecordingApiV1WorkflowRecordingsIdPatchErrors];
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: RecordingResponseSchema;
+};
+
+export type UpdateRecordingApiV1WorkflowRecordingsIdPatchResponse = UpdateRecordingApiV1WorkflowRecordingsIdPatchResponses[keyof UpdateRecordingApiV1WorkflowRecordingsIdPatchResponses];
 
 export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostData = {
     body: BodyTranscribeAudioApiV1WorkflowRecordingsTranscribePost;

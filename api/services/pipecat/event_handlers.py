@@ -11,12 +11,17 @@ from api.services.pipecat.in_memory_buffers import (
     InMemoryLogsBuffer,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
+from api.services.pipecat.recording_playback import queue_recording_audio
 from api.services.pipecat.tracing_config import get_trace_url
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 from api.utils.hold_audio import play_hold_audio_loop
-from pipecat.frames.frames import Frame, LLMContextFrame, TTSSpeakFrame
+from pipecat.frames.frames import (
+    Frame,
+    LLMContextFrame,
+    TTSSpeakFrame,
+)
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.enums import EndTaskReason
@@ -32,6 +37,7 @@ def register_event_handlers(
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
     pre_call_fetch_task: asyncio.Task | None = None,
+    fetch_recording_audio=None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -112,12 +118,31 @@ def register_event_handlers(
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)
 
-            greeting = engine.get_start_greeting()
-            if greeting:
-                logger.debug(
-                    "Both pipeline_started and client_connected received - playing greeting via TTS"
-                )
-                await task.queue_frame(TTSSpeakFrame(greeting))
+            greeting_info = engine.get_start_greeting()
+            if greeting_info:
+                greeting_type, greeting_value = greeting_info
+                if (
+                    greeting_type == "audio"
+                    and greeting_value
+                    and fetch_recording_audio
+                ):
+                    logger.debug(f"Playing audio greeting recording: {greeting_value}")
+                    audio_data = await fetch_recording_audio(greeting_value)
+                    if audio_data:
+                        await queue_recording_audio(
+                            audio_data,
+                            sample_rate=audio_config.pipeline_sample_rate or 16000,
+                            queue_frame=task.queue_frame,
+                        )
+                    else:
+                        logger.warning(
+                            f"Failed to fetch audio greeting {greeting_value}, "
+                            "falling back to LLM generation"
+                        )
+                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                else:
+                    logger.debug("Playing text greeting via TTS")
+                    await task.queue_frame(TTSSpeakFrame(greeting_value))
             else:
                 logger.debug(
                     "Both pipeline_started and client_connected received - triggering initial LLM generation"

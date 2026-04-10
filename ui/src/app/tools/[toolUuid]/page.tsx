@@ -75,6 +75,7 @@ export default function ToolDetailPage() {
     const [endCallMessageType, setEndCallMessageType] = useState<EndCallMessageType>("none");
     const [endCallReason, setEndCallReason] = useState(false);
     const [endCallReasonDescription, setEndCallReasonDescription] = useState("");
+    const [audioRecordingId, setAudioRecordingId] = useState("");
 
     const handleEndCallReasonChange = (enabled: boolean) => {
         setEndCallReason(enabled);
@@ -87,6 +88,11 @@ export default function ToolDetailPage() {
     const [transferDestination, setTransferDestination] = useState("");
     const [transferMessageType, setTransferMessageType] = useState<EndCallMessageType>("none");
     const [transferTimeout, setTransferTimeout] = useState(30);
+    const [transferAudioRecordingId, setTransferAudioRecordingId] = useState("");
+
+    // HTTP API form state - custom message type
+    const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
+    const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -132,11 +138,14 @@ export default function ToolDetailPage() {
             if (config) {
                 setEndCallMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setAudioRecordingId((config as any).audioRecordingId || "");
                 setEndCallReason(config.endCallReason ?? false);
                 setEndCallReasonDescription(config.endCallReasonDescription || "");
             } else {
                 setEndCallMessageType("none");
                 setCustomMessage("");
+                setAudioRecordingId("");
                 setEndCallReason(false);
                 setEndCallReasonDescription("");
             }
@@ -147,11 +156,14 @@ export default function ToolDetailPage() {
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setTransferAudioRecordingId((config as any).audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
             } else {
                 setTransferDestination("");
                 setTransferMessageType("none");
                 setCustomMessage("");
+                setTransferAudioRecordingId("");
                 setTransferTimeout(30);
             }
         } else {
@@ -163,6 +175,10 @@ export default function ToolDetailPage() {
                 setCredentialUuid(config.credential_uuid || "");
                 setTimeoutMs(config.timeout_ms || 5000);
                 setCustomMessage(config.customMessage || "");
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setCustomMessageType((config as any).customMessageType || "text");
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                setCustomMessageRecordingId((config as any).customMessageRecordingId || "");
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -259,6 +275,7 @@ export default function ToolDetailPage() {
                         config: {
                             messageType: endCallMessageType,
                             customMessage: endCallMessageType === "custom" ? customMessage : undefined,
+                            audioRecordingId: endCallMessageType === "audio" ? audioRecordingId || undefined : undefined,
                             endCallReason,
                             endCallReasonDescription: endCallReason ? endCallReasonDescription || undefined : undefined,
                         },
@@ -276,6 +293,7 @@ export default function ToolDetailPage() {
                             destination: transferDestination,
                             messageType: transferMessageType,
                             customMessage: transferMessageType === "custom" ? customMessage : undefined,
+                            audioRecordingId: transferMessageType === "audio" ? transferAudioRecordingId || undefined : undefined,
                             timeout: transferTimeout,
                         },
                     },
@@ -306,7 +324,9 @@ export default function ToolDetailPage() {
                             parameters:
                                 validParameters.length > 0 ? validParameters : undefined,
                             timeout_ms: timeoutMs,
-                            customMessage: customMessage || undefined,
+                            customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
+                            customMessageType,
+                            customMessageRecordingId: customMessageType === 'audio' ? (customMessageRecordingId || undefined) : undefined,
                         },
                     },
                 };
@@ -490,6 +510,8 @@ const data = await response.json();`;
                             onMessageTypeChange={setEndCallMessageType}
                             customMessage={customMessage}
                             onCustomMessageChange={setCustomMessage}
+                            audioRecordingId={audioRecordingId}
+                            onAudioRecordingIdChange={setAudioRecordingId}
                             endCallReason={endCallReason}
                             onEndCallReasonChange={handleEndCallReasonChange}
                             endCallReasonDescription={endCallReasonDescription}
@@ -507,6 +529,8 @@ const data = await response.json();`;
                             onMessageTypeChange={setTransferMessageType}
                             customMessage={customMessage}
                             onCustomMessageChange={setCustomMessage}
+                            audioRecordingId={transferAudioRecordingId}
+                            onAudioRecordingIdChange={setTransferAudioRecordingId}
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
                         />
@@ -530,6 +554,10 @@ const data = await response.json();`;
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}
                             onCustomMessageChange={setCustomMessage}
+                            customMessageType={customMessageType}
+                            onCustomMessageTypeChange={setCustomMessageType}
+                            customMessageRecordingId={customMessageRecordingId}
+                            onCustomMessageRecordingIdChange={setCustomMessageRecordingId}
                         />
                     )}
 

@@ -1,14 +1,12 @@
 """Service for duplicating workflows including recordings."""
 
 import copy
-import json
 import posixpath
 import uuid
 
 from loguru import logger
 
 from api.db import db_client
-from api.db.workflow_recording_client import generate_short_id
 from api.enums import StorageBackend
 from api.services.storage import get_storage_for_backend, storage_fs
 
@@ -39,16 +37,6 @@ def _regenerate_trigger_uuids(workflow_definition: dict) -> dict:
                 node["data"] = {}
             node["data"]["trigger_path"] = str(uuid.uuid4())
     return updated_definition
-
-
-async def _generate_unique_recording_id() -> str:
-    """Generate a globally unique short recording ID."""
-    for _ in range(10):
-        rid = generate_short_id(8)
-        exists = await db_client.check_recording_id_exists(rid)
-        if not exists:
-            return rid
-    raise RuntimeError("Failed to generate unique recording ID")
 
 
 async def duplicate_workflow(
@@ -130,29 +118,15 @@ async def duplicate_workflow(
             organization_id=organization_id,
         )
 
-    # 6. Copy recordings with new IDs and storage paths scoped to new workflow
-    recording_id_map = await _duplicate_recordings(
+    # 6. Copy recordings (recording_ids are preserved since they're scoped per workflow)
+    await _duplicate_recordings(
         source_workflow_id=workflow_id,
         new_workflow_id=new_workflow.id,
         organization_id=organization_id,
         user_id=user_id,
     )
 
-    # 7. Replace old recording IDs with new ones in the workflow definition
-    if recording_id_map:
-        workflow_definition = _replace_recording_ids(
-            workflow_definition, recording_id_map
-        )
-        new_workflow = await db_client.update_workflow(
-            workflow_id=new_workflow.id,
-            name=None,
-            workflow_definition=workflow_definition,
-            template_context_variables=None,
-            workflow_configurations=None,
-            organization_id=organization_id,
-        )
-
-    # 8. Sync triggers for the new workflow
+    # 7. Sync triggers for the new workflow
     if workflow_definition:
         trigger_paths = _extract_trigger_paths(workflow_definition)
         if trigger_paths:
@@ -170,34 +144,28 @@ async def _duplicate_recordings(
     new_workflow_id: int,
     organization_id: int,
     user_id: int,
-) -> dict[str, str]:
+) -> None:
     """Duplicate all recordings for a workflow.
 
     Copies each recording file to a new storage path scoped under the new
-    workflow ID, and creates new DB records pointing to the copied files.
-
-    Returns:
-        Mapping of old_recording_id -> new_recording_id
+    workflow ID. Recording IDs are preserved since they are unique per
+    (org, workflow).
     """
-    recordings = await db_client.get_recordings_for_workflow(
+    recordings = await db_client.get_recordings(
         workflow_id=source_workflow_id,
         organization_id=organization_id,
     )
 
     if not recordings:
-        return {}
-
-    recording_id_map: dict[str, str] = {}
+        return
 
     for rec in recordings:
         try:
-            new_recording_id = await _generate_unique_recording_id()
-
-            # Build new storage key: recordings/{org_id}/{new_workflow_id}/{new_recording_id}/{filename}
+            # Build new storage key: recordings/{org_id}/{new_workflow_id}/{recording_id}/{filename}
             filename = posixpath.basename(rec.storage_key)
             new_storage_key = (
                 f"recordings/{organization_id}"
-                f"/{new_workflow_id}/{new_recording_id}"
+                f"/{new_workflow_id}/{rec.recording_id}"
                 f"/{filename}"
             )
 
@@ -211,7 +179,7 @@ async def _duplicate_recordings(
                 continue
 
             await db_client.create_recording(
-                recording_id=new_recording_id,
+                recording_id=rec.recording_id,
                 workflow_id=new_workflow_id,
                 organization_id=organization_id,
                 tts_provider=rec.tts_provider,
@@ -224,33 +192,11 @@ async def _duplicate_recordings(
                 metadata=copy.deepcopy(rec.recording_metadata),
             )
 
-            recording_id_map[rec.recording_id] = new_recording_id
-            logger.info(
-                f"Duplicated recording {rec.recording_id} -> {new_recording_id}"
-            )
+            logger.info(f"Duplicated recording {rec.recording_id}")
 
         except Exception as e:
             logger.error(f"Error duplicating recording {rec.recording_id}: {e}")
             continue
-
-    return recording_id_map
-
-
-def _replace_recording_ids(
-    workflow_definition: dict,
-    recording_id_map: dict[str, str],
-) -> dict:
-    """Replace old recording IDs with new ones throughout the workflow definition.
-
-    Uses JSON serialization to do a thorough find-and-replace across all
-    nested fields (node prompts, data, etc.).
-    """
-    definition_str = json.dumps(workflow_definition)
-
-    for old_id, new_id in recording_id_map.items():
-        definition_str = definition_str.replace(old_id, new_id)
-
-    return json.loads(definition_str)
 
 
 async def _copy_storage_object(

@@ -828,6 +828,15 @@ async def _run_pipeline(
     voicemail_detector = None
     recording_router = None
 
+    # Create recording audio fetcher (used by recording router, audio greetings,
+    # and audio transition speech)
+    fetch_audio = create_recording_audio_fetcher(
+        organization_id=workflow.organization_id,
+        workflow_id=workflow_id,
+        pipeline_sample_rate=audio_config.pipeline_sample_rate,
+    )
+    engine.set_fetch_recording_audio(fetch_audio)
+
     if not is_realtime:
         # Create voicemail detector if enabled in workflow configurations
         voicemail_config = (workflow.workflow_configurations or {}).get(
@@ -868,10 +877,6 @@ async def _run_pipeline(
 
         # Create recording router if workflow has active recordings
         if has_recordings:
-            fetch_audio = create_recording_audio_fetcher(
-                organization_id=workflow.organization_id,
-                pipeline_sample_rate=audio_config.pipeline_sample_rate,
-            )
             recording_router = RecordingRouterProcessor(
                 audio_sample_rate=audio_config.pipeline_sample_rate,
                 fetch_recording_audio=fetch_audio,
@@ -973,6 +978,7 @@ async def _run_pipeline(
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
+        fetch_recording_audio=fetch_audio,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

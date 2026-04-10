@@ -6,9 +6,10 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
     getToolApiV1ToolsToolUuidGet,
+    listRecordingsApiV1WorkflowRecordingsGet,
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
-import type { ToolResponse, TransferCallConfig as APITransferCallConfig } from "@/client/types.gen";
+import type { RecordingResponseSchema, ToolResponse, TransferCallConfig as APITransferCallConfig } from "@/client/types.gen";
 import type { EndCallConfig } from "@/client/types.gen";
 import { type HttpMethod, type KeyValueItem, type ToolParameter, validateUrl } from "@/components/http";
 import { Button } from "@/components/ui/button";
@@ -93,6 +94,9 @@ export default function ToolDetailPage() {
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
     const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
+
+    // Org-level recordings for audio dropdowns
+    const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -209,9 +213,24 @@ export default function ToolDetailPage() {
         }
     };
 
+    const fetchRecordings = useCallback(async () => {
+        if (loading || !user) return;
+        try {
+            const response = await listRecordingsApiV1WorkflowRecordingsGet({
+                query: {},
+            });
+            if (response.data) {
+                setRecordings(response.data.recordings);
+            }
+        } catch {
+            // Non-critical — dropdowns will show "No recordings available"
+        }
+    }, [loading, user]);
+
     useEffect(() => {
         fetchTool();
-    }, [fetchTool]);
+        fetchRecordings();
+    }, [fetchTool, fetchRecordings]);
 
     const handleSave = async () => {
         if (!tool) return;
@@ -512,6 +531,7 @@ const data = await response.json();`;
                             onCustomMessageChange={setCustomMessage}
                             audioRecordingId={audioRecordingId}
                             onAudioRecordingIdChange={setAudioRecordingId}
+                            recordings={recordings}
                             endCallReason={endCallReason}
                             onEndCallReasonChange={handleEndCallReasonChange}
                             endCallReasonDescription={endCallReasonDescription}
@@ -531,6 +551,7 @@ const data = await response.json();`;
                             onCustomMessageChange={setCustomMessage}
                             audioRecordingId={transferAudioRecordingId}
                             onAudioRecordingIdChange={setTransferAudioRecordingId}
+                            recordings={recordings}
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
                         />
@@ -558,6 +579,7 @@ const data = await response.json();`;
                             onCustomMessageTypeChange={setCustomMessageType}
                             customMessageRecordingId={customMessageRecordingId}
                             onCustomMessageRecordingIdChange={setCustomMessageRecordingId}
+                            recordings={recordings}
                         />
                     )}
 

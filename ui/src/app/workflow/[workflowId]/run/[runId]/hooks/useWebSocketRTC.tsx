@@ -446,6 +446,17 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             if (!firstBotSpeechCompletedRef.current) {
                                 firstBotSpeechCompletedRef.current = true;
                             }
+                            // Finalize the last bot message so "speaking..." indicator is removed
+                            setFeedbackMessages(prev => {
+                                const lastIdx = prev.length - 1;
+                                const last = prev[lastIdx];
+                                if (last && last.type === 'bot-text' && !last.final) {
+                                    const updated = [...prev];
+                                    updated[lastIdx] = { ...last, final: true };
+                                    return updated;
+                                }
+                                return prev;
+                            });
                             break;
 
                         case 'rtf-user-mute-started':

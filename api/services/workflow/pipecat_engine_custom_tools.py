@@ -16,7 +16,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
-from api.services.pipecat.recording_playback import queue_recording_audio
+from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider
 from api.services.telephony.transfer_event_protocol import TransferContext
@@ -28,7 +28,6 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
-from api.utils.hold_audio import play_hold_audio_loop
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import (
     FunctionCallResultProperties,
@@ -88,20 +87,23 @@ class CustomToolManager:
         message_type = config.get("messageType", "none")
 
         if message_type == "audio":
-            recording_id = config.get("audioRecordingId", "")
-            if recording_id and self._engine._fetch_recording_audio:
-                audio_data = await self._engine._fetch_recording_audio(recording_id)
-                if audio_data:
-                    await queue_recording_audio(
-                        audio_data,
+            recording_pk = config.get("audioRecordingId")
+            if recording_pk and self._engine._fetch_recording_audio:
+                result = await self._engine._fetch_recording_audio(
+                    recording_pk=int(recording_pk)
+                )
+                if result:
+                    await play_audio(
+                        result.audio,
                         sample_rate=self._engine._audio_config.pipeline_sample_rate
                         if self._engine._audio_config
                         else 16000,
-                        queue_frame=self._engine.task.queue_frame,
+                        queue_frame=self._engine._transport_output.queue_frame,
+                        transcript=result.transcript,
                     )
                     return True
                 else:
-                    logger.warning(f"Failed to fetch recording {recording_id}")
+                    logger.warning(f"Failed to fetch recording pk={recording_pk}")
             return False
 
         if message_type == "custom":
@@ -292,22 +294,23 @@ class CustomToolManager:
                 custom_msg_type = config.get("customMessageType", "text")
                 custom_message = config.get("customMessage", "")
                 if custom_msg_type == "audio":
-                    recording_id = config.get("customMessageRecordingId", "")
-                    if recording_id and self._engine._fetch_recording_audio:
+                    recording_pk = config.get("customMessageRecordingId")
+                    if recording_pk and self._engine._fetch_recording_audio:
                         logger.info(
-                            f"Playing audio message before HTTP tool: {recording_id}"
+                            f"Playing audio message before HTTP tool: pk={recording_pk}"
                         )
                         self._engine._queued_speech_mute_state = "waiting"
-                        audio_data = await self._engine._fetch_recording_audio(
-                            recording_id
+                        result = await self._engine._fetch_recording_audio(
+                            recording_pk=int(recording_pk)
                         )
-                        if audio_data:
-                            await queue_recording_audio(
-                                audio_data,
+                        if result:
+                            await play_audio(
+                                result.audio,
                                 sample_rate=self._engine._audio_config.pipeline_sample_rate
                                 if self._engine._audio_config
                                 else 16000,
-                                queue_frame=self._engine.task.queue_frame,
+                                queue_frame=self._engine._transport_output.queue_frame,
+                                transcript=result.transcript,
                             )
                 elif custom_message:
                     logger.info(
@@ -587,10 +590,10 @@ class CustomToolManager:
 
                     # Start hold music as background task
                     hold_music_task = asyncio.create_task(
-                        play_hold_audio_loop(
-                            self._engine.task,
-                            hold_music_stop_event,
-                            sample_rate,
+                        play_audio_loop(
+                            stop_event=hold_music_stop_event,
+                            sample_rate=sample_rate,
+                            queue_frame=self._engine._transport_output.queue_frame,
                         )
                     )
 

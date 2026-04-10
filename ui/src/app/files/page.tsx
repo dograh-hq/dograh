@@ -1,11 +1,18 @@
 "use client";
 
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuth } from "@/lib/auth";
 
 import DocumentList from "./DocumentList";
@@ -14,6 +21,7 @@ import DocumentUpload from "./DocumentUpload";
 export default function FilesPage() {
     const { user, redirectToLogin, loading } = useAuth();
     const [refreshKey, setRefreshKey] = useState(0);
+    const [isUploadOpen, setIsUploadOpen] = useState(false);
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -23,8 +31,8 @@ export default function FilesPage() {
     }, [loading, user, redirectToLogin]);
 
     const handleUploadSuccess = () => {
-        // Trigger refresh of document list
         setRefreshKey(prev => prev + 1);
+        setIsUploadOpen(false);
     };
 
     if (loading || !user) {
@@ -50,44 +58,37 @@ export default function FilesPage() {
                 </p>
             </div>
 
-            <Tabs defaultValue="all" className="space-y-6">
-                <TabsList>
-                    <TabsTrigger value="all">All Files</TabsTrigger>
-                    <TabsTrigger value="upload">Upload New</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="all" className="space-y-4">
-                    <Card>
-                        <CardHeader>
+            <Card>
+                <CardHeader>
+                    <div className="flex justify-between items-center">
+                        <div>
                             <CardTitle>Your Documents</CardTitle>
                             <CardDescription>
-                                View and manage your uploaded documents
+                                Documents shared across all agents in your organization
                             </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <DocumentList
-                                refreshTrigger={refreshKey}
-                            />
-                        </CardContent>
-                    </Card>
-                </TabsContent>
+                        </div>
+                        <Button onClick={() => setIsUploadOpen(true)}>
+                            <Upload className="w-4 h-4 mr-2" />
+                            Upload Document
+                        </Button>
+                    </div>
+                </CardHeader>
+                <CardContent>
+                    <DocumentList refreshTrigger={refreshKey} />
+                </CardContent>
+            </Card>
 
-                <TabsContent value="upload" className="space-y-4">
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Upload Document</CardTitle>
-                            <CardDescription>
-                                Upload a PDF or document file to add to your knowledge base
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <DocumentUpload
-                                onUploadSuccess={handleUploadSuccess}
-                            />
-                        </CardContent>
-                    </Card>
-                </TabsContent>
-            </Tabs>
+            <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Upload Document</DialogTitle>
+                        <DialogDescription>
+                            Upload a PDF or document file to add to your knowledge base
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DocumentUpload onUploadSuccess={handleUploadSuccess} />
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

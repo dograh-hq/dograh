@@ -170,7 +170,10 @@ class RealtimeFeedbackObserver(BaseObserver):
         frame_direction = data.direction
 
         # Skip already processed frames (frames can be observed multiple times)
-        if frame.id in self._frames_seen:
+        if (
+            frame.id in self._frames_seen
+            or frame_direction != FrameDirection.DOWNSTREAM
+        ):
             return
         self._frames_seen.add(frame.id)
 

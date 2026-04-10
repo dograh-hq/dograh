@@ -245,8 +245,8 @@ class RecordingRouterProcessor(FrameProcessor):
         """
         logger.info(f"Playing pre-recorded audio: {recording_id}")
 
-        audio_data = await self._fetch_recording_audio(recording_id)
-        if not audio_data:
+        result = await self._fetch_recording_audio(recording_id=recording_id)
+        if not result:
             logger.warning(
                 f"Failed to fetch recording {recording_id}, no audio will play"
             )
@@ -256,7 +256,7 @@ class RecordingRouterProcessor(FrameProcessor):
         await self.push_frame(TTSStartedFrame(context_id=context_id))
         await self.push_frame(
             TTSAudioRawFrame(
-                audio=audio_data,
+                audio=result.audio,
                 sample_rate=self._audio_sample_rate,
                 num_channels=1,
                 context_id=context_id,
@@ -264,10 +264,10 @@ class RecordingRouterProcessor(FrameProcessor):
         )
         await self.push_frame(TTSStoppedFrame(context_id=context_id))
 
-        duration_secs = len(audio_data) / (self._audio_sample_rate * 2)
+        duration_secs = len(result.audio) / (self._audio_sample_rate * 2)
         logger.debug(
             f"Finished pushing recording {recording_id} "
-            f"({len(audio_data)} bytes, {duration_secs:.1f}s)"
+            f"({len(result.audio)} bytes, {duration_secs:.1f}s)"
         )
 
     # ------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import { Loader2, Mic, Pause, Play, Square, Trash2Icon, Upload, X } from "lucide-react";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -357,6 +358,10 @@ export const RecordingsDialog = ({
     const handlePlay = async (rec: RecordingResponseSchema) => {
         try {
             await togglePlayback(rec.recording_id, rec.storage_key, rec.storage_backend);
+            posthog.capture('recording_played', {
+                recording_id: rec.recording_id,
+                source: 'recordings_dialog',
+            });
         } catch {
             setError("Failed to play recording");
         }

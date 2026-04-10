@@ -483,6 +483,7 @@ async def run_pipeline_smallwebrtc(
     workflow_run_id: int,
     user_id: int,
     call_context_vars: dict = {},
+    user_provider_id: str | None = None,
 ) -> None:
     """Run pipeline for WebRTC connections"""
     logger.debug(
@@ -524,6 +525,7 @@ async def run_pipeline_smallwebrtc(
         user_id,
         call_context_vars=call_context_vars,
         audio_config=audio_config,
+        user_provider_id=user_provider_id,
     )
 
 
@@ -534,6 +536,7 @@ async def _run_pipeline(
     user_id: int,
     call_context_vars: dict = {},
     audio_config: AudioConfig = None,
+    user_provider_id: str | None = None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -962,7 +965,10 @@ async def _run_pipeline(
         in_memory_logs_buffer, user_context_aggregator, assistant_context_aggregator
     )
 
-    # Register event handlers
+    # Register event handlers — resolve provider_id for PostHog tracking
+    if not user_provider_id:
+        user_obj = await db_client.get_user_by_id(user_id)
+        user_provider_id = str(user_obj.provider_id) if user_obj else None
     in_memory_audio_buffer = register_event_handlers(
         task,
         transport,
@@ -973,6 +979,7 @@ async def _run_pipeline(
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
+        user_provider_id=user_provider_id,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

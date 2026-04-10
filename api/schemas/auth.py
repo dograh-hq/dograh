@@ -24,6 +24,7 @@ class UserResponse(BaseModel):
     email: str | None
     name: str | None = None
     organization_id: int | None = None
+    provider_id: str | None = None
 
 
 class AuthResponse(BaseModel):

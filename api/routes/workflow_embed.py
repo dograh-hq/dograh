@@ -10,6 +10,7 @@ from api.constants import BACKEND_API_ENDPOINT, ENVIRONMENT, UI_APP_URL
 from api.db import db_client
 from api.db.models import EmbedTokenModel, UserModel
 from api.services.auth.depends import get_user
+from api.services.posthog_client import capture_event
 
 router = APIRouter(prefix="/workflow")
 
@@ -102,6 +103,17 @@ async def create_or_update_embed_token(
             usage_limit=embed_request.usage_limit,
             expires_at=expires_at,
         )
+
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event="agent_embedded",
+        properties={
+            "workflow_id": workflow_id,
+            "is_new_token": len(existing_tokens) == 0,
+            "has_domain_restriction": bool(embed_request.allowed_domains),
+            "organization_id": user.selected_organization_id,
+        },
+    )
 
     # Generate embed script
     embed_script = generate_embed_script(token)

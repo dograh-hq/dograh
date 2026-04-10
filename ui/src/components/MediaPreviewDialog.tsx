@@ -1,6 +1,7 @@
 'use client';
 
 import { Headphones, Loader2 } from 'lucide-react';
+import posthog from 'posthog-js';
 import { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,11 @@ export function MediaPreviewDialog() {
                     const response = await fetch(transcriptResult);
                     const text = await response.text();
                     setTranscriptContent(text);
+                    posthog.capture('transcript_viewed', {
+                        run_id: runId,
+                        source: 'media_preview_dialog',
+                        transcript_length: text.length,
+                    });
                 } catch (error) {
                     console.error('Error fetching transcript:', error);
                 }
@@ -78,7 +84,16 @@ export function MediaPreviewDialog() {
                     )}
 
                     {!mediaLoading && audioSignedUrl && (
-                        <audio src={audioSignedUrl} controls autoPlay className="w-full mt-4" />
+                        <audio
+                            src={audioSignedUrl}
+                            controls
+                            autoPlay
+                            className="w-full mt-4"
+                            onPlay={() => posthog.capture('recording_played', {
+                                run_id: selectedRunId,
+                                source: 'media_preview_dialog',
+                            })}
+                        />
                     )}
 
                     {!mediaLoading && transcriptContent && (

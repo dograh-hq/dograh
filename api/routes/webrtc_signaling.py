@@ -281,7 +281,12 @@ class SignalingManager:
             # Start pipeline in background
             asyncio.create_task(
                 run_pipeline_smallwebrtc(
-                    pc, workflow_id, workflow_run_id, user.id, call_context_vars
+                    pc,
+                    workflow_id,
+                    workflow_run_id,
+                    user.id,
+                    call_context_vars,
+                    user_provider_id=str(user.provider_id),
                 )
             )
 

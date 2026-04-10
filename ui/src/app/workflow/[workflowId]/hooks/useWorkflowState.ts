@@ -8,6 +8,7 @@ import {
 } from "@xyflow/react";
 import { EdgeChange, NodeChange } from "@xyflow/system";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useRef } from "react";
 
 import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
@@ -290,8 +291,12 @@ export const useWorkflowState = ({
 
         // Use addNodes from ReactFlow instance
         rfInstance.current.addNodes([newNode]);
+        posthog.capture('workflow_node_added', {
+            node_type: nodeType,
+            workflow_id: workflowId,
+        });
         setIsAddNodePanelOpen(false);
-    }, [nodes, setIsAddNodePanelOpen]);
+    }, [nodes, setIsAddNodePanelOpen, workflowId]);
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setWorkflowName(e.target.value);

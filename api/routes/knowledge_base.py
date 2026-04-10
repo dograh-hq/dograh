@@ -17,6 +17,7 @@ from api.schemas.knowledge_base import (
     ProcessDocumentRequestSchema,
 )
 from api.services.auth.depends import get_user
+from api.services.posthog_client import capture_event
 from api.services.storage import storage_fs
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
@@ -140,6 +141,18 @@ async def process_document(
         logger.info(
             f"Created document {request.document_uuid} (id={document.id}) and enqueued processing "
             f"with OpenAI embeddings, org {user.selected_organization_id}"
+        )
+
+        capture_event(
+            distinct_id=str(user.provider_id),
+            event="knowledge_base_created",
+            properties={
+                "document_id": document.id,
+                "document_uuid": str(request.document_uuid),
+                "filename": filename,
+                "retrieval_mode": request.retrieval_mode,
+                "organization_id": user.selected_organization_id,
+            },
         )
 
         return DocumentResponseSchema(

@@ -13,6 +13,7 @@ export interface LocalUser extends BaseUser {
   provider: 'local';
   organizationId?: string;
   displayName?: string;
+  provider_id?: string;
 }
 
 // Union type for all user types

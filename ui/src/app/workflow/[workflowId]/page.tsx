@@ -1,6 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
+import posthog from 'posthog-js';
 import { useEffect, useMemo, useState } from 'react';
 
 import RenderWorkflow from '@/app/workflow/[workflowId]/RenderWorkflow';
@@ -39,6 +40,10 @@ export default function WorkflowDetailPage() {
                 });
                 const workflow = response.data;
                 setWorkflow(workflow);
+                posthog.capture('workflow_editor_opened', {
+                    workflow_id: workflow?.id,
+                    workflow_name: workflow?.name,
+                });
             } catch (err) {
                 setError('Failed to fetch workflow');
                 logger.error(`Error fetching workflow: ${err}`);

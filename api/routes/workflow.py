@@ -825,11 +825,10 @@ async def duplicate_workflow_endpoint(
 
         capture_event(
             distinct_id=str(user.provider_id),
-            event="workflow_created",
+            event="workflow_duplicated",
             properties={
                 "workflow_id": workflow.id,
                 "workflow_name": workflow.name,
-                "source": "duplicate",
                 "source_workflow_id": workflow_id,
                 "organization_id": user.selected_organization_id,
             },

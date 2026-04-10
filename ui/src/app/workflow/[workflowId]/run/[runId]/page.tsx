@@ -3,6 +3,7 @@
 import { Check, Copy, ExternalLink, FileText, LoaderCircle, Phone, Video } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
+import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
 import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
@@ -17,6 +18,7 @@ import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOnboarding } from '@/context/OnboardingContext';
 import { useAuth } from '@/lib/auth';
@@ -114,7 +116,7 @@ export default function WorkflowRunPage() {
                 },
             });
             setIsLoading(false);
-            setWorkflowRun({
+            const runData = {
                 is_completed: response.data?.is_completed ?? false,
                 transcript_url: response.data?.transcript_url ?? null,
                 recording_url: response.data?.recording_url ?? null,
@@ -122,6 +124,14 @@ export default function WorkflowRunPage() {
                 gathered_context: response.data?.gathered_context as Record<string, string> | null ?? null,
                 logs: response.data?.logs as WorkflowRunLogs | null ?? null,
                 annotations: response.data?.annotations as Record<string, unknown> | null ?? null,
+            };
+            setWorkflowRun(runData);
+            posthog.capture(PostHogEvent.WORKFLOW_RUN_DETAILS_VIEWED, {
+                workflow_id: Number(workflowId),
+                run_id: Number(runId),
+                is_completed: runData.is_completed,
+                has_recording: !!runData.recording_url,
+                has_transcript: !!runData.transcript_url,
             });
         };
         fetchWorkflowRun();

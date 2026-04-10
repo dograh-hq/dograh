@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import OrganizationConfigurationKey
+from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.telephony_config import (
     ARIConfigurationRequest,
     ARIConfigurationResponse,
@@ -24,6 +24,7 @@ from api.schemas.telephony_config import (
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
+from api.services.posthog_client import capture_event
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
 
@@ -255,6 +256,16 @@ async def save_telephony_configuration(
         user.selected_organization_id,
         OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
         config_value,
+    )
+
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event=PostHogEvent.TELEPHONY_CONFIGURED,
+        properties={
+            "provider": request.provider,
+            "phone_number_count": len(request.from_numbers),
+            "organization_id": user.selected_organization_id,
+        },
     )
 
     return {"message": "Telephony configuration saved successfully"}

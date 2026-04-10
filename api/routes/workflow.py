@@ -13,7 +13,7 @@ from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
-from api.enums import CallType, StorageBackend
+from api.enums import CallType, PostHogEvent, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -23,6 +23,7 @@ from api.services.configuration.masking import (
 )
 from api.services.configuration.resolve import resolve_effective_config
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.posthog_client import capture_event
 from api.services.storage import storage_fs
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.duplicate import duplicate_workflow
@@ -287,6 +288,17 @@ async def create_workflow(
         user.selected_organization_id,
     )
 
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event=PostHogEvent.WORKFLOW_CREATED,
+        properties={
+            "workflow_id": workflow.id,
+            "workflow_name": workflow.name,
+            "source": "direct",
+            "organization_id": user.selected_organization_id,
+        },
+    )
+
     # Sync agent triggers if workflow definition contains any
     if request.workflow_definition:
         trigger_paths = extract_trigger_paths(request.workflow_definition)
@@ -363,6 +375,19 @@ async def create_workflow_from_template(
             workflow_definition=workflow_def,
             user_id=user.id,
             organization_id=user.selected_organization_id,
+        )
+
+        capture_event(
+            distinct_id=str(user.provider_id),
+            event=PostHogEvent.WORKFLOW_CREATED,
+            properties={
+                "workflow_id": workflow.id,
+                "workflow_name": workflow.name,
+                "source": "template",
+                "call_type": request.call_type,
+                "use_case": request.use_case,
+                "organization_id": user.selected_organization_id,
+            },
         )
 
         # Sync agent triggers if workflow definition contains any
@@ -568,6 +593,16 @@ async def publish_workflow(
         published = await db_client.publish_workflow_draft(workflow_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event=PostHogEvent.WORKFLOW_PUBLISHED,
+        properties={
+            "workflow_id": workflow_id,
+            "version_number": published.version_number,
+            "organization_id": user.selected_organization_id,
+        },
+    )
 
     return {
         "id": published.id,
@@ -787,6 +822,18 @@ async def duplicate_workflow_endpoint(
             organization_id=user.selected_organization_id,
             user_id=user.id,
         )
+
+        capture_event(
+            distinct_id=str(user.provider_id),
+            event=PostHogEvent.WORKFLOW_DUPLICATED,
+            properties={
+                "workflow_id": workflow.id,
+                "workflow_name": workflow.name,
+                "source_workflow_id": workflow_id,
+                "organization_id": user.selected_organization_id,
+            },
+        )
+
         return {
             "id": workflow.id,
             "name": workflow.name,

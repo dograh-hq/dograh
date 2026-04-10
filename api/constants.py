@@ -51,6 +51,10 @@ S3_REGION = os.environ.get("S3_REGION", "us-east-1")
 # Sentry configuration
 SENTRY_DSN = os.getenv("SENTRY_DSN")
 
+# PostHog configuration
+POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY")
+POSTHOG_HOST = os.getenv("POSTHOG_HOST", "https://us.i.posthog.com")
+
 
 ENABLE_ARI_STASIS = os.getenv("ENABLE_ARI_STASIS", "false").lower() == "true"
 SERIALIZE_LOG_OUTPUT = os.getenv("SERIALIZE_LOG_OUTPUT", "false").lower() == "true"

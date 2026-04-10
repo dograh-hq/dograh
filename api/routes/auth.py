@@ -60,6 +60,7 @@ async def signup(request: SignupRequest):
             email=user.email,
             name=request.name,
             organization_id=organization.id,
+            provider_id=user.provider_id,
         ),
     )
 
@@ -84,6 +85,7 @@ async def login(request: LoginRequest):
             id=user.id,
             email=user.email,
             organization_id=user.selected_organization_id,
+            provider_id=user.provider_id,
         ),
     )
 
@@ -94,4 +96,5 @@ async def get_current_user(user: UserModel = Depends(get_user)):
         id=user.id,
         email=user.email,
         organization_id=user.selected_organization_id,
+        provider_id=user.provider_id,
     )

@@ -3,7 +3,7 @@ import asyncio
 from loguru import logger
 
 from api.db import db_client
-from api.enums import WorkflowRunState
+from api.enums import PostHogEvent, WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.in_memory_buffers import (
@@ -12,6 +12,7 @@ from api.services.pipecat.in_memory_buffers import (
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.tracing_config import get_trace_url
+from api.services.posthog_client import capture_event
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
@@ -20,6 +21,37 @@ from pipecat.frames.frames import Frame, LLMContextFrame, TTSSpeakFrame
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.enums import EndTaskReason
+
+
+async def _capture_call_event(
+    workflow_run_id: int,
+    user_provider_id: str | None,
+    event: str,
+    extra_properties: dict | None = None,
+) -> None:
+    """Look up workflow_run for call metadata and fire a PostHog event.
+    Meant to be run via asyncio.create_task() so it never blocks the pipeline."""
+    try:
+        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+        properties = {
+            "workflow_run_id": workflow_run_id,
+            "workflow_id": workflow_run.workflow_id if workflow_run else None,
+            "call_type": workflow_run.mode if workflow_run else None,
+            "call_direction": (workflow_run.initial_context or {}).get(
+                "direction", "outbound"
+            )
+            if workflow_run
+            else None,
+        }
+        if extra_properties:
+            properties.update(extra_properties)
+        capture_event(
+            distinct_id=user_provider_id,
+            event=event,
+            properties=properties,
+        )
+    except Exception:
+        logger.exception(f"Background PostHog capture failed for '{event}'")
 
 
 def register_event_handlers(
@@ -32,6 +64,7 @@ def register_event_handlers(
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
     pre_call_fetch_task: asyncio.Task | None = None,
+    user_provider_id: str | None = None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -74,6 +107,12 @@ def register_event_handlers(
             and not ready_state["initial_response_triggered"]
         ):
             ready_state["initial_response_triggered"] = True
+
+            asyncio.create_task(
+                _capture_call_event(
+                    workflow_run_id, user_provider_id, PostHogEvent.CALL_STARTED
+                )
+            )
 
             # Wait for pre-call fetch if in progress, playing ringer meanwhile
             if pre_call_fetch_task is not None:
@@ -161,6 +200,14 @@ def register_event_handlers(
                 await circuit_breaker.record_and_evaluate(
                     campaign_id=workflow_run.campaign_id, is_failure=True
                 )
+            asyncio.create_task(
+                _capture_call_event(
+                    workflow_run_id,
+                    user_provider_id,
+                    PostHogEvent.CALL_FAILED,
+                    extra_properties={"error_reason": "pipeline_error"},
+                )
+            )
         except Exception as e:
             logger.error(f"Error recording circuit breaker failure: {e}", exc_info=True)
 
@@ -267,6 +314,12 @@ def register_event_handlers(
             gathered_context=gathered_context,
             is_completed=True,
             state=WorkflowRunState.COMPLETED.value,
+        )
+
+        asyncio.create_task(
+            _capture_call_event(
+                workflow_run_id, user_provider_id, PostHogEvent.CALL_COMPLETED
+            )
         )
 
         # Save real-time feedback logs to workflow run

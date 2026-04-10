@@ -16,6 +16,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
+from api.services.pipecat.recording_playback import queue_recording_audio
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import get_telephony_provider
 from api.services.telephony.transfer_event_protocol import TransferContext
@@ -76,6 +77,42 @@ class CustomToolManager:
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
         self._organization_id: Optional[int] = None
+
+    async def _play_config_message(
+        self, config: dict, *, append_to_context: bool = False
+    ) -> bool:
+        """Play a message from tool config — text or pre-recorded audio.
+
+        Returns True if a message was queued, False otherwise.
+        """
+        message_type = config.get("messageType", "none")
+
+        if message_type == "audio":
+            recording_id = config.get("audioRecordingId", "")
+            if recording_id and self._engine._fetch_recording_audio:
+                audio_data = await self._engine._fetch_recording_audio(recording_id)
+                if audio_data:
+                    await queue_recording_audio(
+                        audio_data,
+                        sample_rate=self._engine._audio_config.pipeline_sample_rate
+                        if self._engine._audio_config
+                        else 16000,
+                        queue_frame=self._engine.task.queue_frame,
+                    )
+                    return True
+                else:
+                    logger.warning(f"Failed to fetch recording {recording_id}")
+            return False
+
+        if message_type == "custom":
+            custom_message = config.get("customMessage", "")
+            if custom_message:
+                await self._engine.task.queue_frame(
+                    TTSSpeakFrame(custom_message, append_to_context=append_to_context)
+                )
+                return True
+
+        return False
 
     async def get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -250,9 +287,29 @@ class CustomToolManager:
 
             try:
                 # Queue custom message before executing the API call
+                # Queue custom message (text or audio) before executing the API call
                 config = tool.definition.get("config", {}) if tool.definition else {}
+                custom_msg_type = config.get("customMessageType", "text")
                 custom_message = config.get("customMessage", "")
-                if custom_message:
+                if custom_msg_type == "audio":
+                    recording_id = config.get("customMessageRecordingId", "")
+                    if recording_id and self._engine._fetch_recording_audio:
+                        logger.info(
+                            f"Playing audio message before HTTP tool: {recording_id}"
+                        )
+                        self._engine._queued_speech_mute_state = "waiting"
+                        audio_data = await self._engine._fetch_recording_audio(
+                            recording_id
+                        )
+                        if audio_data:
+                            await queue_recording_audio(
+                                audio_data,
+                                sample_rate=self._engine._audio_config.pipeline_sample_rate
+                                if self._engine._audio_config
+                                else 16000,
+                                queue_frame=self._engine.task.queue_frame,
+                            )
+                elif custom_message:
                     logger.info(
                         f"Playing custom message before HTTP tool: {custom_message}"
                     )
@@ -299,8 +356,6 @@ class CustomToolManager:
             try:
                 # Get the end call configuration
                 config = tool.definition.get("config", {})
-                message_type = config.get("messageType", "none")
-                custom_message = config.get("customMessage", "")
 
                 # Handle end call reason if enabled
                 end_call_reason_enabled = config.get("endCallReason", False)
@@ -322,10 +377,8 @@ class CustomToolManager:
                     properties=properties,
                 )
 
-                if message_type == "custom" and custom_message:
-                    # Queue the custom message to be spoken
-                    logger.info(f"Playing custom goodbye message: {custom_message}")
-                    await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
+                played = await self._play_config_message(config)
+                if played:
                     # End the call after the message (not immediately)
                     await self._engine.end_call_with_reason(
                         EndTaskReason.END_CALL_TOOL_REASON.value,
@@ -370,8 +423,6 @@ class CustomToolManager:
                 # Get the transfer call configuration
                 config = tool.definition.get("config", {})
                 destination = config.get("destination", "")
-                message_type = config.get("messageType", "none")
-                custom_message = config.get("customMessage", "")
                 timeout_seconds = config.get(
                     "timeout", 30
                 )  # Default 30 seconds if not configured
@@ -443,10 +494,9 @@ class CustomToolManager:
                         )
                         return
 
-                if message_type == "custom" and custom_message:
-                    logger.info(f"Playing pre-transfer message: {custom_message}")
+                played = await self._play_config_message(config)
+                if played:
                     self._engine._queued_speech_mute_state = "waiting"
-                    await self._engine.task.queue_frame(TTSSpeakFrame(custom_message))
 
                 # Get organization ID for provider configuration
                 organization_id = await self.get_organization_id()

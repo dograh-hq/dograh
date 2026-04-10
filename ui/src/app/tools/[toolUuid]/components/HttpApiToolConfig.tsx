@@ -2,6 +2,8 @@
 
 import { AlertCircle } from "lucide-react";
 
+import type { RecordingResponseSchema } from "@/client/types.gen";
+import { TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {
     CredentialSelector,
     type HttpMethod,
@@ -37,6 +39,11 @@ export interface HttpApiToolConfigProps {
     onTimeoutMsChange: (timeout: number) => void;
     customMessage: string;
     onCustomMessageChange: (message: string) => void;
+    customMessageType: 'text' | 'audio';
+    onCustomMessageTypeChange: (type: 'text' | 'audio') => void;
+    customMessageRecordingId: string;
+    onCustomMessageRecordingIdChange: (id: string) => void;
+    recordings?: RecordingResponseSchema[];
 }
 
 export function HttpApiToolConfig({
@@ -58,6 +65,11 @@ export function HttpApiToolConfig({
     onTimeoutMsChange,
     customMessage,
     onCustomMessageChange,
+    customMessageType,
+    onCustomMessageTypeChange,
+    customMessageRecordingId,
+    onCustomMessageRecordingIdChange,
+    recordings = [],
 }: HttpApiToolConfigProps) {
     return (
         <Card>
@@ -136,18 +148,28 @@ export function HttpApiToolConfig({
                         <div className="grid gap-2 pt-4 border-t">
                             <Label>Custom Message</Label>
                             <Label className="text-xs text-muted-foreground">
-                                Optional message the AI will speak before executing this tool (e.g., &quot;Let me look that up for you&quot;)
+                                Optional message the AI will speak or play before executing this tool.
                             </Label>
-                            <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
-                                <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                                <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
-                            </div>
-                            <Textarea
-                                value={customMessage}
-                                onChange={(e) => onCustomMessageChange(e.target.value)}
-                                placeholder="e.g., Let me check that for you, one moment please."
-                                rows={2}
-                            />
+                            <TextOrAudioInput
+                                type={customMessageType}
+                                onTypeChange={onCustomMessageTypeChange}
+                                recordingId={customMessageRecordingId}
+                                onRecordingIdChange={onCustomMessageRecordingIdChange}
+                                recordings={recordings}
+                            >
+                                <>
+                                    <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
+                                        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                                        <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
+                                    </div>
+                                    <Textarea
+                                        value={customMessage}
+                                        onChange={(e) => onCustomMessageChange(e.target.value)}
+                                        placeholder="e.g., Let me check that for you, one moment please."
+                                        rows={2}
+                                    />
+                                </>
+                            </TextOrAudioInput>
                         </div>
                     </TabsContent>
 

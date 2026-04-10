@@ -3,6 +3,8 @@
 import { AlertCircle } from "lucide-react";
 import {useState } from "react";
 
+import type { RecordingResponseSchema } from "@/client/types.gen";
+import { RecordingSelect } from "@/components/flow/TextOrAudioInput";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,6 +24,9 @@ export interface TransferCallToolConfigProps {
     onMessageTypeChange: (messageType: EndCallMessageType) => void;
     customMessage: string;
     onCustomMessageChange: (message: string) => void;
+    audioRecordingId: string;
+    onAudioRecordingIdChange: (id: string) => void;
+    recordings?: RecordingResponseSchema[];
     timeout?: number;  // Make optional to match API type
     onTimeoutChange: (timeout: number) => void;
 }
@@ -37,6 +42,9 @@ export function TransferCallToolConfig({
     onMessageTypeChange,
     customMessage,
     onCustomMessageChange,
+    audioRecordingId,
+    onAudioRecordingIdChange,
+    recordings = [],
     timeout,
     onTimeoutChange,
 }: TransferCallToolConfigProps) {
@@ -178,6 +186,24 @@ export function TransferCallToolConfig({
                                     onChange={(e) => onCustomMessageChange(e.target.value)}
                                     placeholder="e.g., Please hold while I transfer your call."
                                     rows={2}
+                                />
+                            </div>
+                        )}
+                        <div className="flex items-start space-x-3 p-3 border rounded-lg hover:bg-muted/50">
+                            <RadioGroupItem value="audio" id="audio" className="mt-1" />
+                            <label htmlFor="audio" className="flex-1 space-y-2 cursor-pointer">
+                                <span className="font-medium">Pre-recorded Audio</span>
+                                <p className="text-xs text-muted-foreground">
+                                    Play a pre-recorded audio file before transferring
+                                </p>
+                            </label>
+                        </div>
+                        {messageType === "audio" && (
+                            <div className="pl-8">
+                                <RecordingSelect
+                                    value={audioRecordingId}
+                                    onChange={onAudioRecordingIdChange}
+                                    recordings={recordings}
                                 />
                             </div>
                         )}

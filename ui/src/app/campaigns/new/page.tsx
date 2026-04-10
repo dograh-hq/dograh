@@ -415,7 +415,6 @@ export default function NewCampaignPage() {
                                 />
                             ) : (
                                 <CsvUploadSelector
-                                    accessToken={userAccessToken}
                                     onFileUploaded={handleFileUploaded}
                                     selectedFileName={selectedFileName}
                                 />

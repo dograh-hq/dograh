@@ -14,7 +14,7 @@ import type {
 
 export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration";
 
-export type EndCallMessageType = "none" | "custom";
+export type EndCallMessageType = "none" | "custom" | "audio";
 
 export interface ToolCategoryConfig {
     value: ToolCategory;

@@ -77,19 +77,19 @@ class WorkflowRecordingClient(BaseDBClient):
             )
             return recording
 
-    async def get_recordings_for_workflow(
+    async def get_recordings(
         self,
-        workflow_id: int,
         organization_id: int,
+        workflow_id: Optional[int] = None,
         tts_provider: Optional[str] = None,
         tts_model: Optional[str] = None,
         tts_voice_id: Optional[str] = None,
     ) -> List[WorkflowRecordingModel]:
-        """Get recordings for a workflow, optionally filtered by TTS config.
+        """Get recordings for an organization, optionally filtered by workflow and TTS config.
 
         Args:
-            workflow_id: ID of the workflow
             organization_id: ID of the organization
+            workflow_id: Optional workflow ID filter
             tts_provider: Optional TTS provider filter
             tts_model: Optional TTS model filter
             tts_voice_id: Optional TTS voice ID filter
@@ -99,11 +99,12 @@ class WorkflowRecordingClient(BaseDBClient):
         """
         async with self.async_session() as session:
             query = select(WorkflowRecordingModel).where(
-                WorkflowRecordingModel.workflow_id == workflow_id,
                 WorkflowRecordingModel.organization_id == organization_id,
                 WorkflowRecordingModel.is_active == True,
             )
 
+            if workflow_id is not None:
+                query = query.where(WorkflowRecordingModel.workflow_id == workflow_id)
             if tts_provider:
                 query = query.where(WorkflowRecordingModel.tts_provider == tts_provider)
             if tts_model:
@@ -120,12 +121,14 @@ class WorkflowRecordingClient(BaseDBClient):
         self,
         recording_id: str,
         organization_id: int,
+        workflow_id: int,
     ) -> Optional[WorkflowRecordingModel]:
-        """Get a recording by its short ID.
+        """Get a recording by its string recording_id (unique per org + workflow).
 
         Args:
-            recording_id: The short unique recording ID
+            recording_id: The descriptive recording ID
             organization_id: ID of the organization
+            workflow_id: ID of the workflow
 
         Returns:
             WorkflowRecordingModel if found, None otherwise
@@ -133,6 +136,31 @@ class WorkflowRecordingClient(BaseDBClient):
         async with self.async_session() as session:
             query = select(WorkflowRecordingModel).where(
                 WorkflowRecordingModel.recording_id == recording_id,
+                WorkflowRecordingModel.organization_id == organization_id,
+                WorkflowRecordingModel.workflow_id == workflow_id,
+                WorkflowRecordingModel.is_active == True,
+            )
+
+            result = await session.execute(query)
+            return result.scalar_one_or_none()
+
+    async def get_recording_by_id(
+        self,
+        id: int,
+        organization_id: int,
+    ) -> Optional[WorkflowRecordingModel]:
+        """Get a recording by its integer primary key.
+
+        Args:
+            id: The primary key ID
+            organization_id: ID of the organization
+
+        Returns:
+            WorkflowRecordingModel if found, None otherwise
+        """
+        async with self.async_session() as session:
+            query = select(WorkflowRecordingModel).where(
+                WorkflowRecordingModel.id == id,
                 WorkflowRecordingModel.organization_id == organization_id,
                 WorkflowRecordingModel.is_active == True,
             )
@@ -167,11 +195,15 @@ class WorkflowRecordingClient(BaseDBClient):
             result = await session.execute(query)
             return result.scalar_one() > 0
 
-    async def check_recording_id_exists(self, recording_id: str) -> bool:
-        """Check if a recording ID already exists globally.
+    async def check_recording_id_exists(
+        self, recording_id: str, organization_id: int, workflow_id: int
+    ) -> bool:
+        """Check if a recording ID already exists within an organization and workflow.
 
         Args:
-            recording_id: The short recording ID to check
+            recording_id: The recording ID to check
+            organization_id: ID of the organization
+            workflow_id: ID of the workflow
 
         Returns:
             True if exists, False otherwise
@@ -179,9 +211,51 @@ class WorkflowRecordingClient(BaseDBClient):
         async with self.async_session() as session:
             query = select(WorkflowRecordingModel.id).where(
                 WorkflowRecordingModel.recording_id == recording_id,
+                WorkflowRecordingModel.organization_id == organization_id,
+                WorkflowRecordingModel.workflow_id == workflow_id,
+                WorkflowRecordingModel.is_active == True,
             )
             result = await session.execute(query)
             return result.scalar_one_or_none() is not None
+
+    async def update_recording_id(
+        self,
+        id: int,
+        new_recording_id: str,
+        organization_id: int,
+    ) -> Optional[WorkflowRecordingModel]:
+        """Update the recording_id of a recording.
+
+        Args:
+            id: Primary key ID of the recording
+            new_recording_id: New recording ID
+            organization_id: ID of the organization
+
+        Returns:
+            Updated WorkflowRecordingModel if found, None otherwise
+        """
+        async with self.async_session() as session:
+            query = select(WorkflowRecordingModel).where(
+                WorkflowRecordingModel.id == id,
+                WorkflowRecordingModel.organization_id == organization_id,
+                WorkflowRecordingModel.is_active == True,
+            )
+            result = await session.execute(query)
+            recording = result.scalar_one_or_none()
+
+            if not recording:
+                return None
+
+            old_id = recording.recording_id
+            recording.recording_id = new_recording_id
+            await session.commit()
+            await session.refresh(recording)
+
+            logger.info(
+                f"Updated recording ID {old_id} -> {new_recording_id}, "
+                f"org {organization_id}"
+            )
+            return recording
 
     async def delete_recording(
         self,

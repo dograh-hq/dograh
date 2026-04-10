@@ -19,6 +19,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { UnsavedChangesProvider, useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { useAuth } from "@/lib/auth";
 import logger from "@/lib/logger";
@@ -112,6 +113,21 @@ function GeneralSection({
     const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
     const ambientFileInputRef = useRef<HTMLInputElement>(null);
     const { playingId, toggle: togglePlayback } = useAudioPlayback();
+
+    const isDirty = useMemo(() => {
+        const initAmbient = workflowConfigurations.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG;
+        return (
+            name !== workflowName ||
+            JSON.stringify(ambientNoiseConfig) !== JSON.stringify(initAmbient) ||
+            maxCallDuration !== (workflowConfigurations.max_call_duration || 600) ||
+            maxUserIdleTimeout !== (workflowConfigurations.max_user_idle_timeout || 10) ||
+            smartTurnStopSecs !== (workflowConfigurations.smart_turn_stop_secs || 2) ||
+            turnStopStrategy !== (workflowConfigurations.turn_stop_strategy || "transcription") ||
+            contextCompactionEnabled !== (workflowConfigurations.context_compaction_enabled ?? false)
+        );
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
+
+    useUnsavedChanges("general", isDirty);
 
     const handleAmbientFileUpload = async (file: File) => {
         if (file.size > MAX_AMBIENT_NOISE_FILE_SIZE) {
@@ -463,8 +479,9 @@ function GeneralSection({
                     </div>
                 </div>
             </CardContent>
-            <CardFooter className="justify-end border-t pt-6">
-                <Button onClick={handleSave} disabled={isSaving}>
+            <CardFooter className="justify-end gap-3 border-t pt-6">
+                {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+                <Button onClick={handleSave} disabled={isSaving || !isDirty}>
                     {isSaving ? "Saving..." : "Save General Settings"}
                 </Button>
             </CardFooter>
@@ -487,6 +504,13 @@ function TemplateVariablesSection({
     const [newKey, setNewKey] = useState("");
     const [newValue, setNewValue] = useState("");
     const [isSaving, setIsSaving] = useState(false);
+
+    const isDirty = useMemo(() => {
+        const pendingVars = newKey && newValue ? { ...contextVars, [newKey]: newValue } : contextVars;
+        return JSON.stringify(pendingVars) !== JSON.stringify(templateContextVariables);
+    }, [contextVars, newKey, newValue, templateContextVariables]);
+
+    useUnsavedChanges("variables", isDirty);
 
     const handleAdd = () => {
         if (newKey && newValue) {
@@ -578,8 +602,9 @@ function TemplateVariablesSection({
                     </Button>
                 </div>
             </CardContent>
-            <CardFooter className="justify-end border-t pt-6">
-                <Button onClick={handleSave} disabled={isSaving}>
+            <CardFooter className="justify-end gap-3 border-t pt-6">
+                {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+                <Button onClick={handleSave} disabled={isSaving || !isDirty}>
                     {isSaving ? "Saving..." : "Save Variables"}
                 </Button>
             </CardFooter>
@@ -600,6 +625,10 @@ function DictionarySection({
 }) {
     const [dictionaryValue, setDictionaryValue] = useState(dictionary);
     const [isSaving, setIsSaving] = useState(false);
+
+    const isDirty = dictionaryValue !== dictionary;
+
+    useUnsavedChanges("dictionary", isDirty);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -633,8 +662,9 @@ function DictionarySection({
                     className="resize-none"
                 />
             </CardContent>
-            <CardFooter className="justify-end border-t pt-6">
-                <Button onClick={handleSave} disabled={isSaving}>
+            <CardFooter className="justify-end gap-3 border-t pt-6">
+                {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+                <Button onClick={handleSave} disabled={isSaving || !isDirty}>
                     {isSaving ? "Saving..." : "Save Dictionary"}
                 </Button>
             </CardFooter>
@@ -668,6 +698,24 @@ function VoicemailSection({
     const [systemPrompt, setSystemPrompt] = useState(getConfig().system_prompt || DEFAULT_VOICEMAIL_SYSTEM_PROMPT);
     const [longSpeechTimeout, setLongSpeechTimeout] = useState(getConfig().long_speech_timeout);
     const [isSaving, setIsSaving] = useState(false);
+
+    const isDirty = useMemo(() => {
+        const init = {
+            ...DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
+            ...workflowConfigurations.voicemail_detection,
+        };
+        return (
+            enabled !== init.enabled ||
+            useWorkflowLlm !== init.use_workflow_llm ||
+            provider !== (init.provider || "openai") ||
+            model !== (init.model || "gpt-4.1") ||
+            apiKey !== (init.api_key || "") ||
+            systemPrompt !== (init.system_prompt || DEFAULT_VOICEMAIL_SYSTEM_PROMPT) ||
+            longSpeechTimeout !== init.long_speech_timeout
+        );
+    }, [enabled, useWorkflowLlm, provider, model, apiKey, systemPrompt, longSpeechTimeout, workflowConfigurations]);
+
+    useUnsavedChanges("voicemail", isDirty);
 
     const handleSave = async () => {
         setIsSaving(true);
@@ -772,8 +820,9 @@ function VoicemailSection({
                     </>
                 )}
             </CardContent>
-            <CardFooter className="justify-end border-t pt-6">
-                <Button onClick={handleSave} disabled={isSaving}>
+            <CardFooter className="justify-end gap-3 border-t pt-6">
+                {isDirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}
+                <Button onClick={handleSave} disabled={isSaving || !isDirty}>
                     {isSaving ? "Saving..." : "Save Voicemail Settings"}
                 </Button>
             </CardFooter>
@@ -849,7 +898,22 @@ function WorkflowSettingsContent({
     workflow: WorkflowResponse;
     user: { id: string; email?: string };
 }) {
+    return (
+        <UnsavedChangesProvider>
+            <WorkflowSettingsInner workflow={workflow} user={user} />
+        </UnsavedChangesProvider>
+    );
+}
+
+function WorkflowSettingsInner({
+    workflow,
+    user,
+}: {
+    workflow: WorkflowResponse;
+    user: { id: string; email?: string };
+}) {
     const router = useRouter();
+    const { dirtySections, confirmNavigate } = useUnsavedChangesContext();
 
     const [isRecordingsDialogOpen, setIsRecordingsDialogOpen] = useState(false);
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
@@ -921,7 +985,7 @@ function WorkflowSettingsContent({
                 <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => router.push(`/workflow/${workflowId}`)}
+                    onClick={() => confirmNavigate(() => router.push(`/workflow/${workflowId}`))}
                 >
                     <ArrowLeft className="h-4 w-4" />
                 </Button>
@@ -1047,13 +1111,16 @@ function WorkflowSettingsContent({
                             <a
                                 key={item.id}
                                 href={`#${item.id}`}
-                                className={`block rounded-md px-2 py-1 text-sm transition-colors hover:text-foreground ${
+                                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:text-foreground ${
                                     activeSection === item.id
                                         ? "font-medium text-foreground"
                                         : "text-muted-foreground"
                                 }`}
                             >
                                 {item.label}
+                                {dirtySections.has(item.id) && (
+                                    <span className="h-1.5 w-1.5 rounded-full bg-orange-500" />
+                                )}
                             </a>
                         ))}
                     </div>

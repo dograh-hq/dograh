@@ -16,6 +16,7 @@ from api.schemas.workflow_recording import (
     BatchRecordingUploadResponseSchema,
     RecordingListResponseSchema,
     RecordingResponseSchema,
+    RecordingUpdateRequestSchema,
     RecordingUploadResponseSchema,
 )
 from api.services.auth.depends import get_user
@@ -25,11 +26,13 @@ from api.services.storage import storage_fs
 router = APIRouter(prefix="/workflow-recordings", tags=["workflow-recordings"])
 
 
-async def _generate_unique_recording_id() -> str:
-    """Generate a globally unique short recording ID."""
+async def _generate_unique_recording_id(organization_id: int, workflow_id: int) -> str:
+    """Generate a unique short recording ID within an organization and workflow."""
     for _ in range(10):
         rid = generate_short_id(8)
-        exists = await db_client.check_recording_id_exists(rid)
+        exists = await db_client.check_recording_id_exists(
+            rid, organization_id, workflow_id
+        )
         if not exists:
             return rid
     raise HTTPException(
@@ -69,7 +72,9 @@ async def get_upload_urls(
     try:
         items = []
         for fd in request.files:
-            recording_id = await _generate_unique_recording_id()
+            recording_id = await _generate_unique_recording_id(
+                user.selected_organization_id, request.workflow_id
+            )
 
             storage_key = (
                 f"recordings/{user.selected_organization_id}"
@@ -163,10 +168,12 @@ async def create_recordings(
 @router.get(
     "/",
     response_model=RecordingListResponseSchema,
-    summary="List recordings for a workflow",
+    summary="List recordings",
 )
 async def list_recordings(
-    workflow_id: Annotated[int, Query(description="Workflow ID")],
+    workflow_id: Annotated[
+        Optional[int], Query(description="Filter by workflow ID")
+    ] = None,
     tts_provider: Annotated[
         Optional[str], Query(description="Filter by TTS provider")
     ] = None,
@@ -178,11 +185,11 @@ async def list_recordings(
     ] = None,
     user=Depends(get_user),
 ):
-    """List recordings for a workflow, optionally filtered by TTS configuration."""
+    """List recordings for the organization, optionally filtered by workflow and TTS configuration."""
     try:
-        recordings = await db_client.get_recordings_for_workflow(
-            workflow_id=workflow_id,
+        recordings = await db_client.get_recordings(
             organization_id=user.selected_organization_id,
+            workflow_id=workflow_id,
             tts_provider=tts_provider,
             tts_model=tts_model,
             tts_voice_id=tts_voice_id,
@@ -230,6 +237,62 @@ async def delete_recording(
         logger.error(f"Error deleting recording: {exc}")
         raise HTTPException(
             status_code=500, detail="Failed to delete recording"
+        ) from exc
+
+
+@router.patch(
+    "/{id}",
+    response_model=RecordingResponseSchema,
+    summary="Update a recording's Recording ID",
+)
+async def update_recording(
+    id: int,
+    request: RecordingUpdateRequestSchema,
+    user=Depends(get_user),
+):
+    """Update the recording_id (descriptive name) of a recording."""
+    try:
+        new_id = request.recording_id.strip()
+        if not new_id:
+            raise HTTPException(status_code=400, detail="Recording ID cannot be empty")
+
+        # Look up by integer PK — globally unique, no ambiguity
+        existing = await db_client.get_recording_by_id(
+            id, user.selected_organization_id
+        )
+        if not existing:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+        if new_id == existing.recording_id:
+            return _build_response(existing)
+
+        # Check if the new ID is already taken within this org + workflow
+        exists = await db_client.check_recording_id_exists(
+            new_id, user.selected_organization_id, existing.workflow_id
+        )
+        if exists:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Recording ID '{new_id}' is already in use in this workflow",
+            )
+
+        recording = await db_client.update_recording_id(
+            id=id,
+            new_recording_id=new_id,
+            organization_id=user.selected_organization_id,
+        )
+
+        if not recording:
+            raise HTTPException(status_code=404, detail="Recording not found")
+
+        return _build_response(recording)
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error updating recording: {exc}")
+        raise HTTPException(
+            status_code=500, detail="Failed to update recording"
         ) from exc
 
 

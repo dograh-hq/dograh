@@ -1015,8 +1015,8 @@ class WorkflowRecordingModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    # Short globally unique ID (e.g. "xbhfha3k") used in prompts
-    recording_id = Column(String(16), unique=True, nullable=False, index=True)
+    # Descriptive ID used in prompts (unique per organization)
+    recording_id = Column(String(64), nullable=False, index=True)
 
     # Scoping
     workflow_id = Column(
@@ -1062,6 +1062,12 @@ class WorkflowRecordingModel(Base):
 
     # Indexes
     __table_args__ = (
+        UniqueConstraint(
+            "recording_id",
+            "organization_id",
+            "workflow_id",
+            name="uq_workflow_recordings_recording_id_org_wf",
+        ),
         Index("ix_workflow_recordings_workflow_id", "workflow_id"),
         Index("ix_workflow_recordings_org_id", "organization_id"),
         Index("ix_workflow_recordings_recording_id", "recording_id"),

@@ -77,6 +77,8 @@ class Node:
         self.extraction_variables = data.extraction_variables
         self.add_global_prompt = data.add_global_prompt
         self.greeting = data.greeting
+        self.greeting_type = data.greeting_type
+        self.greeting_recording_id = data.greeting_recording_id
         self.detect_voicemail = data.detect_voicemail
         self.delayed_start = data.delayed_start
         self.delayed_start_duration = data.delayed_start_duration

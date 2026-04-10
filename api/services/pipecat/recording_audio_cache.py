@@ -27,9 +27,13 @@ from .audio_file_cache import (
 # ---------------------------------------------------------------------------
 
 
-def _cache_path(recording_id: str, sample_rate: int) -> str:
+def _cache_path(
+    organization_id: int, workflow_id: int, recording_id: str, sample_rate: int
+) -> str:
     """Return the on-disk path for a cached PCM file."""
-    return os.path.join(CACHE_DIR, f"{recording_id}_{sample_rate}.pcm")
+    return os.path.join(
+        CACHE_DIR, f"{organization_id}_{workflow_id}_{recording_id}_{sample_rate}.pcm"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -39,18 +43,20 @@ def _cache_path(recording_id: str, sample_rate: int) -> str:
 
 def create_recording_audio_fetcher(
     organization_id: int,
+    workflow_id: int,
     pipeline_sample_rate: int,
 ) -> Callable[[str], Awaitable[Optional[bytes]]]:
     """Create an async callback that returns raw PCM bytes for a recording_id.
 
     The returned callable:
-    1. Checks the filesystem cache (keyed by ``recording_id`` + sample rate).
+    1. Checks the filesystem cache (keyed by org/workflow/recording + sample rate).
     2. On miss, looks up the recording in the DB, downloads the audio file
        from S3/MinIO, converts it to 16-bit mono PCM at *pipeline_sample_rate*,
        trims leading/trailing silence, caches the result on disk, and returns it.
 
     Args:
         organization_id: Organization owning the recordings.
+        workflow_id: Workflow the recordings belong to.
         pipeline_sample_rate: Target PCM sample rate for the pipeline.
 
     Returns:
@@ -68,7 +74,9 @@ def create_recording_audio_fetcher(
         return _storage_cache[backend]
 
     async def fetch(recording_id: str) -> Optional[bytes]:
-        cached = _cache_path(recording_id, pipeline_sample_rate)
+        cached = _cache_path(
+            organization_id, workflow_id, recording_id, pipeline_sample_rate
+        )
 
         # 1. Serve from filesystem cache
         if os.path.exists(cached):
@@ -77,7 +85,7 @@ def create_recording_audio_fetcher(
 
         # 2. DB lookup
         recording = await db_client.get_recording_by_recording_id(
-            recording_id, organization_id
+            recording_id, organization_id, workflow_id
         )
         if not recording:
             logger.warning(f"Recording {recording_id} not found in database")
@@ -112,8 +120,8 @@ async def warm_recording_cache(
     from api.services.storage import get_storage_for_backend
 
     try:
-        recordings = await db_client.get_recordings_for_workflow(
-            workflow_id, organization_id
+        recordings = await db_client.get_recordings(
+            organization_id=organization_id, workflow_id=workflow_id
         )
         if not recordings:
             return
@@ -122,7 +130,11 @@ async def warm_recording_cache(
         uncached = [
             r
             for r in recordings
-            if not os.path.exists(_cache_path(r.recording_id, pipeline_sample_rate))
+            if not os.path.exists(
+                _cache_path(
+                    organization_id, workflow_id, r.recording_id, pipeline_sample_rate
+                )
+            )
         ]
         if not uncached:
             logger.debug(f"Recording cache already warm for workflow {workflow_id}")
@@ -187,7 +199,12 @@ async def _download_and_convert(
         pcm_data = _trim_silence(pcm_data, sample_rate)
 
         # Write to disk cache
-        cached = _cache_path(recording.recording_id, sample_rate)
+        cached = _cache_path(
+            recording.organization_id,
+            recording.workflow_id,
+            recording.recording_id,
+            sample_rate,
+        )
         write_cache_file(cached, pcm_data)
 
         return pcm_data

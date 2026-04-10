@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
 
+from api.services.pipecat.recording_playback import queue_recording_audio
 from api.services.workflow.disposition_mapper import (
     apply_disposition_mapping,
     get_organization_id_from_workflow_run,
@@ -114,6 +115,9 @@ class PipecatEngine:
         # Audio configuration (set via set_audio_config from _run_pipeline)
         self._audio_config = None
 
+        # Recording audio fetcher (set via set_fetch_recording_audio from _run_pipeline)
+        self._fetch_recording_audio = None
+
         # True when the workflow has active recordings; enables recording
         # response mode instructions on all nodes for in-context learning.
         self._has_recordings: bool = has_recordings
@@ -191,6 +195,8 @@ class PipecatEngine:
         name: str,
         transition_to_node: str,
         transition_speech: Optional[str] = None,
+        transition_speech_type: Optional[str] = None,
+        transition_speech_recording_id: Optional[str] = None,
     ):
         async def transition_func(function_call_params: FunctionCallParams) -> None:
             """Inner function that handles the node change tool calls"""
@@ -204,8 +210,33 @@ class PipecatEngine:
                 # Perform variable extraction before transitioning to new node
                 await self._perform_variable_extraction_if_needed(self._current_node)
 
-                # Queue transition speech before switching nodes
-                if transition_speech:
+                # Queue transition speech/audio before switching nodes
+                speech_type = transition_speech_type or "text"
+                if (
+                    speech_type == "audio"
+                    and transition_speech_recording_id
+                    and self._fetch_recording_audio
+                ):
+                    logger.info(
+                        f"Playing transition audio: {transition_speech_recording_id}"
+                    )
+                    self._queued_speech_mute_state = "waiting"
+                    audio_data = await self._fetch_recording_audio(
+                        transition_speech_recording_id
+                    )
+                    if audio_data:
+                        await queue_recording_audio(
+                            audio_data,
+                            sample_rate=self._audio_config.pipeline_sample_rate
+                            if self._audio_config
+                            else 16000,
+                            queue_frame=self.task.queue_frame,
+                        )
+                    else:
+                        logger.warning(
+                            f"Failed to fetch transition audio {transition_speech_recording_id}"
+                        )
+                elif transition_speech:
                     logger.info(f"Playing transition speech: {transition_speech}")
                     self._queued_speech_mute_state = "waiting"
                     await self.task.queue_frame(
@@ -259,6 +290,8 @@ class PipecatEngine:
         name: str,
         transition_to_node: str,
         transition_speech: Optional[str] = None,
+        transition_speech_type: Optional[str] = None,
+        transition_speech_recording_id: Optional[str] = None,
     ):
         logger.debug(
             f"Registering function {name} to transition to node {transition_to_node} with LLM"
@@ -266,7 +299,11 @@ class PipecatEngine:
 
         # Create transition function
         transition_func = await self._create_transition_func(
-            name, transition_to_node, transition_speech
+            name,
+            transition_to_node,
+            transition_speech,
+            transition_speech_type,
+            transition_speech_recording_id,
         )
 
         # Register function with LLM
@@ -442,6 +479,8 @@ class PipecatEngine:
                     outgoing_edge.get_function_name(),
                     outgoing_edge.target,
                     outgoing_edge.transition_speech,
+                    outgoing_edge.data.transition_speech_type,
+                    outgoing_edge.data.transition_speech_recording_id,
                 )
 
         # Register custom tool handlers for this node
@@ -533,11 +572,27 @@ class PipecatEngine:
             # Setup LLM Context with Prompts and Functions
             await self._setup_llm_context(node)
 
-    def get_start_greeting(self) -> Optional[str]:
-        """Return the rendered greeting for the start node, or None if not configured."""
+    def get_start_greeting(self) -> Optional[tuple[str, Optional[str]]]:
+        """Return the greeting info for the start node, or None if not configured.
+
+        Returns:
+            A tuple of (greeting_type, value) where:
+            - ("text", rendered_text) for text greetings spoken via TTS
+            - ("audio", recording_id) for pre-recorded audio greetings
+            Or None if no greeting is configured.
+        """
         start_node = self.workflow.nodes.get(self.workflow.start_node_id)
-        if start_node and start_node.greeting:
-            return self._format_prompt(start_node.greeting)
+        if not start_node:
+            return None
+
+        greeting_type = start_node.greeting_type or "text"
+
+        if greeting_type == "audio" and start_node.greeting_recording_id:
+            return ("audio", start_node.greeting_recording_id)
+
+        if start_node.greeting:
+            return ("text", self._format_prompt(start_node.greeting))
+
         return None
 
     async def _handle_end_node(self, node: Node) -> None:
@@ -697,6 +752,10 @@ class PipecatEngine:
     def set_audio_config(self, audio_config) -> None:
         """Set the audio configuration for the pipeline."""
         self._audio_config = audio_config
+
+    def set_fetch_recording_audio(self, fetch_fn) -> None:
+        """Set the recording audio fetcher callback."""
+        self._fetch_recording_audio = fetch_fn
 
     def set_mute_pipeline(self, mute: bool) -> None:
         """Set the pipeline mute state.

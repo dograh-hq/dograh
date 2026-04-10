@@ -98,6 +98,17 @@ class BatchRecordingCreateResponseSchema(BaseModel):
     )
 
 
+class RecordingUpdateRequestSchema(BaseModel):
+    """Request schema for updating a recording's ID."""
+
+    recording_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="New descriptive recording ID",
+    )
+
+
 class RecordingListResponseSchema(BaseModel):
     """Response schema for list of recordings."""
 

@@ -8,6 +8,7 @@ import type { RecordingResponseSchema } from "@/client/types.gen";
 import { DocumentBadges } from "@/components/flow/DocumentBadges";
 import { DocumentSelector } from "@/components/flow/DocumentSelector";
 import { MentionTextarea } from "@/components/flow/MentionTextarea";
+import { TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import { ToolBadges } from "@/components/flow/ToolBadges";
 import { ToolSelector } from "@/components/flow/ToolSelector";
 import { ExtractionVariable, FlowNodeData } from "@/components/flow/types";
@@ -26,8 +27,12 @@ import { useNodeHandlers } from "./common/useNodeHandlers";
 
 interface StartCallEditFormProps {
     nodeData: FlowNodeData;
+    greetingType: 'text' | 'audio';
+    setGreetingType: (value: 'text' | 'audio') => void;
     greeting: string;
     setGreeting: (value: string) => void;
+    greetingRecordingId: string;
+    setGreetingRecordingId: (value: string) => void;
     prompt: string;
     setPrompt: (value: string) => void;
     name: string;
@@ -73,7 +78,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     const { saveWorkflow, tools, documents, recordings } = useWorkflow();
 
     // Form state
+    const [greetingType, setGreetingType] = useState<'text' | 'audio'>(data.greeting_type ?? "text");
     const [greeting, setGreeting] = useState(data.greeting ?? "");
+    const [greetingRecordingId, setGreetingRecordingId] = useState(data.greeting_recording_id ?? "");
     const [prompt, setPrompt] = useState(data.prompt ?? "");
     const [name, setName] = useState(data.name);
     const [allowInterrupt, setAllowInterrupt] = useState(data.allow_interrupt ?? true);
@@ -109,7 +116,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
 
         handleSaveNodeData({
             ...data,
-            greeting: greeting || undefined,
+            greeting_type: greetingType,
+            greeting: greetingType === 'text' ? (greeting || undefined) : undefined,
+            greeting_recording_id: greetingType === 'audio' ? (greetingRecordingId || undefined) : undefined,
             prompt,
             name,
             allow_interrupt: allowInterrupt,
@@ -132,7 +141,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     // Reset form state when dialog opens
     const handleOpenChange = (newOpen: boolean) => {
         if (newOpen) {
+            setGreetingType(data.greeting_type ?? "text");
             setGreeting(data.greeting ?? "");
+            setGreetingRecordingId(data.greeting_recording_id ?? "");
             setPrompt(data.prompt ?? "");
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
@@ -154,7 +165,9 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
     // Update form state when data changes (e.g., from undo/redo)
     useEffect(() => {
         if (open) {
+            setGreetingType(data.greeting_type ?? "text");
             setGreeting(data.greeting ?? "");
+            setGreetingRecordingId(data.greeting_recording_id ?? "");
             setPrompt(data.prompt ?? "");
             setName(data.name);
             setAllowInterrupt(data.allow_interrupt ?? true);
@@ -247,8 +260,12 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
                 {open && (
                     <StartCallEditForm
                         nodeData={data}
+                        greetingType={greetingType}
+                        setGreetingType={setGreetingType}
                         greeting={greeting}
                         setGreeting={setGreeting}
+                        greetingRecordingId={greetingRecordingId}
+                        setGreetingRecordingId={setGreetingRecordingId}
                         prompt={prompt}
                         setPrompt={setPrompt}
                         name={name}
@@ -288,8 +305,12 @@ export const StartCall = memo(({ data, selected, id }: StartCallNodeProps) => {
 });
 
 const StartCallEditForm = ({
+    greetingType,
+    setGreetingType,
     greeting,
     setGreeting,
+    greetingRecordingId,
+    setGreetingRecordingId,
     prompt,
     setPrompt,
     name,
@@ -362,15 +383,22 @@ const StartCallEditForm = ({
 
             <Label>Greeting</Label>
             <Label className="text-xs text-muted-foreground">
-                Optional greeting message played via TTS when the call starts. If set, this will be spoken directly instead of generating a response from the LLM. Supports template variables like {"{{variable_name}}"}.
+                Optional greeting played when the call starts. Choose between a text message (spoken via TTS) or a pre-recorded audio file.
             </Label>
-            <MentionTextarea
-                value={greeting}
-                onChange={setGreeting}
-                className="min-h-[60px] max-h-[200px] resize-none overflow-y-auto"
-                placeholder="e.g. Hello {{first_name}}, this is Sarah calling from Acme Corp."
+            <TextOrAudioInput
+                type={greetingType}
+                onTypeChange={setGreetingType}
+                recordingId={greetingRecordingId}
+                onRecordingIdChange={setGreetingRecordingId}
                 recordings={recordings}
-            />
+            >
+                <Textarea
+                    value={greeting}
+                    onChange={(e) => setGreeting(e.target.value)}
+                    className="min-h-[60px] max-h-[200px] resize-none overflow-y-auto"
+                    placeholder="e.g. Hello {{first_name}}, this is Sarah calling from Acme Corp."
+                />
+            </TextOrAudioInput>
 
             <Label>Prompt</Label>
             <Label className="text-xs text-muted-foreground">

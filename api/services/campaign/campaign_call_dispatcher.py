@@ -200,7 +200,6 @@ class CampaignCallDispatcher:
 
         # Merge context variables (queued_run context already includes retry info if applicable)
         initial_context = {
-            **workflow.template_context_variables,
             **queued_run.context_variables,
             "campaign_id": campaign.id,
             "provider": provider.PROVIDER_NAME,

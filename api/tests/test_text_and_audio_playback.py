@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from api.services.pipecat.recording_audio_cache import RecordingAudio
 from api.services.workflow.dto import (
     EdgeDataDTO,
     NodeDataDTO,
@@ -51,7 +52,7 @@ END_PROMPT = "End Call System Prompt"
 TEXT_GREETING = "Hello, welcome to our service!"
 TEXT_TRANSITION = "Thank you for calling, goodbye!"
 AUDIO_GREETING_ID = "rec-greeting-001"
-AUDIO_TRANSITION_ID = "rec-transition-001"
+AUDIO_TRANSITION_ID = "101"
 FAKE_PCM_AUDIO = b"\x00\x01" * 1000  # Fake 16-bit mono PCM data
 
 
@@ -204,16 +205,18 @@ async def run_pipeline_and_capture_frames(
         workflow_run_id=1,
     )
 
+    transport_output = mock_transport.output()
+
     if fetch_recording_audio:
         engine.set_fetch_recording_audio(fetch_recording_audio)
+        engine.set_transport_output(transport_output)
 
-    pipeline = Pipeline(
-        [llm, tts, mock_transport.output(), context_aggregator.assistant()]
-    )
+    pipeline = Pipeline([llm, tts, transport_output, context_aggregator.assistant()])
     task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
-    # Spy on task.queue_frame to capture all frames queued by the engine
+    # Spy on task.queue_frame and transport_output.queue_frame to capture
+    # all frames queued by the engine (audio transitions go via transport output)
     queued_frames: list[Frame] = []
     original_queue_frame = task.queue_frame
 
@@ -222,6 +225,15 @@ async def run_pipeline_and_capture_frames(
         await original_queue_frame(frame)
 
     task.queue_frame = capturing_queue_frame
+
+    if fetch_recording_audio:
+        original_transport_queue = transport_output.queue_frame
+
+        async def _spy_transport_queue(frame, *args, **kwargs):
+            queued_frames.append(frame)
+            await original_transport_queue(frame, *args, **kwargs)
+
+        transport_output.queue_frame = _spy_transport_queue
 
     with (
         patch(
@@ -424,7 +436,7 @@ class TestTransitionSpeech:
             },
         ]
 
-        mock_fetch = AsyncMock(return_value=FAKE_PCM_AUDIO)
+        mock_fetch = AsyncMock(return_value=RecordingAudio(audio=FAKE_PCM_AUDIO))
 
         llm, context, queued_frames = await run_pipeline_and_capture_frames(
             workflow=audio_workflow,
@@ -437,7 +449,7 @@ class TestTransitionSpeech:
         assert llm.get_current_step() == 2
 
         # Verify fetch was called with the correct recording ID
-        mock_fetch.assert_called_once_with(AUDIO_TRANSITION_ID)
+        mock_fetch.assert_called_once_with(recording_pk=int(AUDIO_TRANSITION_ID))
 
         # Verify the three-frame audio sequence was queued
         started = [f for f in queued_frames if isinstance(f, TTSStartedFrame)]
@@ -491,6 +503,10 @@ class TestPlayConfigMessage:
             engine._queued_frames.append(frame)
 
         engine.task.queue_frame = mock_queue_frame
+
+        # Also capture frames queued via transport_output.queue_frame (audio playback)
+        engine._transport_output = Mock()
+        engine._transport_output.queue_frame = mock_queue_frame
         return engine
 
     @pytest.mark.asyncio
@@ -510,16 +526,16 @@ class TestPlayConfigMessage:
     @pytest.mark.asyncio
     async def test_audio_queues_started_raw_stopped_frames(self, mock_engine):
         """messageType='audio' queues TTSStarted + TTSAudioRaw + TTSStopped."""
-        mock_fetch = AsyncMock(return_value=FAKE_PCM_AUDIO)
+        mock_fetch = AsyncMock(return_value=RecordingAudio(audio=FAKE_PCM_AUDIO))
         mock_engine._fetch_recording_audio = mock_fetch
 
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "audio", "audioRecordingId": "rec-end-001"}
+        config = {"messageType": "audio", "audioRecordingId": "201"}
 
         result = await manager._play_config_message(config)
 
         assert result is True
-        mock_fetch.assert_called_once_with("rec-end-001")
+        mock_fetch.assert_called_once_with(recording_pk=201)
 
         frames = mock_engine._queued_frames
         assert len(frames) == 3
@@ -553,7 +569,7 @@ class TestPlayConfigMessage:
         mock_engine._fetch_recording_audio = None
 
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "audio", "audioRecordingId": "rec-123"}
+        config = {"messageType": "audio", "audioRecordingId": "301"}
 
         result = await manager._play_config_message(config)
 
@@ -567,12 +583,12 @@ class TestPlayConfigMessage:
         mock_engine._fetch_recording_audio = mock_fetch
 
         manager = CustomToolManager(mock_engine)
-        config = {"messageType": "audio", "audioRecordingId": "rec-123"}
+        config = {"messageType": "audio", "audioRecordingId": "301"}
 
         result = await manager._play_config_message(config)
 
         assert result is False
-        mock_fetch.assert_called_once_with("rec-123")
+        mock_fetch.assert_called_once_with(recording_pk=301)
         assert len(mock_engine._queued_frames) == 0
 
     @pytest.mark.asyncio

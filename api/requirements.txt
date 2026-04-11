@@ -17,3 +17,4 @@ docling[rapidocr]==2.68.0
 pgvector==0.4.2
 bcrypt==5.0.0
 email-validator==2.3.0
+posthog==3.24.0

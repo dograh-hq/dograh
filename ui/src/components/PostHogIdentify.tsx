@@ -8,39 +8,67 @@ import { useAuth } from '@/lib/auth';
 /**
  * PostHogIdentify
  * ---------------
- * A tiny client-side component that calls `posthog.identify` once the
- * authenticated user object is available.  It also resets PostHog when the
- * user logs out or switches accounts.
+ * Calls `posthog.identify` once the authenticated user object is available,
+ * using the Stack Auth user ID as distinct_id with email and name as properties.
  *
- * This component is intended to be rendered high in the React tree (e.g. in
- * `app/layout.tsx`) so that PostHog always knows which user is active for the
- * current browser session.
+ * Rendered in the root layout (`app/layout.tsx`) so it fires on every session
+ * for every logged-in user.
  */
 export default function PostHogIdentify() {
     const { user } = useAuth();
 
     useEffect(() => {
-        // Only run if PostHog is enabled
-        if (process.env.NEXT_PUBLIC_ENABLE_POSTHOG !== 'true') {
-            return;
-        }
-
         if (user) {
-            try {
-                // Identify the user in PostHog with their unique id and useful traits
-                posthog.identify(String(user.id ?? ''));
-            } catch (err) {
-                // Silently ignore identification errors so they don't break the app
+            const identify = () => {
+                try {
+                    // Stack Auth users expose primaryEmail/displayName,
+                    // local users expose email/name — handle both.
+                    const email =
+                        'primaryEmail' in user ? user.primaryEmail :
+                        'email' in user ? user.email :
+                        undefined;
+                    const name =
+                        'displayName' in user ? user.displayName :
+                        'name' in user ? user.name :
+                        undefined;
 
-                console.warn('Failed to identify user in PostHog', err);
+                    // Use provider_id as distinct_id to match backend PostHog events.
+                    // Stack Auth users: user.id is already the provider_id.
+                    // OSS users: provider_id is returned from the auth API.
+                    const distinctId =
+                        'provider_id' in user && user.provider_id
+                            ? String(user.provider_id)
+                            : String(user.id);
+
+                    posthog.identify(distinctId, {
+                        ...(email && { email }),
+                        ...(name && { name }),
+                    });
+                } catch (err) {
+                    console.warn('Failed to identify user in PostHog', err);
+                }
+            };
+
+            if (posthog.__loaded) {
+                identify();
+            } else {
+                // PostHog initializes async — retry until ready
+                let attempts = 0;
+                const interval = setInterval(() => {
+                    attempts++;
+                    if (posthog.__loaded) {
+                        identify();
+                        clearInterval(interval);
+                    } else if (attempts >= 20) {
+                        clearInterval(interval);
+                    }
+                }, 200);
+                return () => clearInterval(interval);
             }
         } else {
-            // If the user logs out, clear the PostHog identity so future anonymous
-            // interactions aren't associated with the previous account.
             posthog.reset();
         }
     }, [user]);
 
-    // This component does not render anything
     return null;
 }

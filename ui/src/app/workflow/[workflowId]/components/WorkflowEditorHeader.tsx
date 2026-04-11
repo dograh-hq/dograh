@@ -3,6 +3,7 @@
 import { ReactFlowInstance } from "@xyflow/react";
 import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
+import posthog from "posthog-js";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -26,6 +27,7 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSidebar } from "@/components/ui/sidebar";
+import { PostHogEvent } from "@/constants/posthog-events";
 import { WORKFLOW_RUN_MODES } from "@/constants/workflowRunModes";
 
 interface WorkflowEditorHeaderProps {
@@ -272,7 +274,13 @@ export const WorkflowEditorHeader = ({
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
                             <DropdownMenuItem
-                                onClick={() => onRun(WORKFLOW_RUN_MODES.SMALL_WEBRTC)}
+                                onClick={() => {
+                                    posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
+                                        workflow_id: workflowId,
+                                        workflow_name: workflowName,
+                                    });
+                                    onRun(WORKFLOW_RUN_MODES.SMALL_WEBRTC);
+                                }}
                                 className="text-white hover:bg-[#2a2a2a] cursor-pointer"
                             >
                                 <Phone className="w-4 h-4 mr-2" />

@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.22.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.21.0...dograh-v1.22.0) (2026-04-10)
+
+
+### Features
+
+* add full document mode in knowledge base ([87c8c5e](https://github.com/dograh-hq/dograh/commit/87c8c5e2c81815da30a830d0b8196a850e2102e0))
+* add posthog events ([#231](https://github.com/dograh-hq/dograh/issues/231)) ([3f19a16](https://github.com/dograh-hq/dograh/commit/3f19a16e7f9efb710c533046f68d9be112be0c0f))
+* add recording audio option in tool and node transitions ([#232](https://github.com/dograh-hq/dograh/issues/232)) ([7c24505](https://github.com/dograh-hq/dograh/commit/7c245051d2ea6b04d31173075cbabc101431835b))
+
+
+### Bug Fixes
+
+* render prompt template for variable extraction ([8b3dc02](https://github.com/dograh-hq/dograh/commit/8b3dc02722f9743871e33b84656cae7498adc53e))
+
 ## [1.21.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.20.0...dograh-v1.21.0) (2026-04-08)
 
 

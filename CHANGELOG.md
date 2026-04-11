@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.23.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.23.0...dograh-v1.23.1) (2026-04-11)
+
+
+### Bug Fixes
+
+* eslint import issue ([1f89b4f](https://github.com/dograh-hq/dograh/commit/1f89b4ff28175e9356202a3a5363b80b7888c38d))
+
 ## [1.23.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.22.0...dograh-v1.23.0) (2026-04-11)
 
 

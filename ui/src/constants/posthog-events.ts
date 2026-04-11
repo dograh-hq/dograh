@@ -8,4 +8,6 @@ export const PostHogEvent = {
   RECORDING_PLAYED: "recording_played",
   TRANSCRIPT_VIEWED: "transcript_viewed",
   WEB_CALL_INITIATED: "web_call_initiated",
+  GITHUB_STAR_CLICKED: "github_star_clicked",
+  SLACK_COMMUNITY_CLICKED: "slack_community_clicked",
 } as const;

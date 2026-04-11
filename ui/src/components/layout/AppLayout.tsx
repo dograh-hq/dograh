@@ -3,9 +3,11 @@
 import { Menu } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import posthog from "posthog-js";
 import React, { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import { PostHogEvent } from "@/constants/posthog-events";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 
 import { AppSidebar } from "./AppSidebar";
@@ -28,6 +30,7 @@ function AppHeader() {
             href="https://join.slack.com/t/dograh-community/shared_invite/zt-2z2i1p37n-CkHFbPWDCQ~hNqmKeFGJiQ"
             target="_blank"
             rel="noopener noreferrer"
+            onClick={() => posthog.capture(PostHogEvent.SLACK_COMMUNITY_CLICKED, { source: "app_header" })}
             className="flex items-center gap-2"
           >
             <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
@@ -36,7 +39,7 @@ function AppHeader() {
             <span className="hidden sm:inline">Join Slack</span>
           </a>
         </Button>
-        <GitHubStarBadge />
+        <GitHubStarBadge source="app_header" />
       </div>
     </header>
   );

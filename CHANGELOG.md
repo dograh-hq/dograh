@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.23.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.22.0...dograh-v1.23.0) (2026-04-11)
+
+
+### Features
+
+* add github and slack community buttons ([73e5ca8](https://github.com/dograh-hq/dograh/commit/73e5ca87e4081954acd6ddee1777a1d03acdfcb0))
+
+
+### Bug Fixes
+
+* bake punkt_tab file into docker images ([#234](https://github.com/dograh-hq/dograh/issues/234)) ([ebde28d](https://github.com/dograh-hq/dograh/commit/ebde28d19dc39552f548433a489a26ecda21afc0))
+
 ## [1.22.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.21.0...dograh-v1.22.0) (2026-04-10)
 
 

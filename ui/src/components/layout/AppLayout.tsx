@@ -7,8 +7,8 @@ import posthog from "posthog-js";
 import React, { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import { PostHogEvent } from "@/constants/posthog-events";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { PostHogEvent } from "@/constants/posthog-events";
 
 import { AppSidebar } from "./AppSidebar";
 import { GitHubStarBadge } from "./GitHubStarBadge";

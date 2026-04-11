@@ -73,6 +73,10 @@ export function AppSidebar() {
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
 
+  // On mobile the sidebar renders as a full-width sheet overlay, so treat it
+  // as always "expanded" regardless of the desktop collapsed/expanded state.
+  const effectiveState = isMobile ? "expanded" : state;
+
   // Get selected team for Stack auth (cast to Team type from Stack)
   // Stabilize the reference so SelectedTeamSwitcher only sees a change when the team ID changes,
   // preventing unnecessary PATCH calls to Stack Auth on every route navigation.
@@ -181,7 +185,7 @@ export function AppSidebar() {
     const isItemActive = isActive(item.url);
     const Icon = item.icon;
 
-    if (state === "collapsed") {
+    if (effectiveState === "collapsed") {
       return (
         <TooltipProvider delayDuration={0}>
           <Tooltip>
@@ -228,7 +232,7 @@ export function AppSidebar() {
       <SidebarHeader className="border-b px-2 py-3">
         <div className="flex items-center justify-between">
           {/* Logo - only show when expanded */}
-          {state === "expanded" && (
+          {effectiveState === "expanded" && (
             <Link
               href="/"
               className="flex items-center gap-2 px-2 text-xl font-bold"
@@ -244,9 +248,9 @@ export function AppSidebar() {
           {/* Toggle button - center it when collapsed */}
           <SidebarTrigger className={cn(
             "hover:bg-accent",
-            state === "collapsed" && "mx-auto"
+            effectiveState === "collapsed" && "mx-auto"
           )}>
-            {state === "expanded" ? (
+            {effectiveState === "expanded" ? (
               <ChevronLeft className="h-4 w-4" />
             ) : (
               <ChevronRight className="h-4 w-4" />
@@ -255,7 +259,7 @@ export function AppSidebar() {
         </div>
 
         {/* Team Switcher for Stack Auth - at the top */}
-        {provider === "stack" && state === "expanded" && (
+        {provider === "stack" && effectiveState === "expanded" && (
           <div className="mt-3">
             <React.Suspense
               fallback={
@@ -275,7 +279,7 @@ export function AppSidebar() {
         {/* Star us on GitHub for OSS mode - at the top */}
         {provider !== "stack" && (
           <div className="mt-3 px-2">
-            {state === "collapsed" ? (
+            {effectiveState === "collapsed" ? (
               <TooltipProvider delayDuration={0}>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -321,7 +325,7 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className={cn(
-        state === "collapsed" && "px-0"
+        effectiveState === "collapsed" && "px-0"
       )}>
         {/* Overview Section */}
         <SidebarGroup className="mt-2">
@@ -337,7 +341,7 @@ export function AppSidebar() {
         {/* BUILD Section */}
         {buildSection.length > 0 && (
           <SidebarGroup className="mt-6">
-            {state === "expanded" && (
+            {effectiveState === "expanded" && (
               <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 BUILD
               </SidebarGroupLabel>
@@ -354,7 +358,7 @@ export function AppSidebar() {
 
         {/* OBSERVE Section */}
         <SidebarGroup className="mt-6">
-          {state === "expanded" && (
+          {effectiveState === "expanded" && (
             <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               OBSERVE
             </SidebarGroupLabel>
@@ -371,7 +375,7 @@ export function AppSidebar() {
 
       <SidebarFooter className={cn(
         "border-t p-4",
-        state === "collapsed" && "p-2"
+        effectiveState === "collapsed" && "p-2"
       )}>
         {/* Bottom Actions */}
         <div className="space-y-2">
@@ -379,7 +383,7 @@ export function AppSidebar() {
           {provider !== "stack" && (
             <div className={cn(
               "flex",
-              state === "collapsed" ? "justify-center" : "justify-start"
+              effectiveState === "collapsed" ? "justify-center" : "justify-start"
             )}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -421,7 +425,7 @@ export function AppSidebar() {
           {provider === "stack" && (
             <div className={cn(
               "flex",
-              state === "collapsed" ? "justify-center" : "justify-start"
+              effectiveState === "collapsed" ? "justify-center" : "justify-start"
             )}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -473,9 +477,9 @@ export function AppSidebar() {
           {/* Theme Toggle - at the very bottom */}
           <div className={cn(
             "mt-2 pt-2 border-t",
-            state === "collapsed" ? "flex justify-center" : ""
+            effectiveState === "collapsed" ? "flex justify-center" : ""
           )}>
-            {state === "collapsed" ? (
+            {effectiveState === "collapsed" ? (
               <TooltipProvider delayDuration={0}>
                 <Tooltip>
                   <TooltipTrigger asChild>

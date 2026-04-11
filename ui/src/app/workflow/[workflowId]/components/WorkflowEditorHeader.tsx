@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, Eye, History, LoaderCircle, MoreVertical, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import {
 } from "@/client/sdk.gen";
 import { WorkflowError } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
+import { GitHubStarBadge } from "@/components/layout/GitHubStarBadge";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -24,6 +25,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
+import { useSidebar } from "@/components/ui/sidebar";
 import { WORKFLOW_RUN_MODES } from "@/constants/workflowRunModes";
 
 interface WorkflowEditorHeaderProps {
@@ -61,6 +63,7 @@ export const WorkflowEditorHeader = ({
     workflowId,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
+    const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
     const [publishing, setPublishing] = useState(false);
@@ -140,8 +143,15 @@ export const WorkflowEditorHeader = ({
 
     return (
         <div className="flex items-center justify-between w-full h-14 px-4 bg-[#1a1a1a] border-b border-[#2a2a2a]">
-            {/* Left section: Back button + Workflow name */}
-            <div className="flex items-center gap-3">
+            {/* Left section: Mobile menu + Back button + Workflow name */}
+            <div className="flex items-center gap-3 mr-4">
+                <button
+                    onClick={toggleSidebar}
+                    className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[#2a2a2a] transition-colors md:hidden"
+                    aria-label="Open menu"
+                >
+                    <Menu className="w-5 h-5 text-gray-400" />
+                </button>
                 <button
                     onClick={handleBack}
                     className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[#2a2a2a] transition-colors"
@@ -150,8 +160,11 @@ export const WorkflowEditorHeader = ({
                 </button>
 
                 <div className="flex items-center gap-2">
-                    <h1 className="text-base font-medium text-white">
-                        {workflowName}
+                    <h1 className="text-base font-medium text-white whitespace-nowrap">
+                        <span className="md:hidden">
+                            {workflowName.length > 8 ? `${workflowName.slice(0, 8)}…` : workflowName}
+                        </span>
+                        <span className="hidden md:inline">{workflowName}</span>
                     </h1>
                 </div>
             </div>
@@ -361,6 +374,11 @@ export const WorkflowEditorHeader = ({
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
+
+                {/* GitHub star badge - desktop only */}
+                <div className="hidden md:block">
+                    <GitHubStarBadge className="border-[#3a3a3a] text-white" />
+                </div>
             </div>
         </div>
     );

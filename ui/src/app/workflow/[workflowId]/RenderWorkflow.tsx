@@ -297,7 +297,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
 
     return (
         <WorkflowProvider value={workflowContextValue}>
-            <div className="flex flex-col h-screen">
+            <div className="flex flex-col h-screen min-w-fit">
                 {/* New Workflow Editor Header */}
                 <WorkflowEditorHeader
                     workflowName={workflowName}

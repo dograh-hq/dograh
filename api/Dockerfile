@@ -26,6 +26,8 @@ RUN pip install --user --no-cache-dir -r requirements.txt && \
 # Copy and install pipecat from local submodule
 COPY pipecat /tmp/pipecat
 RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,local-smart-turn-v3,speechmatics,openrouter,camb]' && \
+    # Pre-download NLTK punkt_tab tokenizer data (required by pipecat at runtime)
+    python -c "import nltk; nltk.download('punkt_tab', quiet=True)" && \
     # Clean up pip cache and temporary pipecat directory
     rm -rf /root/.cache/pip /tmp/pipecat
 
@@ -47,6 +49,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy Python packages from builder stage
 COPY --from=builder /root/.local /root/.local
+
+# Copy NLTK data (punkt_tab tokenizer) from builder stage
+COPY --from=builder /root/nltk_data /root/nltk_data
 
 # Make sure scripts in .local are available
 ENV PATH=/root/.local/bin:$PATH

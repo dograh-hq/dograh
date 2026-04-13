@@ -64,14 +64,29 @@ class S3FileSystem(BaseFileSystem):
             ) as s3_client:
                 params = {"Bucket": self.bucket_name, "Key": file_path}
 
-                # Make transcripts viewable inline in the browser when requested
-                if force_inline and file_path.endswith(".txt"):
-                    params.update(
-                        {
-                            "ResponseContentType": "text/plain",
-                            "ResponseContentDisposition": "inline",
-                        }
-                    )
+                # Make artifacts viewable inline in the browser when requested
+                if force_inline:
+                    if file_path.endswith(".txt"):
+                        params.update(
+                            {
+                                "ResponseContentType": "text/plain",
+                                "ResponseContentDisposition": "inline",
+                            }
+                        )
+                    elif file_path.endswith(".wav"):
+                        params.update(
+                            {
+                                "ResponseContentType": "audio/wav",
+                                "ResponseContentDisposition": "inline",
+                            }
+                        )
+                    elif file_path.endswith(".mp3"):
+                        params.update(
+                            {
+                                "ResponseContentType": "audio/mpeg",
+                                "ResponseContentDisposition": "inline",
+                            }
+                        )
 
                 url = await s3_client.generate_presigned_url(
                     "get_object",

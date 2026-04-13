@@ -5,15 +5,12 @@ from typing import Any, List, Optional
 
 from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
-from api.utils.transcript import generate_transcript_text
 
 
-def _transcript_from_logs(logs: dict | None) -> str:
-    """Extract transcript text from workflow run logs JSON."""
-    if not logs:
+def _artifact_url(token: str | None, artifact: str) -> str:
+    if not token:
         return ""
-    events = logs.get("realtime_feedback_events", [])
-    return generate_transcript_text(events).strip()
+    return f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{token}/{artifact}"
 
 
 def _collect_extracted_variable_keys(runs: List[Any]) -> list[str]:
@@ -28,20 +25,11 @@ def _collect_extracted_variable_keys(runs: List[Any]) -> list[str]:
     return list(keys)
 
 
-async def generate_campaign_report_csv(
-    campaign_id: int,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-) -> tuple[io.StringIO, str]:
-    """Generate a CSV report for a campaign.
+def _build_run_report_csv(runs: List[Any]) -> io.StringIO:
+    """Build a CSV from completed workflow runs.
 
-    Returns a tuple of (csv_output, filename).
+    Shared between campaign-scoped and workflow-scoped reports.
     """
-    runs = await db_client.get_completed_runs_for_report(
-        campaign_id, start_date=start_date, end_date=end_date
-    )
-
-    # Collect dynamic extracted variable columns
     extracted_var_keys = _collect_extracted_variable_keys(runs)
 
     output = io.StringIO()
@@ -49,6 +37,9 @@ async def generate_campaign_report_csv(
 
     pre_headers = [
         "Run ID",
+        "Campaign ID",
+        "Agent ID",
+        "Agent Definition ID",
         "Created At",
         "Phone Number",
         "Call Disposition",
@@ -56,7 +47,7 @@ async def generate_campaign_report_csv(
     ]
     post_headers = [
         "Call Tags",
-        "Transcript",
+        "Transcript URL",
         "Recording URL",
     ]
     writer.writerow(pre_headers + extracted_var_keys + post_headers)
@@ -66,19 +57,15 @@ async def generate_campaign_report_csv(
         gathered = run.gathered_context or {}
         cost = run.cost_info or {}
 
-        recording_url = ""
-        if run.public_access_token:
-            recording_url = (
-                f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow"
-                f"/{run.public_access_token}/recording"
-            )
-
         call_tags = gathered.get("call_tags", [])
         if isinstance(call_tags, list):
             call_tags = ", ".join(str(t) for t in call_tags)
 
         pre_values = [
             run.id,
+            run.campaign_id if run.campaign_id is not None else "",
+            run.workflow_id,
+            run.definition_id if run.definition_id is not None else "",
             run.created_at.isoformat() if run.created_at else "",
             initial.get("phone_number", ""),
             gathered.get("mapped_call_disposition", ""),
@@ -92,12 +79,35 @@ async def generate_campaign_report_csv(
 
         post_values = [
             call_tags,
-            _transcript_from_logs(run.logs),
-            recording_url,
+            _artifact_url(run.public_access_token, "transcript"),
+            _artifact_url(run.public_access_token, "recording"),
         ]
 
         writer.writerow(pre_values + extracted_values + post_values)
 
     output.seek(0)
-    filename = f"campaign_{campaign_id}_report.csv"
-    return output, filename
+    return output
+
+
+async def generate_campaign_report_csv(
+    campaign_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> tuple[io.StringIO, str]:
+    """Generate a CSV report for a campaign."""
+    runs = await db_client.get_completed_runs_for_report(
+        campaign_id=campaign_id, start_date=start_date, end_date=end_date
+    )
+    return _build_run_report_csv(runs), f"campaign_{campaign_id}_report.csv"
+
+
+async def generate_workflow_report_csv(
+    workflow_id: int,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> tuple[io.StringIO, str]:
+    """Generate a CSV report for all completed runs of a workflow."""
+    runs = await db_client.get_completed_runs_for_report(
+        workflow_id=workflow_id, start_date=start_date, end_date=end_date
+    )
+    return _build_run_report_csv(runs), f"workflow_{workflow_id}_report.csv"

@@ -370,8 +370,8 @@ class CustomToolManager:
                     logger.info(f"End call reason: {reason}")
                     self._engine._gathered_context["call_disposition"] = reason
                     call_tags = self._engine._gathered_context.get("call_tags", [])
-                    if reason not in call_tags:
-                        call_tags.extend([reason, "end_call_tool"])
+                    if "end_call_tool" not in call_tags:
+                        call_tags.append("end_call_tool")
                     self._engine._gathered_context["call_tags"] = call_tags
 
                 # Send result callback first

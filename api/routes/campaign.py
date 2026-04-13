@@ -183,6 +183,10 @@ class CampaignResponse(BaseModel):
     max_concurrency: Optional[int] = None
     schedule_config: Optional[ScheduleConfigResponse] = None
     circuit_breaker: Optional[CircuitBreakerConfigResponse] = None
+    executed_count: int = 0
+    total_queued_count: int = 0
+    parent_campaign_id: Optional[int] = None
+    redialed_campaign_id: Optional[int] = None
 
 
 class CampaignsResponse(BaseModel):
@@ -223,7 +227,12 @@ class CampaignProgressResponse(BaseModel):
 # Default retry config for campaigns
 
 
-def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
+def _build_campaign_response(
+    campaign,
+    workflow_name: str,
+    executed_count: int = 0,
+    total_queued_count: int = 0,
+) -> CampaignResponse:
     """Build a CampaignResponse from a campaign model."""
     # Get retry_config from campaign or use defaults
     retry_config = (
@@ -236,6 +245,8 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
     max_concurrency = None
     schedule_config = None
     circuit_breaker_config = CircuitBreakerConfigResponse()
+    parent_campaign_id = None
+    redialed_campaign_id = None
     if campaign.orchestrator_metadata:
         max_concurrency = campaign.orchestrator_metadata.get("max_concurrency")
         sc = campaign.orchestrator_metadata.get("schedule_config")
@@ -248,6 +259,10 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         cb = campaign.orchestrator_metadata.get("circuit_breaker")
         if cb:
             circuit_breaker_config = CircuitBreakerConfigResponse(**cb)
+        parent_campaign_id = campaign.orchestrator_metadata.get("parent_campaign_id")
+        redialed_campaign_id = campaign.orchestrator_metadata.get(
+            "redialed_campaign_id"
+        )
 
     return CampaignResponse(
         id=campaign.id,
@@ -267,7 +282,18 @@ def _build_campaign_response(campaign, workflow_name: str) -> CampaignResponse:
         max_concurrency=max_concurrency,
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
+        executed_count=executed_count,
+        total_queued_count=total_queued_count,
+        parent_campaign_id=parent_campaign_id,
+        redialed_campaign_id=redialed_campaign_id,
     )
+
+
+async def _get_campaign_stats(campaign_id: int) -> tuple[int, int]:
+    """Return (executed_count, total_queued_count) for a campaign."""
+    stats_map = await db_client.get_queued_runs_stats_for_campaigns([campaign_id])
+    s = stats_map.get(campaign_id, {})
+    return s.get("executed", 0), s.get("total", 0)
 
 
 @router.post("/create")
@@ -374,8 +400,17 @@ async def get_campaigns(
     )
     workflow_map = {w.id: w.name for w in workflows}
 
+    stats_map = await db_client.get_queued_runs_stats_for_campaigns(
+        [c.id for c in campaigns]
+    )
+
     campaign_responses = [
-        _build_campaign_response(c, workflow_map.get(c.workflow_id, "Unknown"))
+        _build_campaign_response(
+            c,
+            workflow_map.get(c.workflow_id, "Unknown"),
+            executed_count=stats_map.get(c.id, {}).get("executed", 0),
+            total_queued_count=stats_map.get(c.id, {}).get("total", 0),
+        )
         for c in campaigns
     ]
 
@@ -394,7 +429,10 @@ async def get_campaign(
 
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return _build_campaign_response(campaign, workflow_name or "Unknown")
+    executed, total = await _get_campaign_stats(campaign.id)
+    return _build_campaign_response(
+        campaign, workflow_name or "Unknown", executed, total
+    )
 
 
 @router.post("/{campaign_id}/start")
@@ -435,7 +473,10 @@ async def start_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return _build_campaign_response(campaign, workflow_name or "Unknown")
+    executed, total = await _get_campaign_stats(campaign.id)
+    return _build_campaign_response(
+        campaign, workflow_name or "Unknown", executed, total
+    )
 
 
 @router.post("/{campaign_id}/pause")
@@ -459,7 +500,10 @@ async def pause_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return _build_campaign_response(campaign, workflow_name or "Unknown")
+    executed, total = await _get_campaign_stats(campaign.id)
+    return _build_campaign_response(
+        campaign, workflow_name or "Unknown", executed, total
+    )
 
 
 @router.patch("/{campaign_id}")
@@ -519,7 +563,10 @@ async def update_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return _build_campaign_response(campaign, workflow_name or "Unknown")
+    executed, total = await _get_campaign_stats(campaign.id)
+    return _build_campaign_response(
+        campaign, workflow_name or "Unknown", executed, total
+    )
 
 
 @router.get("/{campaign_id}/runs")
@@ -586,6 +633,101 @@ async def get_campaign_runs(
     )
 
 
+class RedialCampaignRequest(BaseModel):
+    name: Optional[str] = Field(
+        None, min_length=1, max_length=255, description="Name for the redial campaign"
+    )
+    retry_on_voicemail: bool = True
+    retry_on_no_answer: bool = True
+    retry_on_busy: bool = True
+    retry_config: Optional[RetryConfigRequest] = None
+
+    @model_validator(mode="after")
+    def validate_at_least_one_reason(self):
+        if not (
+            self.retry_on_voicemail or self.retry_on_no_answer or self.retry_on_busy
+        ):
+            raise ValueError(
+                "At least one of retry_on_voicemail, retry_on_no_answer, "
+                "retry_on_busy must be true"
+            )
+        return self
+
+
+@router.post("/{campaign_id}/redial")
+async def redial_campaign(
+    campaign_id: int,
+    request: RedialCampaignRequest,
+    user: UserModel = Depends(get_user),
+) -> CampaignResponse:
+    """Create a new campaign that re-dials unique subscribers from a completed
+    campaign whose latest call resulted in voicemail, no-answer, or busy.
+
+    The new campaign is created in 'created' state with queued_runs pre-seeded
+    from the parent's original initial contexts. A campaign can be redialed at
+    most once.
+    """
+    parent = await db_client.get_campaign(campaign_id, user.selected_organization_id)
+    if not parent:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    if parent.state != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only completed campaigns can be redialed (current state: {parent.state})",
+        )
+
+    parent_meta = parent.orchestrator_metadata or {}
+    if parent_meta.get("redialed_campaign_id"):
+        raise HTTPException(
+            status_code=400,
+            detail="This campaign has already been redialed",
+        )
+
+    candidates = await db_client.get_redial_candidates(
+        campaign_id=parent.id,
+        include_voicemail=request.retry_on_voicemail,
+        include_no_answer=request.retry_on_no_answer,
+        include_busy=request.retry_on_busy,
+    )
+    if not candidates:
+        raise HTTPException(
+            status_code=400,
+            detail="No subscribers match the selected redial criteria",
+        )
+
+    queued_runs_data = [
+        {
+            "campaign_id": 0,  # replaced inside create_redial_campaign
+            "source_uuid": c["source_uuid"],
+            "context_variables": c["context_variables"],
+            "state": "queued",
+        }
+        for c in candidates
+    ]
+
+    retry_config = (
+        request.retry_config.model_dump()
+        if request.retry_config
+        else parent.retry_config
+    )
+    new_name = request.name or f"{parent.name} (Redial)"
+
+    try:
+        child = await db_client.create_redial_campaign(
+            parent_campaign=parent,
+            new_name=new_name,
+            retry_config=retry_config,
+            queued_runs_data=queued_runs_data,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    workflow_name = await db_client.get_workflow_name(child.workflow_id, user.id)
+    executed, total = await _get_campaign_stats(child.id)
+    return _build_campaign_response(child, workflow_name or "Unknown", executed, total)
+
+
 @router.post("/{campaign_id}/resume")
 async def resume_campaign(
     campaign_id: int,
@@ -624,7 +766,10 @@ async def resume_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
-    return _build_campaign_response(campaign, workflow_name or "Unknown")
+    executed, total = await _get_campaign_stats(campaign.id)
+    return _build_campaign_response(
+        campaign, workflow_name or "Unknown", executed, total
+    )
 
 
 @router.get("/{campaign_id}/progress")

@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from httpx import HTTPStatusError
 from loguru import logger
 from pydantic import BaseModel, Field, ValidationError
@@ -16,6 +17,7 @@ from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import CallType, PostHogEvent, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
+from api.services.campaign.report import generate_workflow_report_csv
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import (
     mask_workflow_definition,
@@ -999,6 +1001,37 @@ async def get_workflow_runs(
         limit=limit,
         total_pages=total_pages,
         applied_filters=filter_criteria if filter_criteria else None,
+    )
+
+
+@router.get("/{workflow_id}/report")
+async def download_workflow_report(
+    workflow_id: int,
+    user: UserModel = Depends(get_user),
+    start_date: Optional[datetime] = Query(
+        None, description="Filter runs created on or after this datetime (ISO 8601)"
+    ),
+    end_date: Optional[datetime] = Query(
+        None, description="Filter runs created on or before this datetime (ISO 8601)"
+    ),
+) -> StreamingResponse:
+    """Download a CSV report of completed runs for a workflow."""
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if workflow is None:
+        raise HTTPException(
+            status_code=404, detail=f"Workflow with id {workflow_id} not found"
+        )
+
+    output, filename = await generate_workflow_report_csv(
+        workflow_id, start_date=start_date, end_date=end_date
+    )
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

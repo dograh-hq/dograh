@@ -4,6 +4,9 @@ from typing import Any, Dict
 from loguru import logger
 
 from api.db import db_client
+from api.services.campaign.campaign_event_publisher import (
+    get_campaign_event_publisher,
+)
 from api.services.campaign.circuit_breaker import circuit_breaker
 from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
@@ -23,6 +26,29 @@ class CampaignRunnerService:
             raise ValueError(
                 f"Campaign must be in 'created' state to start, current state: {campaign.state}"
             )
+
+        # Redial campaigns have queued_runs pre-seeded from the parent campaign,
+        # so skip source sync and transition straight to 'running'.
+        is_redial = bool(
+            (campaign.orchestrator_metadata or {}).get("parent_campaign_id")
+        )
+        if is_redial:
+            now = datetime.now(UTC)
+            await db_client.update_campaign(
+                campaign_id=campaign_id,
+                state="running",
+                started_at=now,
+                source_last_synced_at=now,
+            )
+            publisher = await get_campaign_event_publisher()
+            await publisher.publish_sync_completed(
+                campaign_id=campaign_id,
+                total_rows=campaign.total_rows or 0,
+                source_type=campaign.source_type,
+                source_id=campaign.source_id,
+            )
+            logger.info(f"Redial campaign {campaign_id} started, source sync skipped")
+            return
 
         # Update campaign state to syncing
         await db_client.update_campaign(

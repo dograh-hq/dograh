@@ -1,20 +1,24 @@
 "use client";
 
-import { ArrowLeft, BookA, Brain, ExternalLink, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
+import { format } from "date-fns";
+import { ArrowLeft, BookA, Brain, CalendarIcon, Download, ExternalLink, FileDown, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
-import { getAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPost, getWorkflowApiV1WorkflowFetchWorkflowIdGet } from "@/client/sdk.gen";
+import { downloadWorkflowReportApiV1WorkflowWorkflowIdReportGet, getAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPost, getWorkflowApiV1WorkflowFetchWorkflowIdGet } from "@/client/sdk.gen";
 import type { WorkflowResponse } from "@/client/types.gen";
 import { FlowEdge, FlowNode } from "@/components/flow/types";
 import { LLMConfigSelector } from "@/components/LLMConfigSelector";
 import { ServiceConfigurationForm } from "@/components/ServiceConfigurationForm";
 import SpinLoader from "@/components/SpinLoader";
 import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
@@ -76,7 +80,165 @@ const NAV_ITEMS = [
     { id: "voicemail", label: "Voicemail Detection", icon: PhoneOff },
     { id: "recordings", label: "Recordings", icon: Mic },
     { id: "deployment", label: "Deployment", icon: Rocket },
+    { id: "report", label: "Report", icon: FileDown },
 ];
+
+// ---------------------------------------------------------------------------
+// Section: Report
+// ---------------------------------------------------------------------------
+
+function ReportSection({ workflowId }: { workflowId: number }) {
+    const [startDate, setStartDate] = useState<Date | undefined>(undefined);
+    const [startTime, setStartTime] = useState("00:00");
+    const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+    const [endTime, setEndTime] = useState("23:59");
+    const [isPopoverOpen, setIsPopoverOpen] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
+
+    const buildDateTime = (date: Date | undefined, time: string): string | undefined => {
+        if (!date) return undefined;
+        const [hours, minutes] = time.split(":").map(Number);
+        const combined = new Date(date);
+        combined.setHours(hours, minutes, 0, 0);
+        return combined.toISOString();
+    };
+
+    const handleDownload = async () => {
+        setIsDownloading(true);
+        setIsPopoverOpen(false);
+        try {
+            const response = await downloadWorkflowReportApiV1WorkflowWorkflowIdReportGet({
+                path: { workflow_id: workflowId },
+                query: {
+                    start_date: buildDateTime(startDate, startTime),
+                    end_date: buildDateTime(endDate, endTime),
+                },
+                parseAs: "blob",
+            });
+
+            if (response.data) {
+                const blob = response.data as Blob;
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `workflow_${workflowId}_report.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } else {
+                toast.error("Failed to download report");
+            }
+        } catch (err) {
+            logger.error(`Failed to download workflow report: ${err}`);
+            toast.error("Failed to download report");
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
+    const handleClear = () => {
+        setStartDate(undefined);
+        setStartTime("00:00");
+        setEndDate(undefined);
+        setEndTime("23:59");
+    };
+
+    return (
+        <Card id="report">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                    <FileDown className="h-4 w-4" />
+                    Report
+                </CardTitle>
+                <CardDescription>
+                    Download a CSV report of completed runs for this agent, optionally filtered by date range.
+                </CardDescription>
+            </CardHeader>
+            <CardFooter className="border-t pt-6">
+                <Popover open={isPopoverOpen} onOpenChange={setIsPopoverOpen}>
+                    <PopoverTrigger asChild>
+                        <Button variant="outline" disabled={isDownloading}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Download Report
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-4" align="start">
+                        <div className="space-y-4">
+                            <div className="text-sm font-medium">Filter by date range</div>
+                            <div className="grid gap-3">
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs">From</Label>
+                                    <div className="flex gap-2">
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button variant="outline" size="sm" className="w-[140px] justify-start text-left font-normal">
+                                                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                    {startDate ? format(startDate, "MMM dd, yyyy") : "Start date"}
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-0" align="start">
+                                                <Calendar
+                                                    mode="single"
+                                                    selected={startDate}
+                                                    onSelect={setStartDate}
+                                                    disabled={(date) => (endDate ? date > endDate : false)}
+                                                />
+                                            </PopoverContent>
+                                        </Popover>
+                                        <Input
+                                            type="time"
+                                            value={startTime}
+                                            onChange={(e) => setStartTime(e.target.value)}
+                                            className="w-[100px] h-8 text-xs"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-1.5">
+                                    <Label className="text-xs">To</Label>
+                                    <div className="flex gap-2">
+                                        <Popover>
+                                            <PopoverTrigger asChild>
+                                                <Button variant="outline" size="sm" className="w-[140px] justify-start text-left font-normal">
+                                                    <CalendarIcon className="mr-2 h-3.5 w-3.5" />
+                                                    {endDate ? format(endDate, "MMM dd, yyyy") : "End date"}
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-auto p-0" align="start">
+                                                <Calendar
+                                                    mode="single"
+                                                    selected={endDate}
+                                                    onSelect={setEndDate}
+                                                    disabled={(date) => (startDate ? date < startDate : false)}
+                                                />
+                                            </PopoverContent>
+                                        </Popover>
+                                        <Input
+                                            type="time"
+                                            value={endTime}
+                                            onChange={(e) => setEndTime(e.target.value)}
+                                            className="w-[100px] h-8 text-xs"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                            <Separator />
+                            <div className="flex justify-between">
+                                <Button variant="ghost" size="sm" onClick={handleClear}>
+                                    Clear
+                                </Button>
+                                <Button size="sm" onClick={handleDownload} disabled={isDownloading}>
+                                    <Download className="h-3.5 w-3.5 mr-1.5" />
+                                    {startDate || endDate ? "Download Filtered" : "Download All"}
+                                </Button>
+                            </div>
+                        </div>
+                    </PopoverContent>
+                </Popover>
+            </CardFooter>
+        </Card>
+    );
+}
 
 // ---------------------------------------------------------------------------
 // Section: General
@@ -1098,6 +1260,9 @@ function WorkflowSettingsInner({
                                     </Button>
                                 </CardFooter>
                             </Card>
+
+                            {/* Report */}
+                            <ReportSection workflowId={workflowId} />
                         </>
                     )}
                 </div>

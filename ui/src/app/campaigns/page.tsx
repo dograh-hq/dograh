@@ -129,6 +129,7 @@ export default function CampaignsPage() {
                                             <TableHead>Name</TableHead>
                                             <TableHead>Workflow</TableHead>
                                             <TableHead>State</TableHead>
+                                            <TableHead>Progress</TableHead>
                                             <TableHead>Created</TableHead>
                                             <TableHead className="text-right">Action</TableHead>
                                         </TableRow>
@@ -147,6 +148,9 @@ export default function CampaignsPage() {
                                                     <Badge variant={getStateBadgeVariant(campaign.state)}>
                                                         {campaign.state}
                                                     </Badge>
+                                                </TableCell>
+                                                <TableCell>
+                                                    {campaign.executed_count} / {campaign.total_queued_count}
                                                 </TableCell>
                                                 <TableCell>{formatDate(campaign.created_at)}</TableCell>
                                                 <TableCell className="text-right">

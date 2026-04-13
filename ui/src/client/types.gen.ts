@@ -467,6 +467,22 @@ export type CampaignResponse = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigResponse | null;
     circuit_breaker?: CircuitBreakerConfigResponse | null;
+    /**
+     * Executed Count
+     */
+    executed_count?: number;
+    /**
+     * Total Queued Count
+     */
+    total_queued_count?: number;
+    /**
+     * Parent Campaign Id
+     */
+    parent_campaign_id?: number | null;
+    /**
+     * Redialed Campaign Id
+     */
+    redialed_campaign_id?: number | null;
 };
 
 /**
@@ -2283,6 +2299,31 @@ export type RecordingUploadResponseSchema = {
 };
 
 /**
+ * RedialCampaignRequest
+ */
+export type RedialCampaignRequest = {
+    /**
+     * Name
+     *
+     * Name for the redial campaign
+     */
+    name?: string | null;
+    /**
+     * Retry On Voicemail
+     */
+    retry_on_voicemail?: boolean;
+    /**
+     * Retry On No Answer
+     */
+    retry_on_no_answer?: boolean;
+    /**
+     * Retry On Busy
+     */
+    retry_on_busy?: boolean;
+    retry_config?: RetryConfigRequest | null;
+};
+
+/**
  * RetryConfigRequest
  */
 export type RetryConfigRequest = {
@@ -3267,6 +3308,10 @@ export type UserResponse = {
      * Organization Id
      */
     organization_id?: number | null;
+    /**
+     * Provider Id
+     */
+    provider_id?: string | null;
 };
 
 /**
@@ -5195,6 +5240,61 @@ export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses = {
 
 export type GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponse = GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses[keyof GetWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGetResponses];
 
+export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: {
+        /**
+         * Start Date
+         *
+         * Filter runs created on or after this datetime (ISO 8601)
+         */
+        start_date?: string | null;
+        /**
+         * End Date
+         *
+         * Filter runs created on or before this datetime (ISO 8601)
+         */
+        end_date?: string | null;
+    };
+    url: '/api/v1/workflow/{workflow_id}/report';
+};
+
+export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetError = DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetErrors[keyof DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetErrors];
+
+export type DownloadWorkflowReportApiV1WorkflowWorkflowIdReportGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
 export type GetWorkflowTemplatesApiV1WorkflowTemplatesGetData = {
     body?: never;
     path?: never;
@@ -6040,6 +6140,50 @@ export type GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponses = {
 };
 
 export type GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponse = GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponses[keyof GetCampaignRunsApiV1CampaignCampaignIdRunsGetResponses];
+
+export type RedialCampaignApiV1CampaignCampaignIdRedialPostData = {
+    body: RedialCampaignRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Campaign Id
+         */
+        campaign_id: number;
+    };
+    query?: never;
+    url: '/api/v1/campaign/{campaign_id}/redial';
+};
+
+export type RedialCampaignApiV1CampaignCampaignIdRedialPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RedialCampaignApiV1CampaignCampaignIdRedialPostError = RedialCampaignApiV1CampaignCampaignIdRedialPostErrors[keyof RedialCampaignApiV1CampaignCampaignIdRedialPostErrors];
+
+export type RedialCampaignApiV1CampaignCampaignIdRedialPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CampaignResponse;
+};
+
+export type RedialCampaignApiV1CampaignCampaignIdRedialPostResponse = RedialCampaignApiV1CampaignCampaignIdRedialPostResponses[keyof RedialCampaignApiV1CampaignCampaignIdRedialPostResponses];
 
 export type ResumeCampaignApiV1CampaignCampaignIdResumePostData = {
     body?: never;

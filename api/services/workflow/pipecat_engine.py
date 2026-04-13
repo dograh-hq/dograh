@@ -672,6 +672,13 @@ class PipecatEngine:
             self._gathered_context["call_disposition"] = reason
             self._gathered_context["mapped_call_disposition"] = mapped_disposition
 
+        effective_disposition = self._gathered_context.get("call_disposition", "")
+        if effective_disposition:
+            call_tags = self._gathered_context.get("call_tags", [])
+            if effective_disposition not in call_tags:
+                call_tags.append(effective_disposition)
+            self._gathered_context["call_tags"] = call_tags
+
         logger.debug(
             f"Finishing run with reason: {reason}, disposition: {mapped_disposition} queueing frame {frame_to_push}"
         )

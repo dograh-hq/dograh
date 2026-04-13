@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from 'date-fns';
-import { ArrowLeft, CalendarIcon, Check, Clock, Download, Pause, Pencil, Play, RefreshCw, X } from 'lucide-react';
+import { ArrowLeft, CalendarIcon, Check, Clock, Download, Pause, Pencil, Phone, Play, RefreshCw, X } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import {
     getCampaignApiV1CampaignCampaignIdGet,
     getCampaignSourceDownloadUrlApiV1CampaignCampaignIdSourceDownloadUrlGet,
     pauseCampaignApiV1CampaignCampaignIdPausePost,
+    redialCampaignApiV1CampaignCampaignIdRedialPost,
     resumeCampaignApiV1CampaignCampaignIdResumePost,
     startCampaignApiV1CampaignCampaignIdStartPost,
 } from '@/client/sdk.gen';
@@ -19,6 +20,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -54,6 +57,14 @@ export default function CampaignDetailPage() {
     const [reportEndDate, setReportEndDate] = useState<Date | undefined>(undefined);
     const [reportEndTime, setReportEndTime] = useState('23:59');
     const [isReportPopoverOpen, setIsReportPopoverOpen] = useState(false);
+
+    // Redial dialog state
+    const [isRedialDialogOpen, setIsRedialDialogOpen] = useState(false);
+    const [redialName, setRedialName] = useState('');
+    const [redialOnVoicemail, setRedialOnVoicemail] = useState(true);
+    const [redialOnNoAnswer, setRedialOnNoAnswer] = useState(true);
+    const [redialOnBusy, setRedialOnBusy] = useState(true);
+    const [isRedialing, setIsRedialing] = useState(false);
 
     // Fetch campaign details
     const fetchCampaign = useCallback(async () => {
@@ -258,6 +269,62 @@ export default function CampaignDetailPage() {
         }
     };
 
+    // Open redial dialog with default name
+    const openRedialDialog = () => {
+        if (!campaign) return;
+        setRedialName(`${campaign.name} (Redial)`);
+        setRedialOnVoicemail(true);
+        setRedialOnNoAnswer(true);
+        setRedialOnBusy(true);
+        setIsRedialDialogOpen(true);
+    };
+
+    // Handle redial campaign
+    const handleRedial = async () => {
+        if (!user || !campaign) return;
+        if (!redialOnVoicemail && !redialOnNoAnswer && !redialOnBusy) {
+            toast.error('Select at least one reason to redial');
+            return;
+        }
+        setIsRedialing(true);
+        try {
+            const accessToken = await getAccessToken();
+            const response = await redialCampaignApiV1CampaignCampaignIdRedialPost({
+                path: {
+                    campaign_id: campaignId,
+                },
+                body: {
+                    name: redialName || null,
+                    retry_on_voicemail: redialOnVoicemail,
+                    retry_on_no_answer: redialOnNoAnswer,
+                    retry_on_busy: redialOnBusy,
+                },
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                }
+            });
+
+            if (response.data) {
+                toast.success('Redial campaign created');
+                setIsRedialDialogOpen(false);
+                router.push(`/campaigns/${response.data.id}`);
+            } else if (response.error) {
+                let errorMsg = 'Failed to create redial campaign';
+                if (typeof response.error === 'string') {
+                    errorMsg = response.error;
+                } else if (response.error && typeof response.error === 'object') {
+                    errorMsg = (response.error as unknown as { detail?: string }).detail || JSON.stringify(response.error);
+                }
+                toast.error(errorMsg);
+            }
+        } catch (error) {
+            console.error('Failed to redial campaign:', error);
+            toast.error('Failed to create redial campaign');
+        } finally {
+            setIsRedialing(false);
+        }
+    };
+
     // Handle pause campaign
     const handlePause = async () => {
         if (!user) return;
@@ -355,6 +422,16 @@ export default function CampaignDetailPage() {
                             Resume Campaign
                         </Button>
                     </div>
+                );
+            case 'completed':
+                if (campaign.redialed_campaign_id) {
+                    return null;
+                }
+                return (
+                    <Button onClick={openRedialDialog}>
+                        <Phone className="h-4 w-4 mr-2" />
+                        Redial Campaign
+                    </Button>
                 );
             default:
                 return null;
@@ -541,6 +618,38 @@ export default function CampaignDetailPage() {
                                 <dt className="text-sm font-medium">State</dt>
                                 <dd className="mt-1 capitalize">{campaign.state}</dd>
                             </div>
+                            <div>
+                                <dt className="text-sm font-medium">Progress</dt>
+                                <dd className="mt-1">
+                                    {campaign.executed_count} / {campaign.total_queued_count}
+                                </dd>
+                            </div>
+                            {campaign.parent_campaign_id && (
+                                <div>
+                                    <dt className="text-sm font-medium">Redial Of</dt>
+                                    <dd className="mt-1">
+                                        <button
+                                            onClick={() => router.push(`/campaigns/${campaign.parent_campaign_id}`)}
+                                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                                        >
+                                            Campaign #{campaign.parent_campaign_id}
+                                        </button>
+                                    </dd>
+                                </div>
+                            )}
+                            {campaign.redialed_campaign_id && (
+                                <div>
+                                    <dt className="text-sm font-medium">Redialed As</dt>
+                                    <dd className="mt-1">
+                                        <button
+                                            onClick={() => router.push(`/campaigns/${campaign.redialed_campaign_id}`)}
+                                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                                        >
+                                            Campaign #{campaign.redialed_campaign_id}
+                                        </button>
+                                    </dd>
+                                </div>
+                            )}
                             {campaign.started_at && (
                                 <div>
                                     <dt className="text-sm font-medium">Started At</dt>
@@ -678,6 +787,75 @@ export default function CampaignDetailPage() {
                     workflowId={campaign.workflow_id}
                     searchParams={searchParams}
                 />
+
+                <Dialog open={isRedialDialogOpen} onOpenChange={setIsRedialDialogOpen}>
+                    <DialogContent>
+                        <DialogHeader>
+                            <DialogTitle>Redial Campaign</DialogTitle>
+                            <DialogDescription>
+                                Creates a new campaign that re-dials unique subscribers whose
+                                last call ended with one of the selected outcomes. Subscribers
+                                who were successfully reached on a retry are skipped.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-2">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="redial-name">Name</Label>
+                                <Input
+                                    id="redial-name"
+                                    value={redialName}
+                                    onChange={(e) => setRedialName(e.target.value)}
+                                    placeholder="Campaign name"
+                                />
+                            </div>
+                            <div className="space-y-3">
+                                <Label>Redial when last call was</Label>
+                                <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="redial-voicemail"
+                                        checked={redialOnVoicemail}
+                                        onCheckedChange={(v) => setRedialOnVoicemail(v === true)}
+                                    />
+                                    <Label htmlFor="redial-voicemail" className="font-normal">
+                                        Voicemail
+                                    </Label>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="redial-no-answer"
+                                        checked={redialOnNoAnswer}
+                                        onCheckedChange={(v) => setRedialOnNoAnswer(v === true)}
+                                    />
+                                    <Label htmlFor="redial-no-answer" className="font-normal">
+                                        No Answer
+                                    </Label>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Checkbox
+                                        id="redial-busy"
+                                        checked={redialOnBusy}
+                                        onCheckedChange={(v) => setRedialOnBusy(v === true)}
+                                    />
+                                    <Label htmlFor="redial-busy" className="font-normal">
+                                        Busy
+                                    </Label>
+                                </div>
+                            </div>
+                        </div>
+                        <DialogFooter>
+                            <Button
+                                variant="outline"
+                                onClick={() => setIsRedialDialogOpen(false)}
+                                disabled={isRedialing}
+                            >
+                                Cancel
+                            </Button>
+                            <Button onClick={handleRedial} disabled={isRedialing}>
+                                {isRedialing ? 'Creating...' : 'Create Redial Campaign'}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
         </div>
     );
 }

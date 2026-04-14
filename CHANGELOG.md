@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.24.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.23.1...dograh-v1.24.0) (2026-04-14)
+
+
+### Features
+
+* add redial option in campaigns ([7fab959](https://github.com/dograh-hq/dograh/commit/7fab959e26391bc6b9dae7484d71d40fd81c1121))
+
+
+### Bug Fixes
+
+* ssl error when using self signed certificate ([#238](https://github.com/dograh-hq/dograh/issues/238)) ([50a5916](https://github.com/dograh-hq/dograh/commit/50a59164e7eea5f716d85ed1d9ad72274696ab5a))
+* ssl error when using self signed certificate with remote deployment ([50a5916](https://github.com/dograh-hq/dograh/commit/50a59164e7eea5f716d85ed1d9ad72274696ab5a))
+
 ## [1.23.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.23.0...dograh-v1.23.1) (2026-04-11)
 
 

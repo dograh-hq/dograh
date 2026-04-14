@@ -2,12 +2,9 @@
 
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react';
 
-import { client } from '@/client/client.gen';
-
 interface AppConfig {
     uiVersion: string;
     apiVersion: string;
-    backendApiEndpoint: string | null;
     deploymentMode: string;
     authProvider: string;
 }
@@ -20,7 +17,6 @@ interface AppConfigContextType {
 const defaultConfig: AppConfig = {
     uiVersion: 'dev',
     apiVersion: 'unknown',
-    backendApiEndpoint: null,
     deploymentMode: 'oss',
     authProvider: 'local',
 };
@@ -38,15 +34,9 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
         fetch('/api/config/version')
             .then((res) => res.json())
             .then((data) => {
-                // Use clientApiBaseUrl (filtered for browser-reachable URLs)
-                // to configure the API client; keep backendApiEndpoint for display
-                if (data.clientApiBaseUrl) {
-                    client.setConfig({ baseUrl: data.clientApiBaseUrl });
-                }
                 setConfig({
                     uiVersion: data.ui || 'dev',
                     apiVersion: data.api || 'unknown',
-                    backendApiEndpoint: data.backendApiEndpoint || null,
                     deploymentMode: data.deploymentMode || 'oss',
                     authProvider: data.authProvider || 'local',
                 });

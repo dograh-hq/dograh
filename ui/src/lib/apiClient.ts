@@ -7,12 +7,9 @@ export const createClientConfig: CreateClientConfig = (config) => {
     let baseUrl: string;
 
     if (isServer) {
-        // for server-side rendering, still use environment variable as fallback
         baseUrl = process.env.BACKEND_URL || 'http://api:8000';
     } else {
-        // Client-side API calls are proxied through Next.js rewrites.
-        // AppConfigContext may update this later with the fetched backend URL.
-        baseUrl = window.location.origin;
+        baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin;
     }
 
     return {

@@ -6,7 +6,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useAppConfig } from '@/context/AppConfigContext';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
 
@@ -46,7 +45,6 @@ export function LiveAudioPlayer({
     const nextStartTimeRef = useRef(0);
     const animationFrameRef = useRef<number | undefined>(undefined);
     const isConnectingRef = useRef(false);
-    const { config } = useAppConfig();
     const { user, getAccessToken } = useAuth();
 
     // Auto-start streaming when session starts
@@ -99,8 +97,8 @@ export function LiveAudioPlayer({
             // Get auth token
             const accessToken = await getAccessToken();
 
-            // Create WebSocket connection
-            const baseUrl = (config?.backendApiEndpoint || 'http://localhost:8000').replace(/^http/, 'ws');
+            const httpBase = process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin;
+            const baseUrl = httpBase.replace(/^http/, 'ws');
             const wsUrl = `${baseUrl}/api/v1/looptalk/test-sessions/${testSessionId}/audio-stream?role=${audioRole}&token=${encodeURIComponent(accessToken || '')}`;
             const ws = new WebSocket(wsUrl);
             wsRef.current = ws;
@@ -201,7 +199,7 @@ export function LiveAudioPlayer({
         } finally {
             isConnectingRef.current = false;
         }
-    }, [testSessionId, audioRole, user, getAccessToken, volume, monitorAudioLevel, config]); // Removed connectionStatus to avoid loops
+    }, [testSessionId, audioRole, user, getAccessToken, volume, monitorAudioLevel]); // Removed connectionStatus to avoid loops
 
     const disconnect = useCallback(() => {
         if (wsRef.current) {

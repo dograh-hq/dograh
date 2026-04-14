@@ -207,6 +207,28 @@ server {
     ssl_prefer_server_ciphers on;
     ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
 
+    # Backend API and WebSockets — bypass the UI, go straight to api:8000
+    location /api/v1/ {
+        proxy_pass http://api:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        # Long-lived WebSockets (audio streaming, signaling)
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        # Don't buffer streamed responses
+        proxy_buffering off;
+        client_max_body_size 100M;
+    }
+
     location / {
         proxy_pass         http://ui:3010;
         proxy_http_version 1.1;
@@ -248,16 +270,12 @@ echo -e "${GREEN}✓ nginx.conf updated${NC}"
 # Update .env file with domain name
 echo -e "${BLUE}[6/8] Updating environment variables...${NC}"
 if [[ -f ".env" ]]; then
-    # Update BACKEND_API_ENDPOINT to use domain
+    # Update BACKEND_API_ENDPOINT to use domain (public URL the backend advertises)
     sed -i.bak "s|^BACKEND_API_ENDPOINT=.*|BACKEND_API_ENDPOINT=https://$DOMAIN_NAME|" .env
-    # Update BACKEND_URL if present, otherwise add it
-    if grep -q "^BACKEND_URL=" .env; then
-        sed -i.bak "s|^BACKEND_URL=.*|BACKEND_URL=https://$DOMAIN_NAME|" .env
-    else
-        echo "" >> .env
-        echo "# Backend URL for UI" >> .env
-        echo "BACKEND_URL=https://$DOMAIN_NAME" >> .env
-    fi
+    # Drop any stale BACKEND_URL override — the ui container should use the
+    # internal Docker URL (http://api:8000) from docker-compose defaults.
+    sed -i.bak "/^BACKEND_URL=/d" .env
+    sed -i.bak "/^# Backend URL for UI$/d" .env
     # Update TURN_HOST to use domain
     sed -i.bak "s|^TURN_HOST=.*|TURN_HOST=$DOMAIN_NAME|" .env
     rm -f .env.bak

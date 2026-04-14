@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
-import { useAppConfig } from "@/context/AppConfigContext";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -28,7 +27,6 @@ interface TriggerNodeProps extends NodeProps {
 export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
     const { open, setOpen, handleSaveNodeData, handleDeleteNode } = useNodeHandlers({ id });
     const { saveWorkflow } = useWorkflow();
-    const { config } = useAppConfig();
 
     // Form state
     const [name, setName] = useState(data.name || "API Trigger");
@@ -36,8 +34,9 @@ export const TriggerNode = memo(({ data, selected, id }: TriggerNodeProps) => {
     // Generate trigger_path if not present (should be done on node creation)
     const [triggerPath] = useState(() => data.trigger_path ?? crypto.randomUUID());
 
-    // Get backend URL from app config (fetched from backend health endpoint)
-    const backendUrl = config?.backendApiEndpoint || "http://localhost:8000";
+    const backendUrl =
+        process.env.NEXT_PUBLIC_BACKEND_URL ||
+        (typeof window !== 'undefined' ? window.location.origin : '');
     const endpoint = `${backendUrl}/api/v1/public/agent/${triggerPath}`;
 
     // Copy state for button feedback

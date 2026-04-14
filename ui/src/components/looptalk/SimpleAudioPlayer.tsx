@@ -30,7 +30,8 @@ export function SimpleAudioPlayer({ testSessionId }: SimpleAudioPlayerProps) {
                 const accessToken = await getAccessToken();
 
                 // Create WebSocket connection - pass token as query param since WebSocket doesn't support headers
-                const baseUrl = process.env.NEXT_PUBLIC_API_URL?.replace('http', 'ws') || 'ws://localhost:8000';
+                const httpBase = process.env.NEXT_PUBLIC_BACKEND_URL || window.location.origin;
+                const baseUrl = httpBase.replace(/^http/, 'ws');
                 const wsUrl = `${baseUrl}/api/v1/looptalk/test-sessions/${testSessionId}/audio-stream?role=${audioRole}&token=${encodeURIComponent(accessToken || '')}`;
                 const ws = new WebSocket(wsUrl);
                 wsRef.current = ws;

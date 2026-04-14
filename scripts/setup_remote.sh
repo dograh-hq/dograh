@@ -15,9 +15,11 @@ echo "║      Automated HTTPS deployment with TURN server             ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-# Get the public IP address
-echo -e "${YELLOW}Enter your server's public IP address:${NC}"
-read -p "> " SERVER_IP
+# Get the public IP address (skip prompt if SERVER_IP is already set)
+if [[ -z "$SERVER_IP" ]]; then
+    echo -e "${YELLOW}Enter your server's public IP address:${NC}"
+    read -p "> " SERVER_IP
+fi
 
 if [[ -z "$SERVER_IP" ]]; then
     echo -e "${RED}Error: IP address cannot be empty${NC}"
@@ -30,15 +32,20 @@ if ! [[ "$SERVER_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     exit 1
 fi
 
-# Get the TURN secret
-echo -e "${YELLOW}Enter a shared secret for the TURN server (press Enter to generate a random one):${NC}"
-read -sp "> " TURN_SECRET
-echo ""
+# Get the TURN secret (skip prompt if TURN_SECRET is already set)
+if [[ -z "$TURN_SECRET" ]]; then
+    echo -e "${YELLOW}Enter a shared secret for the TURN server (press Enter to generate a random one):${NC}"
+    read -sp "> " TURN_SECRET
+    echo ""
+fi
 
 if [[ -z "$TURN_SECRET" ]]; then
     TURN_SECRET=$(openssl rand -hex 32)
     echo -e "${BLUE}Generated random TURN secret${NC}"
 fi
+
+# Telemetry opt-out (default: true)
+ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
 
 echo ""
 echo -e "${GREEN}Configuration:${NC}"
@@ -46,13 +53,18 @@ echo -e "  Server IP:     ${BLUE}$SERVER_IP${NC}"
 echo -e "  TURN Secret:   ${BLUE}********${NC}"
 echo ""
 
-# Create project directory if it doesn't exist
-mkdir -p dograh 2>/dev/null || true
-cd dograh
+# Create project directory and download compose file (skip when
+# DOGRAH_SKIP_DOWNLOAD=1 — e.g. e2e tests that already have a cloned repo).
+if [[ "$DOGRAH_SKIP_DOWNLOAD" != "1" ]]; then
+    mkdir -p dograh 2>/dev/null || true
+    cd dograh
 
-echo -e "${BLUE}[1/5] Downloading docker-compose.yaml...${NC}"
-curl -sS -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
-echo -e "${GREEN}✓ docker-compose.yaml downloaded${NC}"
+    echo -e "${BLUE}[1/5] Downloading docker-compose.yaml...${NC}"
+    curl -sS -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
+    echo -e "${GREEN}✓ docker-compose.yaml downloaded${NC}"
+else
+    echo -e "${BLUE}[1/5] Using docker-compose.yaml in current directory${NC}"
+fi
 
 echo -e "${BLUE}[2/5] Creating nginx.conf...${NC}"
 cat > nginx.conf << 'NGINX_EOF'
@@ -74,6 +86,28 @@ server {
     # Basic TLS settings
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
+
+    # Backend API and WebSockets — bypass the UI, go straight to api:8000
+    location /api/v1/ {
+        proxy_pass http://api:8000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        # Long-lived WebSockets (audio streaming, signaling)
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+
+        # Don't buffer streamed responses
+        proxy_buffering off;
+        client_max_body_size 100M;
+    }
 
     location / {
         proxy_pass         http://ui:3010;
@@ -170,11 +204,8 @@ echo -e "${BLUE}[6/6] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
-# Backend API endpoint (for remote deployment)
+# Backend API endpoint (public URL the backend uses to build webhook/embed links)
 BACKEND_API_ENDPOINT=https://$SERVER_IP
-
-# Backend URL for UI
-BACKEND_URL=https://$SERVER_IP
 
 # TURN Server Configuration (time-limited credentials via TURN REST API)
 TURN_HOST=$SERVER_IP
@@ -184,7 +215,7 @@ TURN_SECRET=$TURN_SECRET
 OSS_JWT_SECRET=$OSS_JWT_SECRET
 
 # Telemetry (set to false to disable)
-ENABLE_TELEMETRY=true
+ENABLE_TELEMETRY=$ENABLE_TELEMETRY
 ENV_EOF
 echo -e "${GREEN}✓ .env file created${NC}"
 

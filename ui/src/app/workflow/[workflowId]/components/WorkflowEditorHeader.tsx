@@ -385,7 +385,7 @@ export const WorkflowEditorHeader = ({
 
                 {/* GitHub star badge - desktop only */}
                 <div className="hidden md:block">
-                    <GitHubStarBadge className="border-[#3a3a3a] text-white" source="workflow_editor_header" />
+                    <GitHubStarBadge className="border-[#3a3a3a] bg-[#2a2a2a] text-white [&_span]:bg-transparent" source="workflow_editor_header" />
                 </div>
             </div>
         </div>

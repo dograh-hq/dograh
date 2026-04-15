@@ -616,10 +616,15 @@ async def _run_pipeline(
         llm = create_realtime_llm_service(user_config, audio_config)
         stt = None
         tts = None
+        # Realtime services don't implement run_inference, so create a
+        # separate text LLM for variable extraction and other out-of-band
+        # inference calls.
+        inference_llm = create_llm_service(user_config)
     else:
         stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
         tts = create_tts_service(user_config, audio_config)
         llm = create_llm_service(user_config)
+        inference_llm = None
 
     workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(run_workflow_json))
 
@@ -703,9 +708,15 @@ async def _run_pipeline(
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
         "context_compaction_enabled", False
     )
+    # Context compaction doesn't apply in realtime mode: the speech-to-speech
+    # service manages its own conversation state server-side.
+    if is_realtime and context_compaction_enabled:
+        logger.info("Disabling context_compaction_enabled for realtime workflow run")
+        context_compaction_enabled = False
 
     engine = PipecatEngine(
         llm=llm,
+        inference_llm=inference_llm,
         workflow=workflow_graph,
         call_context_vars=merged_call_context_vars,
         workflow_run_id=workflow_run_id,

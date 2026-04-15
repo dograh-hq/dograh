@@ -52,6 +52,7 @@ const STANDARD_TABS: { key: ServiceSegment; label: string }[] = [
 
 const REALTIME_TABS: { key: ServiceSegment; label: string }[] = [
     { key: "realtime", label: "Realtime Model" },
+    { key: "llm", label: "LLM" },
     { key: "embeddings", label: "Embedding" },
 ];
 
@@ -63,6 +64,7 @@ const OVERRIDE_STANDARD_TABS: { key: ServiceSegment; label: string }[] = [
 
 const OVERRIDE_REALTIME_TABS: { key: ServiceSegment; label: string }[] = [
     { key: "realtime", label: "Realtime Model" },
+    { key: "llm", label: "LLM" },
 ];
 
 // Display names for Sarvam voices
@@ -407,7 +409,7 @@ export function ServiceConfigurationForm({
             if (mode === 'override') {
                 // Build model_overrides for enabled services only
                 const modelOverrides: Record<string, unknown> = {};
-                const services = isRealtime ? ["realtime"] : ["llm", "tts", "stt"];
+                const services = isRealtime ? ["realtime", "llm"] : ["llm", "tts", "stt"];
                 for (const svc of services) {
                     if (enabledOverrides[svc]) {
                         modelOverrides[svc] = buildServiceConfig(svc as ServiceSegment, data);
@@ -758,7 +760,7 @@ export function ServiceConfigurationForm({
                         Realtime Mode
                     </Label>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                        Uses a single speech-to-speech model (no separate STT/TTS)
+                        Uses a single speech-to-speech model (no separate STT/TTS). An LLM is still required for variable extraction and QA.
                     </p>
                 </div>
                 <Switch

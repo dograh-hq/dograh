@@ -60,6 +60,7 @@ class PipecatEngine:
         *,
         task: Optional[PipelineTask] = None,
         llm: Optional["LLMService"] = None,
+        inference_llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
         workflow: WorkflowGraph,
         call_context_vars: dict,
@@ -75,6 +76,12 @@ class PipecatEngine:
     ):
         self.task = task
         self.llm = llm
+        # LLM used for out-of-band inference (variable extraction, context
+        # summarization). Falls back to the pipeline LLM when not provided.
+        # In realtime mode the pipeline LLM is a speech-to-speech service
+        # that does not implement run_inference, so a separate text LLM
+        # must be passed in.
+        self.inference_llm = inference_llm or llm
         self.context = context
         self.workflow = workflow
         self._call_context_vars = call_context_vars

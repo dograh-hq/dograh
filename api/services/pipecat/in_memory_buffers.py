@@ -120,9 +120,21 @@ class InMemoryLogsBuffer:
             f"Incremented turn counter to {self._turn_counter} for workflow {self._workflow_run_id}"
         )
 
+    @staticmethod
+    def _event_sort_key(event: dict) -> str:
+        payload_ts = event.get("payload", {}).get("timestamp")
+        return payload_ts or event.get("timestamp", "")
+
+    def _sorted_events(self) -> List[dict]:
+        # Stable sort by the realtime (payload) timestamp when available, falling
+        # back to the buffer-append timestamp. Python's sort is stable, so events
+        # sharing a key retain their original insertion order — this keeps
+        # consecutive bot-text chunks of a single turn contiguous.
+        return sorted(self._events, key=self._event_sort_key)
+
     def get_events(self) -> List[dict]:
-        """Get all events for final storage."""
-        return self._events
+        """Get all events for final storage, ordered by realtime timestamp."""
+        return self._sorted_events()
 
     def contains_user_speech(self) -> bool:
         """Return True if any final user transcription event has non-empty text."""
@@ -141,7 +153,7 @@ class InMemoryLogsBuffer:
         Filters for rtf-user-transcription (final) and rtf-bot-text events,
         formats them as '[timestamp] user/assistant: text\\n'.
         """
-        return _generate_transcript_text(self._events)
+        return _generate_transcript_text(self._sorted_events())
 
     def write_transcript_to_temp_file(self) -> Optional[str]:
         """Write transcript to a temporary text file and return the path.

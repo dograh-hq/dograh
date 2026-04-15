@@ -63,7 +63,7 @@ class ContextSummarizationManager:
         orphaned tool calls from previous nodes) with a concise summary.
         """
         context = self._engine.context
-        llm = self._engine.llm
+        llm = self._engine.inference_llm
         current_node = self._engine._current_node
 
         try:

@@ -84,7 +84,7 @@ export const UnifiedTranscript = ({
                             }
                             return (
                                 <TranscriptMessage
-                                    key={msg.id}
+                                    key={`${msg.id}-${index}`}
                                     message={msg}
                                     nextMessage={transcriptMessages[index + 1]}
                                 />

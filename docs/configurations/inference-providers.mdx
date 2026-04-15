@@ -73,7 +73,7 @@ For example, if you only want to change the voice for a specific agent:
 You can also switch an individual agent to use a **Realtime** provider (such as Gemini Live) even if the global configuration uses standard LLM + TTS + STT. Toggle the **Realtime** switch in the Model Overrides tab, then configure the realtime provider, model, and voice.
 
 <Note>
-When an agent uses a Realtime provider, it replaces the separate LLM, TTS, and STT services with a single speech-to-speech model. The individual LLM/TTS/STT override tabs are hidden in this mode.
+When an agent uses a Realtime provider, it replaces the separate TTS and STT services with a single speech-to-speech model. An **LLM** is still required alongside the Realtime model — it's used for out-of-band tasks like variable extraction and QA analysis, which the realtime service does not handle. Context compaction is not applicable in Realtime mode and is ignored if enabled.
 </Note>
 
 ## Gemini 3.1 Live
@@ -119,5 +119,5 @@ To use Gemini 3.1 Live with Dograh, you need a Google Gemini API key. Follow the
 6. Select the language (currently `en` is supported).
 
 <Note>
-  When using a Realtime provider like Gemini Live, you do not need to configure separate LLM, TTS, and STT services — the realtime model handles all three.
+  When using a Realtime provider like Gemini Live, you do not need to configure separate TTS and STT services — the realtime model handles speech in and out. However, you **must** still configure an **LLM** under the LLM tab: it powers variable extraction and QA analysis, which the realtime service does not perform.
 </Note>

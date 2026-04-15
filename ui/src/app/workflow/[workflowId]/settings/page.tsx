@@ -582,7 +582,7 @@ function GeneralSection({
                     <div>
                         <h3 className="text-sm font-medium">Context Compaction</h3>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                            Automatically summarize conversation context when transitioning between nodes.
+                            Automatically summarize conversation context when transitioning between nodes. Not applicable in Realtime mode — the speech-to-speech service manages its own conversation state and this setting is ignored.
                         </p>
                     </div>
                     <div className="flex items-center justify-between">

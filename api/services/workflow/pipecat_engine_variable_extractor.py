@@ -203,12 +203,12 @@ class VariableExtractionManager:
         # current node's system prompt that build_chat_completion_params
         # would otherwise prepend.
         # ------------------------------------------------------------------
-        llm_response = await self._engine.llm.run_inference(
+        llm_response = await self._engine.inference_llm.run_inference(
             extraction_context, system_instruction=system_prompt
         )
 
         # Get model name for tracing
-        model_name = getattr(self._engine.llm, "model_name", "unknown")
+        model_name = getattr(self._engine.inference_llm, "model_name", "unknown")
 
         if ensure_tracing():
             tracer = trace.get_tracer("pipecat")
@@ -221,7 +221,7 @@ class VariableExtractionManager:
                 ]
                 add_llm_span_attributes(
                     span,
-                    service_name=self._engine.llm.__class__.__name__,
+                    service_name=self._engine.inference_llm.__class__.__name__,
                     model=model_name,
                     operation_name="llm-variable-extraction",
                     messages=tracing_messages,

@@ -65,6 +65,10 @@ ENV PYTHONUNBUFFERED=1
 COPY ./api ./api
 COPY ./scripts/start_services_dev.sh ./scripts/start_services_dev.sh
 
+# Product documentation — read at runtime by the MCP docs tools
+# (search_dograh_docs / fetch_dograh_doc) so agents can learn Dograh.
+COPY ./docs ./docs
+
 ENV PYTHONPATH=/app
 
 # Disable file logging in Docker - logs go to stdout for docker logs

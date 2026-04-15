@@ -27,6 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from api.constants import REDIS_URL
+from api.mcp import mcp
 from api.routes.main import router as main_router
 from api.services.pipecat.tracing_config import (
     handle_langfuse_sync,
@@ -41,29 +42,32 @@ from api.tasks.arq import get_arq_redis
 
 API_PREFIX = "/api/v1"
 
+mcp_app = mcp.http_app(path="/", stateless_http=True)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # warmup arq pool
-    await get_arq_redis()
+    async with mcp_app.lifespan(app):
+        # warmup arq pool
+        await get_arq_redis()
 
-    # Pre-register all org-specific Langfuse exporters so they're ready
-    # before any pipeline runs, without per-call DB lookups.
-    await load_all_org_langfuse_credentials()
+        # Pre-register all org-specific Langfuse exporters so they're ready
+        # before any pipeline runs, without per-call DB lookups.
+        await load_all_org_langfuse_credentials()
 
-    # Start cross-worker sync manager so config changes propagate to all workers
-    sync_manager = WorkerSyncManager(REDIS_URL)
-    sync_manager.register(
-        WorkerSyncEventType.LANGFUSE_CREDENTIALS, handle_langfuse_sync
-    )
-    await sync_manager.start()
-    set_worker_sync_manager(sync_manager)
+        # Start cross-worker sync manager so config changes propagate to all workers
+        sync_manager = WorkerSyncManager(REDIS_URL)
+        sync_manager.register(
+            WorkerSyncEventType.LANGFUSE_CREDENTIALS, handle_langfuse_sync
+        )
+        await sync_manager.start()
+        set_worker_sync_manager(sync_manager)
 
-    yield  # Run app
+        yield  # Run app
 
-    # Shutdown sequence - this runs when FastAPI is shutting down
-    logger.info("Starting graceful shutdown...")
-    await sync_manager.stop()
+        # Shutdown sequence - this runs when FastAPI is shutting down
+        logger.info("Starting graceful shutdown...")
+        await sync_manager.stop()
 
 
 app = FastAPI(
@@ -95,3 +99,7 @@ api_router.include_router(main_router)
 
 # main router with api prefix
 app.include_router(api_router, prefix=API_PREFIX)
+
+# Mount the MCP server — agents reach it at /mcp over Streamable HTTP,
+# authenticating with the same X-API-Key header used by the REST API.
+app.mount("/mcp", mcp_app)

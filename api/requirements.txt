@@ -1,5 +1,5 @@
 langfuse==3.9.3
-fastapi==0.116.2
+fastapi==0.135.3
 asyncpg==0.30.0
 alembic==1.16.5
 redis==5.3.1
@@ -17,4 +17,6 @@ docling[rapidocr]==2.68.0
 pgvector==0.4.2
 bcrypt==5.0.0
 email-validator==2.3.0
-posthog==3.24.0
+posthog==7.11.1
+fastmcp==3.2.4
+rank-bm25==0.2.2

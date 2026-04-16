@@ -11,7 +11,7 @@ export function MCPSection() {
   const backendUrl =
     process.env.NEXT_PUBLIC_BACKEND_URL ||
     (typeof window !== "undefined" ? window.location.origin : "");
-  const endpoint = `${backendUrl}/mcp/`;
+  const endpoint = `${backendUrl}/api/v1/mcp/`;
 
   const clientConfig = JSON.stringify(
     {

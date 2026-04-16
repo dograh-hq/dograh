@@ -316,9 +316,10 @@ class OrganizationUsageClient(BaseDBClient):
                 total_duration_seconds += int(round(call_duration))
 
                 # Extract phone number from initial_context
+                # Outbound calls store it as "phone_number"; inbound calls store it as "caller_number"
                 phone_number = None
                 if run.initial_context:
-                    phone_number = run.initial_context.get("phone_number")
+                    phone_number = run.initial_context.get("phone_number") or run.initial_context.get("caller_number")
 
                 # Extract disposition from gathered_context
                 disposition = None

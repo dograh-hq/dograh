@@ -98,6 +98,10 @@ services:
 
       # MinIO
       MINIO_ENDPOINT: "minio:9000"
+      # Full URL (with scheme) browsers use to reach MinIO. For remote
+      # deployments behind HTTPS, set MINIO_PUBLIC_ENDPOINT in .env to
+      # e.g. https://your-server.example.com (nginx proxies /voice-audio/).
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
       MINIO_ACCESS_KEY: "minioadmin"
       MINIO_SECRET_KEY: "minioadmin"
       MINIO_BUCKET: "voice-audio"

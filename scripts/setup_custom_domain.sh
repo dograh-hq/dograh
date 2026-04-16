@@ -278,6 +278,12 @@ if [[ -f ".env" ]]; then
     sed -i.bak "/^# Backend URL for UI$/d" .env
     # Update TURN_HOST to use domain
     sed -i.bak "s|^TURN_HOST=.*|TURN_HOST=$DOMAIN_NAME|" .env
+    # Update MINIO_PUBLIC_ENDPOINT to use domain (browsers fetch /voice-audio/* here)
+    if grep -q "^MINIO_PUBLIC_ENDPOINT=" .env; then
+        sed -i.bak "s|^MINIO_PUBLIC_ENDPOINT=.*|MINIO_PUBLIC_ENDPOINT=https://$DOMAIN_NAME|" .env
+    else
+        echo "MINIO_PUBLIC_ENDPOINT=https://$DOMAIN_NAME" >> .env
+    fi
     rm -f .env.bak
     echo -e "${GREEN}✓ .env updated with domain name${NC}"
 else

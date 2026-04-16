@@ -12,14 +12,11 @@ from .base import BaseFileSystem
 class MinioFileSystem(BaseFileSystem):
     """MinIO implementation of the filesystem interface for OSS users.
 
-    Handles both internal (container-to-container) and external (browser) access:
-    - endpoint: Used for API operations (uploads, downloads from code)
-    - public_endpoint: Used for generating browser-accessible presigned URLs
-
-    Auto-detection logic:
-    1. If MINIO_PUBLIC_ENDPOINT env var is set, use it (for production/custom domains)
-    2. If endpoint is "minio:9000" (Docker internal), auto-use "localhost:9000" for browser
-    3. Otherwise, endpoint works for both (e.g., "localhost:9000" in local non-Docker setup)
+    Two endpoints, two different purposes:
+    - endpoint (host:port) + secure (bool): used by the MinIO SDK for
+      container-to-container calls. The SDK requires these split.
+    - public_endpoint (full URL, e.g. "https://example.com"): used verbatim
+      when building URLs that browsers will fetch. Required.
     """
 
     def __init__(
@@ -31,9 +28,22 @@ class MinioFileSystem(BaseFileSystem):
         secure: bool = False,
         public_endpoint: Optional[str] = None,
     ):
+        if not public_endpoint:
+            raise ValueError(
+                "MinioFileSystem requires public_endpoint (set MINIO_PUBLIC_ENDPOINT). "
+                "Expected a full URL with scheme, e.g. 'http://localhost:9000' or 'https://example.com'."
+            )
+        if not (
+            public_endpoint.startswith("http://")
+            or public_endpoint.startswith("https://")
+        ):
+            raise ValueError(
+                f"MINIO_PUBLIC_ENDPOINT must include a scheme (http:// or https://), got: {public_endpoint!r}"
+            )
+
         self.bucket_name = bucket_name
         self.endpoint = endpoint
-        self.public_endpoint = public_endpoint or endpoint
+        self.public_endpoint = public_endpoint.rstrip("/")
         self.secure = secure
         self.access_key = access_key
         self.secret_key = secret_key
@@ -115,13 +125,12 @@ class MinioFileSystem(BaseFileSystem):
         use_internal_endpoint: bool = False,
     ) -> Optional[str]:
         try:
-            # For MinIO in local development, return unsigned URLs
-            # This avoids signature mismatch issues when endpoint differs
-            # MinIO must be configured to allow anonymous read access
-            protocol = "https" if self.secure else "http"
-            endpoint = self.endpoint if use_internal_endpoint else self.public_endpoint
-            url = f"{protocol}://{endpoint}/{self.bucket_name}/{file_path}"
-            return url
+            if use_internal_endpoint:
+                protocol = "https" if self.secure else "http"
+                base = f"{protocol}://{self.endpoint}"
+            else:
+                base = self.public_endpoint
+            return f"{base}/{self.bucket_name}/{file_path}"
         except Exception as e:
             logger.error(f"Error generating MinIO URL: {e}")
             return None
@@ -162,9 +171,7 @@ class MinioFileSystem(BaseFileSystem):
         The bucket policy allows anonymous s3:PutObject, so no signature is needed.
         """
         try:
-            # Return unsigned URL for anonymous upload
-            protocol = "https" if self.secure else "http"
-            url = f"{protocol}://{self.public_endpoint}/{self.bucket_name}/{file_path}"
+            url = f"{self.public_endpoint}/{self.bucket_name}/{file_path}"
             logger.debug(f"Generated unsigned upload URL: {url}")
             return url
         except Exception as e:

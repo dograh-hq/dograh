@@ -1,5 +1,6 @@
 "use client";
 
+import { MCPSection } from "@/components/MCPSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
 import {
   Card,
@@ -19,6 +20,19 @@ export default function SettingsPage() {
             Manage your platform configuration and integrations.
           </p>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>MCP Server</CardTitle>
+            <CardDescription>
+              Let AI agents access your Dograh workspace and documentation via
+              the Model Context Protocol.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MCPSection />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

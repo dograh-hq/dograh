@@ -207,6 +207,9 @@ cat > .env << ENV_EOF
 # Backend API endpoint (public URL the backend uses to build webhook/embed links)
 BACKEND_API_ENDPOINT=https://$SERVER_IP
 
+# Public URL browsers use to fetch objects from MinIO (proxied by nginx)
+MINIO_PUBLIC_ENDPOINT=https://$SERVER_IP
+
 # TURN Server Configuration (time-limited credentials via TURN REST API)
 TURN_HOST=$SERVER_IP
 TURN_SECRET=$TURN_SECRET

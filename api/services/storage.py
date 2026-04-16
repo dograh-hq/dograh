@@ -25,46 +25,24 @@ def get_storage_for_backend(backend: str) -> BaseFileSystem:
     """
     # Code 2: MinIO implementation (local/OSS deployments)
     if backend == StorageBackend.MINIO.value:
-        endpoint = MINIO_ENDPOINT
-        # Auto-detect public endpoint:
-        # - If MINIO_PUBLIC_ENDPOINT is set, use it (for custom domains/IPs)
-        # - If running in Docker and endpoint is "minio:9000", use "localhost:9000" for local dev
-        # - Otherwise, use the endpoint as-is (both containers and browser can reach it)
-        public_endpoint = MINIO_PUBLIC_ENDPOINT
-        if not public_endpoint:
-            # Auto-detect based on endpoint
-            if endpoint.startswith("minio:"):
-                # Docker internal endpoint detected, assume local development
-                public_endpoint = endpoint.replace("minio:", "localhost:")
-                logger.info(
-                    f"Auto-detected local development: using {public_endpoint} for public access"
-                )
-            elif endpoint.startswith("host.docker.internal:"):
-                # Docker Desktop special DNS detected, use localhost for browser access
-                public_endpoint = endpoint.replace(
-                    "host.docker.internal:", "localhost:"
-                )
-                logger.info(
-                    f"Auto-detected Docker Desktop: using {public_endpoint} for public access"
-                )
-            else:
-                # Already using a public endpoint (localhost:9000 or domain:9000)
-                public_endpoint = endpoint
-
-        access_key = MINIO_ACCESS_KEY
-        secret_key = MINIO_SECRET_KEY
-        bucket = MINIO_BUCKET
-        secure = MINIO_SECURE
+        if not MINIO_PUBLIC_ENDPOINT:
+            raise ValueError(
+                "MINIO_PUBLIC_ENDPOINT is required for MinIO storage. "
+                "Set it to the full URL browsers use to reach MinIO, "
+                "e.g. 'http://localhost:9000' for local dev or "
+                "'https://your-server.example.com' for a remote deployment."
+            )
         logger.info(
-            f"Initializing {backend} storage at {endpoint} (public: {public_endpoint}) with bucket '{bucket}'"
+            f"Initializing {backend} storage at {MINIO_ENDPOINT} "
+            f"(public: {MINIO_PUBLIC_ENDPOINT}) with bucket '{MINIO_BUCKET}'"
         )
         return MinioFileSystem(
-            endpoint=endpoint,
-            access_key=access_key,
-            secret_key=secret_key,
-            bucket_name=bucket,
-            secure=secure,
-            public_endpoint=public_endpoint,
+            endpoint=MINIO_ENDPOINT,
+            access_key=MINIO_ACCESS_KEY,
+            secret_key=MINIO_SECRET_KEY,
+            bucket_name=MINIO_BUCKET,
+            secure=MINIO_SECURE,
+            public_endpoint=MINIO_PUBLIC_ENDPOINT,
         )
 
     # Code 1: AWS S3 implementation (cloud deployments)

@@ -121,4 +121,7 @@ def setup_logging():
         logging_logger.setLevel(logging.INFO)
         logging_logger.propagate = False
 
+    # MCP SDK logs a line per request lifecycle event; child loggers inherit.
+    logging.getLogger("mcp").setLevel(logging.WARNING)
+
     _logging_initialized = True

@@ -13,25 +13,7 @@ export function MCPSection() {
     (typeof window !== "undefined" ? window.location.origin : "");
   const endpoint = `${backendUrl}/api/v1/mcp/`;
 
-  const clientConfig = JSON.stringify(
-    {
-      mcpServers: {
-        dograh: {
-          url: endpoint,
-          headers: { "X-API-Key": "YOUR_API_KEY" },
-        },
-      },
-    },
-    null,
-    2,
-  );
-
-  const claudeCliCommand = `claude mcp add --transport http dograh ${endpoint} \\
-  --header "X-API-Key: YOUR_API_KEY"`;
-
   const [endpointCopied, setEndpointCopied] = useState(false);
-  const [configCopied, setConfigCopied] = useState(false);
-  const [cliCopied, setCliCopied] = useState(false);
 
   const handleCopy = async (
     value: string,
@@ -47,8 +29,8 @@ export function MCPSection() {
       <div className="grid gap-2">
         <Label>MCP Endpoint</Label>
         <p className="text-xs text-muted-foreground">
-          Connect an AI agent (Claude Desktop, Cursor, etc.) to this URL over
-          Streamable HTTP. Requires an API key in the X-API-Key header.{" "}
+          Connect an MCP-compatible AI assistant to this URL over Streamable
+          HTTP. Requires an API key in the X-API-Key header.{" "}
           <Link
             href="/api-keys"
             target="_blank"
@@ -76,63 +58,19 @@ export function MCPSection() {
         </div>
       </div>
 
-      <div className="grid gap-2">
-        <Label>Claude Code CLI</Label>
-        <p className="text-xs text-muted-foreground">
-          Run this in your terminal to register Dograh as an MCP server with
-          Claude Code.
-        </p>
-        <div className="relative">
-          <pre className="text-xs bg-muted px-3 py-2 pr-12 rounded overflow-x-auto whitespace-pre-wrap">
-            {claudeCliCommand}
-          </pre>
-          <Button
-            variant="outline"
-            size="icon"
-            className="absolute top-2 right-2"
-            onClick={() => handleCopy(claudeCliCommand, setCliCopied)}
-          >
-            {cliCopied ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-      </div>
-
-      <div className="grid gap-2">
-        <Label>Client Configuration</Label>
-        <p className="text-xs text-muted-foreground">
-          Paste this into your MCP client&apos;s config file (e.g. Claude
-          Desktop&apos;s{" "}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-            claude_desktop_config.json
-          </code>
-          ) and replace{" "}
-          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
-            YOUR_API_KEY
-          </code>
-          .
-        </p>
-        <div className="relative">
-          <pre className="text-xs bg-muted px-3 py-2 pr-12 rounded overflow-x-auto whitespace-pre-wrap">
-            {clientConfig}
-          </pre>
-          <Button
-            variant="outline"
-            size="icon"
-            className="absolute top-2 right-2"
-            onClick={() => handleCopy(clientConfig, setConfigCopied)}
-          >
-            {configCopied ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
-          </Button>
-        </div>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        For step-by-step setup with Claude Code, Claude Desktop, Cursor, and
+        other clients, see the{" "}
+        <Link
+          href="https://docs.dograh.com/integrations/mcp"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-primary underline hover:no-underline"
+        >
+          MCP integration guide
+        </Link>
+        .
+      </p>
     </div>
   );
 }

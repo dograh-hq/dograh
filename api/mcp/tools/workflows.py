@@ -33,8 +33,10 @@ async def list_workflows(status: str | None = None) -> list[dict]:
 async def get_workflow(workflow_id: int) -> dict:
     """Fetch a single agent by id, including its current published definition."""
     user = await authenticate_mcp_request()
-    workflow = await db_client.get_workflow_by_id(workflow_id)
-    if not workflow or workflow.organization_id != user.selected_organization_id:
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=user.selected_organization_id
+    )
+    if not workflow:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
 
     current = workflow.current_definition

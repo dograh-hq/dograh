@@ -104,6 +104,12 @@
               "integrations/telephony/webhooks",
               "integrations/telephony/custom"
             ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/mcp"
+            ]
           }
         ]
       },

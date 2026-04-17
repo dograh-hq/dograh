@@ -1,0 +1,70 @@
+---
+title: "MCP Server"
+description: "Connect Claude and other AI assistants to your Dograh workspace via the Model Context Protocol"
+---
+
+## Overview
+
+Dograh exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that lets AI assistants like Claude Code, Claude Desktop, and Cursor access your workspace and documentation. Once connected, an assistant can list your agents, fetch agent definitions, and search Dograh docs on your behalf.
+
+## Prerequisites
+
+- A Dograh API key. Generate one at [`/api-keys`](https://app.dograh.com/api-keys) (or `http://localhost:3010/api-keys` for self-hosted). See [API Keys](/configurations/api-keys).
+- Your Dograh MCP endpoint:
+  - Hosted: `https://app.dograh.com/api/v1/mcp/`
+  - Self-hosted: `<YOUR_BACKEND_URL>/api/v1/mcp/`
+
+The endpoint is also shown in **Platform Settings → MCP Server** inside the Dograh UI.
+
+## Claude Code
+
+Register Dograh as an MCP server with the Claude Code CLI:
+
+```bash
+claude mcp add --transport http dograh https://app.dograh.com/api/v1/mcp/ \
+  --header "X-API-Key: YOUR_API_KEY"
+```
+
+Replace `YOUR_API_KEY` with the key you generated. For self-hosted deployments, swap the URL for your backend.
+
+Verify the server is connected:
+
+```bash
+claude mcp list
+```
+
+## Claude Desktop
+
+Open Claude Desktop's config file (`claude_desktop_config.json`) and add the `dograh` entry under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "dograh": {
+      "url": "https://app.dograh.com/api/v1/mcp/",
+      "headers": {
+        "X-API-Key": "YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
+
+Restart Claude Desktop after saving. The Dograh tools should appear in the tool picker.
+
+## Cursor and other MCP clients
+
+Any MCP client that supports Streamable HTTP transport can connect with the same URL and header. Paste the configuration above into your client's MCP settings file and replace `YOUR_API_KEY`.
+
+## Available tools
+
+Once connected, your AI assistant can:
+
+- `list_workflows` — list agents in your workspace
+- `get_workflow` — fetch an agent's definition by ID
+- `search_dograh_docs` — search Dograh documentation
+- `fetch_dograh_doc` — retrieve a specific doc page
+
+<Note>
+The API key controls which workspace the assistant sees. Treat it like any other credential — do not commit it to source control or paste it into shared chats.
+</Note>

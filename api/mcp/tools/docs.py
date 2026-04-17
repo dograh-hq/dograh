@@ -62,8 +62,10 @@ def _snippet(content: str, query_tokens: list[str], width: int = 240) -> str:
         if idx >= 0:
             start = max(0, idx - width // 2)
             end = min(len(content), start + width)
-            return ("…" if start > 0 else "") + content[start:end].strip() + (
-                "…" if end < len(content) else ""
+            return (
+                ("…" if start > 0 else "")
+                + content[start:end].strip()
+                + ("…" if end < len(content) else "")
             )
     return content[:width].strip() + ("…" if len(content) > width else "")
 
@@ -83,9 +85,7 @@ async def search_dograh_docs(query: str, limit: int = 5) -> list[dict]:
         return []
 
     scores = bm25.get_scores(tokens)
-    ranked = sorted(
-        zip(scores, docs), key=lambda pair: pair[0], reverse=True
-    )[:limit]
+    ranked = sorted(zip(scores, docs), key=lambda pair: pair[0], reverse=True)[:limit]
 
     return [
         {

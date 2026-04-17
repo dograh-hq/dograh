@@ -1857,3 +1857,112 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
         logger.error(f"Error completing transfer {transfer_id}: {e}")
 
     return {"status": "completed", "result": result}
+
+
+# ── Smartflo (Tata Tele Business) bi-directional voice streaming ──────────────
+
+@router.websocket("/ws/smartflo/{workflow_id}/{user_id}")
+async def smartflo_websocket_endpoint(
+    websocket: WebSocket,
+    workflow_id: int,
+    user_id: int,
+) -> None:
+    """
+    Smartflo bi-directional voice streaming WebSocket endpoint.
+
+    No authentication required — Smartflo connects directly from their platform.
+    Configure the streaming URL in the Smartflo portal as:
+        ws://<host>/api/v1/telephony/ws/smartflo/<workflow_id>/<user_id>
+
+    Protocol: Dograh sends {"event":"connected"} first, then Smartflo sends
+    "start" with call metadata, followed by bidirectional "media" frames.
+    Failure to send the connected ACK immediately causes Smartflo to disconnect
+    with code 1005 (no status received).
+
+    Reference:
+        https://docs.smartflo.tatatelebusiness.com/docs/bi-directional-audio-streaming-integration-document
+    """
+    import uuid as _uuid
+
+    from api.db import db_client
+    from api.services.pipecat.run_pipeline import run_pipeline_twilio
+    from api.services.telephony.providers.smartflo_provider import SmartfloTransport
+
+    await websocket.accept()
+    logger.info(f"[Smartflo] WS accepted | workflow_id={workflow_id} user_id={user_id}")
+
+    transport = SmartfloTransport(websocket)
+
+    # Handshake: send connected ACK, receive start event with call metadata
+    if not await transport.handshake():
+        logger.error("[Smartflo] Handshake failed — closing connection")
+        await transport.close()
+        return
+
+    ci = transport.call_info
+    logger.info(
+        f"[Smartflo] Handshake complete | callSid={ci['call_sid']} "
+        f"from={ci['from_number']} to={ci['to_number']}"
+    )
+
+    # Create workflow run record
+    numeric_suffix = int(str(_uuid.uuid4()).replace("-", "")[:8], 16) % 100_000_000
+    run_name = f"WR-SFLO-IN-{numeric_suffix:08d}"
+
+    workflow_run = None
+    try:
+        workflow_run = await db_client.create_workflow_run(
+            run_name,
+            workflow_id,
+            "smartflo",
+            user_id=user_id,
+            call_type="inbound",
+            initial_context={
+                "caller_number": ci.get("from_number", ""),
+                "called_number": ci.get("to_number", ""),
+                "direction":     "inbound",
+                "provider":      "smartflo",
+                "stream_sid":    ci.get("stream_sid", ""),
+                "call_sid":      ci.get("call_sid", ""),
+                "account_sid":   ci.get("account_sid", ""),
+            },
+            gathered_context={
+                "call_id":    ci.get("call_sid", ""),
+                "stream_sid": ci.get("stream_sid", ""),
+            },
+        )
+        logger.info(f"[Smartflo] Created workflow run id={workflow_run.id} name={run_name}")
+        await db_client.update_workflow_run(
+            run_id=workflow_run.id,
+            state="running",
+        )
+    except Exception as exc:
+        logger.error(f"[Smartflo] Failed to create workflow run: {exc}")
+        await transport.close()
+        return
+
+    # Run Pipecat pipeline (Smartflo and Twilio both use \u03bc-law 8kHz)
+    try:
+        await run_pipeline_twilio(
+            websocket,
+            ci.get("stream_sid", ""),
+            ci.get("call_sid", ""),
+            workflow_id,
+            workflow_run.id,
+            user_id,
+        )
+    except WebSocketDisconnect:
+        logger.info(f"[Smartflo] Call ended cleanly | run_id={workflow_run.id}")
+    except Exception as exc:
+        logger.error(f"[Smartflo] Pipeline error | run_id={workflow_run.id} error={exc}")
+    finally:
+        await transport.close()
+        try:
+            await db_client.update_workflow_run(
+                run_id=workflow_run.id,
+                is_completed=True,
+                state="completed",
+            )
+            logger.info(f"[Smartflo] Run {workflow_run.id} marked completed")
+        except Exception as exc:
+            logger.warning(f"[Smartflo] Could not mark run completed: {exc}")

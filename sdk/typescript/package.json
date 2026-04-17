@@ -1,0 +1,46 @@
+{
+  "name": "@dograh/sdk",
+  "version": "0.1.0",
+  "description": "Typed builder for Dograh voice-AI workflows",
+  "license": "BSD-2-Clause",
+  "author": "Zansat Technologies Private Limited",
+  "homepage": "https://dograh.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dograh/dograh.git",
+    "directory": "sdk/typescript"
+  },
+  "keywords": [
+    "dograh",
+    "voice-ai",
+    "workflow",
+    "sdk",
+    "llm",
+    "agent"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "tsc && node --test --test-reporter=spec tests/sdk.test.mts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0"
+  }
+}

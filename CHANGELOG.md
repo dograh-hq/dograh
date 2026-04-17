@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.25.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.24.0...dograh-v1.25.0) (2026-04-17)
+
+
+### Features
+
+* add mcp server to Dograh OSS ([#240](https://github.com/dograh-hq/dograh/issues/240)) ([79bc91b](https://github.com/dograh-hq/dograh/commit/79bc91b1e09274393dab34d6beadf89f0556d774))
+
+
+### Bug Fixes
+
+* allow cross subdomain cookies at posthog ([#243](https://github.com/dograh-hq/dograh/issues/243)) ([5ecc0d4](https://github.com/dograh-hq/dograh/commit/5ecc0d4da9333f1d45584bf63b6fda7a93e661fe))
+* fix interruption handling for Gemini Live ([e31b381](https://github.com/dograh-hq/dograh/commit/e31b38122e4799875371aada04714cb28fcfc90a))
+
 ## [1.24.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.23.1...dograh-v1.24.0) (2026-04-14)
 
 

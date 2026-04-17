@@ -53,6 +53,7 @@ const initPostHog = () => {
       capture_pageview: 'history_change',
       capture_pageleave: true,
       capture_exceptions: true,
+      cross_subdomain_cookie: true,
       debug: process.env.NEXT_PUBLIC_NODE_ENV === 'development',
     });
     console.log('PostHog initialized from NEXT_PUBLIC config');
@@ -68,6 +69,7 @@ const initPostHog = () => {
             capture_pageview: 'history_change',
             capture_pageleave: true,
             capture_exceptions: true,
+            cross_subdomain_cookie: true,
             debug: process.env.NEXT_PUBLIC_NODE_ENV === 'development',
           });
           console.log('PostHog initialized from API config');

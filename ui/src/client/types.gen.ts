@@ -3344,6 +3344,16 @@ export type ValidationError = {
      * Error Type
      */
     type: string;
+    /**
+     * Input
+     */
+    input?: unknown;
+    /**
+     * Context
+     */
+    ctx?: {
+        [key: string]: unknown;
+    };
 };
 
 /**
@@ -3818,6 +3828,10 @@ export type WorkflowRunUsageResponse = {
      * Phone Number
      */
     phone_number?: string | null;
+    /**
+     * Call Type
+     */
+    call_type?: string | null;
     /**
      * Disposition
      */

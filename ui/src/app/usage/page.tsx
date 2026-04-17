@@ -457,6 +457,7 @@ export default function UsagePage() {
                                             <TableRow className="bg-muted/50">
                                                 <TableHead className="font-semibold">Run ID</TableHead>
                                                 <TableHead className="font-semibold">Agent Name</TableHead>
+                                                <TableHead className="font-semibold">Call Type</TableHead>
                                                 <TableHead className="font-semibold">Phone Number</TableHead>
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Date</TableHead>
@@ -479,6 +480,15 @@ export default function UsagePage() {
                                                         #{run.id}
                                                     </TableCell>
                                                     <TableCell>{run.workflow_name || 'Unknown'}</TableCell>
+                                                    <TableCell>
+                                                        {run.call_type ? (
+                                                            <Badge variant={run.call_type === 'inbound' ? "secondary" : "default"}>
+                                                                {run.call_type === 'inbound' ? 'Inbound' : 'Outbound'}
+                                                            </Badge>
+                                                        ) : (
+                                                            <span className="text-sm text-muted-foreground">-</span>
+                                                        )}
+                                                    </TableCell>
                                                     <TableCell className="text-sm">
                                                         {run.phone_number || '-'}
                                                     </TableCell>

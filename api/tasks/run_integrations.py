@@ -5,12 +5,19 @@ from typing import Any, Dict, Optional
 
 import httpx
 from loguru import logger
+from pydantic import ValidationError
 
 from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
 from api.db.models import WorkflowRunModel
 from api.enums import OrganizationConfigurationKey
 from api.services.pipecat.tracing_config import register_org_langfuse_credentials
+from api.services.workflow.dto import (
+    QANodeData,
+    QARFNode,
+    WebhookNodeData,
+    WebhookRFNode,
+)
 from api.services.workflow.qa import run_per_node_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
@@ -19,34 +26,34 @@ from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 
 def _should_skip_qa(
-    node_data: dict,
+    qa_data: QANodeData,
     workflow_run: WorkflowRunModel,
 ) -> str | None:
     """Check whether QA analysis should be skipped for this call.
 
     Returns a reason string if the call should be skipped, or None if it should proceed.
     """
-    # Check minimum call duration
-    min_duration = node_data.get("qa_min_call_duration", 15)
     usage_info = workflow_run.usage_info or {}
     call_duration = usage_info.get("call_duration_seconds")
-    if call_duration is not None and call_duration < min_duration:
-        return f"call duration ({call_duration:.1f}s) below minimum ({min_duration}s)"
+    if call_duration is not None and call_duration < qa_data.qa_min_call_duration:
+        return (
+            f"call duration ({call_duration:.1f}s) below minimum "
+            f"({qa_data.qa_min_call_duration}s)"
+        )
 
-    # Check voicemail calls
-    qa_voicemail_calls = node_data.get("qa_voicemail_calls", False)
-    if not qa_voicemail_calls:
+    if not qa_data.qa_voicemail_calls:
         gathered_context = workflow_run.gathered_context or {}
         call_disposition = gathered_context.get("call_disposition", "")
         if call_disposition == EndTaskReason.VOICEMAIL_DETECTED.value:
             return "voicemail call and QA voicemail calls is disabled"
 
-    # Check sample rate
-    sample_rate = node_data.get("qa_sample_rate", 100)
-    if sample_rate < 100:
+    if qa_data.qa_sample_rate < 100:
         roll = random.randint(1, 100)
-        if roll > sample_rate:
-            return f"excluded by sampling ({sample_rate}% sample rate, rolled {roll})"
+        if roll > qa_data.qa_sample_rate:
+            return (
+                f"excluded by sampling ({qa_data.qa_sample_rate}% sample rate, "
+                f"rolled {roll})"
+            )
 
     return None
 
@@ -66,15 +73,22 @@ async def _run_qa_nodes(
     results: Dict[str, Any] = {}
 
     for node in qa_nodes:
-        node_data = node.get("data", {})
         node_id = node.get("id", "unknown")
-        node_name = node_data.get("name", "QA Analysis")
+        try:
+            qa_node = QARFNode.model_validate(node)
+        except ValidationError as e:
+            logger.warning(f"QA node #{node_id} failed validation, skipping: {e}")
+            results[f"qa_{node_id}"] = {"error": "validation_failed"}
+            continue
 
-        if not node_data.get("qa_enabled", True):
+        qa_data = qa_node.data
+        node_name = qa_data.name
+
+        if not qa_data.qa_enabled:
             logger.debug(f"QA node '{node_name}' is disabled, skipping")
             continue
 
-        skip_reason = _should_skip_qa(node_data, workflow_run)
+        skip_reason = _should_skip_qa(qa_data, workflow_run)
         if skip_reason:
             logger.info(f"Skipping QA node '{node_name}' (#{node_id}): {skip_reason}")
             results[f"qa_{node_id}"] = {"skipped": True, "reason": skip_reason}
@@ -83,7 +97,7 @@ async def _run_qa_nodes(
         try:
             logger.info(f"Running QA analysis for node '{node_name}' (#{node_id})")
             result = await run_per_node_qa_analysis(
-                node_data,
+                qa_data,
                 workflow_run,
                 workflow_run_id,
                 workflow_definition,
@@ -260,7 +274,16 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
 
         # Step 8: Execute each webhook node
         for node in webhook_nodes:
-            webhook_data = node.get("data", {})
+            node_id = node.get("id", "unknown")
+            try:
+                webhook_node = WebhookRFNode.model_validate(node)
+            except ValidationError as e:
+                logger.warning(
+                    f"Webhook node #{node_id} failed validation, skipping: {e}"
+                )
+                continue
+
+            webhook_data = webhook_node.data
             try:
                 await _execute_webhook_node(
                     webhook_data=webhook_data,
@@ -268,9 +291,8 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                     organization_id=organization_id,
                 )
             except Exception as e:
-                # Log error but continue with other webhooks
                 logger.warning(
-                    f"Failed to execute webhook '{webhook_data.get('name', 'unknown')}': {e}"
+                    f"Failed to execute webhook '{webhook_data.name}': {e}"
                 )
 
     except Exception as e:
@@ -323,7 +345,7 @@ def _build_render_context(
 
 
 async def _execute_webhook_node(
-    webhook_data: Dict[str, Any],
+    webhook_data: WebhookNodeData,
     render_context: Dict[str, Any],
     organization_id: int,
 ) -> bool:
@@ -331,31 +353,27 @@ async def _execute_webhook_node(
     Execute a single webhook node.
 
     Args:
-        webhook_data: The webhook node's data dict from workflow definition
+        webhook_data: The validated webhook node data
         render_context: Context for template rendering
         organization_id: For credential lookup
 
     Returns:
         True if successful, False otherwise
     """
-    webhook_name = webhook_data.get("name", "Unnamed Webhook")
+    webhook_name = webhook_data.name
 
-    # 1. Check if enabled
-    if not webhook_data.get("enabled", True):
+    if not webhook_data.enabled:
         logger.debug(f"Webhook '{webhook_name}' is disabled, skipping")
         return True
 
-    # 2. Validate endpoint URL
-    url = webhook_data.get("endpoint_url")
+    url = webhook_data.endpoint_url
     if not url:
         logger.warning(f"Webhook '{webhook_name}' has no endpoint URL")
         return False
 
-    # 3. Build headers
     headers = {"Content-Type": "application/json"}
 
-    # 4. Add auth header if credential configured
-    credential_uuid = webhook_data.get("credential_uuid")
+    credential_uuid = webhook_data.credential_uuid
     if credential_uuid:
         credential = await db_client.get_credential_by_uuid(
             credential_uuid, organization_id
@@ -369,18 +387,13 @@ async def _execute_webhook_node(
                 f"Credential {credential_uuid} not found for webhook '{webhook_name}'"
             )
 
-    # 5. Add custom headers
-    custom_headers = webhook_data.get("custom_headers", [])
-    for h in custom_headers:
-        if h.get("key") and h.get("value"):
-            headers[h["key"]] = h["value"]
+    for h in webhook_data.custom_headers or []:
+        if h.key and h.value:
+            headers[h.key] = h.value
 
-    # 6. Render payload template
-    payload_template = webhook_data.get("payload_template", {})
-    payload = render_template(payload_template, render_context)
+    payload = render_template(webhook_data.payload_template or {}, render_context)
 
-    # 7. Make HTTP request
-    method = webhook_data.get("http_method", "POST").upper()
+    method = (webhook_data.http_method or "POST").upper()
 
     logger.info(f"Executing webhook '{webhook_name}': {method}")
 

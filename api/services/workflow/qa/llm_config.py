@@ -4,10 +4,11 @@ import random
 
 from api.db import db_client
 from api.db.models import WorkflowRunModel
+from api.services.workflow.dto import QANodeData
 
 
 async def resolve_llm_config(
-    qa_node_data: dict, workflow_run: WorkflowRunModel
+    qa_data: QANodeData, workflow_run: WorkflowRunModel
 ) -> tuple[str, str, str, dict]:
     """Resolve the LLM provider, model, API key, and extra kwargs for QA analysis.
 
@@ -18,24 +19,23 @@ async def resolve_llm_config(
         (provider, model, api_key, service_kwargs) tuple — service_kwargs can be
         passed directly to create_llm_service_from_provider as keyword arguments.
     """
-    if not qa_node_data.get("qa_use_workflow_llm", True):
-        provider = qa_node_data.get("qa_provider", "openai")
+    if not qa_data.qa_use_workflow_llm:
+        provider = qa_data.qa_provider or "openai"
         kwargs = {}
         if provider == "azure":
-            kwargs["endpoint"] = qa_node_data.get("qa_endpoint", "")
+            kwargs["endpoint"] = qa_data.qa_endpoint or ""
         return (
             provider,
-            qa_node_data.get("qa_model"),
-            qa_node_data.get("qa_api_key"),
+            qa_data.qa_model,
+            qa_data.qa_api_key,
             kwargs,
         )
 
     # Fall back to user's configured LLM
     provider, model, api_key, kwargs = await resolve_user_llm_config(workflow_run)
 
-    qa_model = qa_node_data.get("qa_model", "default")
-    if qa_model and qa_model != "default":
-        model = qa_model
+    if qa_data.qa_model and qa_data.qa_model != "default":
+        model = qa_data.qa_model
 
     return provider, model, api_key, kwargs
 

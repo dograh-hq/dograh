@@ -1,5 +1,5 @@
 import { NodeProps, NodeToolbar, Position } from "@xyflow/react";
-import { Edit, FileText, Headset, PlusIcon, Trash2Icon, Wrench } from "lucide-react";
+import { Edit, FileText, Headset, Trash2Icon, Wrench } from "lucide-react";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useWorkflow } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
@@ -14,9 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
 import { CONTEXT_VARIABLES_DOC_URL, NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
+import { ExtractionPanel } from "./common/ExtractionPanel";
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
 import { useNodeHandlers } from "./common/useNodeHandlers";
@@ -255,33 +255,6 @@ const AgentNodeEditForm = ({
     documents,
     recordings,
 }: AgentNodeEditFormProps) => {
-    const handleVariableNameChange = (idx: number, value: string) => {
-        const newVars = [...variables];
-        newVars[idx] = { ...newVars[idx], name: value };
-        setVariables(newVars);
-    };
-
-    const handleVariableTypeChange = (idx: number, value: 'string' | 'number' | 'boolean') => {
-        const newVars = [...variables];
-        newVars[idx] = { ...newVars[idx], type: value };
-        setVariables(newVars);
-    };
-
-    const handleVariablePromptChange = (idx: number, value: string) => {
-        const newVars = [...variables];
-        newVars[idx] = { ...newVars[idx], prompt: value };
-        setVariables(newVars);
-    };
-
-    const handleRemoveVariable = (idx: number) => {
-        const newVars = variables.filter((_, i) => i !== idx);
-        setVariables(newVars);
-    };
-
-    const handleAddVariable = () => {
-        setVariables([...variables, { name: '', type: 'string', prompt: '' }]);
-    };
-
     return (
         <div className="grid gap-2">
             <Label>Name</Label>
@@ -325,68 +298,14 @@ const AgentNodeEditForm = ({
             </div>
 
 
-            {/* Variable Extraction Section */}
-            <div className="flex items-center space-x-2 pt-2">
-                <Switch id="enable-extraction" checked={extractionEnabled} onCheckedChange={setExtractionEnabled} />
-                <Label htmlFor="enable-extraction">Enable Variable Extraction</Label>
-                <Label className="text-xs text-muted-foreground ml-2">
-                    Are there any variables you would like to extract from the conversation?
-                </Label>
-            </div>
-
-            {extractionEnabled && (
-                <div className="border rounded-md p-3 mt-2 space-y-2 bg-muted/20">
-                    <Label>Extraction Prompt</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        Provide an overall extraction prompt that guides how variables should be extracted from the conversation.
-                    </Label>
-                    <Textarea
-                        value={extractionPrompt}
-                        onChange={(e) => setExtractionPrompt(e.target.value)}
-                        className="min-h-[80px] max-h-[200px] resize-none"
-                        style={{ overflowY: 'auto' }}
-                    />
-
-                    <Label>Variables</Label>
-                    <Label className="text-xs text-muted-foreground">
-                        Define each variable you want to extract along with its data type.
-                    </Label>
-
-                    {variables.map((v, idx) => (
-                        <div key={idx} className="space-y-2 border rounded-md p-2 bg-background">
-                            <div className="flex items-center gap-2">
-                                <Input
-                                    placeholder="Variable name"
-                                    value={v.name}
-                                    onChange={(e) => handleVariableNameChange(idx, e.target.value)}
-                                />
-                                <select
-                                    className="border rounded-md p-2 text-sm bg-background"
-                                    value={v.type}
-                                    onChange={(e) => handleVariableTypeChange(idx, e.target.value as 'string' | 'number' | 'boolean')}
-                                >
-                                    <option value="string">String</option>
-                                    <option value="number">Number</option>
-                                    <option value="boolean">Boolean</option>
-                                </select>
-                                <Button variant="outline" size="icon" onClick={() => handleRemoveVariable(idx)}>
-                                    <Trash2Icon className="w-4 h-4" />
-                                </Button>
-                            </div>
-                            <Textarea
-                                placeholder="Extraction prompt for this variable"
-                                value={v.prompt ?? ''}
-                                onChange={(e) => handleVariablePromptChange(idx, e.target.value)}
-                                className="min-h-[60px] resize-none"
-                            />
-                        </div>
-                    ))}
-
-                    <Button variant="outline" size="sm" className="w-fit" onClick={handleAddVariable}>
-                        <PlusIcon className="w-4 h-4 mr-1" /> Add Variable
-                    </Button>
-                </div>
-            )}
+            <ExtractionPanel
+                enabled={extractionEnabled}
+                setEnabled={setExtractionEnabled}
+                prompt={extractionPrompt}
+                setPrompt={setExtractionPrompt}
+                variables={variables}
+                setVariables={setVariables}
+            />
 
             {/* Tools Section */}
             <div className="pt-4 border-t mt-4">

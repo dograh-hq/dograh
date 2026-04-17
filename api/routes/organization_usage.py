@@ -48,6 +48,7 @@ class WorkflowRunUsageResponse(BaseModel):
     recording_url: Optional[str] = None
     transcript_url: Optional[str] = None
     phone_number: Optional[str] = None
+    call_type: Optional[str] = None
     disposition: Optional[str] = None
     initial_context: Optional[Dict[str, Any]] = None
     gathered_context: Optional[Dict[str, Any]] = None

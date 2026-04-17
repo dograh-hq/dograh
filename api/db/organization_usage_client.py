@@ -315,11 +315,15 @@ class OrganizationUsageClient(BaseDBClient):
                 total_tokens += dograh_tokens
                 total_duration_seconds += int(round(call_duration))
 
-                # Extract phone number from initial_context
-                # Outbound calls store it as "phone_number"; inbound calls store it as "caller_number"
-                phone_number = None
-                if run.initial_context:
-                    phone_number = run.initial_context.get("phone_number") or run.initial_context.get("caller_number")
+                # Extract phone number from initial_context based on call_type.
+                # Inbound runs only have caller_number/called_number; the
+                # caller_number is the customer. Outbound runs use the
+                # phone_number key written by the dispatchers.
+                ic = run.initial_context or {}
+                if run.call_type == "inbound":
+                    phone_number = ic.get("caller_number")
+                else:
+                    phone_number = ic.get("phone_number")
 
                 # Extract disposition from gathered_context
                 disposition = None
@@ -337,6 +341,7 @@ class OrganizationUsageClient(BaseDBClient):
                     "recording_url": run.recording_url,
                     "transcript_url": run.transcript_url,
                     "phone_number": phone_number,
+                    "call_type": run.call_type,
                     "disposition": disposition,
                     "initial_context": run.initial_context,
                     "gathered_context": run.gathered_context,

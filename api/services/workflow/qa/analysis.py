@@ -107,9 +107,7 @@ async def run_per_node_qa_analysis(
         logger.info(
             f"Events lack node_id for run {workflow_run_id}, falling back to whole-call QA"
         )
-        return await _run_whole_call_qa_analysis(
-            qa_data, workflow_run, workflow_run_id
-        )
+        return await _run_whole_call_qa_analysis(qa_data, workflow_run, workflow_run_id)
 
     system_prompt = qa_data.qa_system_prompt or ""
     if not system_prompt:

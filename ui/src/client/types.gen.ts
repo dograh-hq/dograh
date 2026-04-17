@@ -1282,6 +1282,36 @@ export type DefaultConfigurationsResponse = {
 };
 
 /**
+ * DisplayOptions
+ *
+ * Conditional visibility rules.
+ *
+ * `show` keys are AND-combined: this property is visible only when EVERY
+ * referenced field's value matches one of the listed values.
+ *
+ * `hide` keys are OR-combined: this property is hidden when ANY referenced
+ * field's value matches one of the listed values.
+ *
+ * Example:
+ * DisplayOptions(show={"extraction_enabled": [True]})
+ * DisplayOptions(show={"greeting_type": ["audio"]})
+ */
+export type DisplayOptions = {
+    /**
+     * Show
+     */
+    show?: {
+        [key: string]: Array<unknown>;
+    } | null;
+    /**
+     * Hide
+     */
+    hide?: {
+        [key: string]: Array<unknown>;
+    } | null;
+};
+
+/**
  * DocumentListResponseSchema
  *
  * Response schema for list of documents.
@@ -1676,6 +1706,30 @@ export type FileMetadataResponse = {
 };
 
 /**
+ * GraphConstraints
+ *
+ * Per-node-type graph rules. WorkflowGraph enforces these at validation.
+ */
+export type GraphConstraints = {
+    /**
+     * Min Incoming
+     */
+    min_incoming?: number | null;
+    /**
+     * Max Incoming
+     */
+    max_incoming?: number | null;
+    /**
+     * Min Outgoing
+     */
+    min_outgoing?: number | null;
+    /**
+     * Max Outgoing
+     */
+    max_outgoing?: number | null;
+};
+
+/**
  * HTTPValidationError
  */
 export type HttpValidationError = {
@@ -2057,6 +2111,117 @@ export type MpsCreditsResponse = {
 };
 
 /**
+ * MigrationSpec
+ *
+ * Declared migration step (JSON-serializable view).
+ *
+ * The migrate callable is registered out-of-band via `register_migration()`
+ * and never serialized — LLM and frontend consumers only see version
+ * metadata and warn on mismatch.
+ */
+export type MigrationSpec = {
+    /**
+     * From Version
+     */
+    from_version: string;
+    /**
+     * To Version
+     */
+    to_version: string;
+    /**
+     * Description
+     */
+    description: string;
+};
+
+/**
+ * NodeCategory
+ *
+ * Drives grouping in the AddNodePanel UI.
+ */
+export type NodeCategory = 'call_node' | 'global_node' | 'trigger' | 'integration';
+
+/**
+ * NodeExample
+ *
+ * A worked example LLMs can pattern-match. Keep small and realistic.
+ */
+export type NodeExample = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Data
+     */
+    data: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * NodeSpec
+ *
+ * Single source of truth for a node type.
+ */
+export type NodeSpec = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Description
+     *
+     * LLM-readable explanation of what this node does.
+     */
+    description: string;
+    category: NodeCategory;
+    /**
+     * Icon
+     */
+    icon: string;
+    /**
+     * Version
+     */
+    version?: string;
+    /**
+     * Properties
+     */
+    properties: Array<PropertySpec>;
+    /**
+     * Examples
+     */
+    examples?: Array<NodeExample>;
+    /**
+     * Migrations
+     */
+    migrations?: Array<MigrationSpec>;
+    graph_constraints?: GraphConstraints | null;
+};
+
+/**
+ * NodeTypesResponse
+ */
+export type NodeTypesResponse = {
+    /**
+     * Spec Version
+     */
+    spec_version: string;
+    /**
+     * Node Types
+     */
+    node_types: Array<NodeSpec>;
+};
+
+/**
  * PresignedUploadUrlRequest
  */
 export type PresignedUploadUrlRequest = {
@@ -2123,6 +2288,113 @@ export type ProcessDocumentRequestSchema = {
      */
     retrieval_mode?: string;
 };
+
+/**
+ * PropertyOption
+ *
+ * An option in an `options` or `multi_options` dropdown.
+ */
+export type PropertyOption = {
+    /**
+     * Value
+     */
+    value: string | number | boolean | number;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Description
+     */
+    description?: string | null;
+};
+
+/**
+ * PropertySpec
+ *
+ * Single field on a node.
+ *
+ * Every PropertySpec must carry a non-empty `description` written for an LLM
+ * that has never seen the platform — the spec lint enforces this.
+ */
+export type PropertySpec = {
+    /**
+     * Name
+     */
+    name: string;
+    type: PropertyType;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Description
+     *
+     * LLM-readable explanation of what this field controls.
+     */
+    description: string;
+    /**
+     * Default
+     */
+    default?: unknown;
+    /**
+     * Required
+     */
+    required?: boolean;
+    /**
+     * Placeholder
+     */
+    placeholder?: string | null;
+    display_options?: DisplayOptions | null;
+    /**
+     * Options
+     */
+    options?: Array<PropertyOption> | null;
+    /**
+     * Properties
+     */
+    properties?: Array<PropertySpec> | null;
+    /**
+     * Min Value
+     */
+    min_value?: number | null;
+    /**
+     * Max Value
+     */
+    max_value?: number | null;
+    /**
+     * Min Length
+     */
+    min_length?: number | null;
+    /**
+     * Max Length
+     */
+    max_length?: number | null;
+    /**
+     * Pattern
+     */
+    pattern?: string | null;
+    /**
+     * Editor
+     */
+    editor?: string | null;
+    /**
+     * Extra
+     */
+    extra?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * PropertyType
+ *
+ * Bounded vocabulary of property types the renderer dispatches on.
+ *
+ * Adding a value here requires a matching arm in the frontend
+ * `<PropertyInput>` switch and (where relevant) the SDK codegen template.
+ */
+export type PropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multi_options' | 'fixed_collection' | 'json' | 'tool_refs' | 'document_refs' | 'recording_ref' | 'credential_ref' | 'mention_textarea' | 'url';
 
 /**
  * RecordingCreateRequestSchema
@@ -9384,6 +9656,89 @@ export type GetCurrentUserApiV1AuthMeGetResponses = {
 };
 
 export type GetCurrentUserApiV1AuthMeGetResponse = GetCurrentUserApiV1AuthMeGetResponses[keyof GetCurrentUserApiV1AuthMeGetResponses];
+
+export type ListNodeTypesApiV1NodeTypesGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/node-types';
+};
+
+export type ListNodeTypesApiV1NodeTypesGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListNodeTypesApiV1NodeTypesGetError = ListNodeTypesApiV1NodeTypesGetErrors[keyof ListNodeTypesApiV1NodeTypesGetErrors];
+
+export type ListNodeTypesApiV1NodeTypesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: NodeTypesResponse;
+};
+
+export type ListNodeTypesApiV1NodeTypesGetResponse = ListNodeTypesApiV1NodeTypesGetResponses[keyof ListNodeTypesApiV1NodeTypesGetResponses];
+
+export type GetNodeTypeApiV1NodeTypesNameGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Name
+         */
+        name: string;
+    };
+    query?: never;
+    url: '/api/v1/node-types/{name}';
+};
+
+export type GetNodeTypeApiV1NodeTypesNameGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetNodeTypeApiV1NodeTypesNameGetError = GetNodeTypeApiV1NodeTypesNameGetErrors[keyof GetNodeTypeApiV1NodeTypesNameGetErrors];
+
+export type GetNodeTypeApiV1NodeTypesNameGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: NodeSpec;
+};
+
+export type GetNodeTypeApiV1NodeTypesNameGetResponse = GetNodeTypeApiV1NodeTypesNameGetResponses[keyof GetNodeTypeApiV1NodeTypesNameGetResponses];
 
 export type HealthApiV1HealthGetData = {
     body?: never;

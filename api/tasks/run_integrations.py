@@ -291,9 +291,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                     organization_id=organization_id,
                 )
             except Exception as e:
-                logger.warning(
-                    f"Failed to execute webhook '{webhook_data.name}': {e}"
-                )
+                logger.warning(f"Failed to execute webhook '{webhook_data.name}': {e}")
 
     except Exception as e:
         logger.error(f"Error running integrations: {e}", exc_info=True)

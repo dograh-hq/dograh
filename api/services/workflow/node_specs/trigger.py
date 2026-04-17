@@ -1,0 +1,59 @@
+"""Spec for the API Trigger node — exposes a public webhook URL that
+external systems can hit to launch the workflow."""
+
+from api.services.workflow.node_specs._base import (
+    GraphConstraints,
+    NodeCategory,
+    NodeExample,
+    NodeSpec,
+    PropertySpec,
+    PropertyType,
+)
+
+SPEC = NodeSpec(
+    name="trigger",
+    display_name="API Trigger",
+    description=(
+        "Exposes a public HTTP endpoint that external systems POST to in "
+        "order to launch this workflow. Each trigger has a unique URL "
+        "derived from the auto-generated `trigger_path`."
+    ),
+    category=NodeCategory.trigger,
+    icon="Webhook",
+    properties=[
+        PropertySpec(
+            name="name",
+            type=PropertyType.string,
+            display_name="Name",
+            description="Short identifier shown in the canvas. No runtime effect.",
+            required=True,
+            min_length=1,
+        ),
+        PropertySpec(
+            name="enabled",
+            type=PropertyType.boolean,
+            display_name="Enabled",
+            description="When false, the trigger URL returns 404.",
+            default=True,
+        ),
+        PropertySpec(
+            name="trigger_path",
+            type=PropertyType.string,
+            display_name="Trigger Path",
+            description=(
+                "Auto-generated UUID-style path segment that uniquely "
+                "identifies this trigger. Do not edit manually."
+            ),
+        ),
+    ],
+    examples=[
+        NodeExample(
+            name="default",
+            data={"name": "Inbound Trigger", "enabled": True},
+        ),
+    ],
+    graph_constraints=GraphConstraints(
+        min_incoming=0,
+        max_incoming=0,
+    ),
+)

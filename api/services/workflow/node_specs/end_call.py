@@ -15,9 +15,11 @@ from api.services.workflow.node_specs._base import (
 SPEC = NodeSpec(
     name="endCall",
     display_name="End Call",
-    description=(
-        "Terminal node that politely closes the conversation and hangs up. "
-        "Variable extraction can be triggered before the call ends."
+    description="Closes the conversation and hangs up.",
+    llm_hint=(
+        "Terminal node that politely closes the conversation. Variable "
+        "extraction can run before hangup. A workflow can have multiple "
+        "endCall nodes reached via different edge conditions."
     ),
     category=NodeCategory.call_node,
     icon="OctagonX",
@@ -32,6 +34,7 @@ SPEC = NodeSpec(
             ),
             required=True,
             min_length=1,
+            default="End Call",
         ),
         PropertySpec(
             name="prompt",
@@ -53,7 +56,7 @@ SPEC = NodeSpec(
                 "When true and a Global node exists, prepends the global "
                 "prompt to this node's prompt at runtime."
             ),
-            default=True,
+            default=False,
         ),
         PropertySpec(
             name="extraction_enabled",
@@ -100,6 +103,7 @@ SPEC = NodeSpec(
                     display_name="Type",
                     description="The data type of the extracted value.",
                     required=True,
+                    default="string",
                     options=[
                         PropertyOption(value="string", label="String"),
                         PropertyOption(value="number", label="Number"),

@@ -15,10 +15,11 @@ from api.services.workflow.node_specs._base import (
 SPEC = NodeSpec(
     name="agentNode",
     display_name="Agent Node",
-    description=(
-        "Conversational step executed by the LLM. Most workflows are a chain "
-        "of agent nodes connected by edges that describe transition "
-        "conditions. Each agent node can invoke tools and reference documents."
+    description="Conversational step — the LLM runs one focused exchange.",
+    llm_hint=(
+        "Mid-call step executed by the LLM. Most workflows are a chain of "
+        "agent nodes connected by edges that describe transition conditions. "
+        "Each agent node can invoke tools and reference documents."
     ),
     category=NodeCategory.call_node,
     icon="Headset",
@@ -33,6 +34,7 @@ SPEC = NodeSpec(
             ),
             required=True,
             min_length=1,
+            default="Agent",
         ),
         PropertySpec(
             name="prompt",
@@ -107,6 +109,7 @@ SPEC = NodeSpec(
                     display_name="Type",
                     description="Data type of the extracted value.",
                     required=True,
+                    default="string",
                     options=[
                         PropertyOption(value="string", label="String"),
                         PropertyOption(value="number", label="Number"),
@@ -126,19 +129,15 @@ SPEC = NodeSpec(
             name="tool_uuids",
             type=PropertyType.tool_refs,
             display_name="Tools",
-            description=(
-                "Tools the agent can invoke during this step. UUIDs reference "
-                "the tool catalog (use `list_tools` to discover available tools)."
-            ),
+            description="Tools the agent can invoke during this step.",
+            llm_hint="List of tool UUIDs from `list_tools`.",
         ),
         PropertySpec(
             name="document_uuids",
             type=PropertyType.document_refs,
             display_name="Knowledge Base Documents",
-            description=(
-                "Documents the agent can reference during this step. UUIDs "
-                "reference the document catalog (use `list_documents`)."
-            ),
+            description="Documents the agent can reference during this step.",
+            llm_hint="List of document UUIDs from `list_documents`.",
         ),
     ],
     examples=[

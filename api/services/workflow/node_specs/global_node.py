@@ -13,10 +13,12 @@ from api.services.workflow.node_specs._base import (
 SPEC = NodeSpec(
     name="globalNode",
     display_name="Global Node",
-    description=(
-        "System-level prompt appended to every agent node whose "
-        "`add_global_prompt` is true. Use it for persona, tone, and "
-        "shared rules that apply across the entire conversation."
+    description="Persona/tone appended to every agent node's prompt.",
+    llm_hint=(
+        "System-level prompt appended to every prompted node whose "
+        "`add_global_prompt` is true. Use it for persona, tone, and shared "
+        "rules that apply across the entire conversation. At most one "
+        "global node per workflow."
     ),
     category=NodeCategory.global_node,
     icon="Globe",
@@ -31,6 +33,7 @@ SPEC = NodeSpec(
             ),
             required=True,
             min_length=1,
+            default="Global Node",
         ),
         PropertySpec(
             name="prompt",
@@ -44,6 +47,11 @@ SPEC = NodeSpec(
             required=True,
             min_length=1,
             placeholder="You are a friendly assistant calling on behalf of {{company_name}}.",
+            default=(
+                "You are a helpful assistant whose mode of interaction with "
+                "the user is voice. So don't use any special characters which "
+                "can not be pronounced. Use short sentences and simple language."
+            ),
         ),
     ],
     examples=[

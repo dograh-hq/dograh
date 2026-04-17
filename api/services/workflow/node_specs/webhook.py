@@ -13,10 +13,12 @@ from api.services.workflow.node_specs._base import (
 SPEC = NodeSpec(
     name="webhook",
     display_name="Webhook",
-    description=(
+    description="Send HTTP request after the workflow completes.",
+    llm_hint=(
         "Sends an HTTP request to an external system after the workflow "
         "completes. The payload is a Jinja-templated JSON body with access "
-        "to call context, gathered context, and QA annotations."
+        "to `workflow_run_id`, `initial_context`, `gathered_context`, "
+        "`annotations`, and call metadata."
     ),
     category=NodeCategory.integration,
     icon="Link2",
@@ -28,6 +30,7 @@ SPEC = NodeSpec(
             description="Short identifier shown in the canvas and run logs.",
             required=True,
             min_length=1,
+            default="Webhook",
         ),
         PropertySpec(
             name="enabled",
@@ -61,10 +64,8 @@ SPEC = NodeSpec(
             name="credential_uuid",
             type=PropertyType.credential_ref,
             display_name="Authentication",
-            description=(
-                "Optional credential applied as the Authorization header "
-                "(`list_credentials` for available credentials)."
-            ),
+            description="Optional credential applied as the Authorization header.",
+            llm_hint="Credential UUID from `list_credentials`.",
         ),
         PropertySpec(
             name="custom_headers",
@@ -97,6 +98,14 @@ SPEC = NodeSpec(
                 "the run context — `{{workflow_run_id}}`, "
                 "`{{gathered_context.foo}}`, `{{annotations.qa_xxx}}`, etc."
             ),
+            default={
+                "call_id": "{{workflow_run_id}}",
+                "first_name": "{{initial_context.first_name}}",
+                "rsvp": "{{gathered_context.rsvp}}",
+                "duration": "{{cost_info.call_duration_seconds}}",
+                "recording_url": "{{recording_url}}",
+                "transcript_url": "{{transcript_url}}",
+            },
         ),
         PropertySpec(
             name="retry_config",

@@ -13,10 +13,11 @@ from api.services.workflow.node_specs._base import (
 SPEC = NodeSpec(
     name="trigger",
     display_name="API Trigger",
-    description=(
-        "Exposes a public HTTP endpoint that external systems POST to in "
-        "order to launch this workflow. Each trigger has a unique URL "
-        "derived from the auto-generated `trigger_path`."
+    description="Public HTTP endpoint that launches the workflow.",
+    llm_hint=(
+        "Exposes a public HTTP POST endpoint. External systems call the URL "
+        "(derived from the auto-generated `trigger_path`) to launch this "
+        "workflow. Requires an API key in the `X-API-Key` header."
     ),
     category=NodeCategory.trigger,
     icon="Webhook",
@@ -28,6 +29,7 @@ SPEC = NodeSpec(
             description="Short identifier shown in the canvas. No runtime effect.",
             required=True,
             min_length=1,
+            default="API Trigger",
         ),
         PropertySpec(
             name="enabled",

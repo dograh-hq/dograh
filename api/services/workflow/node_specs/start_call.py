@@ -16,10 +16,11 @@ from api.services.workflow.node_specs._base import (
 SPEC = NodeSpec(
     name="startCall",
     display_name="Start Call",
-    description=(
-        "The entry point of the workflow. Plays an optional greeting, can "
-        "fetch context from an external API before the call begins, and "
-        "executes the first conversational turn."
+    description="Entry point of the workflow — plays a greeting and opens the conversation.",
+    llm_hint=(
+        "The entry point of every workflow (exactly one required). Plays an "
+        "optional greeting, can fetch context from an external API before "
+        "the call begins, and executes the first conversational turn."
     ),
     category=NodeCategory.call_node,
     icon="Play",
@@ -31,6 +32,7 @@ SPEC = NodeSpec(
             description="Short identifier shown in the canvas and call logs.",
             required=True,
             min_length=1,
+            default="Start Call",
         ),
         PropertySpec(
             name="prompt",
@@ -38,7 +40,7 @@ SPEC = NodeSpec(
             display_name="Prompt",
             description=(
                 "Agent system prompt for the opening turn. Supports "
-                "{{template_variables}} from pre-call fetch and the call context."
+                "{{template_variables}} from pre-call fetch and the initial context."
             ),
             required=True,
             min_length=1,
@@ -75,9 +77,10 @@ SPEC = NodeSpec(
             name="greeting_recording_id",
             type=PropertyType.recording_ref,
             display_name="Greeting Recording",
-            description=(
-                "Pre-recorded audio file played at the start of the call. "
-                "Use `list_recordings` to discover available recordings."
+            description="Pre-recorded audio file played at the start of the call.",
+            llm_hint=(
+                "Value is the `recording_id` string. Use the `list_recordings` "
+                "MCP tool to discover available recordings."
             ),
             display_options=DisplayOptions(show={"greeting_type": ["audio"]}),
         ),
@@ -87,7 +90,7 @@ SPEC = NodeSpec(
             type=PropertyType.boolean,
             display_name="Allow Interruption",
             description=("When true, the user can interrupt the agent mid-utterance."),
-            default=True,
+            default=False,
         ),
         PropertySpec(
             name="add_global_prompt",
@@ -162,6 +165,7 @@ SPEC = NodeSpec(
                     display_name="Type",
                     description="Data type of the extracted value.",
                     required=True,
+                    default="string",
                     options=[
                         PropertyOption(value="string", label="String"),
                         PropertyOption(value="number", label="Number"),
@@ -182,19 +186,15 @@ SPEC = NodeSpec(
             name="tool_uuids",
             type=PropertyType.tool_refs,
             display_name="Tools",
-            description=(
-                "Tools the agent can invoke during the opening turn. UUIDs "
-                "reference the tool catalog (`list_tools`)."
-            ),
+            description="Tools the agent can invoke during the opening turn.",
+            llm_hint="List of tool UUIDs from `list_tools`.",
         ),
         PropertySpec(
             name="document_uuids",
             type=PropertyType.document_refs,
             display_name="Knowledge Base Documents",
-            description=(
-                "Documents the agent can reference. UUIDs reference the "
-                "document catalog (`list_documents`)."
-            ),
+            description="Documents the agent can reference.",
+            llm_hint="List of document UUIDs from `list_documents`.",
         ),
         # ---- Pre-call data fetch (advanced) ----
         PropertySpec(
@@ -223,10 +223,8 @@ SPEC = NodeSpec(
             name="pre_call_fetch_credential_uuid",
             type=PropertyType.credential_ref,
             display_name="Authentication",
-            description=(
-                "Optional credential to attach to the pre-call request "
-                "(`list_credentials` for available credentials)."
-            ),
+            description="Optional credential attached to the pre-call request.",
+            llm_hint="Credential UUID from `list_credentials`.",
             display_options=DisplayOptions(show={"pre_call_fetch_enabled": [True]}),
         ),
     ],

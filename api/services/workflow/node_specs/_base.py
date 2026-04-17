@@ -79,6 +79,40 @@ class DisplayOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def evaluate_display_options(
+    rules: Optional[DisplayOptions | dict[str, Any]],
+    values: dict[str, Any],
+) -> bool:
+    """Reference implementation of the display_options visibility check.
+
+    Mirrored 1:1 in the TypeScript renderer
+    (`ui/src/components/flow/renderer/displayOptions.ts`). The golden
+    fixtures in `display_options_fixtures.json` lock the two
+    implementations together — update both whenever the semantics change.
+    """
+    if rules is None:
+        return True
+
+    if isinstance(rules, DisplayOptions):
+        show = rules.show
+        hide = rules.hide
+    else:
+        show = rules.get("show")
+        hide = rules.get("hide")
+
+    if show:
+        for field, allowed in show.items():
+            if values.get(field) not in allowed:
+                return False
+
+    if hide:
+        for field, hidden in hide.items():
+            if values.get(field) in hidden:
+                return False
+
+    return True
+
+
 class PropertyOption(BaseModel):
     """An option in an `options` or `multi_options` dropdown."""
 
@@ -92,8 +126,14 @@ class PropertyOption(BaseModel):
 class PropertySpec(BaseModel):
     """Single field on a node.
 
-    Every PropertySpec must carry a non-empty `description` written for an LLM
-    that has never seen the platform — the spec lint enforces this.
+    `description` is HUMAN-FACING — shown under the field in the edit
+    dialog. Keep it concise and explain what the field does.
+
+    `llm_hint` is LLM-FACING — appears only in the `get_node_type` MCP
+    response and in SDK schema output. Use it for catalog tool references
+    (e.g., "Use `list_recordings`"), array shape, expected value idioms,
+    or anything that would be noise in the UI. Optional; omit when the
+    `description` already suffices for both audiences.
     """
 
     name: str
@@ -102,7 +142,11 @@ class PropertySpec(BaseModel):
     description: str = Field(
         ...,
         min_length=1,
-        description="LLM-readable explanation of what this field controls.",
+        description="Human-facing explanation shown in the UI.",
+    )
+    llm_hint: Optional[str] = Field(
+        default=None,
+        description="LLM-only guidance; omitted from the UI.",
     )
     default: Any = None
     required: bool = False
@@ -179,7 +223,11 @@ class NodeSpec(BaseModel):
     description: str = Field(
         ...,
         min_length=1,
-        description="LLM-readable explanation of what this node does.",
+        description="Human-facing explanation shown in AddNodePanel.",
+    )
+    llm_hint: Optional[str] = Field(
+        default=None,
+        description="LLM-only guidance; omitted from the UI.",
     )
     category: NodeCategory
     icon: str  # lucide-react icon name (e.g., "Play")

@@ -2180,9 +2180,15 @@ export type NodeSpec = {
     /**
      * Description
      *
-     * LLM-readable explanation of what this node does.
+     * Human-facing explanation shown in AddNodePanel.
      */
     description: string;
+    /**
+     * Llm Hint
+     *
+     * LLM-only guidance; omitted from the UI.
+     */
+    llm_hint?: string | null;
     category: NodeCategory;
     /**
      * Icon
@@ -2314,8 +2320,14 @@ export type PropertyOption = {
  *
  * Single field on a node.
  *
- * Every PropertySpec must carry a non-empty `description` written for an LLM
- * that has never seen the platform — the spec lint enforces this.
+ * `description` is HUMAN-FACING — shown under the field in the edit
+ * dialog. Keep it concise and explain what the field does.
+ *
+ * `llm_hint` is LLM-FACING — appears only in the `get_node_type` MCP
+ * response and in SDK schema output. Use it for catalog tool references
+ * (e.g., "Use `list_recordings`"), array shape, expected value idioms,
+ * or anything that would be noise in the UI. Optional; omit when the
+ * `description` already suffices for both audiences.
  */
 export type PropertySpec = {
     /**
@@ -2330,9 +2342,15 @@ export type PropertySpec = {
     /**
      * Description
      *
-     * LLM-readable explanation of what this field controls.
+     * Human-facing explanation shown in the UI.
      */
     description: string;
+    /**
+     * Llm Hint
+     *
+     * LLM-only guidance; omitted from the UI.
+     */
+    llm_hint?: string | null;
     /**
      * Default
      */

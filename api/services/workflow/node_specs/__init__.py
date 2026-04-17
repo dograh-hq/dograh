@@ -20,6 +20,7 @@ from api.services.workflow.node_specs._base import (
     PropertyOption,
     PropertySpec,
     PropertyType,
+    evaluate_display_options,
     get_migration,
     register_migration,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "PropertySpec",
     "PropertyType",
     "all_specs",
+    "evaluate_display_options",
     "get_migration",
     "get_spec",
     "register",

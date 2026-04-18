@@ -27,7 +27,7 @@ from api.services.configuration.resolve import resolve_effective_config
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
 from api.services.storage import storage_fs
-from api.services.workflow.dto import ReactFlowDTO
+from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.workflow import WorkflowGraph
@@ -721,8 +721,10 @@ async def update_workflow(
         HTTPException: If the workflow is not found or if there's a database error
     """
     try:
-        # Restore real API keys where the incoming definition has masked placeholders
-        workflow_definition = request.workflow_definition
+        # Strip UI runtime-only fields (invalid, validationMessage, etc.) from
+        # node.data / edge.data before anything touches the DB — the UI sends
+        # nodes wholesale from the React Flow store, which carries those.
+        workflow_definition = sanitize_workflow_definition(request.workflow_definition)
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id

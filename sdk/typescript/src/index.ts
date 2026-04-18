@@ -52,3 +52,8 @@ export type {
     WireNode,
     WireWorkflow,
 } from "./types.js";
+
+// Typed SDK — generated per-node interfaces + factories. Importable as
+// `import { startCall, type StartCall } from "@dograh/sdk/typed"` for
+// tree-shaking, or via the `TypedNode` union here.
+export type { TypedNode } from "./typed/index.js";

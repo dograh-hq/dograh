@@ -20,6 +20,7 @@ codegen (Phase 6) — the runtime and typed SDKs share this same core.
 
 from .client import DograhClient
 from .errors import ApiError, DograhSdkError, SpecMismatchError, ValidationError
+from .typed._base import TypedNode
 from .workflow import NodeRef, Workflow
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "DograhSdkError",
     "NodeRef",
     "SpecMismatchError",
+    "TypedNode",
     "ValidationError",
     "Workflow",
 ]

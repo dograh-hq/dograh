@@ -298,3 +298,60 @@ class ReactFlowDTO(BaseModel):
             )
 
         return self
+
+
+# Node type → per-type data class. Keeps sanitize_workflow_definition in
+# step with RFNodeDTO's discriminated union.
+_NODE_DATA_CLASSES: dict[str, type[BaseModel]] = {
+    NodeType.startNode.value: StartCallNodeData,
+    NodeType.agentNode.value: AgentNodeData,
+    NodeType.endNode.value: EndCallNodeData,
+    NodeType.globalNode.value: GlobalNodeData,
+    NodeType.trigger.value: TriggerNodeData,
+    NodeType.webhook.value: WebhookNodeData,
+    NodeType.qa.value: QANodeData,
+}
+
+
+def sanitize_workflow_definition(definition: dict | None) -> dict | None:
+    """Strip unknown fields from each node.data and edge.data so UI-only
+    runtime state (`invalid`, `validationMessage`, etc.) doesn't leak into
+    persisted workflow JSON.
+
+    Only `.data` is filtered — top-level keys on nodes/edges/definition
+    (viewport, ReactFlow-computed width/height, etc.) are preserved as-is.
+    This is a stripper, not a validator: it doesn't enforce required fields
+    or run model_validators, so partial drafts save cleanly.
+    """
+    if not definition:
+        return definition
+
+    out = dict(definition)
+    raw_nodes = out.get("nodes")
+    if isinstance(raw_nodes, list):
+        out["nodes"] = [_sanitize_node(n) for n in raw_nodes]
+    raw_edges = out.get("edges")
+    if isinstance(raw_edges, list):
+        out["edges"] = [_sanitize_edge(e) for e in raw_edges]
+    return out
+
+
+def _sanitize_node(node):
+    if not isinstance(node, dict):
+        return node
+    data_cls = _NODE_DATA_CLASSES.get(node.get("type"))
+    raw_data = node.get("data")
+    if not data_cls or not isinstance(raw_data, dict):
+        return node
+    allowed = data_cls.model_fields.keys()
+    return {**node, "data": {k: v for k, v in raw_data.items() if k in allowed}}
+
+
+def _sanitize_edge(edge):
+    if not isinstance(edge, dict):
+        return edge
+    raw_data = edge.get("data")
+    if not isinstance(raw_data, dict):
+        return edge
+    allowed = EdgeDataDTO.model_fields.keys()
+    return {**edge, "data": {k: v for k, v in raw_data.items() if k in allowed}}

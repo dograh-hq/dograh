@@ -19,6 +19,7 @@ from ._validation import validate_node_data
 
 if TYPE_CHECKING:
     from .client import DograhClient
+    from .typed._base import TypedNode
 
 
 @dataclass
@@ -99,6 +100,23 @@ class Workflow:
             )
         )
         return NodeRef(id=node_id, type=type)
+
+    def add_typed(
+        self,
+        node: "TypedNode",
+        *,
+        position: tuple[float, float] | None = None,
+    ) -> NodeRef:
+        """Typed variant of `add()` — takes a generated dataclass from
+        `dograh_sdk.typed` instead of string+kwargs.
+
+        Equivalent to:
+            wf.add(type=node.type, position=..., **node.to_dict())
+
+        Benefits: mypy/pyright catches misspelled fields at edit time,
+        and IDEs show field-level docstrings on hover.
+        """
+        return self.add(type=node.type, position=position, **node.to_dict())
 
     # ── edge construction ──────────────────────────────────────────
 

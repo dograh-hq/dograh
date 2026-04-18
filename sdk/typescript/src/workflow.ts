@@ -78,6 +78,29 @@ export class Workflow {
     }
 
     /**
+     * Typed variant of `add()` — takes a typed node object from
+     * `@dograh/sdk/typed` (or its discriminated-union form) instead of
+     * raw kwargs.
+     *
+     * Equivalent to:
+     *   const { type, ...rest } = node;
+     *   wf.add({ type, position, ...rest });
+     *
+     * Benefits: TS narrows the allowed fields per `type` at edit time,
+     * and IDEs surface the spec's description + llm_hint as JSDoc.
+     */
+    async addTyped<T extends { type: string }>(
+        node: T,
+        opts?: { position?: [number, number] },
+    ): Promise<NodeRef> {
+        const { type, ...rest } = node as unknown as { type: string } & Record<
+            string,
+            unknown
+        >;
+        return this.add({ type, position: opts?.position, ...rest });
+    }
+
+    /**
      * Connect two nodes with a labeled transition.
      *
      * `label` identifies the branch in call logs and LLM tool schemas;

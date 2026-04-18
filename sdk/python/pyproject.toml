@@ -34,6 +34,9 @@ Homepage = "https://dograh.com"
 Documentation = "https://docs.dograh.com"
 Repository = "https://github.com/dograh/dograh"
 
+[project.scripts]
+dograh-sdk-codegen = "dograh_sdk.codegen:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

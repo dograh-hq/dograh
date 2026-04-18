@@ -16,11 +16,11 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from dograh_sdk import Workflow
+from dograh_sdk.errors import ValidationError
 
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.node_specs import all_specs, get_spec
-from dograh_sdk import Workflow
-from dograh_sdk.errors import ValidationError
 
 
 class _StubClient:

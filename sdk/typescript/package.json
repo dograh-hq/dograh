@@ -35,7 +35,8 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "tsc && node --test --test-reporter=spec tests/sdk.test.mts"
+    "codegen": "node scripts/codegen.mts --api http://localhost:8000 --out src/typed",
+    "test": "tsc && node --test --test-reporter=spec tests/sdk.test.mts tests/typed.test.mts"
   },
   "engines": {
     "node": ">=20"

@@ -8,10 +8,12 @@ from fastapi import HTTPException
 
 from api.mcp.auth import authenticate_mcp_request
 from api.mcp.server import mcp
+from api.mcp.tracing import traced_tool
 from api.services.workflow.node_specs import SPEC_VERSION, all_specs, get_spec
 
 
 @mcp.tool
+@traced_tool
 async def list_node_types() -> dict:
     """List every available node type with a brief summary.
 
@@ -39,6 +41,7 @@ async def list_node_types() -> dict:
 
 
 @mcp.tool
+@traced_tool
 async def get_node_type(name: str) -> dict:
     """Fetch the full schema for a node type, including every property's
     type, default, conditional visibility rules, and LLM-readable

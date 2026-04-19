@@ -23,6 +23,26 @@ class TwilioConfigurationResponse(BaseModel):
     from_numbers: List[str]
 
 
+class PlivoConfigurationRequest(BaseModel):
+    """Request schema for Plivo configuration."""
+
+    provider: str = Field(default="plivo")
+    auth_id: str = Field(..., description="Plivo Auth ID")
+    auth_token: str = Field(..., description="Plivo Auth Token")
+    from_numbers: List[str] = Field(
+        ..., min_length=1, description="List of Plivo phone numbers"
+    )
+
+
+class PlivoConfigurationResponse(BaseModel):
+    """Response schema for Plivo configuration with masked sensitive fields."""
+
+    provider: str
+    auth_id: str  # Masked
+    auth_token: str  # Masked
+    from_numbers: List[str]
+
+
 class VonageConfigurationRequest(BaseModel):
     """Request schema for Vonage configuration."""
 
@@ -151,6 +171,7 @@ class TelephonyConfigurationResponse(BaseModel):
     """Top-level telephony configuration response."""
 
     twilio: Optional[TwilioConfigurationResponse] = None
+    plivo: Optional[PlivoConfigurationResponse] = None
     vonage: Optional[VonageConfigurationResponse] = None
     vobiz: Optional[VobizConfigurationResponse] = None
     cloudonix: Optional[CloudonixConfigurationResponse] = None

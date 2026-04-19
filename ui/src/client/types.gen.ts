@@ -736,6 +736,60 @@ export type CloudonixConfigurationResponse = {
 };
 
 /**
+ * PlivoConfigurationRequest
+ *
+ * Request schema for Plivo configuration.
+ */
+export type PlivoConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: string;
+    /**
+     * Auth Id
+     *
+     * Plivo Auth ID
+     */
+    auth_id: string;
+    /**
+     * Auth Token
+     *
+     * Plivo Auth Token
+     */
+    auth_token: string;
+    /**
+     * From Numbers
+     *
+     * List of Plivo phone numbers
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * PlivoConfigurationResponse
+ *
+ * Response schema for Plivo configuration with masked sensitive fields.
+ */
+export type PlivoConfigurationResponse = {
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Auth Id
+     */
+    auth_id: string;
+    /**
+     * Auth Token
+     */
+    auth_token: string;
+    /**
+     * From Numbers
+     */
+    from_numbers: Array<string>;
+};
+
+/**
  * CreateAPIKeyRequest
  */
 export type CreateApiKeyRequest = {
@@ -2618,6 +2672,7 @@ export type SuperuserWorkflowRunsListResponse = {
  */
 export type TelephonyConfigurationResponse = {
     twilio?: TwilioConfigurationResponse | null;
+    plivo?: PlivoConfigurationResponse | null;
     vonage?: VonageConfigurationResponse | null;
     vobiz?: VobizConfigurationResponse | null;
     cloudonix?: CloudonixConfigurationResponse | null;
@@ -7082,7 +7137,7 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData 
     /**
      * Request
      */
-    body: TwilioConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest | AriConfigurationRequest | TelnyxConfigurationRequest;
+    body: TwilioConfigurationRequest | PlivoConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest | AriConfigurationRequest | TelnyxConfigurationRequest;
     headers?: {
         /**
          * Authorization

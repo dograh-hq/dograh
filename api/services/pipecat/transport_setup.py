@@ -19,6 +19,7 @@ from api.services.telephony.providers.twilio_call_strategies import (
     TwilioConferenceStrategy,
     TwilioHangupStrategy,
 )
+from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.audio.mixers.silence_mixer import SilenceAudioMixer
 from pipecat.audio.mixers.soundfile_mixer import SoundfileMixer
 from pipecat.serializers.asterisk import AsteriskFrameSerializer
@@ -122,6 +123,60 @@ async def create_twilio_transport(
         auth_token=auth_token,
         transfer_strategy=transfer_strategy,
         hangup_strategy=hangup_strategy,
+    )
+
+    mixer = await _build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
+    return FastAPIWebsocketTransport(
+        websocket=websocket_client,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=audio_config.transport_in_sample_rate,
+            audio_out_sample_rate=audio_config.transport_out_sample_rate,
+            audio_out_mixer=mixer,
+            serializer=serializer,
+        ),
+    )
+
+
+async def create_plivo_transport(
+    websocket_client: WebSocket,
+    stream_id: str,
+    call_id: str,
+    workflow_run_id: int,
+    audio_config: AudioConfig,
+    organization_id: int,
+    vad_config: dict | None = None,
+    ambient_noise_config: dict | None = None,
+):
+    """Create a transport for Plivo connections."""
+    from api.services.telephony.factory import load_telephony_config
+
+    config = await load_telephony_config(organization_id)
+
+    if config.get("provider") != "plivo":
+        raise ValueError(f"Expected Plivo provider, got {config.get('provider')}")
+
+    auth_id = config.get("auth_id")
+    auth_token = config.get("auth_token")
+
+    if not auth_id or not auth_token:
+        raise ValueError(
+            f"Incomplete Plivo configuration for organization {organization_id}"
+        )
+
+    serializer = PlivoFrameSerializer(
+        stream_id=stream_id,
+        call_id=call_id,
+        auth_id=auth_id,
+        auth_token=auth_token,
+        params=PlivoFrameSerializer.InputParams(
+            plivo_sample_rate=8000,
+            sample_rate=audio_config.pipeline_sample_rate,
+        ),
     )
 
     mixer = await _build_audio_out_mixer(

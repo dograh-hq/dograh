@@ -47,6 +47,7 @@ from api.services.pipecat.tracing_config import (
 from api.services.pipecat.transport_setup import (
     create_ari_transport,
     create_cloudonix_transport,
+    create_plivo_transport,
     create_telnyx_transport,
     create_twilio_transport,
     create_vobiz_transport,
@@ -149,6 +150,69 @@ async def run_pipeline_twilio(
         user_id,
         audio_config=audio_config,
     )
+
+
+async def run_pipeline_plivo(
+    websocket_client: WebSocket,
+    stream_id: str,
+    call_id: str,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+) -> None:
+    """Run pipeline for Plivo WebSocket connections."""
+    logger.info(
+        f"[run {workflow_run_id}] Starting Plivo pipeline - "
+        f"stream_id={stream_id}, call_id={call_id}, workflow_id={workflow_id}"
+    )
+    set_current_run_id(workflow_run_id)
+
+    cost_info = {"call_id": call_id}
+    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+
+    workflow = await db_client.get_workflow(workflow_id, user_id)
+
+    if workflow:
+        set_current_org_id(workflow.organization_id)
+
+    vad_config = None
+    ambient_noise_config = None
+    if workflow and workflow.workflow_configurations:
+        if "vad_configuration" in workflow.workflow_configurations:
+            vad_config = workflow.workflow_configurations["vad_configuration"]
+        if "ambient_noise_configuration" in workflow.workflow_configurations:
+            ambient_noise_config = workflow.workflow_configurations[
+                "ambient_noise_configuration"
+            ]
+
+    try:
+        audio_config = create_audio_config(WorkflowRunMode.PLIVO.value)
+
+        transport = await create_plivo_transport(
+            websocket_client,
+            stream_id,
+            call_id,
+            workflow_run_id,
+            audio_config,
+            workflow.organization_id,
+            vad_config,
+            ambient_noise_config,
+        )
+
+        await _run_pipeline(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            audio_config=audio_config,
+        )
+        logger.info(f"[run {workflow_run_id}] Plivo pipeline completed successfully")
+
+    except Exception as e:
+        logger.error(
+            f"[run {workflow_run_id}] Error in Plivo pipeline: {e}", exc_info=True
+        )
+        raise
 
 
 async def run_pipeline_vonage(

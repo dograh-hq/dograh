@@ -108,10 +108,13 @@ def build_credential_response(credential) -> CredentialResponse:
     )
 
 
-@router.get("/", **sdk_expose(
-    method="list_credentials",
-    description="List webhook credentials available to the authenticated organization.",
-))
+@router.get(
+    "/",
+    **sdk_expose(
+        method="list_credentials",
+        description="List webhook credentials available to the authenticated organization.",
+    ),
+)
 async def list_credentials(
     user: UserModel = Depends(get_user),
 ) -> List[CredentialResponse]:

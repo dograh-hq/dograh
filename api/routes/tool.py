@@ -277,10 +277,13 @@ def validate_status(status: str) -> None:
             )
 
 
-@router.get("/", **sdk_expose(
-    method="list_tools",
-    description="List tools available to the authenticated organization.",
-))
+@router.get(
+    "/",
+    **sdk_expose(
+        method="list_tools",
+        description="List tools available to the authenticated organization.",
+    ),
+)
 async def list_tools(
     status: Optional[str] = None,
     category: Optional[str] = None,

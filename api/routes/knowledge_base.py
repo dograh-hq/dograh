@@ -8,7 +8,6 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import PostHogEvent
-from api.sdk_expose import sdk_expose
 from api.schemas.knowledge_base import (
     ChunkSearchRequestSchema,
     ChunkSearchResponseSchema,
@@ -18,6 +17,7 @@ from api.schemas.knowledge_base import (
     DocumentUploadResponseSchema,
     ProcessDocumentRequestSchema,
 )
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
 from api.services.storage import storage_fs

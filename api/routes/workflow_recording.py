@@ -9,7 +9,6 @@ from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.workflow_recording_client import generate_short_id
 from api.enums import StorageBackend
-from api.sdk_expose import sdk_expose
 from api.schemas.workflow_recording import (
     BatchRecordingCreateRequestSchema,
     BatchRecordingCreateResponseSchema,
@@ -20,6 +19,7 @@ from api.schemas.workflow_recording import (
     RecordingUpdateRequestSchema,
     RecordingUploadResponseSchema,
 )
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.storage import storage_fs

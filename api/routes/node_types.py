@@ -30,10 +30,14 @@ class NodeTypesResponse(BaseModel):
     node_types: list[NodeSpec]
 
 
-@router.get("", response_model=NodeTypesResponse, **sdk_expose(
-    method="list_node_types",
-    description="List every registered node type with its spec. Pinned to spec_version.",
-))
+@router.get(
+    "",
+    response_model=NodeTypesResponse,
+    **sdk_expose(
+        method="list_node_types",
+        description="List every registered node type with its spec. Pinned to spec_version.",
+    ),
+)
 async def list_node_types(
     _user: UserModel = Depends(get_user),
 ) -> NodeTypesResponse:
@@ -45,10 +49,14 @@ async def list_node_types(
     return NodeTypesResponse(spec_version=SPEC_VERSION, node_types=all_specs())
 
 
-@router.get("/{name}", response_model=NodeSpec, **sdk_expose(
-    method="get_node_type",
-    description="Fetch a single node spec by name.",
-))
+@router.get(
+    "/{name}",
+    response_model=NodeSpec,
+    **sdk_expose(
+        method="get_node_type",
+        description="Fetch a single node spec by name.",
+    ),
+)
 async def get_node_type(
     name: str,
     _user: UserModel = Depends(get_user),

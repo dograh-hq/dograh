@@ -8,6 +8,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import PostHogEvent
+from api.sdk_expose import sdk_expose
 from api.schemas.knowledge_base import (
     ChunkSearchRequestSchema,
     ChunkSearchResponseSchema,
@@ -190,6 +191,10 @@ async def process_document(
     "/documents",
     response_model=DocumentListResponseSchema,
     summary="List documents",
+    **sdk_expose(
+        method="list_documents",
+        description="List knowledge base documents available to the authenticated organization.",
+    ),
 )
 async def list_documents(
     status: Annotated[

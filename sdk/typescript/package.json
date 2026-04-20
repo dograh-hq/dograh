@@ -1,13 +1,13 @@
 {
   "name": "@dograh/sdk",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Typed builder for Dograh voice-AI workflows",
   "license": "BSD-2-Clause",
   "author": "Zansat Technologies Private Limited",
   "homepage": "https://dograh.com",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dograh/dograh.git",
+    "url": "https://github.com/dograh-hq/dograh.git",
     "directory": "sdk/typescript"
   },
   "keywords": [
@@ -25,6 +25,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./typed": {
+      "types": "./dist/typed/index.d.ts",
+      "import": "./dist/typed/index.js"
     }
   },
   "files": [
@@ -42,6 +46,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "openapi-typescript": "^7.13.0",
     "typescript": "^5.3.0"
   }
 }

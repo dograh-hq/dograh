@@ -40,12 +40,17 @@ from api.services.workflow.layout import reconcile_positions
 from api.services.workflow.workflow import WorkflowGraph
 
 
-def _previous_workflow_json(workflow: Any) -> dict[str, Any] | None:
+async def _previous_workflow_json(workflow: Any) -> dict[str, Any] | None:
     """Same selection priority as `get_workflow_code` — the version the
-    LLM saw is the version we reconcile against."""
-    current = workflow.current_definition
-    if current is not None and current.workflow_json:
-        return current.workflow_json
+    LLM saw is the version we reconcile against.
+
+    `current_definition` (is_current=True) is the published row, so the
+    draft must be fetched explicitly. If no draft exists (e.g. the last
+    draft was just published), fall through to `released_definition`.
+    """
+    draft = await db_client.get_draft_version(workflow.id)
+    if draft is not None and draft.workflow_json:
+        return draft.workflow_json
     released = workflow.released_definition
     if released is not None and released.workflow_json:
         return released.workflow_json
@@ -117,7 +122,7 @@ async def save_workflow(workflow_id: int, code: str) -> dict[str, Any]:
     # The parser drops positions by design (LLMs don't place nodes well);
     # here we fill them back in from what was there before, and pick
     # approximate placements for newly-introduced nodes.
-    payload = reconcile_positions(payload, _previous_workflow_json(workflow))
+    payload = reconcile_positions(payload, await _previous_workflow_json(workflow))
 
     # 2. Pydantic shape check (defence in depth — parser is spec-driven).
     try:

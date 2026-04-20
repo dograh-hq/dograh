@@ -41,9 +41,12 @@ FROM python:3.12-slim AS runner
 
 WORKDIR /app
 
-# Only install ffmpeg (runtime dependency)
+# Install ffmpeg and Node.js 22 (ts_validator subprocess requires node >=22.6
+# for native TypeScript stripping; see api/mcp/ts_bridge.py).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
+    ffmpeg curl ca-certificates gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -64,6 +67,10 @@ ENV PYTHONUNBUFFERED=1
 # Copy application code
 COPY ./api ./api
 COPY ./scripts/start_services_dev.sh ./scripts/start_services_dev.sh
+
+# Install ts_validator Node deps (typescript compiler API). The validator
+# runs as a short-lived subprocess from api/mcp/ts_bridge.py.
+RUN cd api/mcp/ts_validator && npm ci --omit=dev && npm cache clean --force
 
 # Product documentation — read at runtime by the MCP docs tools
 # (search_dograh_docs / fetch_dograh_doc) so agents can learn Dograh.

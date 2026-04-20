@@ -13,7 +13,6 @@ from api.services.workflow.node_specs._base import (
     SPEC_VERSION,
     DisplayOptions,
     GraphConstraints,
-    MigrationSpec,
     NodeCategory,
     NodeExample,
     NodeSpec,
@@ -21,8 +20,6 @@ from api.services.workflow.node_specs._base import (
     PropertySpec,
     PropertyType,
     evaluate_display_options,
-    get_migration,
-    register_migration,
 )
 
 REGISTRY: dict[str, NodeSpec] = {}
@@ -54,7 +51,6 @@ __all__ = [
     "REGISTRY",
     "DisplayOptions",
     "GraphConstraints",
-    "MigrationSpec",
     "NodeCategory",
     "NodeExample",
     "NodeSpec",
@@ -63,10 +59,8 @@ __all__ = [
     "PropertyType",
     "all_specs",
     "evaluate_display_options",
-    "get_migration",
     "get_spec",
     "register",
-    "register_migration",
 ]
 
 

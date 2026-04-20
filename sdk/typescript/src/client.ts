@@ -1,9 +1,19 @@
-// HTTP client for the Dograh REST API. Wraps `/api/v1/node-types`, the
-// reference-catalog endpoints, and the workflow CRUD endpoints. Specs are
-// fetched once per client and cached in memory.
+// HTTP client for the Dograh REST API.
+//
+// Most endpoint methods come from `_GeneratedClient` (auto-generated from
+// the FastAPI OpenAPI spec — see `scripts/generate_sdk.sh`). This class
+// adds session/auth/caching around that base plus the ergonomic
+// `loadWorkflow` / `saveWorkflow` wrappers that compose a generated call
+// with local `Workflow` hydration.
 
+import { _GeneratedClient } from "./_generated_client.js";
+import type {
+    NodeSpec,
+    NodeTypesResponse,
+    UpdateWorkflowRequest,
+    WorkflowResponse,
+} from "./_generated_models.js";
 import { ApiError, SpecMismatchError } from "./errors.js";
-import type { NodeSpec } from "./types.js";
 import { Workflow, type SpecProvider } from "./workflow.js";
 
 export interface DograhClientOptions {
@@ -15,7 +25,7 @@ export interface DograhClientOptions {
     fetch?: typeof globalThis.fetch;
 }
 
-export class DograhClient implements SpecProvider {
+export class DograhClient extends _GeneratedClient implements SpecProvider {
     readonly baseUrl: string;
     readonly apiKey: string | undefined;
     private readonly fetchImpl: typeof globalThis.fetch;
@@ -25,6 +35,7 @@ export class DograhClient implements SpecProvider {
     private specVersionCache: string | null = null;
 
     constructor(opts: DograhClientOptions = {}) {
+        super();
         const rawBase =
             opts.baseUrl ??
             (typeof process !== "undefined" ? process.env.DOGRAH_API_URL : undefined) ??
@@ -39,28 +50,28 @@ export class DograhClient implements SpecProvider {
         if (this.apiKey) this.headers["X-API-Key"] = this.apiKey;
     }
 
-    // ── spec discovery ─────────────────────────────────────────────
+    /** Spec contract version reported by the server, or null until the
+     * first `listNodeTypes` / `getNodeType` call. */
+    get specVersion(): string | null {
+        return this.specVersionCache;
+    }
 
-    async listNodeTypes(): Promise<{
-        spec_version: string;
-        node_types: NodeSpec[];
-    }> {
-        const body = await this.request<{
-            spec_version: string;
-            node_types: NodeSpec[];
-        }>("GET", "/node-types");
-        this.specVersionCache = body.spec_version;
-        for (const spec of body.node_types ?? []) {
+    // ── spec discovery overrides (generated methods + caching) ────────
+
+    async listNodeTypes(): Promise<NodeTypesResponse> {
+        const resp = await super.listNodeTypes();
+        this.specVersionCache = resp.spec_version;
+        for (const spec of resp.node_types ?? []) {
             this.specCache.set(spec.name, spec);
         }
-        return body;
+        return resp;
     }
 
     async getNodeType(name: string): Promise<NodeSpec> {
         const cached = this.specCache.get(name);
         if (cached) return cached;
         try {
-            const spec = await this.request<NodeSpec>("GET", `/node-types/${name}`);
+            const spec = await super.getNodeType(name);
             this.specCache.set(name, spec);
             return spec;
         } catch (err) {
@@ -71,103 +82,57 @@ export class DograhClient implements SpecProvider {
         }
     }
 
-    /** Spec contract version reported by the server, or null until first
-     * discovery call. */
-    get specVersion(): string | null {
-        return this.specVersionCache;
-    }
+    // ── ergonomic workflow wrappers ───────────────────────────────────
 
-    // ── reference catalogs ─────────────────────────────────────────
-
-    async listTools(): Promise<Array<Record<string, unknown>>> {
-        return this.request("GET", "/tools/");
-    }
-
-    async listDocuments(): Promise<Array<Record<string, unknown>>> {
-        const body = await this.request<unknown>("GET", "/knowledge-base/documents");
-        if (body && typeof body === "object" && "documents" in body) {
-            return (body as { documents: Array<Record<string, unknown>> }).documents;
-        }
-        return Array.isArray(body) ? (body as Array<Record<string, unknown>>) : [];
-    }
-
-    async listCredentials(): Promise<Array<Record<string, unknown>>> {
-        return this.request("GET", "/credentials/");
-    }
-
-    async listRecordings(): Promise<Array<Record<string, unknown>>> {
-        const body = await this.request<unknown>("GET", "/workflow-recordings/");
-        if (body && typeof body === "object" && "recordings" in body) {
-            return (body as { recordings: Array<Record<string, unknown>> }).recordings;
-        }
-        return Array.isArray(body) ? (body as Array<Record<string, unknown>>) : [];
-    }
-
-    // ── workflow CRUD ──────────────────────────────────────────────
-
-    async listWorkflows(): Promise<Array<Record<string, unknown>>> {
-        const body = await this.request<unknown>("GET", "/workflow/");
-        if (body && typeof body === "object" && "workflows" in body) {
-            return (body as { workflows: Array<Record<string, unknown>> }).workflows;
-        }
-        return Array.isArray(body) ? (body as Array<Record<string, unknown>>) : [];
-    }
-
-    async getWorkflow(workflowId: number): Promise<Record<string, unknown>> {
-        return this.request("GET", `/workflow/${workflowId}`);
-    }
-
-    /** Fetch a workflow and return it as an editable `Workflow` object. */
+    /** Fetch a workflow and return it as an editable `Workflow` builder. */
     async loadWorkflow(workflowId: number): Promise<Workflow> {
-        const raw = await this.getWorkflow(workflowId);
-        const definition =
-            (raw.current_definition as Record<string, unknown> | undefined) ??
-            (raw.definition as Record<string, unknown> | undefined) ??
-            {};
-        const workflowJson =
-            (definition.workflow_json as {
-                nodes?: unknown[];
-                edges?: unknown[];
-            } | undefined) ??
-            (raw.workflow_json as { nodes?: unknown[]; edges?: unknown[] } | undefined);
-        if (!workflowJson) {
+        const resp = await this.getWorkflow(workflowId);
+        if (!resp.workflow_definition) {
             throw new ApiError(
                 200,
-                `Workflow ${workflowId} has no current definition to load`,
-                raw,
+                `Workflow ${workflowId} has no definition to load`,
+                resp,
             );
         }
         return Workflow.fromJson(
-            workflowJson as Parameters<typeof Workflow.fromJson>[0],
-            { client: this, name: (raw.name as string) ?? "" },
+            resp.workflow_definition as Parameters<typeof Workflow.fromJson>[0],
+            { client: this, name: resp.name ?? "" },
         );
     }
 
-    async saveWorkflow(
-        workflowId: number,
-        workflow: Workflow,
-    ): Promise<Record<string, unknown>> {
-        return this.request("PUT", `/workflow/${workflowId}`, {
-            workflow_definition: workflow.toJson(),
+    async saveWorkflow(workflowId: number, workflow: Workflow): Promise<WorkflowResponse> {
+        const body: UpdateWorkflowRequest = {
             name: workflow.name,
-        });
+            workflow_definition: workflow.toJson() as unknown as Record<string, unknown>,
+        };
+        return this.updateWorkflow(workflowId, { body });
     }
 
-    // ── low-level ──────────────────────────────────────────────────
+    // ── low-level (overrides `_GeneratedClient.request`) ──────────────
 
-    private async request<T>(
+    protected async request<T = unknown>(
         method: string,
         path: string,
-        body?: unknown,
+        opts?: { json?: unknown; params?: Record<string, unknown> },
     ): Promise<T> {
-        const url = `${this.baseUrl}/api/v1${path}`;
+        let url = `${this.baseUrl}/api/v1${path}`;
+        if (opts?.params) {
+            const qs = new URLSearchParams();
+            for (const [k, v] of Object.entries(opts.params)) {
+                if (v !== undefined && v !== null) qs.append(k, String(v));
+            }
+            const q = qs.toString();
+            if (q) url += (url.includes("?") ? "&" : "?") + q;
+        }
+
+        const hasBody = opts?.json !== undefined;
         const init: RequestInit = {
             method,
             headers: {
                 ...this.headers,
-                ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+                ...(hasBody ? { "Content-Type": "application/json" } : {}),
             },
-            body: body !== undefined ? JSON.stringify(body) : undefined,
+            body: hasBody ? JSON.stringify(opts!.json) : undefined,
         };
 
         const controller = new AbortController();

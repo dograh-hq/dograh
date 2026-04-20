@@ -15,6 +15,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import CallType, PostHogEvent, StorageBackend
+from api.sdk_expose import sdk_expose
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.auth.depends import get_user
 from api.services.campaign.report import generate_workflow_report_csv
@@ -453,7 +454,10 @@ async def get_workflow_count(
     )
 
 
-@router.get("/fetch")
+@router.get("/fetch", **sdk_expose(
+    method="list_workflows",
+    description="List all workflows in the authenticated organization.",
+))
 async def get_workflows(
     user: UserModel = Depends(get_user),
     status: Optional[str] = Query(
@@ -499,7 +503,10 @@ async def get_workflows(
     ]
 
 
-@router.get("/fetch/{workflow_id}")
+@router.get("/fetch/{workflow_id}", **sdk_expose(
+    method="get_workflow",
+    description="Get a single workflow by ID (returns draft if one exists, else published).",
+))
 async def get_workflow(
     workflow_id: int,
     user: UserModel = Depends(get_user),
@@ -701,7 +708,10 @@ async def update_workflow_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/{workflow_id}")
+@router.put("/{workflow_id}", **sdk_expose(
+    method="update_workflow",
+    description="Update a workflow's name and/or definition. Saves as a new draft.",
+))
 async def update_workflow(
     workflow_id: int,
     request: UpdateWorkflowRequest,

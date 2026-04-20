@@ -1,6 +1,6 @@
 [project]
 name = "dograh-sdk"
-version = "0.1.0"
+version = "0.1.2"
 description = "Typed builder for Dograh voice-AI workflows"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +22,7 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.27",
+    "pydantic>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -32,7 +33,7 @@ dev = [
 [project.urls]
 Homepage = "https://dograh.com"
 Documentation = "https://docs.dograh.com"
-Repository = "https://github.com/dograh/dograh"
+Repository = "https://github.com/dograh-hq/dograh"
 
 [project.scripts]
 dograh-sdk-codegen = "dograh_sdk.codegen:main"

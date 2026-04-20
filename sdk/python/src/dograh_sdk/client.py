@@ -1,8 +1,13 @@
 """HTTP client for the Dograh REST API.
 
-Wraps `/api/v1/node-types`, the reference-catalog endpoints, and the
-workflow CRUD endpoints. Specs are fetched once per client and cached in
-memory — spec changes on the server require a fresh client instance.
+Most endpoint methods come from `_GeneratedClient` (auto-generated from
+the FastAPI OpenAPI spec — see `scripts/generate_sdk.sh`). This class
+adds the session/auth/cache surface around that mixin plus a couple of
+ergonomic wrappers (`load_workflow`, `save_workflow`) that compose a
+generated call with local `Workflow` hydration.
+
+The SDK surface on the backend is controlled by decorating routes with
+`@sdk_expose(method="...")`; anything else is invisible here.
 """
 
 from __future__ import annotations
@@ -12,13 +17,20 @@ from typing import Any
 
 import httpx
 
+from ._generated_client import _GeneratedClient
+from ._generated_models import (
+    NodeSpec,
+    NodeTypesResponse,
+    UpdateWorkflowRequest,
+    WorkflowResponse,
+)
 from .errors import ApiError, SpecMismatchError
 from .workflow import Workflow
 
 
-class DograhClient:
+class DograhClient(_GeneratedClient):
     """Sync HTTP client. Suitable for scripts, pytest, and the LLM SDK
-    exec sandbox. An async variant can be added in a later pass.
+    exec sandbox.
 
     Auth precedence:
         1. `api_key` kwarg
@@ -49,9 +61,9 @@ class DograhClient:
             timeout=timeout,
         )
 
-        # Spec + catalog caches. `_spec_version` is pinned on first fetch;
-        # the SDK warns if the server later reports a different version.
-        self._spec_cache: dict[str, dict] = {}
+        # Populated by the first call to `list_node_types` / `get_node_type`
+        # — avoids repeated round-trips when building a workflow.
+        self._spec_cache: dict[str, NodeSpec] = {}
         self._spec_version: str | None = None
 
     def close(self) -> None:
@@ -63,23 +75,27 @@ class DograhClient:
     def __exit__(self, *args: Any) -> None:
         self.close()
 
-    # ── spec discovery ─────────────────────────────────────────────
+    @property
+    def spec_version(self) -> str | None:
+        """Contract version reported by the server, or None until the
+        first `list_node_types` / `get_node_type` call."""
+        return self._spec_version
 
-    def list_node_types(self) -> dict[str, Any]:
-        """Return `{spec_version, node_types}` summary. Populates the
-        per-spec cache so subsequent `get_node_type` calls are local."""
-        body = self._request("GET", "/node-types")
-        self._spec_version = body.get("spec_version")
-        for spec in body.get("node_types") or []:
-            self._spec_cache[spec["name"]] = spec
-        return body
+    # ── spec discovery overrides (generated methods + caching) ────────
 
-    def get_node_type(self, name: str) -> dict[str, Any]:
-        """Return the full NodeSpec for `name`. Cached per client."""
-        if name in self._spec_cache:
-            return self._spec_cache[name]
+    def list_node_types(self) -> NodeTypesResponse:
+        resp = super().list_node_types()
+        self._spec_version = resp.spec_version
+        for spec in resp.node_types:
+            self._spec_cache[spec.name] = spec
+        return resp
+
+    def get_node_type(self, name: str) -> NodeSpec:
+        cached = self._spec_cache.get(name)
+        if cached is not None:
+            return cached
         try:
-            spec = self._request("GET", f"/node-types/{name}")
+            spec = super().get_node_type(name)
         except ApiError as e:
             if e.status_code == 404:
                 raise SpecMismatchError(f"Unknown node type: {name!r}") from e
@@ -87,71 +103,29 @@ class DograhClient:
         self._spec_cache[name] = spec
         return spec
 
-    @property
-    def spec_version(self) -> str | None:
-        """Spec contract version reported by the server, or None until
-        first discovery call."""
-        return self._spec_version
-
-    # ── reference catalogs ─────────────────────────────────────────
-
-    def list_tools(self) -> list[dict[str, Any]]:
-        return self._request("GET", "/tools/")
-
-    def list_documents(self) -> list[dict[str, Any]]:
-        body = self._request("GET", "/knowledge-base/documents")
-        # Response may be wrapped in { documents, total, limit, offset } —
-        # return the flat list for convenience.
-        if isinstance(body, dict) and "documents" in body:
-            return body["documents"]
-        return body if isinstance(body, list) else []
-
-    def list_credentials(self) -> list[dict[str, Any]]:
-        return self._request("GET", "/credentials/")
-
-    def list_recordings(self) -> list[dict[str, Any]]:
-        body = self._request("GET", "/workflow-recordings/")
-        if isinstance(body, dict) and "recordings" in body:
-            return body["recordings"]
-        return body if isinstance(body, list) else []
-
-    # ── workflow CRUD ──────────────────────────────────────────────
-
-    def list_workflows(self) -> list[dict[str, Any]]:
-        body = self._request("GET", "/workflow/")
-        if isinstance(body, dict) and "workflows" in body:
-            return body["workflows"]
-        return body if isinstance(body, list) else []
-
-    def get_workflow(self, workflow_id: int) -> dict[str, Any]:
-        return self._request("GET", f"/workflow/{workflow_id}")
+    # ── ergonomic workflow wrappers ───────────────────────────────────
 
     def load_workflow(self, workflow_id: int) -> Workflow:
-        """Fetch a workflow and return it as an editable `Workflow` object.
-
-        Wraps the REST `get_workflow` + `Workflow.from_json`. Raises if
-        the workflow has no current definition.
-        """
-        raw = self.get_workflow(workflow_id)
-        definition = raw.get("current_definition") or raw.get("definition") or {}
-        workflow_json = definition.get("workflow_json") or raw.get("workflow_json")
-        if not workflow_json:
+        """Fetch a workflow and hydrate it into an editable `Workflow` builder."""
+        resp = self.get_workflow(workflow_id)
+        if not resp.workflow_definition:
             raise ApiError(
                 200,
-                f"Workflow {workflow_id} has no current definition to load",
-                body=raw,
+                f"Workflow {workflow_id} has no definition to load",
+                body=resp.model_dump(mode="json"),
             )
         return Workflow.from_json(
-            workflow_json, client=self, name=raw.get("name", "")
+            resp.workflow_definition, client=self, name=resp.name
         )
 
-    def save_workflow(self, workflow_id: int, workflow: Workflow) -> dict[str, Any]:
-        """Persist a workflow built via the SDK. Uses the existing draft
-        flow so saves don't silently overwrite published versions."""
-        return self._request(
-            "PUT",
-            f"/workflow/{workflow_id}",
-            json={"workflow_definition": workflow.to_json(), "name": workflow.name},
+    def save_workflow(self, workflow_id: int, workflow: Workflow) -> WorkflowResponse:
+        """Persist a `Workflow` builder back to the server as a new draft."""
+        return self.update_workflow(
+            workflow_id,
+            body=UpdateWorkflowRequest(
+                name=workflow.name,
+                workflow_definition=workflow.to_json(),
+            ),
         )
 
     # ── low-level ──────────────────────────────────────────────────
@@ -161,13 +135,10 @@ class DograhClient:
         if resp.status_code >= 400:
             try:
                 body = resp.json()
-                message = (
-                    body.get("detail")
-                    or body.get("message")
-                    or resp.text
-                    if isinstance(body, dict)
-                    else resp.text
-                )
+                if isinstance(body, dict):
+                    message = body.get("detail") or body.get("message") or resp.text
+                else:
+                    message = resp.text
             except ValueError:
                 body = resp.text
                 message = resp.text

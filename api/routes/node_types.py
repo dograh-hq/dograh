@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from api.db.models import UserModel
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.workflow.node_specs import (
     SPEC_VERSION,
@@ -29,7 +30,10 @@ class NodeTypesResponse(BaseModel):
     node_types: list[NodeSpec]
 
 
-@router.get("", response_model=NodeTypesResponse)
+@router.get("", response_model=NodeTypesResponse, **sdk_expose(
+    method="list_node_types",
+    description="List every registered node type with its spec. Pinned to spec_version.",
+))
 async def list_node_types(
     _user: UserModel = Depends(get_user),
 ) -> NodeTypesResponse:
@@ -41,7 +45,10 @@ async def list_node_types(
     return NodeTypesResponse(spec_version=SPEC_VERSION, node_types=all_specs())
 
 
-@router.get("/{name}", response_model=NodeSpec)
+@router.get("/{name}", response_model=NodeSpec, **sdk_expose(
+    method="get_node_type",
+    description="Fetch a single node spec by name.",
+))
 async def get_node_type(
     name: str,
     _user: UserModel = Depends(get_user),

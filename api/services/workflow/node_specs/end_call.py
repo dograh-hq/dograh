@@ -129,7 +129,7 @@ SPEC = NodeSpec(
             data={
                 "name": "Successful Close",
                 "prompt": "Confirm the appointment time, thank the caller, and end the call.",
-                "add_global_prompt": True,
+                "add_global_prompt": False,
             },
         ),
     ],

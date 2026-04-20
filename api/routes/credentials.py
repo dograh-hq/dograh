@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import WebhookCredentialType
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 
 router = APIRouter(prefix="/credentials")
@@ -107,7 +108,10 @@ def build_credential_response(credential) -> CredentialResponse:
     )
 
 
-@router.get("/")
+@router.get("/", **sdk_expose(
+    method="list_credentials",
+    description="List webhook credentials available to the authenticated organization.",
+))
 async def list_credentials(
     user: UserModel = Depends(get_user),
 ) -> List[CredentialResponse]:

@@ -86,7 +86,7 @@ class Workflow:
         auto-placement at origin.
         """
         spec = self._client.get_node_type(type)
-        data = validate_node_data(spec, kwargs)
+        data = validate_node_data(spec.model_dump(mode="json"), kwargs)
 
         node_id = str(self._next_node_id)
         self._next_node_id += 1
@@ -207,7 +207,7 @@ class Workflow:
         for raw in data.get("nodes", []):
             node_id = str(raw.get("id"))
             spec = client.get_node_type(raw["type"])
-            validated = validate_node_data(spec, raw.get("data") or {})
+            validated = validate_node_data(spec.model_dump(mode="json"), raw.get("data") or {})
             wf._nodes.append(
                 _Node(
                     id=node_id,

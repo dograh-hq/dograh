@@ -25,6 +25,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
 from api.db.models import OrganizationConfigurationModel, UserModel
+from api.sdk_expose import sdk_expose
 from api.db.workflow_client import WorkflowClient
 from api.db.workflow_run_client import WorkflowRunClient
 from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunState
@@ -139,7 +140,10 @@ class StatusCallbackRequest(BaseModel):
         )
 
 
-@router.post("/initiate-call")
+@router.post("/initiate-call", **sdk_expose(
+    method="test_phone_call",
+    description="Place a test call from a workflow to a phone number.",
+))
 async def initiate_call(
     request: InitiateCallRequest, user: UserModel = Depends(get_user)
 ):

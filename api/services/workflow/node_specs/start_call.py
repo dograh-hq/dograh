@@ -34,18 +34,6 @@ SPEC = NodeSpec(
             min_length=1,
             default="Start Call",
         ),
-        PropertySpec(
-            name="prompt",
-            type=PropertyType.mention_textarea,
-            display_name="Prompt",
-            description=(
-                "Agent system prompt for the opening turn. Supports "
-                "{{template_variables}} from pre-call fetch and the initial context."
-            ),
-            required=True,
-            min_length=1,
-            placeholder="Greet the caller warmly and ask how you can help today.",
-        ),
         # ---- Greeting (variant via greeting_type) ----
         PropertySpec(
             name="greeting_type",
@@ -83,6 +71,18 @@ SPEC = NodeSpec(
                 "MCP tool to discover available recordings."
             ),
             display_options=DisplayOptions(show={"greeting_type": ["audio"]}),
+        ),
+        PropertySpec(
+            name="prompt",
+            type=PropertyType.mention_textarea,
+            display_name="Prompt",
+            description=(
+                "Agent system prompt for the opening turn. Supports "
+                "{{template_variables}} from pre-call fetch and the initial context."
+            ),
+            required=True,
+            min_length=1,
+            placeholder="Greet the caller warmly and ask how you can help today.",
         ),
         # ---- Behavior toggles ----
         PropertySpec(

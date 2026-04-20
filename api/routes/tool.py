@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent, ToolCategory, ToolStatus
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
 
@@ -276,7 +277,10 @@ def validate_status(status: str) -> None:
             )
 
 
-@router.get("/")
+@router.get("/", **sdk_expose(
+    method="list_tools",
+    description="List tools available to the authenticated organization.",
+))
 async def list_tools(
     status: Optional[str] = None,
     category: Optional[str] = None,

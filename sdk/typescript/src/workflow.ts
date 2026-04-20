@@ -8,8 +8,9 @@
 // Wire format matches `ReactFlowDTO` from the backend 1:1 — `toJson()`
 // output round-trips through `ReactFlowDTO.model_validate` unchanged.
 
+import type { NodeSpec } from "./_generated_models.js";
 import { ValidationError } from "./errors.js";
-import type { NodeRef, NodeSpec, WireEdge, WireNode, WireWorkflow } from "./types.js";
+import type { NodeRef, WireEdge, WireNode, WireWorkflow } from "./types.js";
 import { validateNodeData } from "./validation.js";
 
 /** Minimal interface the Workflow builder needs from a client. Any object

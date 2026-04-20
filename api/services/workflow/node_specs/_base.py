@@ -13,7 +13,7 @@ and example coverage.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -200,21 +200,6 @@ class GraphConstraints(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class MigrationSpec(BaseModel):
-    """Declared migration step (JSON-serializable view).
-
-    The migrate callable is registered out-of-band via `register_migration()`
-    and never serialized — LLM and frontend consumers only see version
-    metadata and warn on mismatch.
-    """
-
-    from_version: str
-    to_version: str
-    description: str
-
-    model_config = ConfigDict(extra="forbid")
-
-
 class NodeSpec(BaseModel):
     """Single source of truth for a node type."""
 
@@ -234,38 +219,6 @@ class NodeSpec(BaseModel):
     version: str = "1.0.0"
     properties: list[PropertySpec]
     examples: list[NodeExample] = Field(default_factory=list)
-    migrations: list[MigrationSpec] = Field(default_factory=list)
     graph_constraints: Optional[GraphConstraints] = None
 
     model_config = ConfigDict(extra="forbid")
-
-
-# ---------------------------------------------------------------------------
-# Migration callables registry
-#
-# Migration logic is server-side Python (not JSON), so it lives in a separate
-# registry keyed by (node_name, from_version, to_version).
-# ---------------------------------------------------------------------------
-
-MigrationCallable = Callable[[dict[str, Any]], dict[str, Any]]
-_MIGRATION_REGISTRY: dict[tuple[str, str, str], MigrationCallable] = {}
-
-
-def register_migration(
-    node_name: str,
-    from_version: str,
-    to_version: str,
-    migrate: MigrationCallable,
-) -> None:
-    """Register the migrate callable for a declared MigrationSpec.
-
-    The corresponding MigrationSpec must also appear in the NodeSpec's
-    `migrations` list — this registry only holds the callable.
-    """
-    _MIGRATION_REGISTRY[(node_name, from_version, to_version)] = migrate
-
-
-def get_migration(
-    node_name: str, from_version: str, to_version: str
-) -> Optional[MigrationCallable]:
-    return _MIGRATION_REGISTRY.get((node_name, from_version, to_version))

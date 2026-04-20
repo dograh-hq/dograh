@@ -20,30 +20,54 @@ RUN pip install --user --no-cache-dir -r requirements.txt && \
 
 # Copy and install pipecat from local submodule
 COPY pipecat /tmp/pipecat
-RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,local-smart-turn-v3,speechmatics,openrouter,camb]' && \
+RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb]' && \
+    # Swap opencv-python (pulled by pipecat[webrtc]) for opencv-python-headless
+    # to drop X11/Qt dependencies that otherwise require libxcb etc. in runner.
+    pip uninstall -y opencv-python && \
+    pip install --user --no-cache-dir opencv-python-headless && \
     # Pre-download NLTK punkt_tab tokenizer data (required by pipecat at runtime)
     python -c "import nltk; nltk.download('punkt_tab', quiet=True)" && \
     # Clean up pip cache and temporary pipecat directory
     rm -rf /root/.cache/pip /tmp/pipecat
 
-# Remove unnecessary Python cache files from installed packages
+# Strip cache files, test/example dirs, and type stubs from installed packages
 RUN find /root/.local -type f -name '*.pyc' -delete && \
-    find /root/.local -type d -name '__pycache__' -delete && \
-    find /root/.local -type f -name '*.pyo' -delete
+    find /root/.local -type d -name '__pycache__' -prune -exec rm -rf {} + && \
+    find /root/.local -type f -name '*.pyo' -delete && \
+    find /root/.local -type d \( -name tests -o -name test -o -name examples \) -prune -exec rm -rf {} + && \
+    find /root/.local -name '*.pyi' -delete
 
-# Stage 2: Runtime - Minimal image with only runtime dependencies
+# Stage 2: Node deps for ts_validator (built with full node:22-slim, only
+# node_modules is copied into the runner).
+FROM node:22-slim AS ts-deps
+WORKDIR /ts_validator
+COPY api/mcp/ts_validator/package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Stage 3: Static ffmpeg binary (avoids apt ffmpeg pulling mesa/libllvm for
+# hardware acceleration we don't use server-side).
+FROM debian:trixie-slim AS ffmpeg-static
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl ca-certificates xz-utils \
+    && curl -fsSL -o /tmp/ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+    && mkdir -p /tmp/ffmpeg \
+    && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1 \
+    && mv /tmp/ffmpeg/ffmpeg /tmp/ffmpeg/ffprobe /usr/local/bin/ \
+    && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
+
+# Stage 4: Runtime - Minimal image with only runtime dependencies
 FROM python:3.12-slim AS runner
 
 WORKDIR /app
 
-# Install ffmpeg and Node.js 22 (ts_validator subprocess requires node >=22.6
-# for native TypeScript stripping; see api/mcp/ts_bridge.py).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg curl ca-certificates gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
-    && apt-get install -y --no-install-recommends nodejs \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Static ffmpeg + ffprobe (used by audio_converter, audio_file_cache, etc.)
+COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
+
+# Node.js 22 binary only (ts_validator subprocess needs node >=22.6 for
+# native TypeScript stripping; see api/mcp/ts_bridge.py). python:3.12-slim
+# already provides libstdc++6, libgcc-s1, and ca-certificates that node needs.
+COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
 # Copy Python packages from builder stage
 COPY --from=builder /root/.local /root/.local
@@ -63,9 +87,9 @@ ENV PYTHONUNBUFFERED=1
 COPY ./api ./api
 COPY ./scripts/start_services_dev.sh ./scripts/start_services_dev.sh
 
-# Install ts_validator Node deps (typescript compiler API). The validator
-# runs as a short-lived subprocess from api/mcp/ts_bridge.py.
-RUN cd api/mcp/ts_validator && npm ci --omit=dev && npm cache clean --force
+# ts_validator Node deps (built in ts-deps stage with full node:22-slim image).
+# The validator runs as a short-lived subprocess from api/mcp/ts_bridge.py.
+COPY --from=ts-deps /ts_validator/node_modules ./api/mcp/ts_validator/node_modules
 
 # Product documentation — read at runtime by the MCP docs tools
 # (search_dograh_docs / fetch_dograh_doc) so agents can learn Dograh.

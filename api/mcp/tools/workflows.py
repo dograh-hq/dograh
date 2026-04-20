@@ -8,12 +8,13 @@ from api.mcp.tracing import traced_tool
 
 @mcp.tool
 @traced_tool
-async def list_workflows(status: str | None = None) -> list[dict]:
+async def list_workflows(status: str | None = "active") -> list[dict]:
     """List agents (workflows) in the caller's organization.
 
     Returns id, name, status, and created_at for each agent. Use
-    `get_workflow` to fetch a single agent's full definition. Pass
-    `status="active"` or `status="archived"` to filter.
+    `get_workflow` to fetch a single agent's full definition. Defaults
+    to active agents; pass `status="archived"` to list archived agents,
+    or `status=None` to list all.
     """
     user = await authenticate_mcp_request()
     workflows = await db_client.get_all_workflows_for_listing(

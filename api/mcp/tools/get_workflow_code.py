@@ -23,22 +23,6 @@ from api.mcp.tracing import traced_tool
 from api.mcp.ts_bridge import TsBridgeError, generate_code
 
 
-def _pick_workflow_json(workflow: Any) -> dict[str, Any]:
-    """Return the latest editable definition for the LLM.
-
-    Draft wins over published — editing a draft is the normal flow.
-    Falls back to the legacy `workflow.workflow_definition` column when
-    a workflow predates the versioning split.
-    """
-    current = workflow.current_definition
-    if current is not None and current.workflow_json:
-        return current.workflow_json
-    released = workflow.released_definition
-    if released is not None and released.workflow_json:
-        return released.workflow_json
-    return workflow.workflow_definition or {}
-
-
 @mcp.tool
 @traced_tool
 async def get_workflow_code(workflow_id: int) -> dict[str, Any]:
@@ -57,15 +41,22 @@ async def get_workflow_code(workflow_id: int) -> dict[str, Any]:
     if not workflow:
         raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
 
-    payload = _pick_workflow_json(workflow)
-    source = (
-        "draft"
-        if (
-            workflow.current_definition
-            and workflow.current_definition.status == "draft"
-        )
-        else ("published" if workflow.released_definition else "legacy")
-    )
+    # Draft wins over published — editing a draft is the normal flow.
+    # `current_definition` (is_current=True) is the published row, so we
+    # fetch the draft explicitly. If the latest draft was just published,
+    # no draft row exists and we fall through to `released_definition`.
+    draft = await db_client.get_draft_version(workflow_id)
+    released = workflow.released_definition
+
+    if draft is not None and draft.workflow_json:
+        payload = draft.workflow_json
+        source = "draft"
+    elif released is not None and released.workflow_json:
+        payload = released.workflow_json
+        source = "published"
+    else:
+        payload = workflow.workflow_definition or {}
+        source = "legacy"
 
     try:
         code = await generate_code(payload, workflow_name=workflow.name or "")

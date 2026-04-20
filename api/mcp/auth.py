@@ -42,9 +42,5 @@ async def authenticate_mcp_request() -> UserModel:
         span.set_attribute("mcp.org_id", str(org_id))
         span.set_attribute("mcp.user_id", str(user.id))
         span.set_attribute("langfuse.user.id", str(user.id))
-        # Session groups related MCP calls in the Langfuse UI. Using
-        # org_id gives a per-tenant bucket — upgrade to a real MCP
-        # session id if/when the client propagates one.
-        span.set_attribute("langfuse.session.id", str(org_id))
 
     return user

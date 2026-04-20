@@ -136,6 +136,7 @@ async def process_document(
             document.id,
             request.s3_key,
             user.selected_organization_id,
+            str(user.provider_id),
             128,  # max_tokens (default)
             request.retrieval_mode,
         )

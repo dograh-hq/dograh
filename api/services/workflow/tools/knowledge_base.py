@@ -242,7 +242,6 @@ async def _perform_retrieval(
 
             embedding_service = OpenAIEmbeddingService(
                 db_client=db_client,
-                max_tokens=128,
                 api_key=embeddings_api_key,
                 model_id=embeddings_model or "text-embedding-3-small",
                 base_url=embeddings_base_url,

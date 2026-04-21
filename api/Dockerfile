@@ -41,7 +41,7 @@ RUN find /root/.local -type f -name '*.pyc' -delete && \
 # node_modules is copied into the runner).
 FROM node:22-slim AS ts-deps
 WORKDIR /ts_validator
-COPY api/mcp/ts_validator/package*.json ./
+COPY api/mcp_server/ts_validator/package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
 
 # Stage 3: Static ffmpeg binary (avoids apt ffmpeg pulling mesa/libllvm for
@@ -65,7 +65,7 @@ COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 
 # Node.js 22 binary only (ts_validator subprocess needs node >=22.6 for
-# native TypeScript stripping; see api/mcp/ts_bridge.py). python:3.12-slim
+# native TypeScript stripping; see api/mcp_server/ts_bridge.py). python:3.12-slim
 # already provides libstdc++6, libgcc-s1, and ca-certificates that node needs.
 COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
@@ -88,8 +88,8 @@ COPY ./api ./api
 COPY ./scripts/start_services_dev.sh ./scripts/start_services_dev.sh
 
 # ts_validator Node deps (built in ts-deps stage with full node:22-slim image).
-# The validator runs as a short-lived subprocess from api/mcp/ts_bridge.py.
-COPY --from=ts-deps /ts_validator/node_modules ./api/mcp/ts_validator/node_modules
+# The validator runs as a short-lived subprocess from api/mcp_server/ts_bridge.py.
+COPY --from=ts-deps /ts_validator/node_modules ./api/mcp_server/ts_validator/node_modules
 
 # Product documentation — read at runtime by the MCP docs tools
 # (search_dograh_docs / fetch_dograh_doc) so agents can learn Dograh.

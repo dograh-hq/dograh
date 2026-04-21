@@ -34,10 +34,6 @@ export interface StartCall {
      */
     name?: string;
     /**
-     * Agent system prompt for the opening turn. Supports {{template_variables}} from pre-call fetch and the initial context.
-     */
-    prompt: string;
-    /**
      * Whether the optional greeting is spoken via TTS from text or played from a pre-recorded audio file.
      */
     greeting_type?: "text" | "audio";
@@ -51,6 +47,10 @@ export interface StartCall {
      * LLM hint: Value is the `recording_id` string. Use the `list_recordings` MCP tool to discover available recordings.
      */
     greeting_recording_id?: string;
+    /**
+     * Agent system prompt for the opening turn. Supports {{template_variables}} from pre-call fetch and the initial context.
+     */
+    prompt: string;
     /**
      * When true, the user can interrupt the agent mid-utterance.
      */

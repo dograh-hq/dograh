@@ -6,9 +6,9 @@ each node's property schema before composing or modifying a workflow.
 
 from fastapi import HTTPException
 
-from api.mcp.auth import authenticate_mcp_request
-from api.mcp.server import mcp
-from api.mcp.tracing import traced_tool
+from api.mcp_server.auth import authenticate_mcp_request
+from api.mcp_server.server import mcp
+from api.mcp_server.tracing import traced_tool
 from api.services.workflow.node_specs import SPEC_VERSION, all_specs, get_spec
 
 

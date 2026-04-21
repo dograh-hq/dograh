@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 from dograh_sdk import Workflow
+from dograh_sdk._generated_models import NodeSpec
 from dograh_sdk.typed import (
     AgentNode,
     EndCall,
@@ -29,8 +30,8 @@ from api.services.workflow.node_specs import get_spec
 
 
 class _StubClient:
-    def get_node_type(self, name: str) -> dict[str, Any]:
-        return get_spec(name).model_dump(mode="json")
+    def get_node_type(self, name: str) -> NodeSpec:
+        return NodeSpec.model_validate(get_spec(name).model_dump(mode="json"))
 
 
 @pytest.fixture

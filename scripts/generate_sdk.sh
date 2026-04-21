@@ -24,6 +24,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
+if [ -f "$REPO_ROOT/api/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    source "$REPO_ROOT/api/.env"
+    set +a
+fi
+
 SPECS_JSON="$(mktemp -t dograh-specs-XXXXXX.json)"
 OPENAPI_JSON="$(mktemp -t dograh-openapi-XXXXXX.json)"
 trap 'rm -f "$SPECS_JSON" "$OPENAPI_JSON"' EXIT

@@ -31,10 +31,10 @@ from loguru import logger
 from pydantic import ValidationError as PydanticValidationError
 
 from api.db import db_client
-from api.mcp.auth import authenticate_mcp_request
-from api.mcp.server import mcp
-from api.mcp.tracing import traced_tool
-from api.mcp.ts_bridge import TsBridgeError, parse_code
+from api.mcp_server.auth import authenticate_mcp_request
+from api.mcp_server.server import mcp
+from api.mcp_server.tracing import traced_tool
+from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
 from api.services.workflow.workflow import WorkflowGraph

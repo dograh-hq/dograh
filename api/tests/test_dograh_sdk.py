@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from dograh_sdk import Workflow
+from dograh_sdk._generated_models import NodeSpec
 from dograh_sdk.errors import ValidationError
 
 from api.services.workflow.dto import ReactFlowDTO
@@ -25,14 +26,14 @@ from api.services.workflow.node_specs import all_specs, get_spec
 
 class _StubClient:
     """Stand-in for DograhClient backed by the in-process spec registry.
-    Matches the shape the SDK needs — `get_node_type(name)` returning a
-    JSON-serializable dict."""
+    Matches the real client's contract: `get_node_type(name)` returns a
+    `NodeSpec` Pydantic model."""
 
-    def get_node_type(self, name: str) -> dict[str, Any]:
+    def get_node_type(self, name: str) -> NodeSpec:
         spec = get_spec(name)
         if spec is None:
             raise ValueError(f"Unknown spec: {name}")
-        return spec.model_dump(mode="json")
+        return NodeSpec.model_validate(spec.model_dump(mode="json"))
 
 
 @pytest.fixture
@@ -230,5 +231,5 @@ def test_every_registered_spec_is_reachable_by_sdk(client: _StubClient):
         # Just fetch the spec via the client; doesn't add anything. This
         # ensures the `_StubClient` wiring works for all types.
         probe = client.get_node_type(spec.name)
-        assert probe["name"] == spec.name
+        assert probe.name == spec.name
     _ = wf

@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from api.mcp.tools.save_workflow import save_workflow
+from api.mcp_server.tools.save_workflow import save_workflow
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="node binary not available"
@@ -61,20 +61,24 @@ def mock_backends(authed_user: MagicMock):
     update_mock = AsyncMock(return_value=_FakeWorkflowModel())
     with (
         patch(
-            "api.mcp.tools.save_workflow.authenticate_mcp_request",
+            "api.mcp_server.tools.save_workflow.authenticate_mcp_request",
             AsyncMock(return_value=authed_user),
         ),
         patch(
-            "api.mcp.tools.save_workflow.db_client.get_workflow",
+            "api.mcp_server.tools.save_workflow.db_client.get_workflow",
             AsyncMock(return_value=_FakeWorkflowModel()),
         ),
         patch(
-            "api.mcp.tools.save_workflow.db_client.save_workflow_draft",
+            "api.mcp_server.tools.save_workflow.db_client.save_workflow_draft",
             save_mock,
         ),
         patch(
-            "api.mcp.tools.save_workflow.db_client.update_workflow",
+            "api.mcp_server.tools.save_workflow.db_client.update_workflow",
             update_mock,
+        ),
+        patch(
+            "api.mcp_server.tools.save_workflow.db_client.get_draft_version",
+            AsyncMock(return_value=None),
         ),
     ):
         yield save_mock, update_mock
@@ -208,11 +212,11 @@ const only = wf.addTyped(endCall({ name: "only", prompt: "bye" }));
 async def test_unknown_workflow_raises_404(authed_user: MagicMock):
     with (
         patch(
-            "api.mcp.tools.save_workflow.authenticate_mcp_request",
+            "api.mcp_server.tools.save_workflow.authenticate_mcp_request",
             AsyncMock(return_value=authed_user),
         ),
         patch(
-            "api.mcp.tools.save_workflow.db_client.get_workflow",
+            "api.mcp_server.tools.save_workflow.db_client.get_workflow",
             AsyncMock(return_value=None),
         ),
     ):

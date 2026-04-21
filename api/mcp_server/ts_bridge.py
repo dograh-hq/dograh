@@ -1,6 +1,6 @@
 """Python-side bridge to the Node TS validator.
 
-Spawns `node api/mcp/ts_validator/src/index.ts` as a short-lived
+Spawns `node api/mcp_server/ts_validator/src/index.ts` as a short-lived
 subprocess per call, streams a JSON request on stdin, reads a JSON
 response from stdout. The validator never executes LLM code — it either
 emits TypeScript from a workflow JSON (`generate`) or parses LLM-authored

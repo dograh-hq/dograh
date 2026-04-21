@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from ._validation import validate_node_data
 
 if TYPE_CHECKING:
+    from ._generated_models import NodeSpec
     from .client import DograhClient
     from .typed._base import TypedNode
 
@@ -85,7 +86,7 @@ class Workflow:
         `position` is optional (x, y) on the React-Flow canvas; omit for
         auto-placement at origin.
         """
-        spec = self._client.get_node_type(type)
+        spec: NodeSpec = self._client.get_node_type(type)
         data = validate_node_data(spec.model_dump(mode="json"), kwargs)
 
         node_id = str(self._next_node_id)
@@ -206,7 +207,7 @@ class Workflow:
         # Rebuild nodes in the same order, preserving IDs.
         for raw in data.get("nodes", []):
             node_id = str(raw.get("id"))
-            spec = client.get_node_type(raw["type"])
+            spec: NodeSpec = client.get_node_type(raw["type"])
             validated = validate_node_data(spec.model_dump(mode="json"), raw.get("data") or {})
             wf._nodes.append(
                 _Node(

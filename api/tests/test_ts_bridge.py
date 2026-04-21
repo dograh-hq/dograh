@@ -10,7 +10,7 @@ import shutil
 
 import pytest
 
-from api.mcp.ts_bridge import TsBridgeError, generate_code, parse_code
+from api.mcp_server.ts_bridge import TsBridgeError, generate_code, parse_code
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None, reason="node binary not available"

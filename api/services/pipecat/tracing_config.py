@@ -96,7 +96,7 @@ class _OrgRoutingExporter(SpanExporter):
         for span in spans:
             # Drop fastmcp's built-in auto-instrumentation spans
             # (`tools/call <name>`, etc.) — our `@traced_tool` decorator
-            # in `api/mcp/tracing.py` produces the spans we want. Keeping
+            # in `api/mcp_server/tracing.py` produces the spans we want. Keeping
             # both would just double every trace.
             scope = getattr(span, "instrumentation_scope", None)
             if scope is not None and scope.name == "fastmcp":

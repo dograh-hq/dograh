@@ -1,0 +1,49 @@
+[project]
+name = "dograh-sdk"
+version = "0.1.2"
+description = "Typed builder for Dograh voice-AI workflows"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "BSD-2-Clause" }
+authors = [
+    { name = "Zansat Technologies Private Limited", email = "contact@dograh.com" },
+]
+keywords = ["dograh", "voice-ai", "workflow", "sdk", "llm", "agent"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+]
+
+[project.urls]
+Homepage = "https://dograh.com"
+Documentation = "https://docs.dograh.com"
+Repository = "https://github.com/dograh-hq/dograh"
+
+[project.scripts]
+dograh-sdk-codegen = "dograh_sdk.codegen:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/dograh_sdk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -19,6 +19,7 @@ from api.schemas.workflow_recording import (
     RecordingUpdateRequestSchema,
     RecordingUploadResponseSchema,
 )
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.storage import storage_fs
@@ -165,6 +166,10 @@ async def create_recordings(
     "/",
     response_model=RecordingListResponseSchema,
     summary="List recordings",
+    **sdk_expose(
+        method="list_recordings",
+        description="List workflow recordings available to the authenticated organization.",
+    ),
 )
 async def list_recordings(
     workflow_id: Annotated[

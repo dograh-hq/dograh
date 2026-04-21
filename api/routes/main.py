@@ -8,6 +8,7 @@ from api.routes.credentials import router as credentials_router
 from api.routes.integration import router as integration_router
 from api.routes.knowledge_base import router as knowledge_base_router
 from api.routes.looptalk import router as looptalk_router
+from api.routes.node_types import router as node_types_router
 from api.routes.organization import router as organization_router
 from api.routes.organization_usage import router as organization_usage_router
 from api.routes.public_agent import router as public_agent_router
@@ -54,6 +55,7 @@ router.include_router(workflow_embed_router)
 router.include_router(knowledge_base_router)
 router.include_router(workflow_recording_router)
 router.include_router(auth_router)
+router.include_router(node_types_router)
 
 
 class HealthResponse(BaseModel):

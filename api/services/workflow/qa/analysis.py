@@ -8,6 +8,7 @@ from loguru import logger
 from api.db.models import WorkflowRunModel
 from api.services.gen_ai.json_parser import parse_llm_json
 from api.services.pipecat.service_factory import create_llm_service_from_provider
+from api.services.workflow.dto import QANodeData
 from api.services.workflow.qa.conversation import (
     build_conversation_structure,
     format_transcript,
@@ -77,7 +78,7 @@ async def _generate_conversation_summary(
 
 
 async def run_per_node_qa_analysis(
-    qa_node_data: dict[str, Any],
+    qa_data: QANodeData,
     workflow_run: WorkflowRunModel,
     workflow_run_id: int,
     workflow_definition: dict,
@@ -106,18 +107,16 @@ async def run_per_node_qa_analysis(
         logger.info(
             f"Events lack node_id for run {workflow_run_id}, falling back to whole-call QA"
         )
-        return await _run_whole_call_qa_analysis(
-            qa_node_data, workflow_run, workflow_run_id
-        )
+        return await _run_whole_call_qa_analysis(qa_data, workflow_run, workflow_run_id)
 
-    system_prompt = qa_node_data.get("qa_system_prompt", "")
+    system_prompt = qa_data.qa_system_prompt or ""
     if not system_prompt:
         logger.warning("No system prompt defined for QA Node")
         return {"error": "no_system_prompt", "node_results": {}}
 
     # Resolve LLM config
     provider, model, api_key, service_kwargs = await resolve_llm_config(
-        qa_node_data, workflow_run
+        qa_data, workflow_run
     )
     if not api_key:
         logger.warning(
@@ -127,7 +126,7 @@ async def run_per_node_qa_analysis(
 
     # Ensure node summaries
     node_summaries = await ensure_node_summaries(
-        workflow_definition, definition_id, workflow_run, qa_node_data
+        workflow_definition, definition_id, workflow_run, qa_data
     )
 
     # Set up Langfuse tracing
@@ -228,7 +227,7 @@ async def run_per_node_qa_analysis(
 
 
 async def _run_whole_call_qa_analysis(
-    qa_node_data: dict[str, Any],
+    qa_data: QANodeData,
     workflow_run: WorkflowRunModel,
     workflow_run_id: int,
 ) -> dict[str, Any]:
@@ -254,13 +253,13 @@ async def _run_whole_call_qa_analysis(
     metrics = compute_call_metrics(rtf_events, call_duration)
 
     # Resolve LLM config
-    system_prompt = qa_node_data.get("qa_system_prompt", "")
+    system_prompt = qa_data.qa_system_prompt or ""
     if not system_prompt:
         logger.warning("No system prompt defined for QA Node")
         return {"error": "no_system_prompt", "node_results": {}}
 
     provider, model, api_key, service_kwargs = await resolve_llm_config(
-        qa_node_data, workflow_run
+        qa_data, workflow_run
     )
 
     if not api_key:

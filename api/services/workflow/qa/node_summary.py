@@ -7,7 +7,7 @@ from loguru import logger
 from api.db import db_client
 from api.db.models import WorkflowRunModel
 from api.services.pipecat.service_factory import create_llm_service_from_provider
-from api.services.workflow.dto import NodeType
+from api.services.workflow.dto import NodeType, QANodeData
 from api.services.workflow.qa.llm_config import resolve_llm_config
 from api.services.workflow.qa.tracing import create_node_summary_trace
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -48,7 +48,7 @@ async def ensure_node_summaries(
     workflow_definition: dict,
     definition_id: int | None,
     workflow_run: WorkflowRunModel,
-    qa_node_data: dict,
+    qa_data: QANodeData,
 ) -> dict[str, Any]:
     """Ensure every agentNode/startCall node has a summary in the definition.
 
@@ -69,7 +69,7 @@ async def ensure_node_summaries(
         return existing_summaries
 
     provider, model, api_key, service_kwargs = await resolve_llm_config(
-        qa_node_data, workflow_run
+        qa_data, workflow_run
     )
     if not api_key:
         logger.warning("No API key for node summary generation, skipping")

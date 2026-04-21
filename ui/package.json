@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "fix-lint": "npx eslint --fix . --ignore-pattern '.next/*' --ignore-pattern 'node_modules/*' --ignore-pattern 'next-env.d.ts'",
-    "generate-client": "openapi-ts"
+    "generate-client": "openapi-ts",
+    "test:display-options": "node scripts/test-display-options.mts"
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",

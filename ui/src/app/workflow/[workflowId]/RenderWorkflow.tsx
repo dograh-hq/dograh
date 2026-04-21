@@ -19,7 +19,7 @@ import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
 import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
-import { AgentNode, EndCall, GlobalNode, QANode, StartCall, TriggerNode, WebhookNode } from "../../../components/flow/nodes";
+import { GenericNode } from "../../../components/flow/nodes/GenericNode";
 import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { VersionHistoryPanel, WorkflowVersion } from './components/VersionHistoryPanel';
 import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
@@ -27,16 +27,13 @@ import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
 import { layoutNodes } from './utils/layoutNodes';
 
-// Define the node types dynamically based on the onSave prop
-const nodeTypes = {
-    [NodeType.START_CALL]: StartCall,
-    [NodeType.AGENT_NODE]: AgentNode,
-    [NodeType.END_CALL]: EndCall,
-    [NodeType.GLOBAL_NODE]: GlobalNode,
-    [NodeType.TRIGGER]: TriggerNode,
-    [NodeType.WEBHOOK]: WebhookNode,
-    [NodeType.QA]: QANode,
-};
+// Single generic component for every node type. The spec catalog
+// (`/api/v1/node-types`) drives form rendering, canvas preview, handles,
+// and defaults. Adding a new node type means adding a Python NodeSpec —
+// no React changes required.
+const nodeTypes = Object.fromEntries(
+    Object.values(NodeType).map((t) => [t, GenericNode]),
+);
 
 const edgeTypes = {
     custom: CustomEdge,

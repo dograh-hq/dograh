@@ -1,16 +1,12 @@
-import { ClipboardCheck, ExternalLink, Globe, Headset, Link2, LucideIcon, OctagonX, Play, Webhook, X } from 'lucide-react';
-import { useEffect } from 'react';
+import * as LucideIcons from 'lucide-react';
+import { Circle, ExternalLink, type LucideIcon, X } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
 
+import type { NodeSpec } from '@/client/types.gen';
+import { useNodeSpecs } from '@/components/flow/renderer';
 import { Button } from '@/components/ui/button';
 
 import { NodeType } from './types';
-
-type NodeTypeConfig = {
-    type: NodeType;
-    label: string;
-    description: string;
-    icon: LucideIcon;
-};
 
 type AddNodePanelProps = {
     isOpen: boolean;
@@ -18,101 +14,78 @@ type AddNodePanelProps = {
     onNodeSelect: (nodeType: NodeType) => void;
 };
 
-const NODE_TYPES: NodeTypeConfig[] = [
-    {
-        type: NodeType.START_CALL,
-        label: 'Start Call',
-        description: 'Create a start call node',
-        icon: Play
-    },
-    {
-        type: NodeType.AGENT_NODE,
-        label: 'Agent Node',
-        description: 'Create an agent node',
-        icon: Headset
-    },
-    {
-        type: NodeType.END_CALL,
-        label: 'End Call',
-        description: 'Create an end call node',
-        icon: OctagonX
-    }
+// Section ordering and labels. Drives both the category → section title
+// mapping and the rendering order.
+const SECTION_ORDER: Array<{ category: NodeSpec['category']; title: string }> = [
+    { category: 'trigger', title: 'Triggers' },
+    { category: 'call_node', title: 'Agent Nodes' },
+    { category: 'global_node', title: 'Global Nodes' },
+    { category: 'integration', title: 'Integrations' },
 ];
 
-const GLOBAL_NODE_TYPES: NodeTypeConfig[] = [
-    {
-        type: NodeType.GLOBAL_NODE,
-        label: 'Global Node',
-        description: 'Create a global node',
-        icon: Globe
-    }
-];
-
-const TRIGGER_NODE_TYPES: NodeTypeConfig[] = [
-    {
-        type: NodeType.TRIGGER,
-        label: 'API Trigger',
-        description: 'Enable API-based call triggering',
-        icon: Webhook
-    }
-];
-
-const INTEGRATION_NODE_TYPES: NodeTypeConfig[] = [
-    {
-        type: NodeType.WEBHOOK,
-        label: 'Webhook',
-        description: 'Send HTTP request after workflow completion',
-        icon: Link2
-    },
-    {
-        type: NodeType.QA,
-        label: 'QA Analysis',
-        description: 'Run LLM quality analysis after each call',
-        icon: ClipboardCheck
-    }
-];
+function resolveIcon(name: string): LucideIcon {
+    const icons = LucideIcons as unknown as Record<string, LucideIcon>;
+    return icons[name] ?? Circle;
+}
 
 function NodeSection({
     title,
-    nodes,
-    onNodeSelect
+    specs,
+    onNodeSelect,
 }: {
     title: string;
-    nodes: NodeTypeConfig[];
+    specs: NodeSpec[];
     onNodeSelect: (nodeType: NodeType) => void;
 }) {
+    if (specs.length === 0) return null;
     return (
         <div className="space-y-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 {title}
             </h3>
             <div className="space-y-2">
-                {nodes.map((node) => (
-                    <Button
-                        key={node.type}
-                        variant="outline"
-                        className="w-full justify-start p-4 h-auto hover:bg-accent/50 transition-colors"
-                        onClick={() => onNodeSelect(node.type)}
-                    >
-                        <div className="flex items-center">
-                            <div className="bg-muted p-2 rounded-lg mr-3 border border-border">
-                                <node.icon className="h-5 w-5" />
+                {specs.map((spec) => {
+                    const Icon = resolveIcon(spec.icon);
+                    return (
+                        <Button
+                            key={spec.name}
+                            variant="outline"
+                            className="w-full justify-start p-4 h-auto hover:bg-accent/50 transition-colors"
+                            onClick={() => onNodeSelect(spec.name as NodeType)}
+                        >
+                            <div className="flex items-center">
+                                <div className="bg-muted p-2 rounded-lg mr-3 border border-border">
+                                    <Icon className="h-5 w-5" />
+                                </div>
+                                <div className="flex flex-col items-start text-left min-w-0">
+                                    <span className="font-medium text-sm">
+                                        {spec.display_name}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground whitespace-normal">
+                                        {spec.description}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="flex flex-col items-start text-left min-w-0">
-                                <span className="font-medium text-sm">{node.label}</span>
-                                <span className="text-xs text-muted-foreground whitespace-normal">
-                                    {node.description}
-                                </span>
-                            </div>
-                        </div>
-                    </Button>
-                ))}
+                        </Button>
+                    );
+                })}
             </div>
         </div>
     );
 }
 
 export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodePanelProps) {
+    const { specs } = useNodeSpecs();
+
+    // Group registered specs by category, preserving the SECTION_ORDER.
+    // Adding a new node type with a new spec.category just shows up here.
+    const sections = useMemo(() => {
+        return SECTION_ORDER.map(({ category, title }) => ({
+            title,
+            specs: specs.filter((s) => s.category === category),
+        }));
+    }, [specs]);
+
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
             if (event.key === 'Escape' && isOpen) {
@@ -149,29 +122,14 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
                 </div>
 
                 <div className="space-y-6">
-                    <NodeSection
-                        title="Triggers"
-                        nodes={TRIGGER_NODE_TYPES}
-                        onNodeSelect={onNodeSelect}
-                    />
-
-                    <NodeSection
-                        title="Agent Nodes"
-                        nodes={NODE_TYPES}
-                        onNodeSelect={onNodeSelect}
-                    />
-
-                    <NodeSection
-                        title="Global Nodes"
-                        nodes={GLOBAL_NODE_TYPES}
-                        onNodeSelect={onNodeSelect}
-                    />
-
-                    <NodeSection
-                        title="Integrations"
-                        nodes={INTEGRATION_NODE_TYPES}
-                        onNodeSelect={onNodeSelect}
-                    />
+                    {sections.map(({ title, specs }) => (
+                        <NodeSection
+                            key={title}
+                            title={title}
+                            specs={specs}
+                            onNodeSelect={onNodeSelect}
+                        />
+                    ))}
                 </div>
             </div>
         </div>

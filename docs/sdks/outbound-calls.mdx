@@ -1,0 +1,49 @@
+---
+title: "Place an outbound call"
+description: "Trigger a Dograh voice agent to call a phone number from the SDK"
+---
+
+Use the SDK to place a test outbound call from a specific agent to a phone number. This is the same endpoint used by the **Test Call** button in the Dograh UI.
+
+## Prerequisites
+
+- A Dograh [API key](/configurations/api-keys) exported as `DOGRAH_API_KEY`
+- A published agent (you need the agent ID)
+- A configured telephony provider — see [Telephony](/integrations/telephony/overview) for Twilio, Vonage, and other setups
+
+## Place the call
+
+<CodeGroup>
+```python Python
+from dograh_sdk import DograhClient
+from dograh_sdk._generated_models import InitiateCallRequest
+
+with DograhClient(api_key="YOUR_API_KEY") as client:
+    client.test_phone_call(
+        body=InitiateCallRequest(
+            workflow_id=123,
+            phone_number="+14155551234",
+        )
+    )
+```
+```typescript TypeScript
+import { DograhClient } from "@dograh/sdk";
+
+const client = new DograhClient({ apiKey: "YOUR_API_KEY" });
+
+await client.testPhoneCall({
+    body: {
+        workflow_id: 123,
+        phone_number: "+14155551234",
+    },
+});
+```
+</CodeGroup>
+
+## Inspect the run
+
+Every call creates a **run** you can inspect afterwards. See [Calls & runs](/core-concepts/calls-and-runs) for what's tracked, or use the [Runs API](/api-reference/agents/runs/list) to list and fetch runs programmatically.
+
+## Bulk campaigns
+
+For placing many calls at once (say, from a CSV), use [Campaigns](/core-concepts/campaigns) rather than looping over `test_phone_call` — campaigns handle pacing, retries, and progress tracking.

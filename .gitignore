@@ -17,3 +17,4 @@ venv/
 coturn/
 *.wav
 dograh_pcm_cache/
+node_modules/

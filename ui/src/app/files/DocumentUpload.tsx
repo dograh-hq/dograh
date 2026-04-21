@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, Upload, X } from 'lucide-react';
+import { FileText, Info, Upload, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 
@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { useAppConfig } from '@/context/AppConfigContext';
 import logger from '@/lib/logger';
 
 interface DocumentUploadProps {
@@ -23,12 +24,29 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 const ACCEPTED_FILE_TYPES = ['.pdf', '.docx', '.doc', '.txt', '.json'];
 
 export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps) {
+  const { config } = useAppConfig();
+  const isOSS = config?.deploymentMode === 'oss';
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [retrievalMode, setRetrievalMode] = useState<string>('full_document');
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const ossNotice = isOSS ? (
+    <div className="flex gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+      <Info className="h-4 w-4 flex-shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+      <div className="text-xs text-amber-900 dark:text-amber-200">
+        <p className="font-medium">Processed by an external service</p>
+        <p className="mt-1">
+          Uploaded documents are sent to Dograh&apos;s managed Model Proxy Service for
+          parsing and chunking. Dograh Model Proxy Service does not store or read your documents -
+          the extracted text and embeddings are returned and stored locally in your
+          self-hosted database.
+        </p>
+      </div>
+    </div>
+  ) : null;
 
   const validateFile = (file: File): boolean => {
     const fileExtension = '.' + file.name.split('.').pop()?.toLowerCase();
@@ -164,6 +182,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
   if (selectedFile && !uploading) {
     return (
       <div className="space-y-4">
+        {ossNotice}
         {/* Selected file info */}
         <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/30">
           <FileText className="w-8 h-8 text-primary flex-shrink-0" />
@@ -225,6 +244,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
 
   return (
     <div className="space-y-4">
+      {ossNotice}
       <input
         ref={fileInputRef}
         type="file"

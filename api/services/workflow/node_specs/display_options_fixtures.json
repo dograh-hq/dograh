@@ -1,0 +1,123 @@
+{
+  "_doc": "Golden fixtures for the display_options evaluator. Both the Python evaluator (api/services/workflow/node_specs/_base.py:evaluate_display_options) and the TypeScript evaluator (ui/src/components/flow/renderer/displayOptions.ts:evaluateDisplayOptions) must agree on every case here. Fixtures double as documentation for the show/hide semantics.",
+  "cases": [
+    {
+      "name": "no_rules_visible",
+      "rules": null,
+      "values": {"a": 1},
+      "expected": true
+    },
+    {
+      "name": "empty_rules_visible",
+      "rules": {"show": null, "hide": null},
+      "values": {},
+      "expected": true
+    },
+    {
+      "name": "show_match_visible",
+      "rules": {"show": {"extraction_enabled": [true]}},
+      "values": {"extraction_enabled": true},
+      "expected": true
+    },
+    {
+      "name": "show_mismatch_hidden",
+      "rules": {"show": {"extraction_enabled": [true]}},
+      "values": {"extraction_enabled": false},
+      "expected": false
+    },
+    {
+      "name": "show_missing_field_hidden",
+      "rules": {"show": {"extraction_enabled": [true]}},
+      "values": {},
+      "expected": false
+    },
+    {
+      "name": "show_multiple_allowed_values",
+      "rules": {"show": {"greeting_type": ["text", "audio"]}},
+      "values": {"greeting_type": "audio"},
+      "expected": true
+    },
+    {
+      "name": "show_multiple_keys_all_match",
+      "rules": {
+        "show": {
+          "qa_use_workflow_llm": [false],
+          "qa_provider": ["azure"]
+        }
+      },
+      "values": {"qa_use_workflow_llm": false, "qa_provider": "azure"},
+      "expected": true
+    },
+    {
+      "name": "show_multiple_keys_one_mismatch_hides",
+      "rules": {
+        "show": {
+          "qa_use_workflow_llm": [false],
+          "qa_provider": ["azure"]
+        }
+      },
+      "values": {"qa_use_workflow_llm": false, "qa_provider": "openai"},
+      "expected": false
+    },
+    {
+      "name": "hide_match_hides",
+      "rules": {"hide": {"locked": [true]}},
+      "values": {"locked": true},
+      "expected": false
+    },
+    {
+      "name": "hide_mismatch_visible",
+      "rules": {"hide": {"locked": [true]}},
+      "values": {"locked": false},
+      "expected": true
+    },
+    {
+      "name": "hide_missing_field_visible",
+      "rules": {"hide": {"locked": [true]}},
+      "values": {},
+      "expected": true
+    },
+    {
+      "name": "hide_or_combined_either_hides",
+      "rules": {"hide": {"a": [1], "b": [2]}},
+      "values": {"a": 0, "b": 2},
+      "expected": false
+    },
+    {
+      "name": "show_and_hide_both_required",
+      "rules": {"show": {"enabled": [true]}, "hide": {"locked": [true]}},
+      "values": {"enabled": true, "locked": false},
+      "expected": true
+    },
+    {
+      "name": "show_and_hide_show_passes_hide_blocks",
+      "rules": {"show": {"enabled": [true]}, "hide": {"locked": [true]}},
+      "values": {"enabled": true, "locked": true},
+      "expected": false
+    },
+    {
+      "name": "show_and_hide_show_fails_hide_irrelevant",
+      "rules": {"show": {"enabled": [true]}, "hide": {"locked": [true]}},
+      "values": {"enabled": false, "locked": false},
+      "expected": false
+    },
+    {
+      "name": "scalar_int_strict",
+      "rules": {"show": {"sample_rate": [100]}},
+      "values": {"sample_rate": 100},
+      "expected": true
+    },
+    {
+      "name": "scalar_int_mismatch",
+      "rules": {"show": {"sample_rate": [100]}},
+      "values": {"sample_rate": 99},
+      "expected": false
+    },
+    {
+      "name": "scalar_string_strict",
+      "rules": {"show": {"http_method": ["POST", "PUT"]}},
+      "values": {"http_method": "GET"},
+      "expected": false
+    }
+  ]
+}

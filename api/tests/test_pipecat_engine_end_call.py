@@ -27,12 +27,13 @@ import pytest
 from api.enums import ToolCategory
 from api.services.workflow.dto import (
     EdgeDataDTO,
-    NodeDataDTO,
-    NodeType,
+    EndCallNodeData,
+    EndCallRFNode,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
-    RFNodeDTO,
+    StartCallNodeData,
+    StartCallRFNode,
 )
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
@@ -1013,11 +1014,10 @@ class TestEndCallExtractionBehavior:
         # Create a workflow where start node has NO extraction
         dto = ReactFlowDTO(
             nodes=[
-                RFNodeDTO(
+                StartCallRFNode(
                     id="start",
-                    type=NodeType.startNode,
                     position=Position(x=0, y=0),
-                    data=NodeDataDTO(
+                    data=StartCallNodeData(
                         name="Start Call",
                         prompt=START_CALL_SYSTEM_PROMPT,
                         is_start=True,
@@ -1026,11 +1026,10 @@ class TestEndCallExtractionBehavior:
                         extraction_enabled=False,  # No extraction
                     ),
                 ),
-                RFNodeDTO(
+                EndCallRFNode(
                     id="end",
-                    type=NodeType.endNode,
                     position=Position(x=0, y=200),
-                    data=NodeDataDTO(
+                    data=EndCallNodeData(
                         name="End Call",
                         prompt=END_CALL_SYSTEM_PROMPT,
                         is_end=True,

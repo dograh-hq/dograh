@@ -100,6 +100,7 @@ class CustomToolManager:
                         else 16000,
                         queue_frame=self._engine._transport_output.queue_frame,
                         transcript=result.transcript,
+                        persist_to_logs=True,
                     )
                     return True
                 else:
@@ -110,7 +111,11 @@ class CustomToolManager:
             custom_message = config.get("customMessage", "")
             if custom_message:
                 await self._engine.task.queue_frame(
-                    TTSSpeakFrame(custom_message, append_to_context=append_to_context)
+                    TTSSpeakFrame(
+                        custom_message,
+                        append_to_context=append_to_context,
+                        persist_to_logs=True,
+                    )
                 )
                 return True
 
@@ -311,6 +316,7 @@ class CustomToolManager:
                                 else 16000,
                                 queue_frame=self._engine._transport_output.queue_frame,
                                 transcript=result.transcript,
+                                persist_to_logs=True,
                             )
                 elif custom_message:
                     logger.info(
@@ -318,7 +324,11 @@ class CustomToolManager:
                     )
                     self._engine._queued_speech_mute_state = "waiting"
                     await self._engine.task.queue_frame(
-                        TTSSpeakFrame(custom_message, append_to_context=False)
+                        TTSSpeakFrame(
+                            custom_message,
+                            append_to_context=False,
+                            persist_to_logs=True,
+                        )
                     )
 
                 result = await execute_http_tool(

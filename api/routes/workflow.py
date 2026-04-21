@@ -16,6 +16,7 @@ from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import CallType, PostHogEvent, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.campaign.report import generate_workflow_report_csv
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -27,7 +28,7 @@ from api.services.configuration.resolve import resolve_effective_config
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
 from api.services.storage import storage_fs
-from api.services.workflow.dto import ReactFlowDTO
+from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
 from api.services.workflow.workflow import WorkflowGraph
@@ -453,7 +454,13 @@ async def get_workflow_count(
     )
 
 
-@router.get("/fetch")
+@router.get(
+    "/fetch",
+    **sdk_expose(
+        method="list_workflows",
+        description="List all workflows in the authenticated organization.",
+    ),
+)
 async def get_workflows(
     user: UserModel = Depends(get_user),
     status: Optional[str] = Query(
@@ -499,7 +506,13 @@ async def get_workflows(
     ]
 
 
-@router.get("/fetch/{workflow_id}")
+@router.get(
+    "/fetch/{workflow_id}",
+    **sdk_expose(
+        method="get_workflow",
+        description="Get a single workflow by ID (returns draft if one exists, else published).",
+    ),
+)
 async def get_workflow(
     workflow_id: int,
     user: UserModel = Depends(get_user),
@@ -701,7 +714,13 @@ async def update_workflow_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.put("/{workflow_id}")
+@router.put(
+    "/{workflow_id}",
+    **sdk_expose(
+        method="update_workflow",
+        description="Update a workflow's name and/or definition. Saves as a new draft.",
+    ),
+)
 async def update_workflow(
     workflow_id: int,
     request: UpdateWorkflowRequest,
@@ -721,8 +740,10 @@ async def update_workflow(
         HTTPException: If the workflow is not found or if there's a database error
     """
     try:
-        # Restore real API keys where the incoming definition has masked placeholders
-        workflow_definition = request.workflow_definition
+        # Strip UI runtime-only fields (invalid, validationMessage, etc.) from
+        # node.data / edge.data before anything touches the DB — the UI sends
+        # nodes wholesale from the React Flow store, which carries those.
+        workflow_definition = sanitize_workflow_definition(request.workflow_definition)
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id

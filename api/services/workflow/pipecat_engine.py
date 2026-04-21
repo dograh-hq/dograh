@@ -243,6 +243,7 @@ class PipecatEngine:
                             else 16000,
                             queue_frame=self._transport_output.queue_frame,
                             transcript=result.transcript,
+                            persist_to_logs=True,
                         )
                     else:
                         logger.warning(
@@ -252,7 +253,11 @@ class PipecatEngine:
                     logger.info(f"Playing transition speech: {transition_speech}")
                     self._queued_speech_mute_state = "waiting"
                     await self.task.queue_frame(
-                        TTSSpeakFrame(transition_speech, append_to_context=False)
+                        TTSSpeakFrame(
+                            transition_speech,
+                            append_to_context=False,
+                            persist_to_logs=True,
+                        )
                     )
 
                 # Set context for the new node, so that when the function call result

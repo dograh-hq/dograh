@@ -17,6 +17,7 @@ from api.schemas.knowledge_base import (
     DocumentUploadResponseSchema,
     ProcessDocumentRequestSchema,
 )
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
 from api.services.storage import storage_fs
@@ -135,6 +136,7 @@ async def process_document(
             document.id,
             request.s3_key,
             user.selected_organization_id,
+            str(user.provider_id),
             128,  # max_tokens (default)
             request.retrieval_mode,
         )
@@ -190,6 +192,10 @@ async def process_document(
     "/documents",
     response_model=DocumentListResponseSchema,
     summary="List documents",
+    **sdk_expose(
+        method="list_documents",
+        description="List knowledge base documents available to the authenticated organization.",
+    ),
 )
 async def list_documents(
     status: Annotated[

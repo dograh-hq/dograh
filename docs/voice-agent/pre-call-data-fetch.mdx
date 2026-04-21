@@ -1,7 +1,6 @@
 ---
 title: "Pre-Call Data Fetch"
 description: "Fetch customer data from your CRM or ERP before the call starts, so your voice agent can greet callers by name and reference their account details."
-tag: "NEW"
 ---
 
 Pre-Call Data Fetch allows you to enrich the call context with external data before the voice agent starts speaking. When enabled on the **Start Call** node, Dograh sends an HTTP request to your API as soon as a call is initiated. While the response is loading, the caller hears a ring-back tone. Once the data arrives, it is merged into the call's [initial context](/core-concepts/context-and-variables#initial_context) and becomes available as template variables in your prompts and greetings.

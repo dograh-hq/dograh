@@ -107,6 +107,7 @@
           },
           {
             "group": "Integrations",
+            "tag": "NEW",
             "pages": [
               "integrations/mcp"
             ]
@@ -127,6 +128,7 @@
           },
           {
             "group": "SDKs",
+            "tag": "NEW",
             "pages": [
               "sdks/introduction",
               "sdks/build-an-agent",
@@ -251,7 +253,7 @@
     }
   },
   "banner": {
-    "content": "🎉 **New: Gemini Live 3.1 Support** — Try the latest Google Gemini Live 3.1 on Dograh platform. [Learn more →](/configurations/inference-providers#gemini-3-1-live)",
+    "content": "🎉 **New: MCP Server & SDKs Released** — Drive Dograh from Claude, Cursor, or your own Python/TypeScript code. [MCP →](/integrations/mcp) · [SDKs →](/sdks/introduction)",
     "dismissible": true
   },
   "search": {

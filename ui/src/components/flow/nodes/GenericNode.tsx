@@ -369,9 +369,10 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     );
 
     const isDirty = useMemo(() => {
-        const d = data as unknown as Record<string, unknown>;
-        return propertyNames.some((n) => values[n] !== d[n]);
-    }, [values, data, propertyNames]);
+        if (!spec) return false;
+        const baseline = seedValues(data, spec);
+        return propertyNames.some((n) => values[n] !== baseline[n]);
+    }, [values, data, spec, propertyNames]);
 
     const handleSave = async () => {
         if (!spec) return;

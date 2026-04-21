@@ -201,6 +201,15 @@ if ! alembic -c "$BASE_DIR/api/alembic.ini" upgrade head; then
 fi
 log_info "Migrations complete"
 
+TS_VALIDATOR_DIR="$BASE_DIR/api/mcp_server/ts_validator"
+if [[ -f "$TS_VALIDATOR_DIR/package.json" ]]; then
+  log_info "Installing ts_validator npm dependencies"
+  if ! (cd "$TS_VALIDATOR_DIR" && npm install); then
+    log_error "npm install for ts_validator failed. Aborting — nothing has been touched."
+    exit 1
+  fi
+fi
+
 ###############################################################################
 ### PHASE 2: START NEW WORKERS
 ###############################################################################

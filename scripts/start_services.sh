@@ -108,7 +108,16 @@ NGINX_UPSTREAM_TEMPLATE="$BASE_DIR/nginx/dograh_upstream.conf.template"
 NGINX_UPSTREAM_CONF="/etc/nginx/conf.d/dograh_upstream.conf"
 
 ###############################################################################
-### 4) Run migrations
+### 4) Install ts_validator npm dependencies
+###############################################################################
+
+TS_VALIDATOR_DIR="$BASE_DIR/api/mcp_server/ts_validator"
+if [[ -f "$TS_VALIDATOR_DIR/package.json" ]]; then
+  (cd "$TS_VALIDATOR_DIR" && npm install)
+fi
+
+###############################################################################
+### 5) Run migrations
 ###############################################################################
 
 alembic -c "$BASE_DIR/api/alembic.ini" upgrade head

@@ -1,0 +1,75 @@
+---
+title: "Introduction"
+description: "Build and operate Dograh voice AI agents programmatically from Python or TypeScript"
+---
+
+Dograh ships official SDKs for **Python** and **TypeScript** that wrap the Dograh REST API and the workflow builder. Use them to create or edit agents, place outbound calls, and inspect runs from your own code.
+
+- **Python** — [`dograh-sdk`](https://pypi.org/project/dograh-sdk/) on PyPI
+- **TypeScript** — [`@dograh/sdk`](https://www.npmjs.com/package/@dograh/sdk) on npm
+
+Both packages are generated from the same backend OpenAPI spec, so the method surface is equivalent — only the naming convention differs (`snake_case` in Python, `camelCase` in TypeScript).
+
+## Install
+
+<CodeGroup>
+```bash Python
+pip install dograh-sdk
+```
+```bash TypeScript
+npm install @dograh/sdk
+```
+</CodeGroup>
+
+## Authenticate
+
+Generate an API key at [`/api-keys`](https://app.dograh.com/api-keys) (or `http://localhost:3010/api-keys` for self-hosted). See [API Keys](/configurations/api-keys) for details.
+
+Both SDKs read the API key from the `DOGRAH_API_KEY` environment variable by default, and the base URL from `DOGRAH_API_URL` (defaults to `http://localhost:8000`). You can also pass them explicitly.
+
+<CodeGroup>
+```python Python
+from dograh_sdk import DograhClient
+
+client = DograhClient(
+    base_url="https://app.dograh.com",
+    api_key="YOUR_API_KEY",
+)
+```
+```typescript TypeScript
+import { DograhClient } from "@dograh/sdk";
+
+const client = new DograhClient({
+    baseUrl: "https://app.dograh.com",
+    apiKey: "YOUR_API_KEY",
+});
+```
+</CodeGroup>
+
+<Note>
+For self-hosted deployments, swap `baseUrl` for your backend URL (e.g. `http://localhost:8000`).
+</Note>
+
+## Quick tour
+
+List the agents in your workspace:
+
+<CodeGroup>
+```python Python
+workflows = client.list_workflows()
+for wf in workflows:
+    print(wf.id, wf.name)
+```
+```typescript TypeScript
+const workflows = await client.listWorkflows();
+for (const wf of workflows) {
+    console.log(wf.id, wf.name);
+}
+```
+</CodeGroup>
+
+## Next steps
+
+- [Build an agent](/sdks/build-an-agent) — assemble nodes and edges, save as a draft
+- [Place an outbound call](/sdks/outbound-calls) — trigger a call from an agent to a phone number
+- [MCP Server](/integrations/mcp) — let Claude and other coding agents drive the SDK for you

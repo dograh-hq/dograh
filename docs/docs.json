@@ -126,6 +126,14 @@
             ]
           },
           {
+            "group": "SDKs",
+            "pages": [
+              "sdks/introduction",
+              "sdks/build-an-agent",
+              "sdks/outbound-calls"
+            ]
+          },
+          {
             "group": "Deployment",
             "pages": [
               "deployment/introduction",

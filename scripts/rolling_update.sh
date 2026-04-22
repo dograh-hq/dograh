@@ -182,6 +182,22 @@ if ! pgrep -x nginx >/dev/null 2>&1; then
 fi
 log_info "nginx is running"
 
+# Verify Node >= 22.6 (required by api/mcp_server/ts_validator)
+if ! command -v node >/dev/null 2>&1; then
+  log_error "node is not installed. api/mcp_server/ts_validator requires Node >= 22.6."
+  log_error "Install via: curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs"
+  exit 1
+fi
+NODE_VERSION=$(node -v | sed 's/^v//')
+NODE_MAJOR=${NODE_VERSION%%.*}
+NODE_MINOR=$(echo "$NODE_VERSION" | cut -d. -f2)
+if [[ $NODE_MAJOR -lt 22 ]] || { [[ $NODE_MAJOR -eq 22 ]] && [[ $NODE_MINOR -lt 6 ]]; }; then
+  log_error "Node $NODE_VERSION is too old. api/mcp_server/ts_validator requires Node >= 22.6."
+  log_error "Upgrade via: curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs"
+  exit 1
+fi
+log_info "node $NODE_VERSION is new enough"
+
 ###############################################################################
 ### PHASE 1: RUN MIGRATIONS
 ###############################################################################

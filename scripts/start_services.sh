@@ -62,6 +62,25 @@ if [[ -d "$RUN_DIR" ]]; then
 fi
 
 ###############################################################################
+### 1c) Verify Node >= 22.6 (required by api/mcp_server/ts_validator)
+###############################################################################
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "ERROR: node is not installed. api/mcp_server/ts_validator requires Node >= 22.6."
+  echo "Install via: curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs"
+  exit 1
+fi
+NODE_VERSION=$(node -v | sed 's/^v//')
+NODE_MAJOR=${NODE_VERSION%%.*}
+NODE_MINOR=$(echo "$NODE_VERSION" | cut -d. -f2)
+if [[ $NODE_MAJOR -lt 22 ]] || { [[ $NODE_MAJOR -eq 22 ]] && [[ $NODE_MINOR -lt 6 ]]; }; then
+  echo "ERROR: Node $NODE_VERSION is too old. api/mcp_server/ts_validator requires Node >= 22.6."
+  echo "Upgrade via: curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y nodejs"
+  exit 1
+fi
+echo "Node $NODE_VERSION detected (>= 22.6 required)"
+
+###############################################################################
 ### 2) Define services
 ###############################################################################
 

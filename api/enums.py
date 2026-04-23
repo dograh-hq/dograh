@@ -155,3 +155,5 @@ class PostHogEvent(str, Enum):
     KNOWLEDGE_BASE_CREATED = "knowledge_base_created"
     TOOL_CREATED = "tool_created"
     AGENT_EMBEDDED = "agent_embedded"
+    SIGNED_UP = "signed_up"
+    SIGNED_IN = "signed_in"

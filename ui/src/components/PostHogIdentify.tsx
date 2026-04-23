@@ -3,6 +3,7 @@
 import posthog from 'posthog-js';
 import { useEffect } from 'react';
 
+import { PostHogEvent } from '@/constants/posthog-events';
 import { useAuth } from '@/lib/auth';
 
 /**
@@ -44,6 +45,7 @@ export default function PostHogIdentify() {
                         ...(email && { email }),
                         ...(name && { name }),
                     });
+                    posthog.capture(PostHogEvent.SIGNED_IN);
                 } catch (err) {
                     console.warn('Failed to identify user in PostHog', err);
                 }

@@ -8,9 +8,11 @@ from pydantic import ValidationError
 from api.constants import AUTH_PROVIDER, DOGRAH_MPS_SECRET_KEY, MPS_API_URL
 from api.db import db_client
 from api.db.models import UserModel
+from api.enums import PostHogEvent
 from api.schemas.user_configuration import UserConfiguration
 from api.services.auth.stack_auth import stackauth
 from api.services.configuration.registry import ServiceProviders
+from api.services.posthog_client import capture_event
 from api.utils.auth import decode_jwt_token
 
 
@@ -54,7 +56,7 @@ async def get_user(
     # ------------------------------------------------------------------
 
     try:
-        user_model = await db_client.get_or_create_user_by_provider_id(stack_user["id"])
+        user_model, user_was_created = await db_client.get_or_create_user_by_provider_id(stack_user["id"])
 
         # Sync email from Stack Auth if available and not already set
         stack_email = stack_user.get("primary_email_verified") and stack_user.get(
@@ -63,6 +65,15 @@ async def get_user(
         if stack_email and user_model.email != stack_email:
             await db_client.update_user_email(user_model.id, stack_email)
             user_model.email = stack_email
+
+        if user_was_created:
+            capture_event(
+                distinct_id=str(stack_user["id"]),
+                event=PostHogEvent.SIGNED_UP,
+                properties={
+                    "auth_provider": "stack",
+                },
+            )
     except Exception as e:
         raise HTTPException(
             status_code=500, detail=f"Error while creating user from database {e}"

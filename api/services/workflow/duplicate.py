@@ -130,7 +130,10 @@ async def duplicate_workflow(
                 trigger_paths=trigger_paths,
             )
 
-    return new_workflow
+    # Re-fetch so released_definition is eagerly loaded for the caller
+    return await db_client.get_workflow(
+        new_workflow.id, organization_id=organization_id
+    )
 
 
 async def _copy_storage_object(

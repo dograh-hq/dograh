@@ -25,6 +25,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow/create/definition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Workflow
+         * @description Create a new workflow from the client
+         *
+         *     Args:
+         *         request: The create workflow request
+         *         user: The user to create the workflow for
+         */
+        post: operations["create_workflow_api_v1_workflow_create_definition_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow/fetch": {
         parameters: {
             query?: never;
@@ -245,6 +269,15 @@ export interface components {
              * @default []
              */
             disposition_codes: string[];
+        };
+        /** CreateWorkflowRequest */
+        CreateWorkflowRequest: {
+            /** Name */
+            name: string;
+            /** Workflow Definition */
+            workflow_definition: {
+                [key: string]: unknown;
+            };
         };
         /**
          * CreatedByResponse
@@ -714,6 +747,7 @@ export interface components {
     pathItems: never;
 }
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
+export type CreateWorkflowRequest = components['schemas']['CreateWorkflowRequest'];
 export type CreatedByResponse = components['schemas']['CreatedByResponse'];
 export type CredentialResponse = components['schemas']['CredentialResponse'];
 export type DisplayOptions = components['schemas']['DisplayOptions'];
@@ -761,6 +795,49 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_workflow_api_v1_workflow_create_definition_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowResponse"];
                 };
             };
             /** @description Not found */

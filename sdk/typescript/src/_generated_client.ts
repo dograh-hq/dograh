@@ -7,6 +7,7 @@
 // `_generated_models` (openapi-typescript output, --root-types).
 
 import type {
+    CreateWorkflowRequest,
     CredentialResponse,
     DocumentListResponseSchema,
     InitiateCallRequest,
@@ -25,6 +26,11 @@ export abstract class _GeneratedClient {
         path: string,
         opts?: { json?: unknown; params?: Record<string, unknown> },
     ): Promise<T>;
+
+    /** Create a new workflow from a workflow definition. */
+    async createWorkflow(opts: { body: CreateWorkflowRequest }): Promise<WorkflowResponse> {
+        return this.request<WorkflowResponse>("POST", "/workflow/create/definition", { json: opts.body });
+    }
 
     /** Fetch a single node spec by name. */
     async getNodeType(name: string): Promise<NodeSpec> {

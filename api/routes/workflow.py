@@ -273,7 +273,13 @@ def _transform_schema_errors(
     return out
 
 
-@router.post("/create/definition")
+@router.post(
+    "/create/definition",
+    **sdk_expose(
+        method="create_workflow",
+        description="Create a new workflow from a workflow definition.",
+    ),
+)
 async def create_workflow(
     request: CreateWorkflowRequest, user: UserModel = Depends(get_user)
 ) -> WorkflowResponse:

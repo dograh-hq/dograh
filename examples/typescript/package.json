@@ -1,0 +1,17 @@
+{
+  "name": "dograh-examples-typescript",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "call": "tsx --env-file=.env fetch_workflow_and_call.ts",
+    "create": "tsx --env-file=.env create_workflow.ts"
+  },
+  "dependencies": {
+    "@dograh/sdk": "latest"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  }
+}

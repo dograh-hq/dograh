@@ -37,6 +37,19 @@ confirm() {
     [[ "$reply" =~ ^[Yy]$ ]]
 }
 
+echo "→ Pre-flight checks..."
+if ! command -v npm >/dev/null 2>&1; then
+    echo "error: npm not found in PATH" >&2
+    exit 1
+fi
+if ! NPM_USER="$(npm whoami 2>/dev/null)"; then
+    echo "error: not logged in to npm. Run 'npm login' as a member of the" >&2
+    echo "       dograh org before re-running this script — otherwise PyPI" >&2
+    echo "       will publish and npm will 404, leaving the release split." >&2
+    exit 1
+fi
+echo "  npm: logged in as $NPM_USER"
+
 echo "→ Regenerating typed SDK sources from node_specs..."
 ./scripts/generate_sdk.sh
 
@@ -102,15 +115,15 @@ if confirm "Upload dograh-sdk==$VERSION to TestPyPI first (recommended)?"; then
     echo
 fi
 
-if confirm "Upload dograh-sdk==$VERSION to PyPI?"; then
-    (cd sdk/python && twine upload dist/*)
-    echo "  → https://pypi.org/project/dograh-sdk/$VERSION/"
-    echo
-fi
-
 if confirm "Publish @dograh/sdk@$VERSION to npm? (will prompt for 2FA OTP)"; then
     (cd sdk/typescript && npm publish --access public)
     echo "  → https://www.npmjs.com/package/@dograh/sdk/v/$VERSION"
+    echo
+fi
+
+if confirm "Upload dograh-sdk==$VERSION to PyPI?"; then
+    (cd sdk/python && twine upload dist/*)
+    echo "  → https://pypi.org/project/dograh-sdk/$VERSION/"
     echo
 fi
 

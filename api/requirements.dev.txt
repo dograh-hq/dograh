@@ -7,4 +7,5 @@ watchfiles==1.1.0
 python-dotenv==1.2.1
 datamodel-code-generator==0.56.1
 twine==6.2.0
+build==1.2.2
 -e ./sdk/python

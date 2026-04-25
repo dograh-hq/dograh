@@ -32,7 +32,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from api.db import db_client
 from api.mcp_server.auth import authenticate_mcp_request
-from api.mcp_server.server import mcp
 from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.workflow.dto import ReactFlowDTO
@@ -73,7 +72,6 @@ def _format_errors(errors: list[dict[str, Any]]) -> str:
     return "\n".join(parts)
 
 
-@mcp.tool
 @traced_tool
 async def save_workflow(workflow_id: int, code: str) -> dict[str, Any]:
     """Parse SDK TypeScript and save the resulting workflow as a draft.

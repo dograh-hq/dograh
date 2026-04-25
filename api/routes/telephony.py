@@ -1144,9 +1144,7 @@ async def _handle_plivo_status_callback(
     if signature:
         backend_endpoint, _ = await get_backend_endpoints()
         callback_kind = request.url.path.split("/")[-2]
-        full_url = (
-            f"{backend_endpoint}/api/v1/telephony/plivo/{callback_kind}/{workflow_run_id}"
-        )
+        full_url = f"{backend_endpoint}/api/v1/telephony/plivo/{callback_kind}/{workflow_run_id}"
         is_valid = await provider.verify_inbound_signature(
             full_url,
             callback_data,
@@ -1154,9 +1152,7 @@ async def _handle_plivo_status_callback(
             x_plivo_signature_v3_nonce,
         )
         if not is_valid:
-            logger.warning(
-                f"[run {workflow_run_id}] Invalid Plivo webhook signature"
-            )
+            logger.warning(f"[run {workflow_run_id}] Invalid Plivo webhook signature")
             return {"status": "error", "reason": "invalid_signature"}
 
     parsed_data = provider.parse_status_callback(callback_data)

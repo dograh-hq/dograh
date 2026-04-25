@@ -241,7 +241,7 @@ class TelnyxProvider(TelephonyProvider):
         2. "start" event with stream_id, call_control_id, media_format
         3. "media" events with base64-encoded audio
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_telnyx
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
             # Wait for "connected" event
@@ -290,14 +290,17 @@ class TelnyxProvider(TelephonyProvider):
                 f"call_control_id={call_control_id}"
             )
 
-            # Run the Telnyx pipeline
-            await run_pipeline_telnyx(
+            await run_pipeline_telephony(
                 websocket,
-                stream_id,
-                call_control_id,
-                workflow_id,
-                workflow_run_id,
-                user_id,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_control_id,
+                transport_kwargs={
+                    "stream_id": stream_id,
+                    "call_control_id": call_control_id,
+                },
             )
 
         except Exception as e:

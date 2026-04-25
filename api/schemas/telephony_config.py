@@ -1,174 +1,69 @@
-from typing import List, Optional
+"""Telephony configuration schemas.
+
+Per-provider request/response classes live next to their providers in
+``api/services/telephony/providers/<name>/config.py``. This module re-exports
+them and assembles the discriminated union used by API routes.
+
+Adding a new provider requires adding one import here.
+"""
+
+from typing import Annotated, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from api.services.telephony.providers.ari.config import (
+    ARIConfigurationRequest,
+    ARIConfigurationResponse,
+)
+from api.services.telephony.providers.cloudonix.config import (
+    CloudonixConfigurationRequest,
+    CloudonixConfigurationResponse,
+)
+from api.services.telephony.providers.plivo.config import (
+    PlivoConfigurationRequest,
+    PlivoConfigurationResponse,
+)
+from api.services.telephony.providers.telnyx.config import (
+    TelnyxConfigurationRequest,
+    TelnyxConfigurationResponse,
+)
+from api.services.telephony.providers.twilio.config import (
+    TwilioConfigurationRequest,
+    TwilioConfigurationResponse,
+)
+from api.services.telephony.providers.vobiz.config import (
+    VobizConfigurationRequest,
+    VobizConfigurationResponse,
+)
+from api.services.telephony.providers.vonage.config import (
+    VonageConfigurationRequest,
+    VonageConfigurationResponse,
+)
 
-class TwilioConfigurationRequest(BaseModel):
-    """Request schema for Twilio configuration."""
-
-    provider: str = Field(default="twilio")
-    account_sid: str = Field(..., description="Twilio Account SID")
-    auth_token: str = Field(..., description="Twilio Auth Token")
-    from_numbers: List[str] = Field(
-        ..., min_length=1, description="List of Twilio phone numbers"
-    )
-
-
-class TwilioConfigurationResponse(BaseModel):
-    """Response schema for Twilio configuration with masked sensitive fields."""
-
-    provider: str
-    account_sid: str  # Masked (e.g., "****************def0")
-    auth_token: str  # Masked (e.g., "****************abc1")
-    from_numbers: List[str]
-
-
-class PlivoConfigurationRequest(BaseModel):
-    """Request schema for Plivo configuration."""
-
-    provider: str = Field(default="plivo")
-    auth_id: str = Field(..., description="Plivo Auth ID")
-    auth_token: str = Field(..., description="Plivo Auth Token")
-    from_numbers: List[str] = Field(
-        ..., min_length=1, description="List of Plivo phone numbers"
-    )
-
-
-class PlivoConfigurationResponse(BaseModel):
-    """Response schema for Plivo configuration with masked sensitive fields."""
-
-    provider: str
-    auth_id: str  # Masked
-    auth_token: str  # Masked
-    from_numbers: List[str]
-
-
-class VonageConfigurationRequest(BaseModel):
-    """Request schema for Vonage configuration."""
-
-    provider: str = Field(default="vonage")
-    api_key: Optional[str] = Field(None, description="Vonage API Key")
-    api_secret: Optional[str] = Field(None, description="Vonage API Secret")
-    application_id: str = Field(..., description="Vonage Application ID")
-    private_key: str = Field(..., description="Private key for JWT generation")
-    from_numbers: List[str] = Field(
-        ..., min_length=1, description="List of Vonage phone numbers (without + prefix)"
-    )
-
-
-class VonageConfigurationResponse(BaseModel):
-    """Response schema for Vonage configuration with masked sensitive fields."""
-
-    provider: str
-    application_id: str  # Not sensitive, can show full
-    api_key: Optional[str]  # Masked if present
-    api_secret: Optional[str]  # Masked if present
-    private_key: str  # Masked (shows only if configured)
-    from_numbers: List[str]
-
-
-class VobizConfigurationRequest(BaseModel):
-    """Request schema for Vobiz configuration."""
-
-    provider: str = Field(default="vobiz")
-    auth_id: str = Field(..., description="Vobiz Account ID (e.g., MA_SYQRLN1K)")
-    auth_token: str = Field(..., description="Vobiz Auth Token")
-    from_numbers: List[str] = Field(
-        ...,
-        min_length=1,
-        description="List of Vobiz phone numbers (E.164 without + prefix)",
-    )
-
-
-class VobizConfigurationResponse(BaseModel):
-    """Response schema for Vobiz configuration with masked sensitive fields."""
-
-    provider: str
-    auth_id: str  # Masked (e.g., "****************L1NK")
-    auth_token: str  # Masked (e.g., "****************KEFO")
-    from_numbers: List[str]
-
-
-class CloudonixConfigurationRequest(BaseModel):
-    """Request schema for Cloudonix configuration."""
-
-    provider: str = Field(default="cloudonix")
-    bearer_token: str = Field(..., description="Cloudonix API Bearer Token")
-    domain_id: str = Field(..., description="Cloudonix Domain ID")
-    from_numbers: List[str] = Field(
-        default_factory=list, description="List of Cloudonix phone numbers (optional)"
-    )
-
-
-class CloudonixConfigurationResponse(BaseModel):
-    """Response schema for Cloudonix configuration with masked sensitive fields."""
-
-    provider: str
-    bearer_token: str  # Masked (e.g., "****************abc1")
-    domain_id: str  # Not sensitive, can show full
-    from_numbers: List[str]
-
-
-class ARIConfigurationRequest(BaseModel):
-    """Request schema for Asterisk ARI configuration."""
-
-    provider: str = Field(default="ari")
-    ari_endpoint: str = Field(
-        ..., description="ARI base URL (e.g., http://asterisk.example.com:8088)"
-    )
-    app_name: str = Field(
-        ..., description="Stasis application name registered in Asterisk"
-    )
-    app_password: str = Field(..., description="ARI user password")
-    ws_client_name: str = Field(
-        default="",
-        description="websocket_client.conf connection name for externalMedia (e.g., dograh_staging)",
-    )
-    inbound_workflow_id: Optional[int] = Field(
-        default=None, description="Workflow ID for inbound calls"
-    )
-    from_numbers: List[str] = Field(
-        default_factory=list,
-        description="List of SIP extensions/numbers for outbound calls (optional)",
-    )
-
-
-class ARIConfigurationResponse(BaseModel):
-    """Response schema for ARI configuration with masked sensitive fields."""
-
-    provider: str
-    ari_endpoint: str
-    app_name: str
-    app_password: str  # Masked
-    ws_client_name: str = ""
-    inbound_workflow_id: Optional[int] = None
-    from_numbers: List[str]
-
-
-class TelnyxConfigurationRequest(BaseModel):
-    """Request schema for Telnyx configuration."""
-
-    provider: str = Field(default="telnyx")
-    api_key: str = Field(..., description="Telnyx API Key")
-    connection_id: str = Field(
-        ..., description="Telnyx Call Control Application ID (connection_id)"
-    )
-    from_numbers: List[str] = Field(
-        ..., min_length=1, description="List of Telnyx phone numbers (E.164 format)"
-    )
-
-
-class TelnyxConfigurationResponse(BaseModel):
-    """Response schema for Telnyx configuration with masked sensitive fields."""
-
-    provider: str
-    api_key: str  # Masked
-    connection_id: str
-    from_numbers: List[str]
+# Discriminated union for incoming save requests. Pydantic dispatches on the
+# ``provider`` Literal field of each request class. Replaces the manual
+# if/elif chains that used to live in routes/organization.py.
+TelephonyConfigRequest = Annotated[
+    Union[
+        ARIConfigurationRequest,
+        CloudonixConfigurationRequest,
+        PlivoConfigurationRequest,
+        TelnyxConfigurationRequest,
+        TwilioConfigurationRequest,
+        VobizConfigurationRequest,
+        VonageConfigurationRequest,
+    ],
+    Field(discriminator="provider"),
+]
 
 
 class TelephonyConfigurationResponse(BaseModel):
-    """Top-level telephony configuration response."""
+    """Top-level telephony configuration response.
+
+    Keeps the per-provider field shape that the UI client depends on. When
+    the UI moves to metadata-driven forms, this can be replaced with a
+    flat discriminated union.
+    """
 
     twilio: Optional[TwilioConfigurationResponse] = None
     plivo: Optional[PlivoConfigurationResponse] = None
@@ -177,3 +72,23 @@ class TelephonyConfigurationResponse(BaseModel):
     cloudonix: Optional[CloudonixConfigurationResponse] = None
     ari: Optional[ARIConfigurationResponse] = None
     telnyx: Optional[TelnyxConfigurationResponse] = None
+
+
+__all__ = [
+    "ARIConfigurationRequest",
+    "ARIConfigurationResponse",
+    "CloudonixConfigurationRequest",
+    "CloudonixConfigurationResponse",
+    "PlivoConfigurationRequest",
+    "PlivoConfigurationResponse",
+    "TelephonyConfigRequest",
+    "TelephonyConfigurationResponse",
+    "TelnyxConfigurationRequest",
+    "TelnyxConfigurationResponse",
+    "TwilioConfigurationRequest",
+    "TwilioConfigurationResponse",
+    "VobizConfigurationRequest",
+    "VobizConfigurationResponse",
+    "VonageConfigurationRequest",
+    "VonageConfigurationResponse",
+]

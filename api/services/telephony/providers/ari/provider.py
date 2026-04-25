@@ -251,7 +251,7 @@ class ARIProvider(TelephonyProvider):
         Unlike Twilio (which sends "connected" and "start" JSON messages),
         Asterisk chan_websocket starts streaming audio immediately.
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_ari
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         # Get channel_id from workflow run context
         workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
@@ -263,8 +263,14 @@ class ARIProvider(TelephonyProvider):
             f"[ARI] Starting pipeline for workflow_run {workflow_run_id}, channel={channel_id}"
         )
 
-        await run_pipeline_ari(
-            websocket, channel_id, workflow_id, workflow_run_id, user_id
+        await run_pipeline_telephony(
+            websocket,
+            provider_name=self.PROVIDER_NAME,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+            call_id=channel_id,
+            transport_kwargs={"channel_id": channel_id},
         )
 
     # ======== INBOUND CALL METHODS ========

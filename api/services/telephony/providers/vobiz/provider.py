@@ -356,7 +356,7 @@ class VobizProvider(TelephonyProvider):
         Extracts stream_id and call_id from the start event and delegates
         message handling to VobizFrameSerializer.
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_vobiz
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         first_msg = await websocket.receive_text()
         start_msg = json.loads(first_msg)
@@ -386,8 +386,14 @@ class VobizProvider(TelephonyProvider):
                 f"stream_id: {stream_id}, call_id: {call_id}"
             )
 
-            await run_pipeline_vobiz(
-                websocket, stream_id, call_id, workflow_id, workflow_run_id, user_id
+            await run_pipeline_telephony(
+                websocket,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_id,
+                transport_kwargs={"stream_id": stream_id, "call_id": call_id},
             )
 
             logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed")

@@ -1,11 +1,10 @@
 import asyncio
 from typing import Optional
 
-from fastapi import HTTPException, WebSocket
+from fastapi import HTTPException
 from loguru import logger
 
 from api.db import db_client
-from api.db.models import WorkflowModel
 from api.enums import WorkflowRunMode
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
@@ -44,17 +43,9 @@ from api.services.pipecat.service_factory import (
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
-from api.services.pipecat.transport_setup import (
-    create_ari_transport,
-    create_cloudonix_transport,
-    create_plivo_transport,
-    create_telnyx_transport,
-    create_twilio_transport,
-    create_vobiz_transport,
-    create_vonage_transport,
-    create_webrtc_transport,
-)
+from api.services.pipecat.transport_setup import create_webrtc_transport
 from api.services.pipecat.ws_sender_registry import get_ws_sender
+from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
@@ -95,110 +86,63 @@ from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 ensure_tracing()
 
 
-async def run_pipeline_twilio(
-    websocket_client: WebSocket,
-    stream_sid: str,
-    call_sid: str,
+async def run_pipeline_telephony(
+    websocket,
+    *,
+    provider_name: str,
     workflow_id: int,
     workflow_run_id: int,
     user_id: int,
+    call_id: str,
+    transport_kwargs: dict,
 ) -> None:
-    """Run pipeline for Twilio connections"""
-    logger.debug(
-        f"Running pipeline for Twilio connection with workflow_id: {workflow_id} and workflow_run_id: {workflow_run_id}"
-    )
+    """Run a pipeline for any telephony provider.
+
+    Replaces the previous per-provider run_pipeline_<x> functions. The
+    provider's transport factory and audio config are looked up from the
+    registry, so adding a new provider requires no changes here.
+
+    Args:
+        websocket: The accepted WebSocket from the provider.
+        provider_name: Stable identifier of the provider (registry key).
+        workflow_id: Workflow being executed.
+        workflow_run_id: Workflow run row.
+        user_id: Owner of the workflow.
+        call_id: Provider call identifier (stored in cost_info for billing).
+        transport_kwargs: Provider-specific kwargs forwarded to the transport
+            factory (e.g. stream_sid + call_sid for Twilio).
+    """
+    logger.debug(f"Running {provider_name} pipeline for workflow_run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
 
-    # Store call ID in cost_info for later cost calculation (provider-agnostic)
-    cost_info = {"call_id": call_sid}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+    await db_client.update_workflow_run(workflow_run_id, cost_info={"call_id": call_id})
 
-    # Get workflow to extract all pipeline configurations
     workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
     if workflow:
         set_current_org_id(workflow.organization_id)
 
     vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
+        vad_config = workflow.workflow_configurations.get("vad_configuration")
+        ambient_noise_config = workflow.workflow_configurations.get(
+            "ambient_noise_configuration"
+        )
 
-    # Create audio configuration for Twilio
-    audio_config = create_audio_config(WorkflowRunMode.TWILIO.value)
+    spec = telephony_registry.get(provider_name)
+    audio_config = spec.audio_config
 
-    transport = await create_twilio_transport(
-        websocket_client,
-        stream_sid,
-        call_sid,
+    transport = await spec.transport_factory(
+        websocket,
         workflow_run_id,
         audio_config,
         workflow.organization_id,
-        vad_config,
-        ambient_noise_config,
+        vad_config=vad_config,
+        ambient_noise_config=ambient_noise_config,
+        **transport_kwargs,
     )
-    await _run_pipeline(
-        transport,
-        workflow_id,
-        workflow_run_id,
-        user_id,
-        audio_config=audio_config,
-    )
-
-
-async def run_pipeline_plivo(
-    websocket_client: WebSocket,
-    stream_id: str,
-    call_id: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Plivo WebSocket connections."""
-    logger.info(
-        f"[run {workflow_run_id}] Starting Plivo pipeline - "
-        f"stream_id={stream_id}, call_id={call_id}, workflow_id={workflow_id}"
-    )
-    set_current_run_id(workflow_run_id)
-
-    cost_info = {"call_id": call_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
 
     try:
-        audio_config = create_audio_config(WorkflowRunMode.PLIVO.value)
-
-        transport = await create_plivo_transport(
-            websocket_client,
-            stream_id,
-            call_id,
-            workflow_run_id,
-            audio_config,
-            workflow.organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
         await _run_pipeline(
             transport,
             workflow_id,
@@ -206,339 +150,12 @@ async def run_pipeline_plivo(
             user_id,
             audio_config=audio_config,
         )
-        logger.info(f"[run {workflow_run_id}] Plivo pipeline completed successfully")
-
     except Exception as e:
         logger.error(
-            f"[run {workflow_run_id}] Error in Plivo pipeline: {e}", exc_info=True
+            f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
+            exc_info=True,
         )
         raise
-
-
-async def run_pipeline_vonage(
-    websocket_client,
-    call_uuid: str,
-    workflow: WorkflowModel,
-    organization_id: int,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-):
-    """Run pipeline for Vonage WebSocket connections.
-
-    Vonage uses raw PCM audio over WebSocket instead of base64-encoded μ-law.
-    The audio is transmitted as binary frames at 16kHz by default.
-    """
-    logger.info(f"Starting Vonage pipeline for workflow run {workflow_run_id}")
-    set_current_run_id(workflow_run_id)
-    set_current_org_id(organization_id)
-
-    # Store call ID in cost_info for later cost calculation (provider-agnostic)
-    cost_info = {"call_id": call_uuid}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    # Extract VAD and ambient noise config from workflow
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        # Setup audio config for Vonage using the centralized config
-        audio_config = create_audio_config(WorkflowRunMode.VONAGE.value)
-
-        # Create Vonage transport
-        transport = await create_vonage_transport(
-            websocket_client,
-            call_uuid,
-            workflow_run_id,
-            audio_config,
-            organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
-        # No special handshake needed for Vonage
-        # Audio streaming starts immediately
-
-        # Run the pipeline (same as Twilio/WebRTC)
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            call_context_vars={},
-            audio_config=audio_config,
-        )
-
-    except Exception as e:
-        logger.error(f"Error in Vonage pipeline: {e}")
-        raise
-
-
-async def run_pipeline_ari(
-    websocket_client: WebSocket,
-    channel_id: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Asterisk ARI WebSocket connections.
-
-    ARI uses raw 16-bit signed linear PCM (SLIN16) at 16kHz
-    transmitted as binary WebSocket frames via chan_websocket.
-    """
-    logger.info(f"Starting ARI pipeline for workflow run {workflow_run_id}")
-    set_current_run_id(workflow_run_id)
-
-    # Store call ID (channel_id) in cost_info
-    cost_info = {"call_id": channel_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    # Get workflow to extract configurations
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        audio_config = create_audio_config(WorkflowRunMode.ARI.value)
-
-        transport = await create_ari_transport(
-            websocket_client,
-            channel_id,
-            workflow_run_id,
-            audio_config,
-            workflow.organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            audio_config=audio_config,
-        )
-
-    except Exception as e:
-        logger.error(f"Error in ARI pipeline: {e}")
-        raise
-
-
-async def run_pipeline_vobiz(
-    websocket_client: WebSocket,
-    stream_id: str,
-    call_id: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Vobiz using Plivo-compatible WebSocket protocol."""
-    logger.info(
-        f"[run {workflow_run_id}] Starting Vobiz pipeline - "
-        f"stream_id={stream_id}, call_id={call_id}, workflow_id={workflow_id}"
-    )
-    set_current_run_id(workflow_run_id)
-
-    cost_info = {"call_id": call_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        audio_config = create_audio_config(WorkflowRunMode.VOBIZ.value)
-        logger.info(
-            f"[run {workflow_run_id}] Vobiz audio config: "
-            f"sample_rate={audio_config.transport_in_sample_rate}Hz, format=MULAW"
-        )
-
-        transport = await create_vobiz_transport(
-            websocket_client,
-            stream_id,
-            call_id,
-            workflow_run_id,
-            audio_config,
-            workflow.organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
-        logger.info(f"[run {workflow_run_id}] Starting Vobiz pipeline execution")
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            audio_config=audio_config,
-        )
-        logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed successfully")
-
-    except Exception as e:
-        logger.error(
-            f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True
-        )
-        raise
-
-
-async def run_pipeline_telnyx(
-    websocket_client: WebSocket,
-    stream_id: str,
-    call_control_id: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Telnyx Call Control WebSocket connections.
-
-    Telnyx uses PCMU at 8kHz over WebSocket with base64-encoded media events,
-    similar to Twilio's protocol.
-    """
-    logger.info(
-        f"[run {workflow_run_id}] Starting Telnyx pipeline - "
-        f"stream_id={stream_id}, call_control_id={call_control_id}, "
-        f"workflow_id={workflow_id}"
-    )
-    set_current_run_id(workflow_run_id)
-
-    cost_info = {"call_id": call_control_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        audio_config = create_audio_config(WorkflowRunMode.TELNYX.value)
-
-        transport = await create_telnyx_transport(
-            websocket_client,
-            stream_id,
-            call_control_id,
-            workflow_run_id,
-            audio_config,
-            workflow.organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            audio_config=audio_config,
-        )
-        logger.info(f"[run {workflow_run_id}] Telnyx pipeline completed successfully")
-
-    except Exception as e:
-        logger.error(
-            f"[run {workflow_run_id}] Error in Telnyx pipeline: {e}", exc_info=True
-        )
-        raise
-
-
-async def run_pipeline_cloudonix(
-    websocket_client: WebSocket,
-    stream_sid: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Cloudonix connections"""
-    logger.debug(
-        f"Running pipeline for Cloudonix connection with workflow_id: {workflow_id} and workflow_run_id: {workflow_run_id}"
-    )
-
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    call_id = workflow_run.gathered_context.get("call_id")
-    if not call_id:
-        logger.warning("call_id not found in gathered_context")
-        raise Exception()
-
-    # Store call ID in cost_info for later cost calculation (provider-agnostic)
-    cost_info = {"call_id": call_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    # Get workflow to extract all pipeline configurations
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    # Create audio configuration for Cloudonix
-    audio_config = create_audio_config(WorkflowRunMode.CLOUDONIX.value)
-
-    transport = await create_cloudonix_transport(
-        websocket_client,
-        call_id,
-        stream_sid,
-        workflow_run_id,
-        audio_config,
-        workflow.organization_id,
-        vad_config,
-        ambient_noise_config,
-    )
-    await _run_pipeline(
-        transport,
-        workflow_id,
-        workflow_run_id,
-        user_id,
-        audio_config=audio_config,
-    )
 
 
 async def run_pipeline_smallwebrtc(

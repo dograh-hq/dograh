@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,25 +8,13 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.telephony_config import (
-    ARIConfigurationRequest,
-    ARIConfigurationResponse,
-    CloudonixConfigurationRequest,
-    CloudonixConfigurationResponse,
-    PlivoConfigurationRequest,
-    PlivoConfigurationResponse,
+    TelephonyConfigRequest,
     TelephonyConfigurationResponse,
-    TelnyxConfigurationRequest,
-    TelnyxConfigurationResponse,
-    TwilioConfigurationRequest,
-    TwilioConfigurationResponse,
-    VobizConfigurationRequest,
-    VobizConfigurationResponse,
-    VonageConfigurationRequest,
-    VonageConfigurationResponse,
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
 from api.services.posthog_client import capture_event
+from api.services.telephony import registry as telephony_registry
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
 
@@ -44,10 +32,20 @@ PROVIDER_MASKED_FIELDS = {
 }
 
 
-# TODO: Make endpoints provider-agnostic
+def _mask_sensitive(provider_name: str, value: dict) -> dict:
+    """Return a copy of ``value`` with sensitive fields masked for display."""
+    masked_fields = PROVIDER_MASKED_FIELDS.get(provider_name, [])
+    out = dict(value)
+    for field_name in masked_fields:
+        v = out.get(field_name)
+        if v:
+            out[field_name] = mask_key(v)
+    return out
+
+
 @router.get("/telephony-config", response_model=TelephonyConfigurationResponse)
 async def get_telephony_configuration(user: UserModel = Depends(get_user)):
-    """Get telephony configuration for the user's organization with masked sensitive fields."""
+    """Return telephony configuration for the user's org with sensitive fields masked."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
@@ -60,230 +58,33 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
         return TelephonyConfigurationResponse()
 
     stored_provider = config.value.get("provider", "twilio")
-
-    if stored_provider == "twilio":
-        account_sid = config.value.get("account_sid", "")
-        auth_token = config.value.get("auth_token", "")
-        from_numbers = (
-            config.value.get("from_numbers", []) if account_sid and auth_token else []
-        )
-
-        return TelephonyConfigurationResponse(
-            twilio=TwilioConfigurationResponse(
-                provider="twilio",
-                account_sid=mask_key(account_sid) if account_sid else "",
-                auth_token=mask_key(auth_token) if auth_token else "",
-                from_numbers=from_numbers,
-            ),
-            plivo=None,
-            vonage=None,
-            vobiz=None,
-            cloudonix=None,
-        )
-    elif stored_provider == "plivo":
-        auth_id = config.value.get("auth_id", "")
-        auth_token = config.value.get("auth_token", "")
-        from_numbers = (
-            config.value.get("from_numbers", []) if auth_id and auth_token else []
-        )
-
-        return TelephonyConfigurationResponse(
-            twilio=None,
-            plivo=PlivoConfigurationResponse(
-                provider="plivo",
-                auth_id=mask_key(auth_id) if auth_id else "",
-                auth_token=mask_key(auth_token) if auth_token else "",
-                from_numbers=from_numbers,
-            ),
-            vonage=None,
-            vobiz=None,
-            cloudonix=None,
-        )
-    elif stored_provider == "vonage":
-        application_id = config.value.get("application_id", "")
-        private_key = config.value.get("private_key", "")
-        api_key = config.value.get("api_key", "")
-        api_secret = config.value.get("api_secret", "")
-        from_numbers = (
-            config.value.get("from_numbers", [])
-            if application_id and private_key
-            else []
-        )
-
-        return TelephonyConfigurationResponse(
-            twilio=None,
-            plivo=None,
-            vonage=VonageConfigurationResponse(
-                provider="vonage",
-                application_id=application_id,
-                private_key=mask_key(private_key) if private_key else "",
-                api_key=mask_key(api_key) if api_key else None,
-                api_secret=mask_key(api_secret) if api_secret else None,
-                from_numbers=from_numbers,
-            ),
-            vobiz=None,
-            cloudonix=None,
-        )
-    elif stored_provider == "vobiz":
-        auth_id = config.value.get("auth_id", "")
-        auth_token = config.value.get("auth_token", "")
-        from_numbers = (
-            config.value.get("from_numbers", []) if auth_id and auth_token else []
-        )
-
-        return TelephonyConfigurationResponse(
-            twilio=None,
-            plivo=None,
-            vonage=None,
-            vobiz=VobizConfigurationResponse(
-                provider="vobiz",
-                auth_id=mask_key(auth_id) if auth_id else "",
-                auth_token=mask_key(auth_token) if auth_token else "",
-                from_numbers=from_numbers,
-            ),
-            cloudonix=None,
-        )
-    elif stored_provider == "cloudonix":
-        bearer_token = config.value.get("bearer_token", "")
-        domain_id = config.value.get("domain_id", "")
-        from_numbers = config.value.get("from_numbers", [])
-
-        return TelephonyConfigurationResponse(
-            twilio=None,
-            plivo=None,
-            vonage=None,
-            cloudonix=CloudonixConfigurationResponse(
-                provider="cloudonix",
-                bearer_token=mask_key(bearer_token) if bearer_token else "",
-                domain_id=domain_id,
-                from_numbers=from_numbers,
-            ),
-            vobiz=None,
-        )
-    elif stored_provider == "ari":
-        ari_endpoint = config.value.get("ari_endpoint", "")
-        app_name = config.value.get("app_name", "")
-        app_password = config.value.get("app_password", "")
-        ws_client_name = config.value.get("ws_client_name", "")
-        from_numbers = config.value.get("from_numbers", [])
-
-        inbound_workflow_id = config.value.get("inbound_workflow_id")
-
-        return TelephonyConfigurationResponse(
-            ari=ARIConfigurationResponse(
-                provider="ari",
-                ari_endpoint=ari_endpoint,
-                app_name=app_name,
-                app_password=mask_key(app_password) if app_password else "",
-                ws_client_name=ws_client_name,
-                inbound_workflow_id=inbound_workflow_id,
-                from_numbers=from_numbers,
-            ),
-        )
-    elif stored_provider == "telnyx":
-        api_key = config.value.get("api_key", "")
-        connection_id = config.value.get("connection_id", "")
-        from_numbers = config.value.get("from_numbers", [])
-
-        return TelephonyConfigurationResponse(
-            telnyx=TelnyxConfigurationResponse(
-                provider="telnyx",
-                api_key=mask_key(api_key) if api_key else "",
-                connection_id=connection_id,
-                from_numbers=from_numbers,
-            ),
-        )
-    else:
+    spec = telephony_registry.get_optional(stored_provider)
+    if spec is None:
         return TelephonyConfigurationResponse()
+
+    masked = _mask_sensitive(stored_provider, config.value)
+    response_obj = spec.config_response_cls.model_validate(masked)
+    return TelephonyConfigurationResponse(**{stored_provider: response_obj})
 
 
 @router.post("/telephony-config")
 async def save_telephony_configuration(
-    request: Union[
-        TwilioConfigurationRequest,
-        PlivoConfigurationRequest,
-        VonageConfigurationRequest,
-        VobizConfigurationRequest,
-        CloudonixConfigurationRequest,
-        ARIConfigurationRequest,
-        TelnyxConfigurationRequest,
-    ],
+    request: TelephonyConfigRequest,
     user: UserModel = Depends(get_user),
 ):
     """Save telephony configuration for the user's organization."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
-    # Fetch existing configuration to handle masked values
     existing_config = await db_client.get_configuration(
         user.selected_organization_id,
         OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
     )
 
-    # Build single-provider configuration
-    if request.provider == "twilio":
-        config_value = {
-            "provider": "twilio",
-            "account_sid": request.account_sid,
-            "auth_token": request.auth_token,
-            "from_numbers": request.from_numbers,
-        }
-    elif request.provider == "plivo":
-        config_value = {
-            "provider": "plivo",
-            "auth_id": request.auth_id,
-            "auth_token": request.auth_token,
-            "from_numbers": request.from_numbers,
-        }
-    elif request.provider == "vonage":
-        config_value = {
-            "provider": "vonage",
-            "application_id": request.application_id,
-            "private_key": request.private_key,
-            "api_key": getattr(request, "api_key", None),
-            "api_secret": getattr(request, "api_secret", None),
-            "from_numbers": request.from_numbers,
-        }
-    elif request.provider == "vobiz":
-        config_value = {
-            "provider": "vobiz",
-            "auth_id": request.auth_id,
-            "auth_token": request.auth_token,
-            "from_numbers": request.from_numbers,
-        }
-    elif request.provider == "cloudonix":
-        config_value = {
-            "provider": "cloudonix",
-            "bearer_token": request.bearer_token,
-            "domain_id": request.domain_id,
-            "from_numbers": request.from_numbers,
-        }
-    elif request.provider == "telnyx":
-        config_value = {
-            "provider": "telnyx",
-            "api_key": request.api_key,
-            "connection_id": request.connection_id,
-            "from_numbers": request.from_numbers,
-        }
-    elif request.provider == "ari":
-        config_value = {
-            "provider": "ari",
-            "ari_endpoint": request.ari_endpoint,
-            "app_name": request.app_name,
-            "app_password": request.app_password,
-            "ws_client_name": request.ws_client_name,
-            "inbound_workflow_id": request.inbound_workflow_id,
-            "from_numbers": request.from_numbers,
-        }
-    else:
-        raise HTTPException(
-            status_code=400, detail=f"Unsupported provider: {request.provider}"
-        )
+    config_value = request.model_dump()
 
     if existing_config and existing_config.value:
-        existing_provider = existing_config.value.get("provider")
-
-        if existing_provider == request.provider:
+        if existing_config.value.get("provider") == request.provider:
             preserve_masked_fields(request, existing_config, config_value)
 
     await db_client.upsert_configuration(
@@ -312,7 +113,6 @@ def preserve_masked_fields(request, existing_config, config_value):
     for field_name in masked_fields:
         if hasattr(request, field_name):
             field_value = getattr(request, field_name)
-            # Check if field has a value and is a masked version of the existing value
             if field_value and is_mask_of(
                 field_value, existing_config.value.get(field_name, "")
             ):

@@ -324,7 +324,7 @@ class VonageProvider(TelephonyProvider):
         2. Or directly start with binary audio
         """
         from api.db import db_client
-        from api.services.pipecat.run_pipeline import run_pipeline_vonage
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
             # Get workflow run to extract call UUID
@@ -375,15 +375,14 @@ class VonageProvider(TelephonyProvider):
                 logger.debug(f"Vonage started with binary audio for {workflow_run_id}")
                 # The pipeline will handle this first audio chunk
 
-            # Run the Vonage pipeline
-            await run_pipeline_vonage(
+            await run_pipeline_telephony(
                 websocket,
-                call_uuid,
-                workflow,
-                workflow.organization_id,
-                workflow_id,
-                workflow_run_id,
-                user_id,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_uuid,
+                transport_kwargs={"call_uuid": call_uuid},
             )
 
         except Exception as e:

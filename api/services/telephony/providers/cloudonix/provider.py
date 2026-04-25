@@ -384,7 +384,8 @@ class CloudonixProvider(TelephonyProvider):
         2. "start" event with streamSid and callSid
         3. Then audio messages
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_cloudonix
+        from api.db import db_client
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
             # Wait for "connected" event
@@ -421,9 +422,27 @@ class CloudonixProvider(TelephonyProvider):
                 f"stream_sid: {stream_sid} call_sid: {call_sid}"
             )
 
-            # Run the Cloudonix pipeline
-            await run_pipeline_cloudonix(
-                websocket, stream_sid, workflow_id, workflow_run_id, user_id
+            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+            call_id = (
+                workflow_run.gathered_context.get("call_id")
+                if workflow_run and workflow_run.gathered_context
+                else None
+            )
+            if not call_id:
+                logger.error(
+                    f"call_id not found in gathered_context for workflow run {workflow_run_id}"
+                )
+                await websocket.close(code=4400, reason="Missing call_id")
+                return
+
+            await run_pipeline_telephony(
+                websocket,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_id,
+                transport_kwargs={"call_id": call_id, "stream_sid": stream_sid},
             )
 
         except Exception as e:

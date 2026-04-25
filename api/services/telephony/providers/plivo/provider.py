@@ -147,7 +147,9 @@ class PlivoProvider(TelephonyProvider):
     @staticmethod
     def _query_map(query: str) -> Dict[str, Any]:
         return {
-            PlivoProvider._stringify_signature_value(key): PlivoProvider._stringify_signature_value(value)
+            PlivoProvider._stringify_signature_value(
+                key
+            ): PlivoProvider._stringify_signature_value(value)
             for key, value in parse_qs(query, keep_blank_values=True).items()
         }
 
@@ -157,7 +159,9 @@ class PlivoProvider(TelephonyProvider):
         for key in sorted(params.keys()):
             value = params[key]
             if isinstance(value, list):
-                normalized_values = sorted(PlivoProvider._stringify_signature_value(value))
+                normalized_values = sorted(
+                    PlivoProvider._stringify_signature_value(value)
+                )
                 parts.append("&".join(f"{key}={item}" for item in normalized_values))
             else:
                 parts.append(f"{key}={PlivoProvider._stringify_signature_value(value)}")
@@ -169,7 +173,9 @@ class PlivoProvider(TelephonyProvider):
         for key in sorted(params.keys()):
             value = params[key]
             if isinstance(value, list):
-                normalized_values = sorted(PlivoProvider._stringify_signature_value(value))
+                normalized_values = sorted(
+                    PlivoProvider._stringify_signature_value(value)
+                )
                 parts.append("".join(f"{key}{item}" for item in normalized_values))
             elif isinstance(value, dict):
                 parts.append(f"{key}{PlivoProvider._sorted_params_string(value)}")
@@ -178,9 +184,13 @@ class PlivoProvider(TelephonyProvider):
         return "".join(parts)
 
     @staticmethod
-    def _construct_get_url(uri: str, params: Dict[str, Any], empty_post_params: bool = True) -> str:
+    def _construct_get_url(
+        uri: str, params: Dict[str, Any], empty_post_params: bool = True
+    ) -> str:
         parsed_uri = urlparse(uri)
-        base_url = urlunparse((parsed_uri.scheme, parsed_uri.netloc, parsed_uri.path, "", "", ""))
+        base_url = urlunparse(
+            (parsed_uri.scheme, parsed_uri.netloc, parsed_uri.path, "", "", "")
+        )
 
         combined_params = dict(params)
         combined_params.update(PlivoProvider._query_map(parsed_uri.query))
@@ -220,7 +230,9 @@ class PlivoProvider(TelephonyProvider):
             ).digest()
         ).decode("utf-8")
 
-        candidates = [candidate.strip() for candidate in signature.split(",") if candidate]
+        candidates = [
+            candidate.strip() for candidate in signature.split(",") if candidate
+        ]
         return any(hmac.compare_digest(computed, candidate) for candidate in candidates)
 
     async def get_webhook_response(
@@ -298,7 +310,7 @@ class PlivoProvider(TelephonyProvider):
         user_id: int,
         workflow_run_id: int,
     ) -> None:
-        from api.services.pipecat.run_pipeline import run_pipeline_plivo
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         first_msg = await websocket.receive_text()
         start_msg = json.loads(first_msg)
@@ -329,8 +341,14 @@ class PlivoProvider(TelephonyProvider):
             await websocket.close(code=4400, reason="Missing call ID")
             return
 
-        await run_pipeline_plivo(
-            websocket, stream_id, call_id, workflow_id, workflow_run_id, user_id
+        await run_pipeline_telephony(
+            websocket,
+            provider_name=self.PROVIDER_NAME,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+            call_id=call_id,
+            transport_kwargs={"stream_id": stream_id, "call_id": call_id},
         )
 
     @classmethod
@@ -338,8 +356,7 @@ class PlivoProvider(TelephonyProvider):
         cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
     ) -> bool:
         has_plivo_signature = (
-            "x-plivo-signature-v3" in headers
-            or "x-plivo-signature-ma-v3" in headers
+            "x-plivo-signature-v3" in headers or "x-plivo-signature-ma-v3" in headers
         )
         return has_plivo_signature and "CallUUID" in webhook_data
 
@@ -347,8 +364,11 @@ class PlivoProvider(TelephonyProvider):
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
         return NormalizedInboundData(
             provider=PlivoProvider.PROVIDER_NAME,
-            call_id=webhook_data.get("CallUUID", "") or webhook_data.get("RequestUUID", ""),
-            from_number=PlivoProvider.normalize_phone_number(webhook_data.get("From", "")),
+            call_id=webhook_data.get("CallUUID", "")
+            or webhook_data.get("RequestUUID", ""),
+            from_number=PlivoProvider.normalize_phone_number(
+                webhook_data.get("From", "")
+            ),
             to_number=PlivoProvider.normalize_phone_number(webhook_data.get("To", "")),
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
@@ -407,7 +427,9 @@ class PlivoProvider(TelephonyProvider):
         if workflow_run_id:
             backend_endpoint, _ = await get_backend_endpoints()
             hangup_url = f"{backend_endpoint}/api/v1/telephony/plivo/hangup-callback/{workflow_run_id}"
-            hangup_callback_attr = f' statusCallbackUrl="{hangup_url}" statusCallbackMethod="POST"'
+            hangup_callback_attr = (
+                f' statusCallbackUrl="{hangup_url}" statusCallbackMethod="POST"'
+            )
 
         plivo_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>

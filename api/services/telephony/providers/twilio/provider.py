@@ -253,7 +253,7 @@ class TwilioProvider(TelephonyProvider):
         2. "start" event with streamSid and callSid
         3. Then audio messages
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_twilio
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
             # Wait for "connected" event
@@ -288,9 +288,14 @@ class TwilioProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Missing stream identifiers")
                 return
 
-            # Run the Twilio pipeline
-            await run_pipeline_twilio(
-                websocket, stream_sid, call_sid, workflow_id, workflow_run_id, user_id
+            await run_pipeline_telephony(
+                websocket,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_sid,
+                transport_kwargs={"stream_sid": stream_sid, "call_sid": call_sid},
             )
 
         except Exception as e:

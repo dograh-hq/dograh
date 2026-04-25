@@ -1,0 +1,70 @@
+"""Twilio transport factory."""
+
+from fastapi import WebSocket
+
+from api.db import db_client
+from api.enums import OrganizationConfigurationKey
+from api.services.pipecat.audio_config import AudioConfig
+from api.services.pipecat.audio_mixer import build_audio_out_mixer
+from pipecat.transports.websocket.fastapi import (
+    FastAPIWebsocketParams,
+    FastAPIWebsocketTransport,
+)
+
+from .serializers import TwilioFrameSerializer
+from .strategies import TwilioConferenceStrategy, TwilioHangupStrategy
+
+
+async def create_transport(
+    websocket: WebSocket,
+    workflow_run_id: int,
+    audio_config: AudioConfig,
+    organization_id: int,
+    *,
+    vad_config: dict | None = None,
+    ambient_noise_config: dict | None = None,
+    stream_sid: str,
+    call_sid: str,
+):
+    """Create a transport for Twilio connections."""
+    config = await db_client.get_configuration(
+        organization_id, OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value
+    )
+
+    if not config or not config.value:
+        raise ValueError(
+            f"Twilio credentials not configured for organization {organization_id}"
+        )
+
+    account_sid = config.value.get("account_sid")
+    auth_token = config.value.get("auth_token")
+
+    if not account_sid or not auth_token:
+        raise ValueError(
+            f"Incomplete Twilio configuration for organization {organization_id}"
+        )
+
+    serializer = TwilioFrameSerializer(
+        stream_sid=stream_sid,
+        call_sid=call_sid,
+        account_sid=account_sid,
+        auth_token=auth_token,
+        transfer_strategy=TwilioConferenceStrategy(),
+        hangup_strategy=TwilioHangupStrategy(),
+    )
+
+    mixer = await build_audio_out_mixer(
+        audio_config.transport_out_sample_rate, ambient_noise_config
+    )
+
+    return FastAPIWebsocketTransport(
+        websocket=websocket,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=audio_config.transport_in_sample_rate,
+            audio_out_sample_rate=audio_config.transport_out_sample_rate,
+            audio_out_mixer=mixer,
+            serializer=serializer,
+        ),
+    )

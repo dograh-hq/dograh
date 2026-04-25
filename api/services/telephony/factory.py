@@ -1,7 +1,8 @@
-"""
-Factory for creating telephony providers.
-Handles configuration loading from environment (OSS) or database (SaaS).
-The providers themselves don't know or care where config comes from.
+"""Factory for creating telephony providers.
+
+The factory is now a thin layer over the provider registry. Adding a new
+provider requires no changes here — the new provider self-registers when
+``api.services.telephony.providers`` is imported.
 """
 
 from typing import Any, Dict, List, Type
@@ -10,28 +11,19 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import OrganizationConfigurationKey
+from api.services.telephony import (
+    providers as _providers,  # noqa: F401  -- triggers registration
+)
+from api.services.telephony import registry
 from api.services.telephony.base import TelephonyProvider
-from api.services.telephony.providers.ari_provider import ARIProvider
-from api.services.telephony.providers.cloudonix_provider import CloudonixProvider
-from api.services.telephony.providers.plivo_provider import PlivoProvider
-from api.services.telephony.providers.telnyx_provider import TelnyxProvider
-from api.services.telephony.providers.twilio_provider import TwilioProvider
-from api.services.telephony.providers.vobiz_provider import VobizProvider
-from api.services.telephony.providers.vonage_provider import VonageProvider
 
 
 async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
-    """
-    Load telephony configuration from database.
+    """Load telephony configuration from the database for an organization.
 
-    Args:
-        organization_id: Organization ID for database config
-
-    Returns:
-        Configuration dictionary with provider type and credentials
-
-    Raises:
-        ValueError: If no configuration found for the organization
+    Returns a dict with the provider's normalized config (provider-specific
+    keys plus a ``provider`` discriminator). Raises ValueError if no config
+    is stored or the provider is unknown.
     """
     if not organization_id:
         raise ValueError("Organization ID is required to load telephony configuration")
@@ -43,131 +35,25 @@ async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
         OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
     )
 
-    if config and config.value:
-        # Simple single-provider format
-        provider = config.value.get("provider", "twilio")
+    if not config or not config.value:
+        raise ValueError(
+            f"No telephony configuration found for organization {organization_id}"
+        )
 
-        if provider == "twilio":
-            return {
-                "provider": "twilio",
-                "account_sid": config.value.get("account_sid"),
-                "auth_token": config.value.get("auth_token"),
-                "from_numbers": config.value.get("from_numbers", []),
-            }
-        elif provider == "plivo":
-            return {
-                "provider": "plivo",
-                "auth_id": config.value.get("auth_id"),
-                "auth_token": config.value.get("auth_token"),
-                "from_numbers": config.value.get("from_numbers", []),
-            }
-        elif provider == "vonage":
-            return {
-                "provider": "vonage",
-                "application_id": config.value.get("application_id"),
-                "private_key": config.value.get("private_key"),
-                "api_key": config.value.get("api_key"),
-                "api_secret": config.value.get("api_secret"),
-                "from_numbers": config.value.get("from_numbers", []),
-            }
-        elif provider == "vobiz":
-            return {
-                "provider": "vobiz",
-                "auth_id": config.value.get("auth_id"),
-                "auth_token": config.value.get("auth_token"),
-                "from_numbers": config.value.get("from_numbers", []),
-            }
-        elif provider == "cloudonix":
-            return {
-                "provider": "cloudonix",
-                "bearer_token": config.value.get("bearer_token"),
-                "api_key": config.value.get("api_key"),  # For x-cx-apikey validation
-                "domain_id": config.value.get("domain_id"),
-                "from_numbers": config.value.get("from_numbers", []),
-            }
-        elif provider == "telnyx":
-            return {
-                "provider": "telnyx",
-                "api_key": config.value.get("api_key"),
-                "connection_id": config.value.get("connection_id"),
-                "from_numbers": config.value.get("from_numbers", []),
-            }
-        elif provider == "ari":
-            return {
-                "provider": "ari",
-                "ari_endpoint": config.value.get("ari_endpoint"),
-                "app_name": config.value.get("app_name"),
-                "app_password": config.value.get("app_password"),
-                "inbound_workflow_id": config.value.get("inbound_workflow_id"),
-                "from_numbers": config.value.get("from_numbers", []),
-            }
-        else:
-            raise ValueError(f"Unknown provider in config: {provider}")
-
-    raise ValueError(
-        f"No telephony configuration found for organization {organization_id}"
-    )
+    provider_name = config.value.get("provider", "twilio")
+    spec = registry.get(provider_name)
+    return spec.config_loader(config.value)
 
 
 async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
-    """
-    Factory function to create telephony providers.
-
-    Args:
-        organization_id: Organization ID (required)
-
-    Returns:
-        Configured telephony provider instance
-
-    Raises:
-        ValueError: If provider type is unknown or configuration is invalid
-    """
-    # Load configuration
+    """Construct the configured telephony provider for an organization."""
     config = await load_telephony_config(organization_id)
-
-    provider_type = config.get("provider", "twilio")
-    logger.info(f"Creating {provider_type} telephony provider")
-
-    # Create provider instance with configuration
-    if provider_type == "twilio":
-        return TwilioProvider(config)
-
-    elif provider_type == "plivo":
-        return PlivoProvider(config)
-
-    elif provider_type == "vonage":
-        return VonageProvider(config)
-
-    elif provider_type == "vobiz":
-        return VobizProvider(config)
-
-    elif provider_type == "cloudonix":
-        return CloudonixProvider(config)
-
-    elif provider_type == "telnyx":
-        return TelnyxProvider(config)
-
-    elif provider_type == "ari":
-        return ARIProvider(config)
-
-    else:
-        raise ValueError(f"Unknown telephony provider: {provider_type}")
+    provider_name = config.get("provider", "twilio")
+    logger.info(f"Creating {provider_name} telephony provider")
+    spec = registry.get(provider_name)
+    return spec.provider_cls(config)
 
 
 async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:
-    """
-    Get all available telephony provider classes for webhook detection.
-
-
-    Returns:
-        List of provider classes that can be used for webhook detection
-    """
-    return [
-        ARIProvider,
-        CloudonixProvider,
-        PlivoProvider,
-        TelnyxProvider,
-        TwilioProvider,
-        VobizProvider,
-        VonageProvider,
-    ]
+    """Return all registered telephony provider classes for webhook detection."""
+    return [spec.provider_cls for spec in registry.all_specs()]

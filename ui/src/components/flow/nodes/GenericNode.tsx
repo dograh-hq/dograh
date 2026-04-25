@@ -11,7 +11,9 @@ import { NodeEditForm, useNodeSpecs } from "@/components/flow/renderer";
 import { ToolBadges } from "@/components/flow/ToolBadges";
 import { FlowNodeData } from "@/components/flow/types";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { NODE_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { cn } from "@/lib/utils";
 
 import { NodeContent } from "./common/NodeContent";
 import { NodeEditDialog } from "./common/NodeEditDialog";
@@ -80,12 +82,22 @@ function seedValues(
     return out;
 }
 
-function buildTriggerEndpoint(triggerPath: string | undefined): string {
-    if (!triggerPath) return "";
+interface TriggerEndpoints {
+    production: string;
+    test: string;
+}
+
+function buildTriggerEndpoints(
+    triggerPath: string | undefined,
+): TriggerEndpoints {
+    if (!triggerPath) return { production: "", test: "" };
     const backendUrl =
         process.env.NEXT_PUBLIC_BACKEND_URL ||
         (typeof window !== "undefined" ? window.location.origin : "");
-    return `${backendUrl}/api/v1/public/agent/${triggerPath}`;
+    return {
+        production: `${backendUrl}/api/v1/public/agent/${triggerPath}`,
+        test: `${backendUrl}/api/v1/public/agent/test/${triggerPath}`,
+    };
 }
 
 // ─── Canvas preview dispatch ──────────────────────────────────────────────
@@ -106,7 +118,7 @@ function CanvasPreview({
     onStaleDocuments: (uuids: string[]) => void;
 }) {
     if (spec.name === "trigger") {
-        const endpoint = buildTriggerEndpoint(data.trigger_path);
+        const endpoint = buildTriggerEndpoints(data.trigger_path).production;
         return (
             <div className="space-y-2">
                 <p className="text-xs text-muted-foreground">API Endpoint:</p>
@@ -229,21 +241,105 @@ function StatusDot({ enabled }: { enabled: boolean }) {
     );
 }
 
-// ─── Trigger curl example helper (rendered inside the dialog form) ────────
+// ─── Trigger webhook URLs (test + production) — rendered inside the dialog ─
 
-function TriggerCurlExample({ endpoint }: { endpoint: string }) {
-    const [copied, setCopied] = useState(false);
-    const curl = `curl -X POST "${endpoint}" \\
+function buildCurl(endpoint: string): string {
+    return `curl -X POST "${endpoint}" \\
   -H "X-API-Key: YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"phone_number": "+1234567890", "initial_context": {}}'`;
+}
 
+function ClickToCopy({
+    value,
+    children,
+    className,
+    title,
+}: {
+    value: string;
+    children: React.ReactNode;
+    className?: string;
+    title?: string;
+}) {
+    const [copied, setCopied] = useState(false);
+    const onCopy = async () => {
+        if (!value) return;
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+    return (
+        <button
+            type="button"
+            onClick={onCopy}
+            title={title ?? "Click to copy"}
+            className={cn(
+                "group relative text-left transition-colors hover:bg-accent/60 cursor-pointer disabled:cursor-default",
+                className,
+            )}
+            disabled={!value}
+        >
+            {children}
+            <span
+                aria-hidden={!copied}
+                className={cn(
+                    "pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-foreground/90 px-1.5 py-0.5 text-[10px] font-medium text-background shadow transition-opacity",
+                    copied ? "opacity-100" : "opacity-0",
+                )}
+            >
+                Copied!
+            </span>
+        </button>
+    );
+}
+
+function UrlPanel({
+    endpoint,
+    helperText,
+}: {
+    endpoint: string;
+    helperText: string;
+}) {
+    const curl = endpoint ? buildCurl(endpoint) : "";
+    return (
+        <div className="grid gap-2 pt-2">
+            <div className="flex items-center gap-2">
+                <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded shrink-0">
+                    POST
+                </span>
+                <ClickToCopy
+                    value={endpoint}
+                    title="Click to copy URL"
+                    className="flex-1 bg-muted rounded px-2 py-1"
+                >
+                    <code className="text-xs break-all">
+                        {endpoint || "Generating..."}
+                    </code>
+                </ClickToCopy>
+            </div>
+            <p className="text-xs text-muted-foreground">{helperText}</p>
+            <p className="text-sm font-medium pt-2">Example Request</p>
+            <ClickToCopy
+                value={curl}
+                title="Click to copy curl"
+                className="block w-full bg-muted rounded"
+            >
+                <pre className="text-xs px-3 py-2 overflow-x-auto whitespace-pre-wrap">
+                    {curl || "Generating..."}
+                </pre>
+            </ClickToCopy>
+        </div>
+    );
+}
+
+function TriggerWebhookUrls({ endpoints }: { endpoints: TriggerEndpoints }) {
     return (
         <div className="grid gap-2">
-            <p className="text-sm font-medium">API Endpoint</p>
+            <p className="text-sm font-medium">Webhook URLs</p>
             <p className="text-xs text-muted-foreground">
-                Use this endpoint to trigger calls via API. Requires an API key in
-                the X-API-Key header.{" "}
+                Test mode runs the latest draft so you can verify changes before
+                publishing. Production runs the published agent. Both require an
+                API key in the X-API-Key header.{" "}
                 <Link
                     href="/api-keys"
                     target="_blank"
@@ -252,27 +348,24 @@ function TriggerCurlExample({ endpoint }: { endpoint: string }) {
                     Get your API key
                 </Link>
             </p>
-            <code className="text-xs break-all bg-muted px-2 py-1 rounded">
-                {endpoint || "Generating..."}
-            </code>
-            <p className="text-sm font-medium pt-2">Example Request</p>
-            <div className="relative">
-                <pre className="text-xs bg-muted px-3 py-2 rounded overflow-x-auto whitespace-pre-wrap">
-                    {curl}
-                </pre>
-                <Button
-                    variant="outline"
-                    size="icon"
-                    className="absolute top-2 right-2"
-                    onClick={async () => {
-                        await navigator.clipboard.writeText(curl);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 2000);
-                    }}
-                >
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-            </div>
+            <Tabs defaultValue="test" className="w-full">
+                <TabsList>
+                    <TabsTrigger value="test">Test URL</TabsTrigger>
+                    <TabsTrigger value="production">Production URL</TabsTrigger>
+                </TabsList>
+                <TabsContent value="test">
+                    <UrlPanel
+                        endpoint={endpoints.test}
+                        helperText="Runs the latest draft, falling back to the published agent when no draft exists."
+                    />
+                </TabsContent>
+                <TabsContent value="production">
+                    <UrlPanel
+                        endpoint={endpoints.production}
+                        helperText="Runs the published agent."
+                    />
+                </TabsContent>
+            </Tabs>
         </div>
     );
 }
@@ -318,7 +411,7 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     // ── Trigger auto-UUID + canvas copy state ──────────────────────────
     const [triggerCopied, setTriggerCopied] = useState(false);
     const handleCopyTrigger = useCallback(async () => {
-        const endpoint = buildTriggerEndpoint(data.trigger_path);
+        const endpoint = buildTriggerEndpoints(data.trigger_path).production;
         if (!endpoint) return;
         await navigator.clipboard.writeText(endpoint);
         setTriggerCopied(true);
@@ -472,8 +565,8 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                             }}
                         />
                         {type === "trigger" && (
-                            <TriggerCurlExample
-                                endpoint={buildTriggerEndpoint(data.trigger_path)}
+                            <TriggerWebhookUrls
+                                endpoints={buildTriggerEndpoints(data.trigger_path)}
                             />
                         )}
                     </div>

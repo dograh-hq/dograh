@@ -56,7 +56,10 @@ async def get_user(
     # ------------------------------------------------------------------
 
     try:
-        user_model, user_was_created = await db_client.get_or_create_user_by_provider_id(stack_user["id"])
+        (
+            user_model,
+            user_was_created,
+        ) = await db_client.get_or_create_user_by_provider_id(stack_user["id"])
 
         # Sync email from Stack Auth if available and not already set
         stack_email = stack_user.get("primary_email_verified") and stack_user.get(

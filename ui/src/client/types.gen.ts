@@ -2111,30 +2111,6 @@ export type MpsCreditsResponse = {
 };
 
 /**
- * MigrationSpec
- *
- * Declared migration step (JSON-serializable view).
- *
- * The migrate callable is registered out-of-band via `register_migration()`
- * and never serialized — LLM and frontend consumers only see version
- * metadata and warn on mismatch.
- */
-export type MigrationSpec = {
-    /**
-     * From Version
-     */
-    from_version: string;
-    /**
-     * To Version
-     */
-    to_version: string;
-    /**
-     * Description
-     */
-    description: string;
-};
-
-/**
  * NodeCategory
  *
  * Drives grouping in the AddNodePanel UI.
@@ -2206,10 +2182,6 @@ export type NodeSpec = {
      * Examples
      */
     examples?: Array<NodeExample>;
-    /**
-     * Migrations
-     */
-    migrations?: Array<MigrationSpec>;
     graph_constraints?: GraphConstraints | null;
 };
 
@@ -8874,6 +8846,46 @@ export type InitiateCallApiV1PublicAgentUuidPostResponses = {
 };
 
 export type InitiateCallApiV1PublicAgentUuidPostResponse = InitiateCallApiV1PublicAgentUuidPostResponses[keyof InitiateCallApiV1PublicAgentUuidPostResponses];
+
+export type InitiateCallTestApiV1PublicAgentTestUuidPostData = {
+    body: TriggerCallRequest;
+    headers: {
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key': string;
+    };
+    path: {
+        /**
+         * Uuid
+         */
+        uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/public/agent/test/{uuid}';
+};
+
+export type InitiateCallTestApiV1PublicAgentTestUuidPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallTestApiV1PublicAgentTestUuidPostError = InitiateCallTestApiV1PublicAgentTestUuidPostErrors[keyof InitiateCallTestApiV1PublicAgentTestUuidPostErrors];
+
+export type InitiateCallTestApiV1PublicAgentTestUuidPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TriggerCallResponse;
+};
+
+export type InitiateCallTestApiV1PublicAgentTestUuidPostResponse = InitiateCallTestApiV1PublicAgentTestUuidPostResponses[keyof InitiateCallTestApiV1PublicAgentTestUuidPostResponses];
 
 export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetData = {
     body?: never;

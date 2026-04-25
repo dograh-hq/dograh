@@ -1,0 +1,13 @@
+{
+    "name": "dograh-ts-validator",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "description": "Node helper invoked by the Python MCP server. Converts workflow JSON to SDK TypeScript code (generate) and parses LLM-authored TS back into a validated workflow JSON (parse). Runs as a short-lived subprocess over stdin/stdout.",
+    "dependencies": {
+        "typescript": "^5.6.0"
+    },
+    "engines": {
+        "node": ">=22.6"
+    }
+}

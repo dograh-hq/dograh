@@ -487,6 +487,71 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def process_document(
+        self,
+        file_path: str,
+        filename: str,
+        content_type: str,
+        retrieval_mode: str = "chunked",
+        max_tokens: int = 128,
+        chunk_overlap_tokens: int = 0,
+        merge_peers: bool = True,
+        tokenizer_model: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        organization_id: Optional[int] = None,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """Convert + chunk a document via MPS /document/process.
+
+        Returns a dict matching DocumentProcessResponse in MPS:
+            {
+              "mode": "chunked" | "full_document",
+              "docling_metadata": {...},
+              "full_text": str | None,   # populated only in full_document mode
+              "chunks": [...],           # populated only in chunked mode
+            }
+
+        Timeout is 300s to match the ALB idle_timeout configured in
+        infrastructure/mps/main.tf. Raises on non-2xx responses.
+        """
+        data = {
+            "retrieval_mode": retrieval_mode,
+            "max_tokens": str(max_tokens),
+            "chunk_overlap_tokens": str(chunk_overlap_tokens),
+            "merge_peers": str(merge_peers).lower(),
+        }
+        if tokenizer_model is not None:
+            data["tokenizer_model"] = tokenizer_model
+        if correlation_id:
+            data["correlation_id"] = correlation_id
+
+        headers = self._get_headers(organization_id, created_by)
+        # Remove JSON content-type so httpx sets the correct multipart boundary.
+        headers.pop("Content-Type", None)
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0)) as client:
+            with open(file_path, "rb") as fh:
+                files = {"file": (filename, fh.read(), content_type)}
+
+            response = await client.post(
+                f"{self.base_url}/api/v1/document/process",
+                files=files,
+                data=data,
+                headers=headers,
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                f"Failed to process document: {response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to process document: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
     async def call_workflow_api(
         self,
         call_type: str,

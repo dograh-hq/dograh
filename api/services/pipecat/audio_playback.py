@@ -97,6 +97,7 @@ async def play_audio(
     queue_frame: Callable[[Frame], Awaitable[None]],
     transcript: Optional[str] = None,
     append_to_context: bool = False,
+    persist_to_logs: bool = False,
 ) -> None:
     """Play raw PCM-16 audio once.
 
@@ -115,6 +116,8 @@ async def play_audio(
         transcript: Optional transcript of the recording.
         append_to_context: Whether the transcript should be appended to
             the LLM assistant context.  Defaults to False.
+        persist_to_logs: Whether the transcript should be written to the
+            app-level logs buffer by observers. Defaults to False.
     """
     context_id = str(uuid.uuid4())
     await queue_frame(TTSStartedFrame(context_id=context_id))
@@ -123,6 +126,7 @@ async def play_audio(
             text=transcript, aggregated_by="recording", context_id=context_id
         )
         tts_text.append_to_context = append_to_context
+        tts_text.persist_to_logs = persist_to_logs
         await queue_frame(tts_text)
     await queue_frame(
         TTSAudioRawFrame(

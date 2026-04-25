@@ -2,7 +2,7 @@ import re
 from collections import Counter
 from typing import Dict, List, Set
 
-from api.services.workflow.dto import EdgeDataDTO, NodeDataDTO, NodeType, ReactFlowDTO
+from api.services.workflow.dto import EdgeDataDTO, NodeType, ReactFlowDTO
 from api.services.workflow.errors import ItemKind, WorkflowError
 
 # Regex for matching {{ variable }} template placeholders.
@@ -61,32 +61,38 @@ class Edge:
 
 
 class Node:
-    def __init__(self, id: str, node_type: NodeType, data: NodeDataDTO):
+    def __init__(self, id: str, node_type: NodeType, data):
         self.id, self.node_type, self.data = id, node_type, data
         self.out: Dict[str, "Node"] = {}  # forward nodes
         self.out_edges: List[Edge] = []  # forward edges with properties
 
+        # name/is_start/is_end live on every per-type data class (base).
         self.name = data.name
-        self.prompt = data.prompt
-        self.is_static = data.is_static
         self.is_start = data.is_start
         self.is_end = data.is_end
-        self.allow_interrupt = data.allow_interrupt
-        self.extraction_enabled = data.extraction_enabled
-        self.extraction_prompt = data.extraction_prompt
-        self.extraction_variables = data.extraction_variables
-        self.add_global_prompt = data.add_global_prompt
-        self.greeting = data.greeting
-        self.greeting_type = data.greeting_type
-        self.greeting_recording_id = data.greeting_recording_id
-        self.detect_voicemail = data.detect_voicemail
-        self.delayed_start = data.delayed_start
-        self.delayed_start_duration = data.delayed_start_duration
-        self.tool_uuids = data.tool_uuids
-        self.document_uuids = data.document_uuids
-        self.pre_call_fetch_enabled = data.pre_call_fetch_enabled
-        self.pre_call_fetch_url = data.pre_call_fetch_url
-        self.pre_call_fetch_credential_uuid = data.pre_call_fetch_credential_uuid
+
+        # Type-specific fields — read with getattr so this works for every
+        # node variant in the discriminated union.
+        self.prompt = getattr(data, "prompt", None)
+        self.is_static = getattr(data, "is_static", False)
+        self.allow_interrupt = getattr(data, "allow_interrupt", False)
+        self.extraction_enabled = getattr(data, "extraction_enabled", False)
+        self.extraction_prompt = getattr(data, "extraction_prompt", None)
+        self.extraction_variables = getattr(data, "extraction_variables", None)
+        self.add_global_prompt = getattr(data, "add_global_prompt", True)
+        self.greeting = getattr(data, "greeting", None)
+        self.greeting_type = getattr(data, "greeting_type", None)
+        self.greeting_recording_id = getattr(data, "greeting_recording_id", None)
+        self.detect_voicemail = getattr(data, "detect_voicemail", False)
+        self.delayed_start = getattr(data, "delayed_start", False)
+        self.delayed_start_duration = getattr(data, "delayed_start_duration", None)
+        self.tool_uuids = getattr(data, "tool_uuids", None)
+        self.document_uuids = getattr(data, "document_uuids", None)
+        self.pre_call_fetch_enabled = getattr(data, "pre_call_fetch_enabled", False)
+        self.pre_call_fetch_url = getattr(data, "pre_call_fetch_url", None)
+        self.pre_call_fetch_credential_uuid = getattr(
+            data, "pre_call_fetch_credential_uuid", None
+        )
 
         self.data = data
 
@@ -98,9 +104,11 @@ class WorkflowGraph:
     """
 
     def __init__(self, dto: ReactFlowDTO):
-        # build adjacency list
+        # build adjacency list. n.type comes off the discriminated-union
+        # variant as a literal string; coerce to NodeType for downstream
+        # comparisons.
         self.nodes: Dict[str, Node] = {
-            n.id: Node(n.id, n.type, n.data) for n in dto.nodes
+            n.id: Node(n.id, NodeType(n.type), n.data) for n in dto.nodes
         }
 
         # Store all edges

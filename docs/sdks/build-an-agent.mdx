@@ -1,0 +1,111 @@
+---
+title: "Build an agent"
+description: "Assemble a Dograh voice agent programmatically with the SDK and save it as a draft"
+---
+
+The SDK mirrors the node-and-edge model of the [Voice Agent Builder](/voice-agent/introduction). You create a `Workflow`, add nodes (`startCall`, `agentNode`, `endCall`, …) with `add()`, connect them with `edge()`, and persist the result via `save_workflow`.
+
+## Prerequisites
+
+- A Dograh [API key](/configurations/api-keys) exported as `DOGRAH_API_KEY`
+- An existing agent ID to save drafts against (create one in the Dograh UI or via [`POST /api/v1/workflow/create`](/api-reference/agents/create-from-template))
+
+## Build and save
+
+The example below builds a three-node loan-qualification agent and saves it as a **new draft version** on an existing agent. Your published agent keeps serving calls until you explicitly publish the draft.
+
+<CodeGroup>
+```python Python
+from dograh_sdk import DograhClient, Workflow
+
+with DograhClient(api_key="YOUR_API_KEY") as client:
+    wf = Workflow(client=client, name="loan_qualification")
+
+    greeting = wf.add(
+        type="startCall",
+        name="greeting",
+        prompt="You are Sarah from Acme Loans. Greet the caller warmly.",
+    )
+    qualify = wf.add(
+        type="agentNode",
+        name="qualify",
+        prompt="Ask about loan amount, purpose, and monthly income.",
+    )
+    done = wf.add(
+        type="endCall",
+        name="done",
+        prompt="Thank them and end the call politely.",
+    )
+
+    wf.edge(greeting, qualify, label="interested", condition="Caller wants to continue.")
+    wf.edge(qualify, done, label="done", condition="All qualification questions answered.")
+
+    client.save_workflow(workflow_id=123, workflow=wf)
+```
+```typescript TypeScript
+import { DograhClient, Workflow } from "@dograh/sdk";
+
+const client = new DograhClient({ apiKey: "YOUR_API_KEY" });
+const wf = new Workflow({ client, name: "loan_qualification" });
+
+const greeting = await wf.add({
+    type: "startCall",
+    name: "greeting",
+    prompt: "You are Sarah from Acme Loans. Greet the caller warmly.",
+});
+const qualify = await wf.add({
+    type: "agentNode",
+    name: "qualify",
+    prompt: "Ask about loan amount, purpose, and monthly income.",
+});
+const done = await wf.add({
+    type: "endCall",
+    name: "done",
+    prompt: "Thank them and end the call politely.",
+});
+
+wf.edge(greeting, qualify, { label: "interested", condition: "Caller wants to continue." });
+wf.edge(qualify, done, { label: "done", condition: "All qualification questions answered." });
+
+await client.saveWorkflow(123, wf);
+```
+</CodeGroup>
+
+## Edit an existing agent
+
+Load an agent into an editable `Workflow`, mutate it, then save:
+
+<CodeGroup>
+```python Python
+wf = client.load_workflow(workflow_id=123)
+wf.name = "loan_qualification_v2"
+client.save_workflow(workflow_id=123, workflow=wf)
+```
+```typescript TypeScript
+const wf = await client.loadWorkflow(123);
+wf.name = "loan_qualification_v2";
+await client.saveWorkflow(123, wf);
+```
+</CodeGroup>
+
+## Discover node types
+
+Each node's `type` string and required fields come from the backend's node-spec catalog. Fetch it at runtime to validate what you can build:
+
+<CodeGroup>
+```python Python
+types = client.list_node_types()
+for spec in types.node_types:
+    print(spec.name, [p.name for p in spec.properties])
+```
+```typescript TypeScript
+const types = await client.listNodeTypes();
+for (const spec of types.node_types) {
+    console.log(spec.name, spec.properties.map(p => p.name));
+}
+```
+</CodeGroup>
+
+<Note>
+For a full description of each node type and its fields, see the [Nodes](/voice-agent/start-call) section of the Voice Agent Builder docs.
+</Note>

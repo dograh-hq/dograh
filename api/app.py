@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from api.constants import REDIS_URL
-from api.mcp import mcp
+from api.mcp_server import mcp
 from api.routes.main import router as main_router
 from api.services.pipecat.tracing_config import (
     handle_langfuse_sync,

@@ -1,2 +1,4 @@
 api/.env
 evals/
+api/mcp_server/ts_validator/node_modules/
+sdk/

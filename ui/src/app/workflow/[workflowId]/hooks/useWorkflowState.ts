@@ -17,141 +17,54 @@ import {
     updateWorkflowApiV1WorkflowWorkflowIdPut,
     validateWorkflowApiV1WorkflowWorkflowIdValidatePost
 } from "@/client";
-import { WorkflowError } from "@/client/types.gen";
-import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
+import { NodeSpec, WorkflowError } from "@/client/types.gen";
+import { useNodeSpecs } from "@/components/flow/renderer";
+import { FlowEdge, FlowNode, FlowNodeData, NodeType } from "@/components/flow/types";
 import { PostHogEvent } from "@/constants/posthog-events";
 import logger from '@/lib/logger';
 import { getNextNodeId, getRandomId } from "@/lib/utils";
 import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from "@/types/workflow-configurations";
 
-const DEFAULT_QA_SYSTEM_PROMPT = `You are a QA analyst evaluating a specific segment of a voice AI conversation.
-
-## Node Purpose
-{{node_summary}}
-
-## Previous Conversation Context (For start of conversation, previous conversation summary can be empty.)
-{{previous_conversation_summary}}
-
-## Tags to evaluate
-
-Examine the conversation carefully and identify which of the following tags apply:
-
-- UNCLEAR_CONVERSATION - The conversation is not coherent or clear, messages don't connect logically
-- ASSISTANT_IN_LOOP - The assistant asks the same question multiple times or gets stuck repeating itself
-- ASSISTANT_REPLY_IMPROPER - The assistant did not reply properly to the user's question/query or seems confused by what the user said
-- USER_FRUSTRATED - The user seems angry, frustrated, or is complaining about something in the call
-- USER_NOT_UNDERSTANDING - The user explicitly says they don't understand or repeatedly asks for clarification
-- HEARING_ISSUES - Either party can't hear the other ("hello?", "are you there?", "can you hear me?")
-- DEAD_AIR - Unusually long silences in the conversation (use the timestamps to judge)
-- USER_REQUESTING_FEATURE - The user asks for something the assistant can't fulfill
-- ASSISTANT_LACKS_EMPATHY - The assistant ignores the user's personal situation or emotional state and continues pitching or pushing the agenda.
-- USER_DETECTS_AI - The user suspects or identifies that they are talking to an AI/robot/bot rather than a real human.
-
-## Call metrics (pre-computed)
-
-Use these alongside the transcript for your analysis:
-{{metrics}}
-
-## Output format
-
-Return ONLY a valid JSON object (no markdown):
-{
-    "tags": [
-        {
-            "tag": "TAG_NAME",
-            "reason": "Short reason with evidence from the transcript"
+// Build initial node data from spec defaults. Replaces the per-type
+// hardcoded `getNewNode` switch — adding a new node type is now zero
+// frontend code: declare the spec on the backend and the defaults flow
+// through here.
+function buildDataFromSpec(spec: NodeSpec): Record<string, unknown> {
+    const data: Record<string, unknown> = {};
+    for (const prop of spec.properties) {
+        if (prop.default !== undefined && prop.default !== null) {
+            data[prop.name] = prop.default;
         }
-    ],
-    "overall_sentiment": "positive|neutral|negative",
-    "call_quality_score": <1-10>,
-    "summary": "1-2 sentence summary of this segment"
-}
-
-If no tags apply, return an empty tags list. Always provide sentiment, score, and summary.`;
-
-export function getDefaultAllowInterrupt(type: string = NodeType.START_CALL): boolean {
-    switch (type) {
-        case NodeType.AGENT_NODE:
-            return true; // Agents can be interrupted
-        case NodeType.START_CALL:
-        case NodeType.END_CALL:
-            return false; // Start/End messages should not be interrupted
-        default:
-            return false;
     }
+    return data;
 }
 
-const defaultNodes: FlowNode[] = [
-    {
-        id: "1",
-        type: NodeType.START_CALL,
-        position: { x: 200, y: 200 },
-        data: {
-            prompt: "",
-            name: "",
-            allow_interrupt: getDefaultAllowInterrupt(NodeType.START_CALL),
-        },
-    },
-];
-
-const getNewNode = (type: string, position: { x: number, y: number }, existingNodes: FlowNode[]) => {
-    // Base node configuration
-    const baseNode = {
+function buildNewNode(
+    type: string,
+    position: { x: number; y: number },
+    existingNodes: FlowNode[],
+    spec: NodeSpec,
+): FlowNode {
+    const data = buildDataFromSpec(spec) as Partial<FlowNodeData> & Record<string, unknown>;
+    if (type === NodeType.START_CALL) data.is_start = true;
+    if (type === NodeType.END_CALL) data.is_end = true;
+    return {
         id: getNextNodeId(existingNodes),
         type,
         position,
-        data: {
-            prompt: {
-                [NodeType.GLOBAL_NODE]: "You are a helpful assistant whose mode of interaction with the user is voice. So don't use any special characters which can not be pronounced. Use short sentences and simple language.",
-            }[type] || "",
-            name: {
-                [NodeType.GLOBAL_NODE]: "Global Node",
-                [NodeType.START_CALL]: "Start Call",
-                [NodeType.END_CALL]: "End Call",
-                [NodeType.WEBHOOK]: "Webhook",
-                [NodeType.QA]: "QA Analysis",
-            }[type] || "",
-            allow_interrupt: getDefaultAllowInterrupt(type),
-        },
+        data: data as unknown as FlowNode["data"],
     };
+}
 
-    // Add webhook-specific defaults
-    if (type === NodeType.WEBHOOK) {
-        return {
-            ...baseNode,
-            data: {
-                ...baseNode.data,
-                enabled: true,
-                http_method: "POST" as const,
-                endpoint_url: "",
-                custom_headers: [],
-                payload_template: {
-                    call_id: "{{workflow_run_id}}",
-                    first_name: "{{initial_context.first_name}}",
-                    rsvp: "{{gathered_context.rsvp}}",
-                    duration: "{{cost_info.call_duration_seconds}}",
-                    recording_url: "{{recording_url}}",
-                    transcript_url: "{{transcript_url}}",
-                },
-            },
-        };
-    }
-
-    // Add QA-specific defaults
-    if (type === NodeType.QA) {
-        return {
-            ...baseNode,
-            data: {
-                ...baseNode.data,
-                qa_enabled: true,
-                qa_model: "default",
-                qa_system_prompt: DEFAULT_QA_SYSTEM_PROMPT,
-            },
-        };
-    }
-
-    return baseNode;
-};
+// Look up the spec default for `allow_interrupt`. Used as a load-time
+// fallback for older saved workflows whose nodes lack the field.
+function specAllowInterrupt(
+    type: string,
+    bySpecName: Map<string, NodeSpec>,
+): boolean | undefined {
+    const prop = bySpecName.get(type)?.properties.find((p) => p.name === "allow_interrupt");
+    return prop?.default as boolean | undefined;
+}
 
 interface UseWorkflowStateProps {
     initialWorkflowName: string;
@@ -180,6 +93,10 @@ export const useWorkflowState = ({
 }: UseWorkflowStateProps) => {
     const router = useRouter();
     const rfInstance = useRef<ReactFlowInstance<FlowNode, FlowEdge> | null>(null);
+
+    // Spec catalog. Workflow init waits on this to populate defaults; node
+    // creation looks up per-type schemas through it.
+    const { bySpecName, loading: specsLoading } = useNodeSpecs();
 
     // Get state and actions from the store
     const {
@@ -214,20 +131,32 @@ export const useWorkflowState = ({
     const canUndo = useWorkflowStore((state) => state.canUndo());
     const canRedo = useWorkflowStore((state) => state.canRedo());
 
-    // Initialize workflow on mount
+    // Initialize workflow on mount. Waits for the spec catalog so defaults
+    // (allow_interrupt, prompt placeholders, etc.) come from one source.
     useEffect(() => {
+        if (specsLoading) return;
+
+        const startSpec = bySpecName.get(NodeType.START_CALL);
+        const fallbackStartNodes: FlowNode[] = startSpec
+            ? [buildNewNode(NodeType.START_CALL, { x: 200, y: 200 }, [], startSpec)]
+            : [];
+
         const initialNodes = initialFlow?.nodes?.length
-            ? initialFlow.nodes.map(node => ({
-                ...node,
-                data: {
-                    ...node.data,
-                    invalid: false,
-                    allow_interrupt: node.data.allow_interrupt !== undefined
-                        ? node.data.allow_interrupt
-                        : getDefaultAllowInterrupt(node.type),
-                }
-            }))
-            : defaultNodes;
+            ? initialFlow.nodes.map((node) => {
+                const fallbackAllowInterrupt = specAllowInterrupt(node.type, bySpecName) ?? false;
+                return {
+                    ...node,
+                    data: {
+                        ...node.data,
+                        invalid: false,
+                        allow_interrupt:
+                            node.data.allow_interrupt !== undefined
+                                ? node.data.allow_interrupt
+                                : fallbackAllowInterrupt,
+                    },
+                };
+            })
+            : fallbackStartNodes;
 
         initializeWorkflow(
             workflowId,
@@ -238,7 +167,7 @@ export const useWorkflowState = ({
             initialWorkflowConfigurations,
             initialWorkflowConfigurations?.dictionary ?? ''
         );
-    }, [workflowId, initialWorkflowName, initialFlow?.nodes, initialFlow?.edges, initialTemplateContextVariables, initialWorkflowConfigurations, initializeWorkflow]);
+    }, [workflowId, initialWorkflowName, initialFlow?.nodes, initialFlow?.edges, initialTemplateContextVariables, initialWorkflowConfigurations, initializeWorkflow, specsLoading, bySpecName]);
 
     // Set up keyboard shortcuts for undo/redo
     useEffect(() => {
@@ -280,8 +209,13 @@ export const useWorkflowState = ({
             y: window.innerHeight / 2,
         });
 
+        const spec = bySpecName.get(nodeType);
+        if (!spec) {
+            logger.warn({ nodeType }, "No spec registered for node type — cannot add");
+            return;
+        }
         const newNode = {
-            ...getNewNode(nodeType, position, nodes),
+            ...buildNewNode(nodeType, position, nodes, spec),
             selected: true, // Mark the new node as selected
         };
 
@@ -297,7 +231,7 @@ export const useWorkflowState = ({
             workflow_id: workflowId,
         });
         setIsAddNodePanelOpen(false);
-    }, [nodes, setIsAddNodePanelOpen, workflowId]);
+    }, [nodes, setIsAddNodePanelOpen, workflowId, bySpecName]);
 
     const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setWorkflowName(e.target.value);

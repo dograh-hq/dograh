@@ -13,10 +13,8 @@ python-multipart==0.0.20
 sentry-sdk[fastapi]==2.38.0
 sqlalchemy[asyncio]==2.0.43
 msgpack==1.1.2
-docling[rapidocr]==2.68.0
 pgvector==0.4.2
 bcrypt==5.0.0
 email-validator==2.3.0
 posthog==7.11.1
 fastmcp==3.2.4
-rank-bm25==0.2.2

@@ -14,14 +14,17 @@ from unittest.mock import Mock
 import pytest
 
 from api.services.workflow.dto import (
+    AgentNodeData,
+    AgentRFNode,
     EdgeDataDTO,
+    EndCallNodeData,
+    EndCallRFNode,
     ExtractionVariableDTO,
-    NodeDataDTO,
-    NodeType,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
-    RFNodeDTO,
+    StartCallNodeData,
+    StartCallRFNode,
     VariableType,
 )
 from api.services.workflow.workflow import WorkflowGraph
@@ -252,11 +255,10 @@ def simple_workflow() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            RFNodeDTO(
+            StartCallRFNode(
                 id="start",
-                type=NodeType.startNode,
                 position=Position(x=0, y=0),
-                data=NodeDataDTO(
+                data=StartCallNodeData(
                     name="Start Call",
                     prompt=START_CALL_SYSTEM_PROMPT,
                     is_start=True,
@@ -273,11 +275,10 @@ def simple_workflow() -> WorkflowGraph:
                     ],
                 ),
             ),
-            RFNodeDTO(
+            EndCallRFNode(
                 id="end",
-                type=NodeType.endNode,
                 position=Position(x=0, y=200),
-                data=NodeDataDTO(
+                data=EndCallNodeData(
                     name="End Call",
                     prompt=END_CALL_SYSTEM_PROMPT,
                     is_end=True,
@@ -317,11 +318,10 @@ def three_node_workflow() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            RFNodeDTO(
+            StartCallRFNode(
                 id="start",
-                type=NodeType.startNode,
                 position=Position(x=0, y=0),
-                data=NodeDataDTO(
+                data=StartCallNodeData(
                     name="Start Call",
                     prompt=START_CALL_SYSTEM_PROMPT,
                     is_start=True,
@@ -338,11 +338,10 @@ def three_node_workflow() -> WorkflowGraph:
                     ],
                 ),
             ),
-            RFNodeDTO(
+            AgentRFNode(
                 id="agent",
-                type=NodeType.agentNode,
                 position=Position(x=0, y=200),
-                data=NodeDataDTO(
+                data=AgentNodeData(
                     name="Collect Info",
                     prompt=AGENT_SYSTEM_PROMPT,
                     allow_interrupt=False,
@@ -358,11 +357,10 @@ def three_node_workflow() -> WorkflowGraph:
                     ],
                 ),
             ),
-            RFNodeDTO(
+            EndCallRFNode(
                 id="end",
-                type=NodeType.endNode,
                 position=Position(x=0, y=400),
-                data=NodeDataDTO(
+                data=EndCallNodeData(
                     name="End Call",
                     prompt=END_CALL_SYSTEM_PROMPT,
                     is_end=True,
@@ -411,11 +409,10 @@ def three_node_workflow_extraction_start_only() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            RFNodeDTO(
+            StartCallRFNode(
                 id="start",
-                type=NodeType.startNode,
                 position=Position(x=0, y=0),
-                data=NodeDataDTO(
+                data=StartCallNodeData(
                     name="Start Call",
                     prompt=START_CALL_SYSTEM_PROMPT,
                     is_start=True,
@@ -432,11 +429,10 @@ def three_node_workflow_extraction_start_only() -> WorkflowGraph:
                     ],
                 ),
             ),
-            RFNodeDTO(
+            AgentRFNode(
                 id="agent",
-                type=NodeType.agentNode,
                 position=Position(x=0, y=200),
-                data=NodeDataDTO(
+                data=AgentNodeData(
                     name="Collect Info",
                     prompt=AGENT_SYSTEM_PROMPT,
                     allow_interrupt=False,
@@ -444,11 +440,10 @@ def three_node_workflow_extraction_start_only() -> WorkflowGraph:
                     extraction_enabled=False,  # Explicitly disabled for testing
                 ),
             ),
-            RFNodeDTO(
+            EndCallRFNode(
                 id="end",
-                type=NodeType.endNode,
                 position=Position(x=0, y=400),
-                data=NodeDataDTO(
+                data=EndCallNodeData(
                     name="End Call",
                     prompt=END_CALL_SYSTEM_PROMPT,
                     is_end=True,
@@ -493,11 +488,10 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            RFNodeDTO(
+            StartCallRFNode(
                 id="start",
-                type=NodeType.startNode,
                 position=Position(x=0, y=0),
-                data=NodeDataDTO(
+                data=StartCallNodeData(
                     name="Start Call",
                     prompt=START_CALL_SYSTEM_PROMPT,
                     is_start=True,
@@ -506,11 +500,10 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            RFNodeDTO(
+            AgentRFNode(
                 id="agent",
-                type=NodeType.agentNode,
                 position=Position(x=0, y=200),
-                data=NodeDataDTO(
+                data=AgentNodeData(
                     name="Collect Info",
                     prompt=AGENT_SYSTEM_PROMPT,
                     allow_interrupt=False,
@@ -518,11 +511,10 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
                     extraction_enabled=False,  # Explicitly disabled for testing
                 ),
             ),
-            RFNodeDTO(
+            EndCallRFNode(
                 id="end",
-                type=NodeType.endNode,
                 position=Position(x=0, y=400),
-                data=NodeDataDTO(
+                data=EndCallNodeData(
                     name="End Call",
                     prompt=END_CALL_SYSTEM_PROMPT,
                     is_end=True,

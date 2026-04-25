@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.26.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.25.0...dograh-v1.26.0) (2026-04-21)
+
+
+### Features
+
+* refactor node spec and add mcp tools ([#244](https://github.com/dograh-hq/dograh/issues/244)) ([00a1a22](https://github.com/dograh-hq/dograh/commit/00a1a22b749dab5b828ee529d7272cbdaaeb9aca))
+
+
+### Bug Fixes
+
+* compare dirty against correct baseline ([6606a7f](https://github.com/dograh-hq/dograh/commit/6606a7f901f351d5832ebc27a0900c1195a4090c))
+* fix slack community URL ([86026f5](https://github.com/dograh-hq/dograh/commit/86026f5c6ffdbfbef96cec8aff6c4265f061b77e))
+
 ## [1.25.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.24.0...dograh-v1.25.0) (2026-04-17)
 
 

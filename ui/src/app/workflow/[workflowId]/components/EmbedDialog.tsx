@@ -63,8 +63,9 @@ export function EmbedDialog({
     const [newDomain, setNewDomain] = useState("");
     const [embedMode, setEmbedMode] = useState<"floating" | "inline">("floating");
     const [position, setPosition] = useState("bottom-right");
-    const [buttonText, setButtonText] = useState("Start Voice Call");
-    const [buttonColor, setButtonColor] = useState("#3B82F6");
+    const [buttonText, setButtonText] = useState("Start Call");
+    const [buttonColor, setButtonColor] = useState("#10b981");
+    const [callToActionText, setCallToActionText] = useState("Click to start voice conversation");
 
     const loadEmbedToken = useCallback(async () => {
         setLoading(true);
@@ -82,8 +83,9 @@ export function EmbedDialog({
                     const settings = response.data.settings as Record<string, string>;
                     setEmbedMode((settings.embedMode as "floating" | "inline") || "floating");
                     setPosition(settings.position || "bottom-right");
-                    setButtonText(settings.buttonText || "Start Voice Call");
-                    setButtonColor(settings.buttonColor || "#3B82F6");
+                    setButtonText(settings.buttonText || "Start Call");
+                    setButtonColor(settings.buttonColor || "#10b981");
+                    setCallToActionText(settings.callToActionText || "Click to start voice conversation");
                 }
 
                 // Load domains
@@ -124,6 +126,7 @@ export function EmbedDialog({
                             position,
                             buttonText,
                             buttonColor,
+                            callToActionText,
                             size: "medium",
                             autoStart: false,
                             containerId: embedMode === "inline" ? "dograh-inline-container" : undefined,
@@ -303,73 +306,128 @@ export function EmbedDialog({
                                 <div className="space-y-4">
                                     <Label>Configuration</Label>
 
-                                    {embedMode === "floating" ? (
+                                    {/* Shared: Button Color */}
+                                    <div className="space-y-2">
+                                        <Label htmlFor="button-color" className="text-sm">Button Color</Label>
+                                        <div className="flex gap-2">
+                                            <Input
+                                                id="button-color-picker"
+                                                type="color"
+                                                value={buttonColor}
+                                                onChange={(e) => setButtonColor(e.target.value)}
+                                                className="w-14 h-10 cursor-pointer"
+                                            />
+                                            <Input
+                                                id="button-color"
+                                                value={buttonColor}
+                                                onChange={(e) => setButtonColor(e.target.value)}
+                                                placeholder="#10b981"
+                                                className="flex-1"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Floating mode: Position */}
+                                    {embedMode === "floating" && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="position" className="text-sm">Position</Label>
+                                            <Select value={position} onValueChange={setPosition}>
+                                                <SelectTrigger id="position">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="bottom-right">Bottom Right</SelectItem>
+                                                    <SelectItem value="bottom-left">Bottom Left</SelectItem>
+                                                    <SelectItem value="top-right">Top Right</SelectItem>
+                                                    <SelectItem value="top-left">Top Left</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    )}
+
+                                    {/* Inline mode: Button Text, CTA Text */}
+                                    {embedMode === "inline" && (
                                         <>
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="position" className="text-sm">Position</Label>
-                                                    <Select value={position} onValueChange={setPosition}>
-                                                        <SelectTrigger id="position">
-                                                            <SelectValue />
-                                                        </SelectTrigger>
-                                                        <SelectContent>
-                                                            <SelectItem value="bottom-right">Bottom Right</SelectItem>
-                                                            <SelectItem value="bottom-left">Bottom Left</SelectItem>
-                                                            <SelectItem value="top-right">Top Right</SelectItem>
-                                                            <SelectItem value="top-left">Top Left</SelectItem>
-                                                        </SelectContent>
-                                                    </Select>
+                                                    <Label htmlFor="button-text" className="text-sm">Button Text</Label>
+                                                    <Input
+                                                        id="button-text"
+                                                        value={buttonText}
+                                                        onChange={(e) => setButtonText(e.target.value)}
+                                                        placeholder="Start Call"
+                                                    />
                                                 </div>
-
                                                 <div className="space-y-2">
-                                                    <Label htmlFor="button-color" className="text-sm">Button Color</Label>
-                                                    <div className="flex gap-2">
-                                                        <Input
-                                                            id="button-color-picker"
-                                                            type="color"
-                                                            value={buttonColor}
-                                                            onChange={(e) => setButtonColor(e.target.value)}
-                                                            className="w-14 h-10 cursor-pointer"
-                                                        />
-                                                        <Input
-                                                            id="button-color"
-                                                            value={buttonColor}
-                                                            onChange={(e) => setButtonColor(e.target.value)}
-                                                            placeholder="#3B82F6"
-                                                            className="flex-1"
-                                                        />
-                                                    </div>
+                                                    <Label htmlFor="cta-text" className="text-sm">Call to Action Text</Label>
+                                                    <Input
+                                                        id="cta-text"
+                                                        value={callToActionText}
+                                                        onChange={(e) => setCallToActionText(e.target.value)}
+                                                        placeholder="Click to start voice conversation"
+                                                    />
                                                 </div>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label htmlFor="button-text" className="text-sm">Button Text</Label>
-                                                <Input
-                                                    id="button-text"
-                                                    value={buttonText}
-                                                    onChange={(e) => setButtonText(e.target.value)}
-                                                    placeholder="Start Voice Call"
-                                                />
                                             </div>
                                         </>
-                                    ) : (
-                                        <>
-                                            <div className="space-y-3">
-                                                <div className="rounded-lg bg-muted/50 p-4">
-                                                    <h4 className="font-medium mb-2">Integration Instructions</h4>
-                                                    <ul className="text-sm space-y-2 text-muted-foreground">
-                                                        <li>• Add a div with id=&quot;dograh-inline-container&quot; where you want the widget</li>
-                                                        <li>• The widget will render inside this container</li>
-                                                        <li>• You have full control over the container&apos;s styling</li>
-                                                        <li>• Call window.DograhWidget.start() to begin the call</li>
-                                                        <li>• Call window.DograhWidget.end() to end the call</li>
-                                                    </ul>
-                                                </div>
+                                    )}
 
-                                                <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
-                                                    <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example React Component</h4>
-                                                    <pre className="text-xs overflow-x-auto">
-                                                        <code className="text-blue-800 dark:text-blue-200">{`export function DograhAgent() {
+                                    {/* Preview */}
+                                    {embedMode === "floating" ? (
+                                        <div className="rounded-lg border bg-background p-4 flex items-center justify-center">
+                                            <div
+                                                className="w-[60px] h-[60px] rounded-full flex items-center justify-center shadow-lg"
+                                                style={{
+                                                    backgroundColor: buttonColor,
+                                                }}
+                                            >
+                                                <svg
+                                                    width="24"
+                                                    height="24"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="white"
+                                                    strokeWidth="2"
+                                                >
+                                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                                                </svg>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="rounded-lg border bg-background p-6 flex items-center justify-center">
+                                            <div className="text-center">
+                                                <svg className="w-16 h-16 mx-auto mb-4 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
+                                                </svg>
+                                                <p className="text-lg font-medium text-foreground mb-1">Ready to Connect</p>
+                                                <p className="text-sm text-muted-foreground mb-5">{callToActionText}</p>
+                                                <button
+                                                    className="px-8 py-3 rounded-lg font-semibold text-white shadow-md"
+                                                    style={{ backgroundColor: buttonColor }}
+                                                >
+                                                    {buttonText}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Inline mode: Integration Instructions */}
+                                    {embedMode === "inline" && (
+                                        <div className="space-y-3">
+                                            <div className="rounded-lg bg-muted/50 p-4">
+                                                <h4 className="font-medium mb-2">Integration Instructions</h4>
+                                                <ul className="text-sm space-y-2 text-muted-foreground">
+                                                    <li>• Add a div with id=&quot;dograh-inline-container&quot; where you want the widget</li>
+                                                    <li>• The widget will render inside this container</li>
+                                                    <li>• You have full control over the container&apos;s styling</li>
+                                                    <li>• Call window.DograhWidget.start() to begin the call</li>
+                                                    <li>• Call window.DograhWidget.end() to end the call</li>
+                                                </ul>
+                                            </div>
+
+                                            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
+                                                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example React Component</h4>
+                                                <pre className="text-xs overflow-x-auto">
+                                                    <code className="text-blue-800 dark:text-blue-200">{`export function DograhAgent() {
   const [isCallActive, setIsCallActive] = useState(false);
 
   useEffect(() => {
@@ -397,34 +455,8 @@ export function EmbedDialog({
     </div>
   );
 }`}</code>
-                                                    </pre>
-                                                </div>
+                                                </pre>
                                             </div>
-                                        </>
-                                    )}
-
-                                    {/* Preview for floating mode only */}
-                                    {embedMode === "floating" && (
-                                        <div className="rounded-lg border bg-background p-4 flex items-center justify-center">
-                                            <button
-                                                className="px-5 py-2.5 rounded-full font-medium shadow-lg hover:shadow-xl transition-all flex items-center gap-2"
-                                                style={{
-                                                    backgroundColor: buttonColor,
-                                                    color: "white",
-                                                }}
-                                            >
-                                                <svg
-                                                    width="18"
-                                                    height="18"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth="2"
-                                                >
-                                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                                                </svg>
-                                                {buttonText}
-                                            </button>
                                         </div>
                                     )}
                                 </div>

@@ -15,12 +15,13 @@ import pytest
 from api.services.pipecat.recording_audio_cache import RecordingAudio
 from api.services.workflow.dto import (
     EdgeDataDTO,
-    NodeDataDTO,
-    NodeType,
+    EndCallNodeData,
+    EndCallRFNode,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
-    RFNodeDTO,
+    StartCallNodeData,
+    StartCallRFNode,
 )
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
@@ -64,11 +65,10 @@ def text_workflow() -> WorkflowGraph:
     """Start->End workflow with text greeting and text transition speech."""
     dto = ReactFlowDTO(
         nodes=[
-            RFNodeDTO(
+            StartCallRFNode(
                 id="start",
-                type=NodeType.startNode,
                 position=Position(x=0, y=0),
-                data=NodeDataDTO(
+                data=StartCallNodeData(
                     name="Start Call",
                     prompt=START_PROMPT,
                     is_start=True,
@@ -79,11 +79,10 @@ def text_workflow() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            RFNodeDTO(
+            EndCallRFNode(
                 id="end",
-                type=NodeType.endNode,
                 position=Position(x=0, y=200),
-                data=NodeDataDTO(
+                data=EndCallNodeData(
                     name="End Call",
                     prompt=END_PROMPT,
                     is_end=True,
@@ -115,11 +114,10 @@ def audio_workflow() -> WorkflowGraph:
     """Start->End workflow with audio greeting and audio transition speech."""
     dto = ReactFlowDTO(
         nodes=[
-            RFNodeDTO(
+            StartCallRFNode(
                 id="start",
-                type=NodeType.startNode,
                 position=Position(x=0, y=0),
-                data=NodeDataDTO(
+                data=StartCallNodeData(
                     name="Start Call",
                     prompt=START_PROMPT,
                     is_start=True,
@@ -130,11 +128,10 @@ def audio_workflow() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            RFNodeDTO(
+            EndCallRFNode(
                 id="end",
-                type=NodeType.endNode,
                 position=Position(x=0, y=200),
-                data=NodeDataDTO(
+                data=EndCallNodeData(
                     name="End Call",
                     prompt=END_PROMPT,
                     is_end=True,
@@ -293,11 +290,10 @@ class TestStartGreeting:
         """No greeting configured should return None."""
         dto = ReactFlowDTO(
             nodes=[
-                RFNodeDTO(
+                StartCallRFNode(
                     id="start",
-                    type=NodeType.startNode,
                     position=Position(x=0, y=0),
-                    data=NodeDataDTO(
+                    data=StartCallNodeData(
                         name="Start",
                         prompt="Prompt",
                         is_start=True,
@@ -305,11 +301,10 @@ class TestStartGreeting:
                         extraction_enabled=False,
                     ),
                 ),
-                RFNodeDTO(
+                EndCallRFNode(
                     id="end",
-                    type=NodeType.endNode,
                     position=Position(x=0, y=200),
-                    data=NodeDataDTO(
+                    data=EndCallNodeData(
                         name="End",
                         prompt="End",
                         is_end=True,
@@ -338,11 +333,10 @@ class TestStartGreeting:
         """Text greeting with {{variable}} placeholders should be rendered."""
         dto = ReactFlowDTO(
             nodes=[
-                RFNodeDTO(
+                StartCallRFNode(
                     id="start",
-                    type=NodeType.startNode,
                     position=Position(x=0, y=0),
-                    data=NodeDataDTO(
+                    data=StartCallNodeData(
                         name="Start",
                         prompt="Prompt",
                         is_start=True,
@@ -352,11 +346,10 @@ class TestStartGreeting:
                         extraction_enabled=False,
                     ),
                 ),
-                RFNodeDTO(
+                EndCallRFNode(
                     id="end",
-                    type=NodeType.endNode,
                     position=Position(x=0, y=200),
-                    data=NodeDataDTO(
+                    data=EndCallNodeData(
                         name="End",
                         prompt="End",
                         is_end=True,

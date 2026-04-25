@@ -359,7 +359,7 @@ async def test_client_factory(db_session):
     Usage:
         async def test_something(test_client_factory, db_session):
             # Create a custom user
-            user = await db_session.get_or_create_user_by_provider_id("custom_user_123")
+            user, _ = await db_session.get_or_create_user_by_provider_id("custom_user_123")
 
             # Create a test client for this user
             async with test_client_factory(user) as client:

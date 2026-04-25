@@ -1,0 +1,113 @@
+---
+title: "Update"
+description: "Update your self-hosted Dograh stack to a newer image version"
+---
+
+This guide covers updating a Dograh stack you've already deployed with [Docker](/deployment/docker) or a [custom domain](/deployment/custom-domain). You run commands from the same directory that contains your `docker-compose.yaml` (this is the `dograh/` directory if you used `setup_remote.sh`).
+
+## Find an image version
+
+Dograh publishes two images — `dograh-api` and `dograh-ui` — to both container registries:
+
+- **GitHub Container Registry** — [github.com/orgs/dograh-hq/packages](https://github.com/orgs/dograh-hq/packages)
+- **Docker Hub** — [hub.docker.com/u/dograhai](https://hub.docker.com/u/dograhai)
+
+Each release is published under two kinds of tags:
+
+| Tag style | Example | When to use |
+|-----------|---------|-------------|
+| **Release tag** | `v0.8.2` | Stable, recommended for production |
+| **Git commit SHA** | `a1b2c3d` | Bleeding edge — any commit merged to `main` |
+| `latest` | `latest` | Tracks the most recent release tag |
+
+<Warning>
+Always update **`dograh-api`** and **`dograh-ui`** to the **same tag**. The two images are built from the same commit and the UI expects API responses in a matching shape — mixing versions will break the app.
+</Warning>
+
+## Option A: Update to the latest release
+
+If your `docker-compose.yaml` uses `:latest` (the default), just pull and restart:
+
+<CodeGroup>
+```bash Local deployment
+docker compose down
+docker compose up --pull always
+```
+```bash Remote deployment
+cd dograh
+sudo docker compose --profile remote down
+sudo docker compose --profile remote up --pull always
+```
+</CodeGroup>
+
+`--pull always` forces Docker to fetch the latest `:latest` from the registry instead of reusing your cached image.
+
+## Option B: Pin a specific tag
+
+To update (or roll back) to a specific release or commit, edit `docker-compose.yaml` and change the `image:` lines for both `api` and `ui` services to the same tag.
+
+Open the file:
+
+```bash
+nano docker-compose.yaml
+```
+
+Find these two lines:
+
+```yaml
+  api:
+    image: ${REGISTRY:-dograhai}/dograh-api:latest
+  ui:
+    image: ${REGISTRY:-dograhai}/dograh-ui:latest
+```
+
+Replace `:latest` with your chosen tag on **both** services — for example:
+
+```yaml
+  api:
+    image: ${REGISTRY:-dograhai}/dograh-api:v0.8.2
+  ui:
+    image: ${REGISTRY:-dograhai}/dograh-ui:v0.8.2
+```
+
+<Note>
+You can use either registry. Leave `REGISTRY` unset for Docker Hub (`dograhai`), or export `REGISTRY=ghcr.io/dograh-hq` to pull from GitHub Container Registry.
+</Note>
+
+Then bring the stack down and back up:
+
+<CodeGroup>
+```bash Local deployment
+docker compose down
+docker compose up --pull always
+```
+```bash Remote deployment
+cd dograh
+sudo docker compose --profile remote down
+sudo docker compose --profile remote up --pull always
+```
+</CodeGroup>
+
+## Verify the update
+
+Check the running image tags:
+
+```bash
+docker compose ps --format "table {{.Service}}\t{{.Image}}"
+```
+
+You should see the API and UI both running the tag you pinned.
+
+Hit the health endpoint to confirm the API is responding:
+
+```bash
+curl http://localhost:8000/api/v1/health
+```
+
+## Roll back
+
+If something breaks, roll back by pinning the previous tag using the same process in **Option B** and restarting. Your Postgres data volume persists across `down`/`up` cycles, so agents and call history are preserved.
+
+<Warning>
+Rolling back across a database migration is not always safe — if the newer release ran a schema migration, downgrading may leave the DB in a state the older API doesn't understand. If in doubt, [open an issue](https://github.com/dograh-hq/dograh/issues) before rolling back.
+</Warning>

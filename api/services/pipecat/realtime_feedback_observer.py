@@ -42,6 +42,7 @@ from pipecat.frames.frames import (
     MetricsFrame,
     StopFrame,
     TranscriptionFrame,
+    TTSSpeakFrame,
     TTSTextFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
@@ -230,8 +231,22 @@ class RealtimeFeedbackObserver(BaseObserver):
                     },
                 }
             )
+        # Handle engine-queued speech (transition/tool messages) marked for
+        # log persistence. The downstream TTSTextFrame(s) from the TTS service
+        # still stream to WS as normal; we persist the full utterance once here
+        # to avoid word-level log entries from word-timestamp providers.
+        elif isinstance(frame, TTSSpeakFrame):
+            if getattr(frame, "persist_to_logs", False):
+                await self._append_to_buffer(
+                    {
+                        "type": RealtimeFeedbackType.BOT_TEXT.value,
+                        "payload": {"text": frame.text},
+                    }
+                )
         # Handle bot TTS text - respect pts timing, WebSocket only
-        # Complete turn text is persisted via register_turn_handlers
+        # Complete turn text is persisted via register_turn_handlers,
+        # except for frames explicitly flagged persist_to_logs (e.g. recording
+        # transcripts from play_audio) which bypass the aggregator path.
         elif isinstance(frame, TTSTextFrame):
             message = {
                 "type": RealtimeFeedbackType.BOT_TEXT.value,
@@ -249,6 +264,9 @@ class RealtimeFeedbackObserver(BaseObserver):
 
                 await self._ensure_clock_task()
                 await self._clock_queue.put((frame.pts, frame.id, message))
+            elif getattr(frame, "persist_to_logs", False):
+                # No pts + explicit persistence request (recording transcript).
+                await self._send_message(message)
             else:
                 # No pts, send immediately
                 await self._send_ws(message)

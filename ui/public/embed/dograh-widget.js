@@ -113,6 +113,9 @@
         embedMode: configData.settings?.embedMode || 'floating',
         containerId: configData.settings?.containerId || 'dograh-inline-container',
         position: configData.position || DEFAULT_CONFIG.position,
+        buttonColor: configData.settings?.buttonColor || '#10b981',
+        buttonText: configData.settings?.buttonText || 'Start Call',
+        callToActionText: configData.settings?.callToActionText || 'Click to start voice conversation',
         autoStart: configData.auto_start || false
       };
     } catch (error) {
@@ -268,10 +271,11 @@
     container.className = `dograh-widget-container ${state.config.position}`;
     container.id = 'dograh-widget';
 
-    // Create button (green to start, red to end)
+    // Create button (configured color to start, red to end)
     const button = document.createElement('button');
     button.className = 'dograh-widget-button dograh-widget-button-idle';
     button.id = 'dograh-widget-button';
+    button.style.backgroundColor = state.config.buttonColor;
     button.innerHTML = `
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
@@ -317,6 +321,9 @@
 
     // Add current status class
     button.classList.add(`dograh-widget-button-${status}`);
+
+    // Apply configured color only for idle state, let CSS handle other states
+    button.style.backgroundColor = status === 'idle' ? state.config.buttonColor : '';
 
     // Update title attribute for tooltip
     const titles = {
@@ -474,7 +481,7 @@
     }[status];
 
     const displaySubtext = subtext || {
-      idle: 'Click to start voice conversation',
+      idle: state.config.callToActionText,
       connecting: 'Please wait while we establish connection',
       connected: 'You can speak now',
       failed: 'Please check your microphone and try again'
@@ -483,10 +490,10 @@
     // Simple button design: green to start, red to end
     let buttonHTML = '';
     if (status === 'idle' || status === 'failed') {
-      // Green button to start
+      // Button to start with configured color
       buttonHTML = `
-        <button class="dograh-inline-btn dograh-inline-btn-start" id="dograh-inline-start-btn">
-          ${status === 'failed' ? 'Retry' : 'Start Call'}
+        <button class="dograh-inline-btn dograh-inline-btn-start" id="dograh-inline-start-btn" style="background: ${state.config.buttonColor};">
+          ${status === 'failed' ? 'Retry' : state.config.buttonText}
         </button>
       `;
     } else if (status === 'connecting' || status === 'connected') {

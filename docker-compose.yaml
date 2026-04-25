@@ -123,6 +123,11 @@ services:
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
 
+      # Telemetry
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      POSTHOG_API_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.i.posthog.com"
+
     ports:
       - "8000:8000"
     depends_on:

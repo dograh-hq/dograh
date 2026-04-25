@@ -14,15 +14,25 @@ This is useful when you want to trigger calls from your own backend, a CRM, or w
 
 ## Finding your trigger URL
 
-When you add an API Trigger node to your workflow, Dograh assigns it a unique UUID. You can find this UUID in the dashboard URL when viewing the agent, or in the trigger node settings.
-
-Your trigger endpoint is:
+When you add an API Trigger node to your workflow, Dograh assigns it a unique UUID. The trigger node exposes two URLs that share this UUID — one for the published agent and one for the latest draft. You can copy either URL from the trigger node's settings dialog.
 
 ```
-POST https://your-dograh-instance/api/v1/public/agent/{uuid}
+POST https://your-dograh-instance/api/v1/public/agent/{uuid}        # Production
+POST https://your-dograh-instance/api/v1/public/agent/test/{uuid}   # Test
 ```
 
 If you are using the hosted version, replace `your-dograh-instance` with `api.dograh.com`.
+
+### Test vs production
+
+| Mode       | URL                                | Runs                                                                      |
+|------------|------------------------------------|---------------------------------------------------------------------------|
+| Production | `/api/v1/public/agent/{uuid}`      | The published version of the agent.                                       |
+| Test       | `/api/v1/public/agent/test/{uuid}` | The latest draft. Falls back to the published version if no draft exists. |
+
+Use the test URL while iterating on changes so production traffic continues to hit the published version. Once you publish your draft, both URLs run the same definition.
+
+The request body, headers, and response shape are identical for both URLs.
 
 ## Making a request
 

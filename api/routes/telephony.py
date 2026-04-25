@@ -29,6 +29,7 @@ from api.db.workflow_client import WorkflowClient
 from api.db.workflow_run_client import WorkflowRunClient
 from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
+from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
 from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
@@ -166,7 +167,13 @@ class StatusCallbackRequest(BaseModel):
         )
 
 
-@router.post("/initiate-call")
+@router.post(
+    "/initiate-call",
+    **sdk_expose(
+        method="test_phone_call",
+        description="Place a test call from a workflow to a phone number.",
+    ),
+)
 async def initiate_call(
     request: InitiateCallRequest, user: UserModel = Depends(get_user)
 ):

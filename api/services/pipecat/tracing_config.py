@@ -94,6 +94,14 @@ class _OrgRoutingExporter(SpanExporter):
         org_buckets = {}
 
         for span in spans:
+            # Drop fastmcp's built-in auto-instrumentation spans
+            # (`tools/call <name>`, etc.) — our `@traced_tool` decorator
+            # in `api/mcp_server/tracing.py` produces the spans we want. Keeping
+            # both would just double every trace.
+            scope = getattr(span, "instrumentation_scope", None)
+            if scope is not None and scope.name == "fastmcp":
+                continue
+
             org_id = span.attributes.get("dograh.org_id") if span.attributes else None
             if org_id and str(org_id) in self._org_exporters:
                 org_buckets.setdefault(str(org_id), []).append(span)

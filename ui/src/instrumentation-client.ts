@@ -38,7 +38,9 @@ const initSentry = () => {
   }
 };
 
-initSentry();
+if (process.env.NEXT_PUBLIC_NODE_ENV !== 'development') {
+  initSentry();
+}
 
 // Initialize PostHog - prioritize NEXT_PUBLIC env vars, fallback to API
 const initPostHog = () => {
@@ -83,7 +85,9 @@ const initPostHog = () => {
   }
 };
 
-initPostHog();
+if (process.env.NEXT_PUBLIC_NODE_ENV !== 'development') {
+  initPostHog();
+}
 
 
 export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;

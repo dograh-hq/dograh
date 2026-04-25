@@ -57,7 +57,7 @@ export const PhoneCallDialog = ({
             try {
                 const configResponse = await getTelephonyConfigurationApiV1OrganizationsTelephonyConfigGet({});
 
-                if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage && !configResponse.data?.vobiz && !configResponse.data?.cloudonix && !configResponse.data?.ari && !configResponse.data?.telnyx)) {
+                if (configResponse.error || (!configResponse.data?.twilio && !configResponse.data?.vonage && !configResponse.data?.vobiz && !configResponse.data?.cloudonix && !configResponse.data?.ari && !configResponse.data?.telnyx && !configResponse.data?.plivo)) {
                     setNeedsConfiguration(true);
                 } else {
                     setNeedsConfiguration(false);

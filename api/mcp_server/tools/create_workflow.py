@@ -26,6 +26,7 @@ from loguru import logger
 from pydantic import ValidationError as PydanticValidationError
 
 from api.db import db_client
+from api.db.agent_trigger_client import TriggerPathConflictError
 from api.enums import PostHogEvent
 from api.mcp_server.auth import authenticate_mcp_request
 from api.mcp_server.tracing import traced_tool
@@ -125,7 +126,20 @@ async def create_workflow(code: str) -> dict[str, Any]:
     except (ValueError, Exception) as e:  # WorkflowGraph raises ValueError
         return _error_result("graph_validation", str(e))
 
-    # 4. Persist as a new workflow with v1 published.
+    # 4. Reject upfront if any trigger path collides with another workflow's
+    # trigger in this org so we don't leave an orphan workflow record.
+    trigger_paths = _extract_trigger_paths(payload)
+    if trigger_paths:
+        try:
+            await db_client.assert_trigger_paths_available(
+                trigger_paths=trigger_paths,
+            )
+        except TriggerPathConflictError as e:
+            return _error_result(
+                "trigger_path_conflict", str(e), trigger_paths=e.trigger_paths
+            )
+
+    # 5. Persist as a new workflow with v1 published.
     workflow = await db_client.create_workflow(
         name,
         payload,
@@ -144,7 +158,6 @@ async def create_workflow(code: str) -> dict[str, Any]:
         },
     )
 
-    trigger_paths = _extract_trigger_paths(payload)
     if trigger_paths:
         await db_client.sync_triggers_for_workflow(
             workflow_id=workflow.id,

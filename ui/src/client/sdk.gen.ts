@@ -279,6 +279,10 @@ export const getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet = <ThrowOnErr
  * Publish Workflow
  *
  * Publish the current draft version of a workflow.
+ *
+ * Drafts are allowed to be incomplete (so the editor can save mid-edit),
+ * but a published version is what runtime executes — so this is the gate
+ * where the full DTO + graph + trigger-conflict checks must pass.
  */
 export const publishWorkflowApiV1WorkflowWorkflowIdPublishPost = <ThrowOnError extends boolean = false>(options: Options<PublishWorkflowApiV1WorkflowWorkflowIdPublishPostData, ThrowOnError>) => (options.client ?? client).post<PublishWorkflowApiV1WorkflowWorkflowIdPublishPostResponses, PublishWorkflowApiV1WorkflowWorkflowIdPublishPostErrors, ThrowOnError>({ url: '/api/v1/workflow/{workflow_id}/publish', ...options });
 

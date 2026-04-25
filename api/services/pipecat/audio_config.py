@@ -87,19 +87,20 @@ def create_audio_config(transport_type: str) -> AudioConfig:
     """Create audio configuration based on transport type.
 
     Args:
-        transport_type: Type of transport ("webrtc", "twilio", "vonage", "vobiz", "cloudonix")
+        transport_type: Type of transport ("webrtc", "twilio", "plivo", "vonage", "vobiz", "cloudonix")
 
     Returns:
         AudioConfig instance with appropriate settings
     """
     if transport_type in (
         WorkflowRunMode.TWILIO.value,
+        WorkflowRunMode.PLIVO.value,
         WorkflowRunMode.VOBIZ.value,
         WorkflowRunMode.CLOUDONIX.value,
         WorkflowRunMode.ARI.value,
         WorkflowRunMode.TELNYX.value,
     ):
-        # Twilio, Cloudonix, Vobiz, Telnyx, and ARI use MULAW at 8kHz
+        # Twilio, Plivo, Cloudonix, Vobiz, Telnyx, and ARI use MULAW at 8kHz
         return AudioConfig(
             transport_in_sample_rate=8000,
             transport_out_sample_rate=8000,

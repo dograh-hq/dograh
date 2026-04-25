@@ -272,6 +272,7 @@ class PlivoProvider(TelephonyProvider):
             "ring": "ringing",
             "completed": "completed",
             "hangup": "completed",
+            "stopstream": "completed",
             "busy": "busy",
             "no-answer": "no-answer",
             "cancel": "canceled",
@@ -359,6 +360,12 @@ class PlivoProvider(TelephonyProvider):
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
         if webhook_account_id:
             return config_data.get("auth_id") == webhook_account_id
+        # AuthID is not always present in Plivo webhooks (undocumented field).
+        # Fall back to checking that the org has a Plivo config at all.
+        logger.warning(
+            "Plivo webhook missing AuthID/ParentAuthID - "
+            "falling back to config existence check"
+        )
         return bool(config_data.get("auth_id"))
 
     @staticmethod
@@ -396,9 +403,15 @@ class PlivoProvider(TelephonyProvider):
     ) -> tuple:
         from fastapi import Response
 
+        hangup_callback_attr = ""
+        if workflow_run_id:
+            backend_endpoint, _ = await get_backend_endpoints()
+            hangup_url = f"{backend_endpoint}/api/v1/telephony/plivo/hangup-callback/{workflow_run_id}"
+            hangup_callback_attr = f' statusCallbackUrl="{hangup_url}" statusCallbackMethod="POST"'
+
         plivo_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000">{websocket_url}</Stream>
+    <Stream bidirectional="true" keepCallAlive="true" contentType="audio/x-mulaw;rate=8000"{hangup_callback_attr}>{websocket_url}</Stream>
 </Response>"""
         return Response(content=plivo_xml, media_type="application/xml")
 

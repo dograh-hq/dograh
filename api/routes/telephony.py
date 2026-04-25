@@ -89,6 +89,33 @@ class StatusCallbackRequest(BaseModel):
         )
 
     @classmethod
+    def from_plivo(cls, data: dict):
+        """Convert Plivo callback to generic format"""
+        status_map = {
+            "in-progress": "answered",
+            "ringing": "ringing",
+            "ring": "ringing",
+            "completed": "completed",
+            "hangup": "completed",
+            "stopstream": "completed",
+            "busy": "busy",
+            "no-answer": "no-answer",
+            "cancel": "canceled",
+            "cancelled": "canceled",
+            "timeout": "no-answer",
+        }
+        call_status = (data.get("CallStatus") or data.get("Event") or "").lower()
+        return cls(
+            call_id=data.get("CallUUID", "") or data.get("RequestUUID", ""),
+            status=status_map.get(call_status, call_status),
+            from_number=data.get("From"),
+            to_number=data.get("To"),
+            direction=data.get("Direction"),
+            duration=data.get("Duration"),
+            extra=data,
+        )
+
+    @classmethod
     def from_vonage(cls, data: dict):
         """Convert Vonage event to generic format"""
         # Map Vonage status to common format

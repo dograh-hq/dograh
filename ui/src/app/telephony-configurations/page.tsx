@@ -12,6 +12,8 @@ import type {
   AriConfigurationResponse,
   CloudonixConfigurationRequest,
   CloudonixConfigurationResponse,
+  PlivoConfigurationRequest,
+  PlivoConfigurationResponse,
   TelephonyConfigurationResponse,
   TelnyxConfigurationRequest,
   TelnyxConfigurationResponse,
@@ -49,6 +51,9 @@ interface TelephonyConfigForm {
   private_key?: string;
   api_key?: string;
   api_secret?: string;
+  // Plivo fields
+  plivo_auth_id?: string;
+  plivo_auth_token?: string;
   // Vobiz fields
   auth_id?: string;
   vobiz_auth_token?: string;
@@ -146,6 +151,13 @@ export default function ConfigureTelephonyPage() {
             setValue("auth_id", response.data.vobiz.auth_id);
             setValue("vobiz_auth_token", response.data.vobiz.auth_token);
             setValue("from_numbers", response.data.vobiz.from_numbers?.length > 0 ? response.data.vobiz.from_numbers : [""]);
+          } else if ((response.data as TelephonyConfigurationResponse)?.plivo) {
+            const plivoConfig = (response.data as TelephonyConfigurationResponse).plivo as PlivoConfigurationResponse;
+            setHasExistingConfig(true);
+            setValue("provider", "plivo");
+            setValue("plivo_auth_id", plivoConfig.auth_id);
+            setValue("plivo_auth_token", plivoConfig.auth_token);
+            setValue("from_numbers", plivoConfig.from_numbers?.length > 0 ? plivoConfig.from_numbers : [""]);
           } else if ((response.data as TelephonyConfigurationResponse)?.cloudonix) {
             const cloudonixConfig = (response.data as TelephonyConfigurationResponse).cloudonix as CloudonixConfigurationResponse;
             setHasExistingConfig(true);
@@ -192,6 +204,7 @@ export default function ConfigureTelephonyPage() {
       // Build the request body based on provider
       let requestBody:
         | TwilioConfigurationRequest
+        | PlivoConfigurationRequest
         | VonageConfigurationRequest
         | VobizConfigurationRequest
         | CloudonixConfigurationRequest
@@ -214,7 +227,7 @@ export default function ConfigureTelephonyPage() {
 
       let pattern: RegExp;
       let formatMessage: string;
-      if (data.provider === "twilio" || data.provider === "telnyx") {
+      if (data.provider === "twilio" || data.provider === "telnyx" || data.provider === "plivo") {
         pattern = twilioPattern;
         formatMessage = "with + prefix (e.g., +1234567890)";
       } else if (data.provider === "cloudonix") {
@@ -259,6 +272,13 @@ export default function ConfigureTelephonyPage() {
           auth_id: data.auth_id,
           auth_token: data.vobiz_auth_token,
         } as VobizConfigurationRequest;
+      } else if (data.provider === "plivo") {
+        requestBody = {
+          provider: data.provider,
+          from_numbers: filteredNumbers,
+          auth_id: data.plivo_auth_id!,
+          auth_token: data.plivo_auth_token!,
+        } as PlivoConfigurationRequest;
       } else if (data.provider === "telnyx") {
         requestBody = {
           provider: data.provider,
@@ -335,6 +355,8 @@ export default function ConfigureTelephonyPage() {
                     ? "Vonage"
                     : selectedProvider === "vobiz"
                     ? "Vobiz"
+                    : selectedProvider === "plivo"
+                    ? "Plivo"
                     : selectedProvider === "telnyx"
                     ? "Telnyx"
                     : selectedProvider === "ari"
@@ -384,6 +406,12 @@ export default function ConfigureTelephonyPage() {
                         https://developers.cloudonix.com
                       </a>{" "}
                       for developer documentation and API reference.
+                    </>
+                  ) : selectedProvider === "plivo" ? (
+                    <>
+                      Plivo is a cloud communications platform providing voice and messaging
+                      APIs. Use Plivo to build voice applications with real-time audio streaming
+                      and global telephony coverage.
                     </>
                   ) : selectedProvider === "vobiz" ? (
                     <>
@@ -435,6 +463,25 @@ export default function ConfigureTelephonyPage() {
                         <strong>Note:</strong> ARI uses WebSocket connections for real-time
                         event listening. The ARI manager process will automatically connect
                         to your Asterisk instance once configured.
+                      </p>
+                    </div>
+                  </div>
+                ) : selectedProvider === "plivo" ? (
+                  <div className="space-y-4 text-sm">
+                    <div>
+                      <h4 className="font-semibold mb-2">Getting Started with Plivo:</h4>
+                      <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
+                        <li>Sign up at <a href="https://www.plivo.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">plivo.com</a> and go to the Console Dashboard</li>
+                        <li>Find your Auth ID and Auth Token on the Dashboard overview page</li>
+                        <li>Purchase a phone number under Phone Numbers &gt; Buy Numbers</li>
+                        <li>Create an XML Application under Voice &gt; XML Applications</li>
+                        <li>Enter your Auth ID, Auth Token, and phone numbers below</li>
+                      </ol>
+                    </div>
+                    <div className="bg-muted border border-border rounded p-3">
+                      <p className="text-sm">
+                        <strong>Note:</strong> Plivo uses XML-based call control with bidirectional
+                        audio streaming. Phone numbers should be in E.164 format with + prefix (e.g., +1234567890).
                       </p>
                     </div>
                   </div>
@@ -518,6 +565,7 @@ export default function ConfigureTelephonyPage() {
                       <SelectContent>
                         <SelectItem value="twilio">Twilio</SelectItem>
                         <SelectItem value="vonage">Vonage</SelectItem>
+                        <SelectItem value="plivo">Plivo</SelectItem>
                         <SelectItem value="vobiz">Vobiz</SelectItem>
                         <SelectItem value="telnyx">Telnyx</SelectItem>
                         <SelectItem value="cloudonix">Cloudonix</SelectItem>
@@ -789,6 +837,92 @@ export default function ConfigureTelephonyPage() {
                         {fromNumbers.some(n => n.trim() !== "" && !/^[1-9]\d{1,14}$/.test(n)) && (
                           <p className="text-sm text-red-500">
                             Enter valid phone numbers without + prefix (e.g., 14155551234)
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* Plivo-specific fields */}
+                  {selectedProvider === "plivo" && (
+                    <>
+                      <div className="space-y-2">
+                        <Label htmlFor="plivo_auth_id">Auth ID</Label>
+                        <Input
+                          id="plivo_auth_id"
+                          placeholder="MAxxxxxxxxxxxxxxxxxxxxx"
+                          {...register("plivo_auth_id", {
+                            required: selectedProvider === "plivo" ? "Auth ID is required" : false,
+                          })}
+                        />
+                        {errors.plivo_auth_id && (
+                          <p className="text-sm text-red-500">
+                            {errors.plivo_auth_id.message}
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground">
+                          Found on your Plivo Console Dashboard
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="plivo_auth_token">Auth Token</Label>
+                        <Input
+                          id="plivo_auth_token"
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder={
+                            hasExistingConfig
+                              ? "Leave masked to keep existing"
+                              : "Enter your auth token"
+                          }
+                          {...register("plivo_auth_token", {
+                            required: selectedProvider === "plivo" && !hasExistingConfig
+                              ? "Auth token is required"
+                              : false,
+                          })}
+                        />
+                        {errors.plivo_auth_token && (
+                          <p className="text-sm text-red-500">
+                            {errors.plivo_auth_token.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label>CLI Phone Numbers</Label>
+                        {fromNumbers.map((number, index) => (
+                          <div key={index} className="flex gap-2">
+                            <Input
+                              autoComplete="tel"
+                              placeholder="+1234567890"
+                              value={number}
+                              onChange={(e) => updatePhoneNumber(index, e.target.value)}
+                            />
+                            {fromNumbers.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                onClick={() => removePhoneNumber(index)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={addPhoneNumber}
+                        >
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Phone Number
+                        </Button>
+                        {fromNumbers.some(n => n.trim() !== "" && !/^\+[1-9]\d{1,14}$/.test(n)) && (
+                          <p className="text-sm text-red-500">
+                            Enter valid phone numbers with country code (e.g., +1234567890)
                           </p>
                         )}
                       </div>

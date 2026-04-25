@@ -16,10 +16,15 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class Trigger(TypedNode):
     """
-    Public HTTP endpoint that launches the workflow.  LLM hint: Exposes a
-    public HTTP POST endpoint. External systems call the URL (derived from
-    the auto-generated `trigger_path`) to launch this workflow. Requires an
-    API key in the `X-API-Key` header.
+    Public HTTP endpoints that launch the workflow.  LLM hint: Exposes two
+    public HTTP POST endpoints derived from the auto-generated
+    `trigger_path`:   • Production:
+    `<backend>/api/v1/public/agent/<trigger_path>` — runs the published
+    agent. Use this from production systems.   • Test:
+    `<backend>/api/v1/public/agent/test/<trigger_path>` — runs the latest
+    draft, useful for verifying changes before publishing. Falls back to the
+    published agent when no draft exists. Both require an API key in the
+    `X-API-Key` header.
     """
 
     type: ClassVar[str] = 'trigger'
@@ -37,6 +42,9 @@ class Trigger(TypedNode):
     trigger_path: Optional[str] = None
     """
     Auto-generated UUID-style path segment that uniquely identifies this
-    trigger. Do not edit manually.
+    trigger. Used in both URLs:   • Production:
+    `/api/v1/public/agent/<trigger_path>` — executes the published agent.
+    • Test: `/api/v1/public/agent/test/<trigger_path>` — executes the latest
+    draft. Do not edit manually.
     """
 

@@ -31,14 +31,15 @@ from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
-from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
-from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
-from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.quota_service import check_dograh_quota, check_dograh_quota_by_user_id
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
     get_telephony_provider,
+)
+from api.services.telephony.status_processor import (
+    StatusCallbackRequest,
+    _process_status_update,
 )
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
@@ -60,111 +61,6 @@ class InitiateCallRequest(BaseModel):
     workflow_id: int
     workflow_run_id: int | None = None
     phone_number: str | None = None
-
-
-class StatusCallbackRequest(BaseModel):
-    """Generic status callback that can handle different providers"""
-
-    # Common fields
-    call_id: str
-    status: str
-    from_number: Optional[str] = None
-    to_number: Optional[str] = None
-    direction: Optional[str] = None
-    duration: Optional[str] = None
-
-    # Provider-specific fields stored as extra
-    extra: dict = {}
-
-    @classmethod
-    def from_twilio(cls, data: dict):
-        """Convert Twilio callback to generic format"""
-        return cls(
-            call_id=data.get("CallSid", ""),
-            status=data.get("CallStatus", ""),
-            from_number=data.get("From"),
-            to_number=data.get("To"),
-            direction=data.get("Direction"),
-            duration=data.get("CallDuration") or data.get("Duration"),
-            extra=data,
-        )
-
-    @classmethod
-    def from_plivo(cls, data: dict):
-        """Convert Plivo callback to generic format"""
-        status_map = {
-            "in-progress": "answered",
-            "ringing": "ringing",
-            "ring": "ringing",
-            "completed": "completed",
-            "hangup": "completed",
-            "stopstream": "completed",
-            "busy": "busy",
-            "no-answer": "no-answer",
-            "cancel": "canceled",
-            "cancelled": "canceled",
-            "timeout": "no-answer",
-        }
-        call_status = (data.get("CallStatus") or data.get("Event") or "").lower()
-        return cls(
-            call_id=data.get("CallUUID", "") or data.get("RequestUUID", ""),
-            status=status_map.get(call_status, call_status),
-            from_number=data.get("From"),
-            to_number=data.get("To"),
-            direction=data.get("Direction"),
-            duration=data.get("Duration"),
-            extra=data,
-        )
-
-    @classmethod
-    def from_vonage(cls, data: dict):
-        """Convert Vonage event to generic format"""
-        # Map Vonage status to common format
-        status_map = {
-            "started": "initiated",
-            "ringing": "ringing",
-            "answered": "answered",
-            "complete": "completed",
-            "failed": "failed",
-            "busy": "busy",
-            "timeout": "no-answer",
-            "rejected": "busy",
-        }
-
-        return cls(
-            call_id=data.get("uuid", ""),
-            status=status_map.get(data.get("status", ""), data.get("status", "")),
-            from_number=data.get("from"),
-            to_number=data.get("to"),
-            direction=data.get("direction"),
-            duration=data.get("duration"),
-            extra=data,
-        )
-
-    @classmethod
-    def from_cloudonix_cdr(cls, data: dict):
-        """Convert Cloudonix CDR to generic format"""
-        # Map Cloudonix disposition to common format
-        disposition_map = {
-            "ANSWER": "completed",
-            "BUSY": "busy",
-            "CANCEL": "canceled",
-            "FAILED": "failed",
-            "CONGESTION": "failed",
-            "NOANSWER": "no-answer",
-        }
-
-        disposition = data.get("disposition", "")
-        status = disposition_map.get(disposition.upper(), disposition.lower())
-
-        return cls(
-            call_id=data.get("session").get("token"),
-            status=status,
-            from_number=data.get("from"),
-            to_number=data.get("to"),
-            duration=str(data.get("billsec") or data.get("duration") or 0),
-            extra=data,
-        )
 
 
 @router.post(
@@ -789,105 +685,6 @@ async def handle_twilio_status_callback(
     await _process_status_update(workflow_run_id, status_update)
 
     return {"status": "success"}
-
-
-async def _process_status_update(workflow_run_id: int, status: StatusCallbackRequest):
-    """Process status updates from telephony providers."""
-
-    # Fetch fresh workflow_run to ensure we have the latest state
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(
-            f"[run {workflow_run_id}] Workflow run not found in status update"
-        )
-        return
-
-    # Log the status callback
-    telephony_callback_logs = workflow_run.logs.get("telephony_status_callbacks", [])
-    telephony_callback_log = {
-        "status": status.status,
-        "timestamp": datetime.now(UTC).isoformat(),
-        "call_id": status.call_id,
-        "duration": status.duration,
-        **status.extra,  # Include provider-specific data
-    }
-    telephony_callback_logs.append(telephony_callback_log)
-
-    # Update workflow run logs
-    await db_client.update_workflow_run(
-        run_id=workflow_run_id,
-        logs={"telephony_status_callbacks": telephony_callback_logs},
-    )
-
-    # Handle call completion - make these updates idempotent - i.e
-    # they should handle multiple API calls (one due to status update,
-    # and other due to CDR updates.)
-    if status.status == "completed":
-        logger.info(
-            f"[run {workflow_run_id}] Call completed with duration: {status.duration}s"
-        )
-
-        # Release concurrent slot if this was a campaign call
-        if workflow_run.campaign_id:
-            await campaign_call_dispatcher.release_call_slot(workflow_run_id)
-            await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id, is_failure=False
-            )
-
-        # Mark workflow run as completed
-        if workflow_run.state != WorkflowRunState.COMPLETED.value:
-            await db_client.update_workflow_run(
-                run_id=workflow_run_id,
-                is_completed=True,
-                state=WorkflowRunState.COMPLETED.value,
-            )
-
-    elif status.status in ["failed", "busy", "no-answer", "canceled", "error"]:
-        logger.warning(
-            f"[run {workflow_run_id}] Call failed with status: {status.status}"
-        )
-
-        # Release concurrent slot for terminal statuses if this was a campaign call
-        if workflow_run.campaign_id:
-            await campaign_call_dispatcher.release_call_slot(workflow_run_id)
-            await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id,
-                is_failure=status.status in ("error", "failed"),
-            )
-
-        # Check if retry is needed for campaign calls (busy/no-answer)
-        if status.status in ["busy", "no-answer"] and workflow_run.campaign_id:
-            publisher = await get_campaign_event_publisher()
-            await publisher.publish_retry_needed(
-                workflow_run_id=workflow_run_id,
-                reason=status.status.replace(
-                    "-", "_"
-                ),  # Convert no-answer to no_answer
-                campaign_id=workflow_run.campaign_id,
-                queued_run_id=workflow_run.queued_run_id,
-            )
-
-        # Mark workflow run as completed with failure tags
-        call_tags = (
-            workflow_run.gathered_context.get("call_tags", [])
-            if workflow_run.gathered_context
-            else []
-        )
-        call_tags.extend(["not_connected", f"telephony_{status.status.lower()}"])
-
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            is_completed=True,
-            state=WorkflowRunState.COMPLETED.value,
-            gathered_context={"call_tags": call_tags},
-        )
-    elif status.status in ["in-progress", "initiated", "ringing"]:
-        # No Op
-        pass
-    else:
-        logger.warning(
-            f"[run {workflow_run_id}] Unexpected status update: {status.status}"
-        )
 
 
 @router.post("/telnyx/events/{workflow_run_id}")
@@ -2061,3 +1858,18 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
         logger.error(f"Error completing transfer {transfer_id}: {e}")
 
     return {"status": "completed", "result": result}
+
+
+# Mount per-provider routers (webhook, status callbacks, answer URLs).
+# Each provider package defines its own routes in providers/<name>/routes.py
+# and registers them via ProviderSpec.router. This loop runs after all
+# helpers above are defined, so provider routes can safely import them.
+def _mount_provider_routers() -> None:
+    from api.services.telephony import registry as _telephony_registry
+
+    for spec in _telephony_registry.all_specs():
+        if spec.router is not None:
+            router.include_router(spec.router)
+
+
+_mount_provider_routers()

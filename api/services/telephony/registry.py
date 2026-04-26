@@ -27,6 +27,8 @@ from typing import (
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
+    from fastapi import APIRouter
+
     from api.services.pipecat.audio_config import AudioConfig
     from api.services.telephony.base import TelephonyProvider
 
@@ -57,6 +59,9 @@ class ProviderSpec:
         audio_config: The AudioConfig this provider's wire format requires.
         config_request_cls: Pydantic model for incoming save requests.
         config_response_cls: Pydantic model for outgoing (masked) responses.
+        router: Optional FastAPI router exposing the provider's webhooks /
+            status callbacks / answer URLs. Mounted under
+            ``/api/v1/telephony`` by ``api.routes.telephony`` at startup.
     """
 
     name: str
@@ -66,6 +71,7 @@ class ProviderSpec:
     audio_config: "AudioConfig"
     config_request_cls: Type[BaseModel]
     config_response_cls: Type[BaseModel]
+    router: Optional["APIRouter"] = None
 
 
 _REGISTRY: Dict[str, ProviderSpec] = {}

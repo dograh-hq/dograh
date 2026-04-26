@@ -7,6 +7,7 @@ from api.services.telephony.registry import ProviderSpec, register
 
 from .config import TwilioConfigurationRequest, TwilioConfigurationResponse
 from .provider import TwilioProvider
+from .routes import router as routes_router
 from .transport import create_transport
 
 
@@ -35,6 +36,7 @@ SPEC = ProviderSpec(
     transport_factory=create_transport,
     audio_config=_AUDIO_CONFIG,
     config_request_cls=TwilioConfigurationRequest,
+    router=routes_router,
     config_response_cls=TwilioConfigurationResponse,
 )
 

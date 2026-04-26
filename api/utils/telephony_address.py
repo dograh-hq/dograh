@@ -7,6 +7,10 @@ and for lookups against incoming webhooks.
 
 The canonical form is deterministic and case-insensitive where the
 underlying protocol allows it.
+
+Lives in ``api.utils`` (not ``api.services.telephony``) so it can be
+imported from migrations and DB clients without triggering provider
+registration in the telephony package's ``__init__.py``.
 """
 
 from __future__ import annotations

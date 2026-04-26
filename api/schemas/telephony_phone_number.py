@@ -37,6 +37,18 @@ class PhoneNumberUpdateRequest(BaseModel):
     extra_metadata: Optional[Dict[str, Any]] = None
 
 
+class ProviderSyncStatus(BaseModel):
+    """Result of pushing a phone-number change to the upstream provider.
+
+    Returned alongside create/update responses when the route attempted to
+    sync inbound webhook configuration. ``ok=False`` is a warning, not a
+    fatal error — the DB write succeeded.
+    """
+
+    ok: bool
+    message: Optional[str] = None
+
+
 class PhoneNumberResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -48,11 +60,15 @@ class PhoneNumberResponse(BaseModel):
     country_code: Optional[str] = None
     label: Optional[str] = None
     inbound_workflow_id: Optional[int] = None
+    inbound_workflow_name: Optional[str] = None
     is_active: bool
     is_default_caller_id: bool
     extra_metadata: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    # Only set on create/update responses when the route attempted a
+    # provider-side sync (e.g. setting Twilio's VoiceUrl). Omitted on reads.
+    provider_sync: Optional[ProviderSyncStatus] = None
 
 
 class PhoneNumberListResponse(BaseModel):

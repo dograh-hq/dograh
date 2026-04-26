@@ -28,6 +28,19 @@ class CallInitiationResult:
 
 
 @dataclass
+class ProviderSyncResult:
+    """Result of pushing a configuration change to the upstream provider.
+
+    Used by ``configure_inbound`` (and similar provider-side syncs) so callers
+    can surface a non-fatal warning to the user when the DB write succeeded
+    but the provider API rejected the change.
+    """
+
+    ok: bool
+    message: Optional[str] = None  # human-readable detail when ok=False
+
+
+@dataclass
 class NormalizedInboundData:
     """Standardized inbound call data across all providers."""
 
@@ -295,6 +308,17 @@ class TelephonyProvider(ABC):
             FastAPI Response object
         """
         pass
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Sync inbound routing for ``address`` to the provider.
+
+        ``webhook_url`` set: point the provider's resource for this number at
+        the URL. ``None``: clear it. Default is a no-op for providers that
+        don't support programmatic webhook configuration (e.g. ARI).
+        """
+        return ProviderSyncResult(ok=True)
 
     @staticmethod
     @abstractmethod

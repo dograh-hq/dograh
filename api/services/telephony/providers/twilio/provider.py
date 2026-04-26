@@ -15,9 +15,11 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -403,6 +405,91 @@ class TwilioProvider(TelephonyProvider):
         Verify the signature of an inbound Twilio webhook for security.
         """
         return await self.verify_webhook_signature(url, webhook_data, signature)
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Set (or clear) the VoiceUrl on Twilio's IncomingPhoneNumber for ``address``.
+
+        Looks up the number's SID by E.164 then POSTs the update. Non-PSTN
+        addresses (SIP URIs, extensions) are skipped — Twilio's
+        IncomingPhoneNumbers resource only covers PSTN numbers.
+        """
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Twilio provider not properly configured"
+            )
+
+        normalized = normalize_telephony_address(address)
+        if normalized.address_type != "pstn":
+            # Nothing to do on Twilio's side for SIP URIs/extensions.
+            return ProviderSyncResult(ok=True)
+
+        e164 = normalized.canonical
+        try:
+            sid = await self._lookup_incoming_number_sid(e164)
+        except Exception as e:
+            logger.error(f"Failed to look up Twilio number {e164}: {e}")
+            return ProviderSyncResult(ok=False, message=f"Twilio lookup failed: {e}")
+
+        if not sid:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    f"Phone number {e164} is not owned by this Twilio account "
+                    f"({self.account_sid}). Add it in the Twilio console first."
+                ),
+            )
+
+        endpoint = f"{self.base_url}/IncomingPhoneNumbers/{sid}.json"
+        if webhook_url:
+            data = {
+                "VoiceUrl": webhook_url,
+                "VoiceMethod": "POST",
+            }
+        else:
+            # Clearing — Twilio treats empty string as "unset".
+            data = {
+                "VoiceUrl": "",
+            }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
+                async with session.post(endpoint, data=data, auth=auth) as response:
+                    if response.status not in (200, 201):
+                        body = await response.text()
+                        logger.error(
+                            f"Twilio VoiceUrl update failed for {e164} "
+                            f"(sid={sid}): {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Twilio API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(f"Exception updating Twilio VoiceUrl for {e164}: {e}")
+            return ProviderSyncResult(ok=False, message=f"Twilio update failed: {e}")
+
+        action = "set" if webhook_url else "cleared"
+        logger.info(f"Twilio VoiceUrl {action} for {e164} (sid={sid})")
+        return ProviderSyncResult(ok=True)
+
+    async def _lookup_incoming_number_sid(self, e164: str) -> Optional[str]:
+        """Return the Twilio SID of the IncomingPhoneNumber matching ``e164``."""
+        endpoint = f"{self.base_url}/IncomingPhoneNumbers.json"
+        params = {"PhoneNumber": e164}
+        async with aiohttp.ClientSession() as session:
+            auth = aiohttp.BasicAuth(self.account_sid, self.auth_token)
+            async with session.get(endpoint, params=params, auth=auth) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    raise Exception(f"Twilio API {response.status}: {body}")
+                data = await response.json()
+        numbers = data.get("incoming_phone_numbers") or []
+        if not numbers:
+            return None
+        return numbers[0].get("sid")
 
     @staticmethod
     async def generate_inbound_response(

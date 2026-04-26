@@ -73,16 +73,9 @@ async def initiate_call(
 
     user_configuration = await db_client.get_user_configurations(user.id)
 
-    # Resolve which telephony config to use, in order of precedence:
-    # 1. explicit request value, 2. per-user default (when set), 3. org default.
-    user_default_cfg_id = (
-        (user_configuration.configuration or {}).get("test_telephony_configuration_id")
-        if user_configuration
-        else None
-    )
-    telephony_configuration_id = (
-        request.telephony_configuration_id or user_default_cfg_id
-    )
+    # Resolve which telephony config to use: explicit request value, otherwise
+    # the org's default outbound config.
+    telephony_configuration_id = request.telephony_configuration_id
 
     if telephony_configuration_id:
         cfg = await db_client.get_telephony_configuration_for_org(

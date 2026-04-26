@@ -27,13 +27,16 @@ from api.schemas.telephony_phone_number import (
     PhoneNumberListResponse,
     PhoneNumberResponse,
     PhoneNumberUpdateRequest,
+    ProviderSyncStatus,
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
+from api.services.telephony.factory import get_telephony_provider_by_id
 from api.services.worker_sync.manager import get_worker_sync_manager
 from api.services.worker_sync.protocol import WorkerSyncEventType
+from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -154,8 +157,45 @@ def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
     return payload
 
 
-def _phone_number_to_response(row) -> PhoneNumberResponse:
-    return PhoneNumberResponse.model_validate(row)
+def _phone_number_to_response(
+    row, inbound_workflow_name: Optional[str] = None
+) -> PhoneNumberResponse:
+    response = PhoneNumberResponse.model_validate(row)
+    response.inbound_workflow_name = inbound_workflow_name
+    return response
+
+
+async def _sync_inbound_for_phone_number(
+    config_id: int, address: str, workflow_id: Optional[int]
+) -> ProviderSyncStatus:
+    """Push inbound webhook configuration to the provider.
+
+    ``workflow_id`` set: build the inbound URL and ask the provider to point
+    its resource for ``address`` at it. ``None``: ask the provider to clear.
+    Failures are returned as ``ok=False`` so the caller can surface a warning
+    without aborting the DB write.
+    """
+    try:
+        provider = await get_telephony_provider_by_id(config_id)
+    except Exception as e:
+        logger.error(f"Failed to load telephony provider for config {config_id}: {e}")
+        return ProviderSyncStatus(ok=False, message=f"Provider load failed: {e}")
+
+    webhook_url: Optional[str] = None
+    if workflow_id is not None:
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
+
+    try:
+        result = await provider.configure_inbound(address, webhook_url)
+    except Exception as e:
+        logger.error(
+            f"Provider configure_inbound raised for config {config_id} "
+            f"address {address}: {e}"
+        )
+        return ProviderSyncStatus(ok=False, message=f"Provider sync failed: {e}")
+
+    return ProviderSyncStatus(ok=result.ok, message=result.message)
 
 
 # ---------------------------------------------------------------------------
@@ -163,17 +203,13 @@ def _phone_number_to_response(row) -> PhoneNumberResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.get(
-    "/telephony-configs", response_model=TelephonyConfigurationListResponse
-)
+@router.get("/telephony-configs", response_model=TelephonyConfigurationListResponse)
 async def list_telephony_configurations(user: UserModel = Depends(get_user)):
     """List the org's telephony configurations with phone-number counts."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
-    rows = await db_client.list_telephony_configurations(
-        user.selected_organization_id
-    )
+    rows = await db_client.list_telephony_configurations(user.selected_organization_id)
     items: List[TelephonyConfigurationListItem] = []
     for row in rows:
         numbers = await db_client.list_phone_numbers_for_config(row.id)
@@ -271,7 +307,9 @@ async def update_telephony_configuration(
                 detail="Provider cannot be changed; create a new configuration instead.",
             )
         credentials = _credentials_from_payload(request.config)
-        preserve_masked_fields(existing.provider, credentials, existing.credentials or {})
+        preserve_masked_fields(
+            existing.provider, credentials, existing.credentials or {}
+        )
 
     try:
         row = await db_client.update_telephony_configuration(
@@ -291,9 +329,7 @@ async def update_telephony_configuration(
     "/telephony-configs/{config_id}/set-default-outbound",
     response_model=TelephonyConfigurationDetail,
 )
-async def set_default_outbound(
-    config_id: int, user: UserModel = Depends(get_user)
-):
+async def set_default_outbound(config_id: int, user: UserModel = Depends(get_user)):
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
@@ -355,16 +391,14 @@ async def _ensure_config_belongs_to_org(config_id: int, organization_id: int):
     "/telephony-configs/{config_id}/phone-numbers",
     response_model=PhoneNumberListResponse,
 )
-async def list_phone_numbers(
-    config_id: int, user: UserModel = Depends(get_user)
-):
+async def list_phone_numbers(config_id: int, user: UserModel = Depends(get_user)):
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
     await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
 
-    rows = await db_client.list_phone_numbers_for_config(config_id)
+    rows = await db_client.list_phone_numbers_with_workflow_name_for_config(config_id)
     return PhoneNumberListResponse(
-        phone_numbers=[_phone_number_to_response(r) for r in rows]
+        phone_numbers=[_phone_number_to_response(r, name) for r, name in rows]
     )
 
 
@@ -400,7 +434,13 @@ async def create_phone_number(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return _phone_number_to_response(row)
+
+    response = _phone_number_to_response(row)
+    if request.inbound_workflow_id is not None:
+        response.provider_sync = await _sync_inbound_for_phone_number(
+            config_id, row.address, request.inbound_workflow_id
+        )
+    return response
 
 
 @router.get(
@@ -436,6 +476,10 @@ async def update_phone_number(
         raise HTTPException(status_code=400, detail="No organization selected")
     await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
 
+    existing = await db_client.get_phone_number_for_config(phone_number_id, config_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Phone number not found")
+
     row = await db_client.update_phone_number(
         phone_number_id=phone_number_id,
         telephony_configuration_id=config_id,
@@ -448,7 +492,16 @@ async def update_phone_number(
     )
     if not row:
         raise HTTPException(status_code=404, detail="Phone number not found")
-    return _phone_number_to_response(row)
+
+    response = _phone_number_to_response(row)
+
+    # Sync provider-side webhook only when the inbound workflow actually changed.
+    inbound_changed = row.inbound_workflow_id != existing.inbound_workflow_id
+    if inbound_changed:
+        response.provider_sync = await _sync_inbound_for_phone_number(
+            config_id, row.address, row.inbound_workflow_id
+        )
+    return response
 
 
 @router.post(
@@ -470,9 +523,7 @@ async def set_default_caller_id(
     return _phone_number_to_response(row)
 
 
-@router.delete(
-    "/telephony-configs/{config_id}/phone-numbers/{phone_number_id}"
-)
+@router.delete("/telephony-configs/{config_id}/phone-numbers/{phone_number_id}")
 async def delete_phone_number(
     config_id: int,
     phone_number_id: int,
@@ -482,9 +533,19 @@ async def delete_phone_number(
         raise HTTPException(status_code=400, detail="No organization selected")
     await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
 
+    existing = await db_client.get_phone_number_for_config(phone_number_id, config_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Phone number not found")
+
     deleted = await db_client.delete_phone_number(phone_number_id, config_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Phone number not found")
+
+    # Clear the upstream VoiceUrl so the provider stops POSTing to a dead
+    # workflow id. Best-effort — if the provider call fails, the user has
+    # already deleted the row and we just log.
+    if existing.inbound_workflow_id is not None:
+        await _sync_inbound_for_phone_number(config_id, existing.address, None)
     return {"message": "Phone number deleted"}
 
 

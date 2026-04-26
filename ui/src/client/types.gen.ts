@@ -71,7 +71,7 @@ export type AriConfigurationRequest = {
     /**
      * Provider
      */
-    provider?: string;
+    provider?: 'ari';
     /**
      * Ari Endpoint
      *
@@ -119,7 +119,7 @@ export type AriConfigurationResponse = {
     /**
      * Provider
      */
-    provider: string;
+    provider?: 'ari';
     /**
      * Ari Endpoint
      */
@@ -690,7 +690,7 @@ export type CloudonixConfigurationRequest = {
     /**
      * Provider
      */
-    provider?: string;
+    provider?: 'cloudonix';
     /**
      * Bearer Token
      *
@@ -720,7 +720,7 @@ export type CloudonixConfigurationResponse = {
     /**
      * Provider
      */
-    provider: string;
+    provider?: 'cloudonix';
     /**
      * Bearer Token
      */
@@ -729,60 +729,6 @@ export type CloudonixConfigurationResponse = {
      * Domain Id
      */
     domain_id: string;
-    /**
-     * From Numbers
-     */
-    from_numbers: Array<string>;
-};
-
-/**
- * PlivoConfigurationRequest
- *
- * Request schema for Plivo configuration.
- */
-export type PlivoConfigurationRequest = {
-    /**
-     * Provider
-     */
-    provider?: string;
-    /**
-     * Auth Id
-     *
-     * Plivo Auth ID
-     */
-    auth_id: string;
-    /**
-     * Auth Token
-     *
-     * Plivo Auth Token
-     */
-    auth_token: string;
-    /**
-     * From Numbers
-     *
-     * List of Plivo phone numbers
-     */
-    from_numbers: Array<string>;
-};
-
-/**
- * PlivoConfigurationResponse
- *
- * Response schema for Plivo configuration with masked sensitive fields.
- */
-export type PlivoConfigurationResponse = {
-    /**
-     * Provider
-     */
-    provider: string;
-    /**
-     * Auth Id
-     */
-    auth_id: string;
-    /**
-     * Auth Token
-     */
-    auth_token: string;
     /**
      * From Numbers
      */
@@ -845,6 +791,10 @@ export type CreateCampaignRequest = {
      * Source Id
      */
     source_id: string;
+    /**
+     * Telephony Configuration Id
+     */
+    telephony_configuration_id?: number | null;
     retry_config?: RetryConfigRequest | null;
     /**
      * Max Concurrency
@@ -1996,6 +1946,10 @@ export type InitiateCallRequest = {
      * Phone Number
      */
     phone_number?: string | null;
+    /**
+     * Telephony Configuration Id
+     */
+    telephony_configuration_id?: number | null;
 };
 
 /**
@@ -2251,6 +2205,225 @@ export type NodeTypesResponse = {
      * Node Types
      */
     node_types: Array<NodeSpec>;
+};
+
+/**
+ * PhoneNumberCreateRequest
+ *
+ * Create a new phone number under a telephony configuration.
+ *
+ * ``address_normalized`` and ``address_type`` are computed server-side from
+ * ``address`` (and ``country_code`` if PSTN). ``address`` itself is stored
+ * verbatim for display.
+ */
+export type PhoneNumberCreateRequest = {
+    /**
+     * Address
+     */
+    address: string;
+    /**
+     * Country Code
+     */
+    country_code?: string | null;
+    /**
+     * Label
+     */
+    label?: string | null;
+    /**
+     * Inbound Workflow Id
+     */
+    inbound_workflow_id?: number | null;
+    /**
+     * Is Active
+     */
+    is_active?: boolean;
+    /**
+     * Is Default Caller Id
+     */
+    is_default_caller_id?: boolean;
+    /**
+     * Extra Metadata
+     */
+    extra_metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * PhoneNumberListResponse
+ */
+export type PhoneNumberListResponse = {
+    /**
+     * Phone Numbers
+     */
+    phone_numbers: Array<PhoneNumberResponse>;
+};
+
+/**
+ * PhoneNumberResponse
+ */
+export type PhoneNumberResponse = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Telephony Configuration Id
+     */
+    telephony_configuration_id: number;
+    /**
+     * Address
+     */
+    address: string;
+    /**
+     * Address Normalized
+     */
+    address_normalized: string;
+    /**
+     * Address Type
+     */
+    address_type: string;
+    /**
+     * Country Code
+     */
+    country_code?: string | null;
+    /**
+     * Label
+     */
+    label?: string | null;
+    /**
+     * Inbound Workflow Id
+     */
+    inbound_workflow_id?: number | null;
+    /**
+     * Inbound Workflow Name
+     */
+    inbound_workflow_name?: string | null;
+    /**
+     * Is Active
+     */
+    is_active: boolean;
+    /**
+     * Is Default Caller Id
+     */
+    is_default_caller_id: boolean;
+    /**
+     * Extra Metadata
+     */
+    extra_metadata: {
+        [key: string]: unknown;
+    };
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Provider Sync
+     */
+    provider_sync?: ProviderSyncStatus | null;
+};
+
+/**
+ * ProviderSyncStatus
+ *
+ * Result of pushing a phone-number change to the upstream provider.
+ */
+export type ProviderSyncStatus = {
+    ok: boolean;
+    message?: string | null;
+};
+
+/**
+ * PhoneNumberUpdateRequest
+ *
+ * Partial update. ``address`` is intentionally immutable — to change a
+ * number, delete the row and create a new one.
+ */
+export type PhoneNumberUpdateRequest = {
+    /**
+     * Label
+     */
+    label?: string | null;
+    /**
+     * Inbound Workflow Id
+     */
+    inbound_workflow_id?: number | null;
+    /**
+     * Clear Inbound Workflow
+     */
+    clear_inbound_workflow?: boolean;
+    /**
+     * Is Active
+     */
+    is_active?: boolean | null;
+    /**
+     * Country Code
+     */
+    country_code?: string | null;
+    /**
+     * Extra Metadata
+     */
+    extra_metadata?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * PlivoConfigurationRequest
+ *
+ * Request schema for Plivo configuration.
+ */
+export type PlivoConfigurationRequest = {
+    /**
+     * Provider
+     */
+    provider?: 'plivo';
+    /**
+     * Auth Id
+     *
+     * Plivo Auth ID
+     */
+    auth_id: string;
+    /**
+     * Auth Token
+     *
+     * Plivo Auth Token
+     */
+    auth_token: string;
+    /**
+     * From Numbers
+     *
+     * List of Plivo phone numbers
+     */
+    from_numbers: Array<string>;
+};
+
+/**
+ * PlivoConfigurationResponse
+ *
+ * Response schema for Plivo configuration with masked sensitive fields.
+ */
+export type PlivoConfigurationResponse = {
+    /**
+     * Provider
+     */
+    provider?: 'plivo';
+    /**
+     * Auth Id
+     */
+    auth_id: string;
+    /**
+     * Auth Token
+     */
+    auth_token: string;
+    /**
+     * From Numbers
+     */
+    from_numbers: Array<string>;
 };
 
 /**
@@ -2928,9 +3101,136 @@ export type SuperuserWorkflowRunsListResponse = {
 };
 
 /**
+ * TelephonyConfigurationCreateRequest
+ *
+ * Body for ``POST /telephony-configs``.
+ *
+ * ``config`` carries the provider-specific credential fields (the same
+ * discriminated union used by the legacy single-config endpoint). Any
+ * ``from_numbers`` on the inner config are ignored — phone numbers are
+ * managed via the dedicated phone-numbers endpoints.
+ */
+export type TelephonyConfigurationCreateRequest = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Is Default Outbound
+     */
+    is_default_outbound?: boolean;
+    /**
+     * Config
+     */
+    config: ({
+        provider: 'ari';
+    } & AriConfigurationRequest) | ({
+        provider: 'cloudonix';
+    } & CloudonixConfigurationRequest) | ({
+        provider: 'plivo';
+    } & PlivoConfigurationRequest) | ({
+        provider: 'telnyx';
+    } & TelnyxConfigurationRequest) | ({
+        provider: 'twilio';
+    } & TwilioConfigurationRequest) | ({
+        provider: 'vobiz';
+    } & VobizConfigurationRequest) | ({
+        provider: 'vonage';
+    } & VonageConfigurationRequest);
+};
+
+/**
+ * TelephonyConfigurationDetail
+ *
+ * Body of ``GET /telephony-configs/{id}`` — credentials are masked.
+ */
+export type TelephonyConfigurationDetail = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Is Default Outbound
+     */
+    is_default_outbound: boolean;
+    /**
+     * Credentials
+     */
+    credentials: {
+        [key: string]: unknown;
+    };
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * TelephonyConfigurationListItem
+ *
+ * One row in ``GET /telephony-configs``.
+ */
+export type TelephonyConfigurationListItem = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Is Default Outbound
+     */
+    is_default_outbound: boolean;
+    /**
+     * Phone Number Count
+     */
+    phone_number_count?: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+};
+
+/**
+ * TelephonyConfigurationListResponse
+ */
+export type TelephonyConfigurationListResponse = {
+    /**
+     * Configurations
+     */
+    configurations: Array<TelephonyConfigurationListItem>;
+};
+
+/**
  * TelephonyConfigurationResponse
  *
  * Top-level telephony configuration response.
+ *
+ * Keeps the per-provider field shape that the UI client depends on. When
+ * the UI moves to metadata-driven forms, this can be replaced with a
+ * flat discriminated union.
  */
 export type TelephonyConfigurationResponse = {
     twilio?: TwilioConfigurationResponse | null;
@@ -2943,6 +3243,108 @@ export type TelephonyConfigurationResponse = {
 };
 
 /**
+ * TelephonyConfigurationUpdateRequest
+ *
+ * Body for ``PUT /telephony-configs/{id}``. Partial update.
+ */
+export type TelephonyConfigurationUpdateRequest = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Config
+     */
+    config?: ({
+        provider: 'ari';
+    } & AriConfigurationRequest) | ({
+        provider: 'cloudonix';
+    } & CloudonixConfigurationRequest) | ({
+        provider: 'plivo';
+    } & PlivoConfigurationRequest) | ({
+        provider: 'telnyx';
+    } & TelnyxConfigurationRequest) | ({
+        provider: 'twilio';
+    } & TwilioConfigurationRequest) | ({
+        provider: 'vobiz';
+    } & VobizConfigurationRequest) | ({
+        provider: 'vonage';
+    } & VonageConfigurationRequest) | null;
+};
+
+/**
+ * TelephonyProviderMetadata
+ *
+ * UI form metadata for a single telephony provider.
+ */
+export type TelephonyProviderMetadata = {
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Fields
+     */
+    fields: Array<TelephonyProviderUiField>;
+    /**
+     * Docs Url
+     */
+    docs_url?: string | null;
+};
+
+/**
+ * TelephonyProviderUIField
+ *
+ * One form field on a telephony provider's configuration UI.
+ */
+export type TelephonyProviderUiField = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Required
+     */
+    required: boolean;
+    /**
+     * Sensitive
+     */
+    sensitive: boolean;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Placeholder
+     */
+    placeholder?: string | null;
+};
+
+/**
+ * TelephonyProvidersMetadataResponse
+ *
+ * List of UI form definitions used by the telephony-config screen.
+ */
+export type TelephonyProvidersMetadataResponse = {
+    /**
+     * Providers
+     */
+    providers: Array<TelephonyProviderMetadata>;
+};
+
+/**
  * TelnyxConfigurationRequest
  *
  * Request schema for Telnyx configuration.
@@ -2951,7 +3353,7 @@ export type TelnyxConfigurationRequest = {
     /**
      * Provider
      */
-    provider?: string;
+    provider?: 'telnyx';
     /**
      * Api Key
      *
@@ -2967,9 +3369,9 @@ export type TelnyxConfigurationRequest = {
     /**
      * From Numbers
      *
-     * List of Telnyx phone numbers (E.164 format)
+     * List of Telnyx phone numbers
      */
-    from_numbers: Array<string>;
+    from_numbers?: Array<string>;
 };
 
 /**
@@ -2981,7 +3383,7 @@ export type TelnyxConfigurationResponse = {
     /**
      * Provider
      */
-    provider: string;
+    provider?: 'telnyx';
     /**
      * Api Key
      */
@@ -3342,7 +3744,7 @@ export type TwilioConfigurationRequest = {
     /**
      * Provider
      */
-    provider?: string;
+    provider?: 'twilio';
     /**
      * Account Sid
      *
@@ -3360,7 +3762,7 @@ export type TwilioConfigurationRequest = {
      *
      * List of Twilio phone numbers
      */
-    from_numbers: Array<string>;
+    from_numbers?: Array<string>;
 };
 
 /**
@@ -3372,7 +3774,7 @@ export type TwilioConfigurationResponse = {
     /**
      * Provider
      */
-    provider: string;
+    provider?: 'twilio';
     /**
      * Account Sid
      */
@@ -3682,7 +4084,7 @@ export type VobizConfigurationRequest = {
     /**
      * Provider
      */
-    provider?: string;
+    provider?: 'vobiz';
     /**
      * Auth Id
      *
@@ -3712,7 +4114,7 @@ export type VobizConfigurationResponse = {
     /**
      * Provider
      */
-    provider: string;
+    provider?: 'vobiz';
     /**
      * Auth Id
      */
@@ -3784,7 +4186,7 @@ export type VonageConfigurationRequest = {
     /**
      * Provider
      */
-    provider?: string;
+    provider?: 'vonage';
     /**
      * Api Key
      *
@@ -3826,7 +4228,7 @@ export type VonageConfigurationResponse = {
     /**
      * Provider
      */
-    provider: string;
+    provider?: 'vonage';
     /**
      * Application Id
      */
@@ -4326,25 +4728,53 @@ export type InitiateCallApiV1TelephonyInitiateCallPostResponses = {
     200: unknown;
 };
 
-export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostData = {
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
     body?: never;
     headers?: {
         /**
-         * X-Webhook-Signature
+         * X-Twilio-Signature
          */
-        'x-webhook-signature'?: string | null;
+        'x-twilio-signature'?: string | null;
+        /**
+         * X-Plivo-Signature-V3
+         */
+        'x-plivo-signature-v3'?: string | null;
+        /**
+         * X-Plivo-Signature-Ma-V3
+         */
+        'x-plivo-signature-ma-v3'?: string | null;
+        /**
+         * X-Plivo-Signature-V3-Nonce
+         */
+        'x-plivo-signature-v3-nonce'?: string | null;
+        /**
+         * X-Vobiz-Signature
+         */
+        'x-vobiz-signature'?: string | null;
+        /**
+         * X-Vobiz-Timestamp
+         */
+        'x-vobiz-timestamp'?: string | null;
+        /**
+         * X-Cx-Apikey
+         */
+        'x-cx-apikey'?: string | null;
+        /**
+         * Telnyx-Signature-Ed25519
+         */
+        'telnyx-signature-ed25519'?: string | null;
     };
     path: {
         /**
-         * Workflow Run Id
+         * Workflow Id
          */
-        workflow_run_id: number;
+        workflow_id: number;
     };
     query?: never;
-    url: '/api/v1/telephony/twilio/status-callback/{workflow_run_id}';
+    url: '/api/v1/telephony/inbound/{workflow_id}';
 };
 
-export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors = {
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors = {
     /**
      * Not found
      */
@@ -4355,9 +4785,234 @@ export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflow
     422: HttpValidationError;
 };
 
-export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostError = HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors[keyof HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors];
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostError = HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors[keyof HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors];
 
-export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostResponses = {
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/inbound/fallback';
+};
+
+export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostData = {
+    body: TransferCallRequest;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/call-transfer';
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostError = InitiateCallTransferApiV1TelephonyCallTransferPostErrors[keyof InitiateCallTransferApiV1TelephonyCallTransferPostErrors];
+
+export type InitiateCallTransferApiV1TelephonyCallTransferPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostData = {
+    body?: never;
+    path: {
+        /**
+         * Transfer Id
+         */
+        transfer_id: string;
+    };
+    query?: never;
+    url: '/api/v1/telephony/transfer-result/{transfer_id}';
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors];
+
+export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostData = {
+    body?: never;
+    path: {
+        /**
+         * Workflow Run Id
+         */
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}';
+};
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostError = HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors[keyof HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors];
+
+export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/cloudonix/cdr';
+};
+
+export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Plivo-Signature-V3
+         */
+        'x-plivo-signature-v3'?: string | null;
+        /**
+         * X-Plivo-Signature-Ma-V3
+         */
+        'x-plivo-signature-ma-v3'?: string | null;
+        /**
+         * X-Plivo-Signature-V3-Nonce
+         */
+        'x-plivo-signature-v3-nonce'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Run Id
+         */
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/plivo/hangup-callback/{workflow_run_id}';
+};
+
+export type HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostError = HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostErrors[keyof HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostErrors];
+
+export type HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Plivo-Signature-V3
+         */
+        'x-plivo-signature-v3'?: string | null;
+        /**
+         * X-Plivo-Signature-Ma-V3
+         */
+        'x-plivo-signature-ma-v3'?: string | null;
+        /**
+         * X-Plivo-Signature-V3-Nonce
+         */
+        'x-plivo-signature-v3-nonce'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Run Id
+         */
+        workflow_run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/plivo/ring-callback/{workflow_run_id}';
+};
+
+export type HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostError = HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostErrors[keyof HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostErrors];
+
+export type HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
@@ -4396,8 +5051,14 @@ export type HandleTelnyxEventsApiV1TelephonyTelnyxEventsWorkflowRunIdPostRespons
     200: unknown;
 };
 
-export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostData = {
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostData = {
     body?: never;
+    headers?: {
+        /**
+         * X-Webhook-Signature
+         */
+        'x-webhook-signature'?: string | null;
+    };
     path: {
         /**
          * Workflow Run Id
@@ -4405,10 +5066,10 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostData = 
         workflow_run_id: number;
     };
     query?: never;
-    url: '/api/v1/telephony/vonage/events/{workflow_run_id}';
+    url: '/api/v1/telephony/twilio/status-callback/{workflow_run_id}';
 };
 
-export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors = {
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors = {
     /**
      * Not found
      */
@@ -4419,9 +5080,9 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors 
     422: HttpValidationError;
 };
 
-export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostError = HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors[keyof HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostErrors];
 
-export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
+export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
@@ -4512,38 +5173,6 @@ export type HandleVobizRingCallbackApiV1TelephonyVobizRingCallbackWorkflowRunIdP
     200: unknown;
 };
 
-export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostData = {
-    body?: never;
-    path: {
-        /**
-         * Workflow Run Id
-         */
-        workflow_run_id: number;
-    };
-    query?: never;
-    url: '/api/v1/telephony/cloudonix/status-callback/{workflow_run_id}';
-};
-
-export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostError = HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors[keyof HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostErrors];
-
-export type HandleCloudonixStatusCallbackApiV1TelephonyCloudonixStatusCallbackWorkflowRunIdPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
 export type HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallbackWorkflowWorkflowIdPostData = {
     body?: never;
     headers?: {
@@ -4586,142 +5215,19 @@ export type HandleVobizHangupCallbackByWorkflowApiV1TelephonyVobizHangupCallback
     200: unknown;
 };
 
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
-    body?: never;
-    headers?: {
-        /**
-         * X-Twilio-Signature
-         */
-        'x-twilio-signature'?: string | null;
-        /**
-         * X-Vobiz-Signature
-         */
-        'x-vobiz-signature'?: string | null;
-        /**
-         * X-Vobiz-Timestamp
-         */
-        'x-vobiz-timestamp'?: string | null;
-        /**
-         * X-Cx-Apikey
-         */
-        'x-cx-apikey'?: string | null;
-        /**
-         * Telnyx-Signature-Ed25519
-         */
-        'telnyx-signature-ed25519'?: string | null;
-    };
-    path: {
-        /**
-         * Workflow Id
-         */
-        workflow_id: number;
-    };
-    query?: never;
-    url: '/api/v1/telephony/inbound/{workflow_id}';
-};
-
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostError = HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors[keyof HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors];
-
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/v1/telephony/inbound/fallback';
-};
-
-export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-};
-
-export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostData = {
-    body?: never;
-    path?: never;
-    query?: never;
-    url: '/api/v1/telephony/cloudonix/cdr';
-};
-
-export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-};
-
-export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type InitiateCallTransferApiV1TelephonyCallTransferPostData = {
-    body: TransferCallRequest;
-    path?: never;
-    query?: never;
-    url: '/api/v1/telephony/call-transfer';
-};
-
-export type InitiateCallTransferApiV1TelephonyCallTransferPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type InitiateCallTransferApiV1TelephonyCallTransferPostError = InitiateCallTransferApiV1TelephonyCallTransferPostErrors[keyof InitiateCallTransferApiV1TelephonyCallTransferPostErrors];
-
-export type InitiateCallTransferApiV1TelephonyCallTransferPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostData = {
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostData = {
     body?: never;
     path: {
         /**
-         * Transfer Id
+         * Workflow Run Id
          */
-        transfer_id: string;
+        workflow_run_id: number;
     };
     query?: never;
-    url: '/api/v1/telephony/transfer-result/{transfer_id}';
+    url: '/api/v1/telephony/vonage/events/{workflow_run_id}';
 };
 
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors = {
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors = {
     /**
      * Not found
      */
@@ -4732,9 +5238,9 @@ export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPo
     422: HttpValidationError;
 };
 
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostError = CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors[keyof CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostErrors];
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
 
-export type CompleteTransferFunctionCallApiV1TelephonyTransferResultTransferIdPostResponses = {
+export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
     /**
      * Successful Response
      */
@@ -7356,6 +7862,575 @@ export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGet
 
 export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponse = GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses[keyof GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses];
 
+export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/telephony-providers/metadata';
+};
+
+export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetError = GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetErrors[keyof GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetErrors];
+
+export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyProvidersMetadataResponse;
+};
+
+export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetResponse = GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetResponses[keyof GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetResponses];
+
+export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs';
+};
+
+export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetError = ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetErrors[keyof ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetErrors];
+
+export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyConfigurationListResponse;
+};
+
+export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetResponse = ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetResponses[keyof ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetResponses];
+
+export type CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostData = {
+    body: TelephonyConfigurationCreateRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs';
+};
+
+export type CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostError = CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostErrors[keyof CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostErrors];
+
+export type CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyConfigurationDetail;
+};
+
+export type CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostResponse = CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostResponses[keyof CreateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPostResponses];
+
+export type DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}';
+};
+
+export type DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteError = DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteErrors[keyof DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteErrors];
+
+export type DeleteTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}';
+};
+
+export type GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetError = GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetErrors[keyof GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetErrors];
+
+export type GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyConfigurationDetail;
+};
+
+export type GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetResponse = GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetResponses[keyof GetTelephonyConfigurationByIdApiV1OrganizationsTelephonyConfigsConfigIdGetResponses];
+
+export type UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutData = {
+    body: TelephonyConfigurationUpdateRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}';
+};
+
+export type UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutError = UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutErrors[keyof UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutErrors];
+
+export type UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyConfigurationDetail;
+};
+
+export type UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponse = UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponses[keyof UpdateTelephonyConfigurationApiV1OrganizationsTelephonyConfigsConfigIdPutResponses];
+
+export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/set-default-outbound';
+};
+
+export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostError = SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostErrors[keyof SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostErrors];
+
+export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TelephonyConfigurationDetail;
+};
+
+export type SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponse = SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponses[keyof SetDefaultOutboundApiV1OrganizationsTelephonyConfigsConfigIdSetDefaultOutboundPostResponses];
+
+export type ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers';
+};
+
+export type ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetError = ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetErrors[keyof ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetErrors];
+
+export type ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PhoneNumberListResponse;
+};
+
+export type ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetResponse = ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetResponses[keyof ListPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGetResponses];
+
+export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostData = {
+    body: PhoneNumberCreateRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers';
+};
+
+export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostError = CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostErrors[keyof CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostErrors];
+
+export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PhoneNumberResponse;
+};
+
+export type CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponse = CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses[keyof CreatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPostResponses];
+
+export type DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+        /**
+         * Phone Number Id
+         */
+        phone_number_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}';
+};
+
+export type DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteError = DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteErrors[keyof DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteErrors];
+
+export type DeletePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+        /**
+         * Phone Number Id
+         */
+        phone_number_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}';
+};
+
+export type GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetError = GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetErrors[keyof GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetErrors];
+
+export type GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PhoneNumberResponse;
+};
+
+export type GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetResponse = GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetResponses[keyof GetPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdGetResponses];
+
+export type UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutData = {
+    body: PhoneNumberUpdateRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+        /**
+         * Phone Number Id
+         */
+        phone_number_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}';
+};
+
+export type UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutError = UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutErrors[keyof UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutErrors];
+
+export type UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: PhoneNumberResponse;
+};
+
+export type UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutResponse = UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutResponses[keyof UpdatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPutResponses];
+
+export type SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Config Id
+         */
+        config_id: number;
+        /**
+         * Phone Number Id
+         */
+        phone_number_id: number;
+    };
+    query?: never;
+    url: '/api/v1/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}/set-default-caller';
+};
+
+export type SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostError = SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostErrors[keyof SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostErrors];
+
+export type SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PhoneNumberResponse;
+};
+
+export type SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostResponse = SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostResponses[keyof SetDefaultCallerIdApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdSetDefaultCallerPostResponses];
+
 export type GetTelephonyConfigurationApiV1OrganizationsTelephonyConfigGetData = {
     body?: never;
     headers?: {
@@ -7399,7 +8474,21 @@ export type SaveTelephonyConfigurationApiV1OrganizationsTelephonyConfigPostData 
     /**
      * Request
      */
-    body: TwilioConfigurationRequest | PlivoConfigurationRequest | VonageConfigurationRequest | VobizConfigurationRequest | CloudonixConfigurationRequest | AriConfigurationRequest | TelnyxConfigurationRequest;
+    body: ({
+        provider: 'ari';
+    } & AriConfigurationRequest) | ({
+        provider: 'cloudonix';
+    } & CloudonixConfigurationRequest) | ({
+        provider: 'plivo';
+    } & PlivoConfigurationRequest) | ({
+        provider: 'telnyx';
+    } & TelnyxConfigurationRequest) | ({
+        provider: 'twilio';
+    } & TwilioConfigurationRequest) | ({
+        provider: 'vobiz';
+    } & VobizConfigurationRequest) | ({
+        provider: 'vonage';
+    } & VonageConfigurationRequest);
     headers?: {
         /**
          * Authorization

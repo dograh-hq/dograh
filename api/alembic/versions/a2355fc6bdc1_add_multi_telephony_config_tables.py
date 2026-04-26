@@ -7,12 +7,12 @@ Create Date: 2026-04-26 15:07:07.644855
 """
 
 import json
-from typing import Sequence, Union
+import re
+from dataclasses import dataclass
+from typing import Optional, Sequence, Union
 
 import sqlalchemy as sa
 from alembic import op
-
-from api.services.telephony.address import normalize_telephony_address
 
 # revision identifiers, used by Alembic.
 revision: str = "a2355fc6bdc1"
@@ -24,6 +24,67 @@ depends_on: Union[str, Sequence[str], None] = None
 # Credential keys that are NOT provider credentials and must be stripped before
 # the legacy TELEPHONY_CONFIGURATION JSON is copied into the new credentials column.
 _NON_CREDENTIAL_KEYS = {"provider", "from_numbers"}
+
+
+# Self-contained address normalizer for the legacy ``from_numbers`` backfill.
+# Migrations are snapshots — we deliberately avoid importing the live
+# ``api.utils.telephony_address`` here so this migration keeps working even if
+# that module later moves or its signature changes. The legacy data only ever
+# reached this column without country hints, so the country-hint branch of the
+# real normalizer is intentionally omitted.
+_PSTN_DIGITS_RE = re.compile(r"^\d{8,15}$")
+_PSTN_STRIP_RE = re.compile(r"[\s\-\(\)]")
+_SIP_URI_RE = re.compile(
+    r"^(?P<scheme>sips?):(?:(?P<user>[^@;?]+)@)?(?P<host>[^:;?]+)"
+    r"(?::(?P<port>\d+))?(?P<rest>[;?].*)?$",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True)
+class _NormalizedAddress:
+    canonical: str
+    address_type: str
+    country_code: Optional[str] = None
+
+
+def normalize_telephony_address(raw: str) -> _NormalizedAddress:
+    if raw is None:
+        raise ValueError("address must not be None")
+    raw = raw.strip()
+    if not raw:
+        raise ValueError("address must not be empty")
+
+    if raw.lower().startswith(("sip:", "sips:")):
+        m = _SIP_URI_RE.match(raw)
+        if not m:
+            return _NormalizedAddress(canonical=raw.lower(), address_type="sip_uri")
+        scheme = m.group("scheme").lower()
+        user = m.group("user")
+        host = m.group("host").lower()
+        port = m.group("port")
+        rest = m.group("rest") or ""
+        if (scheme == "sip" and port == "5060") or (
+            scheme == "sips" and port == "5061"
+        ):
+            port = None
+        canonical = f"{scheme}:"
+        if user:
+            canonical += f"{user}@"
+        canonical += host
+        if port:
+            canonical += f":{port}"
+        if rest:
+            canonical += rest.lower()
+        return _NormalizedAddress(canonical=canonical, address_type="sip_uri")
+
+    digits = _PSTN_STRIP_RE.sub("", raw)
+    if digits.startswith("+"):
+        digits = digits[1:]
+    if _PSTN_DIGITS_RE.fullmatch(digits):
+        return _NormalizedAddress(canonical=f"+{digits}", address_type="pstn")
+
+    return _NormalizedAddress(canonical=raw.lower(), address_type="sip_extension")
 
 
 def upgrade() -> None:
@@ -191,11 +252,17 @@ def _backfill_from_legacy_telephony_configuration() -> None:
 
         credentials = {k: v for k, v in value.items() if k not in _NON_CREDENTIAL_KEYS}
 
+        # Set created_at/updated_at explicitly: the SQLAlchemy model's
+        # ``default=lambda: datetime.now(UTC)`` only fires on ORM-driven inserts,
+        # not on raw SQL like this. Without these, both columns are NULL and the
+        # ORM read path fails Pydantic validation.
         cfg_id = bind.execute(
             sa.text(
                 "INSERT INTO telephony_configurations "
-                "(organization_id, name, provider, credentials, is_default_outbound) "
-                "VALUES (:org_id, 'Default', :provider, CAST(:creds AS JSON), TRUE) "
+                "(organization_id, name, provider, credentials, is_default_outbound, "
+                " created_at, updated_at) "
+                "VALUES (:org_id, 'Default', :provider, CAST(:creds AS JSON), TRUE, "
+                " NOW(), NOW()) "
                 "RETURNING id"
             ),
             {
@@ -230,8 +297,10 @@ def _backfill_from_legacy_telephony_configuration() -> None:
                 sa.text(
                     "INSERT INTO telephony_phone_numbers "
                     "(organization_id, telephony_configuration_id, address, "
-                    " address_normalized, address_type, country_code) "
-                    "VALUES (:org_id, :cfg_id, :addr, :norm, :type, :cc)"
+                    " address_normalized, address_type, country_code, "
+                    " created_at, updated_at) "
+                    "VALUES (:org_id, :cfg_id, :addr, :norm, :type, :cc, "
+                    " NOW(), NOW())"
                 ),
                 {
                     "org_id": org_id,

@@ -178,7 +178,7 @@ export default function EditCampaignPage() {
             }
             if (maxConcurrencyValue > effectiveLimit) {
                 if (fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. You have ${fromNumbersCount} phone number(s) configured — add more CLIs to increase concurrency.`);
+                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. You have ${fromNumbersCount} phone number(s) configured - add more CLIs to increase concurrency.`);
                 } else {
                     toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
                 }

@@ -5,15 +5,19 @@ owned by a telephony configuration. They power both outbound caller-ID
 selection and inbound call routing.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
-from api.db.models import TelephonyConfigurationModel, TelephonyPhoneNumberModel
-from api.services.telephony.address import normalize_telephony_address
+from api.db.models import (
+    TelephonyConfigurationModel,
+    TelephonyPhoneNumberModel,
+    WorkflowModel,
+)
+from api.utils.telephony_address import normalize_telephony_address
 
 
 class TelephonyPhoneNumberClient(BaseDBClient):
@@ -30,6 +34,28 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 .order_by(TelephonyPhoneNumberModel.created_at)
             )
             return list(result.scalars().all())
+
+    async def list_phone_numbers_with_workflow_name_for_config(
+        self, telephony_configuration_id: int
+    ) -> List[Tuple[TelephonyPhoneNumberModel, Optional[str]]]:
+        """Same as :meth:`list_phone_numbers_for_config` but also returns the
+        inbound workflow's display name (or None) for each row, fetched via a
+        single LEFT JOIN so we don't load entire workflow rows."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyPhoneNumberModel, WorkflowModel.name)
+                .join(
+                    WorkflowModel,
+                    WorkflowModel.id == TelephonyPhoneNumberModel.inbound_workflow_id,
+                    isouter=True,
+                )
+                .where(
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == telephony_configuration_id
+                )
+                .order_by(TelephonyPhoneNumberModel.created_at)
+            )
+            return [(row, name) for row, name in result.all()]
 
     async def list_active_address_strings_for_config(
         self, telephony_configuration_id: int

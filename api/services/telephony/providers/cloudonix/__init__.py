@@ -12,7 +12,6 @@ from api.services.telephony.registry import (
 
 from .config import CloudonixConfigurationRequest, CloudonixConfigurationResponse
 from .provider import CloudonixProvider
-from .routes import router as routes_router
 from .transport import create_transport
 
 
@@ -66,7 +65,6 @@ SPEC = ProviderSpec(
     transport_factory=create_transport,
     audio_config=_AUDIO_CONFIG,
     config_request_cls=CloudonixConfigurationRequest,
-    router=routes_router,
     ui_metadata=_UI_METADATA,
     config_response_cls=CloudonixConfigurationResponse,
 )

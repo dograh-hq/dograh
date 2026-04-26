@@ -12,7 +12,6 @@ from api.services.telephony.registry import (
 
 from .config import TelnyxConfigurationRequest, TelnyxConfigurationResponse
 from .provider import TelnyxProvider
-from .routes import router as routes_router
 from .transport import create_transport
 
 
@@ -64,7 +63,6 @@ SPEC = ProviderSpec(
     transport_factory=create_transport,
     audio_config=_AUDIO_CONFIG,
     config_request_cls=TelnyxConfigurationRequest,
-    router=routes_router,
     ui_metadata=_UI_METADATA,
     config_response_cls=TelnyxConfigurationResponse,
 )

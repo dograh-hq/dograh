@@ -53,8 +53,6 @@ class ProviderUIMetadata:
     docs_url: Optional[str] = None
 
 if TYPE_CHECKING:
-    from fastapi import APIRouter
-
     from api.services.pipecat.audio_config import AudioConfig
     from api.services.telephony.base import TelephonyProvider
 
@@ -85,12 +83,16 @@ class ProviderSpec:
         audio_config: The AudioConfig this provider's wire format requires.
         config_request_cls: Pydantic model for incoming save requests.
         config_response_cls: Pydantic model for outgoing (masked) responses.
-        router: Optional FastAPI router exposing the provider's webhooks /
-            status callbacks / answer URLs. Mounted under
-            ``/api/v1/telephony`` by ``api.routes.telephony`` at startup.
         ui_metadata: Optional form metadata used by the telephony-config
             UI to render a provider-specific form. Surfaced via
             ``GET /api/v1/telephony/providers/metadata``.
+
+    Note: provider routes (webhooks, status callbacks, answer URLs) are
+    NOT carried on the spec. They live in
+    ``providers/<name>/routes.py`` and are loaded on-demand by
+    ``api.routes.telephony`` via ``importlib`` so route handlers (which
+    can have deep dependency chains into campaign/db code) don't get
+    pulled in just because someone imported a TelephonyProvider type.
     """
 
     name: str
@@ -100,7 +102,6 @@ class ProviderSpec:
     audio_config: "AudioConfig"
     config_request_cls: Type[BaseModel]
     config_response_cls: Type[BaseModel]
-    router: Optional["APIRouter"] = None
     ui_metadata: Optional[ProviderUIMetadata] = None
 
 

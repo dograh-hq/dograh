@@ -959,15 +959,30 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
 
 
 # Mount per-provider routers (webhook, status callbacks, answer URLs).
-# Each provider package defines its own routes in providers/<name>/routes.py
-# and registers them via ProviderSpec.router. This loop runs after all
-# helpers above are defined, so provider routes can safely import them.
+#
+# Each provider's routes live at ``providers/<name>/routes.py`` and expose
+# a module-level ``router``. We discover them through the registry rather
+# than pre-importing them from each provider's __init__.py so that the
+# (heavy) route module — which transitively depends on status_processor,
+# campaign helpers, etc. — is only loaded when the HTTP layer is actually
+# being wired up, not when someone merely asks for a TelephonyProvider
+# class. This is what keeps the package init free of cycles.
 def _mount_provider_routers() -> None:
+    import importlib
+
     from api.services.telephony import registry as _telephony_registry
 
     for spec in _telephony_registry.all_specs():
-        if spec.router is not None:
-            router.include_router(spec.router)
+        try:
+            module = importlib.import_module(
+                f"api.services.telephony.providers.{spec.name}.routes"
+            )
+        except ModuleNotFoundError:
+            # Provider has no routes (e.g. ARI, which only has a WebSocket).
+            continue
+        provider_router = getattr(module, "router", None)
+        if provider_router is not None:
+            router.include_router(provider_router)
 
 
 _mount_provider_routers()

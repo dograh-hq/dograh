@@ -13,8 +13,10 @@ class TelnyxConfigurationRequest(BaseModel):
     connection_id: str = Field(
         ..., description="Telnyx Call Control Application ID (connection_id)"
     )
+    # Phone numbers are managed via the dedicated phone-numbers endpoints; the
+    # legacy /telephony-config POST shim still accepts them inline.
     from_numbers: List[str] = Field(
-        ..., min_length=1, description="List of Telnyx phone numbers (E.164 format)"
+        default_factory=list, description="List of Telnyx phone numbers"
     )
 
 

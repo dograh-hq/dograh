@@ -11,8 +11,10 @@ class TwilioConfigurationRequest(BaseModel):
     provider: Literal["twilio"] = Field(default="twilio")
     account_sid: str = Field(..., description="Twilio Account SID")
     auth_token: str = Field(..., description="Twilio Auth Token")
+    # Phone numbers are managed via the dedicated phone-numbers endpoints; the
+    # legacy /telephony-config POST shim still accepts them inline.
     from_numbers: List[str] = Field(
-        ..., min_length=1, description="List of Twilio phone numbers"
+        default_factory=list, description="List of Twilio phone numbers"
     )
 
 

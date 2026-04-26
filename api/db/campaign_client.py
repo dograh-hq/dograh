@@ -23,6 +23,7 @@ class CampaignClient(BaseDBClient):
         max_concurrency: Optional[int] = None,
         schedule_config: Optional[dict] = None,
         circuit_breaker: Optional[dict] = None,
+        telephony_configuration_id: Optional[int] = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -46,6 +47,7 @@ class CampaignClient(BaseDBClient):
                 if retry_config
                 else CampaignModel.retry_config.default.arg,
                 orchestrator_metadata=orchestrator_metadata,
+                telephony_configuration_id=telephony_configuration_id,
             )
             session.add(campaign)
             try:

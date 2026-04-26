@@ -40,14 +40,17 @@ async def _get_org_concurrent_limit(organization_id: int) -> int:
 
 
 async def _get_from_numbers_count(organization_id: int) -> int:
-    """Get the number of configured from_numbers for an organization."""
+    """Active phone-number count from the org's default telephony config.
+    Used to validate ``max_concurrency`` against caller-id supply."""
     try:
-        config = await db_client.get_configuration(
-            organization_id,
-            OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        default_cfg = await db_client.get_default_telephony_configuration(
+            organization_id
         )
-        if config and config.value:
-            return len(config.value.get("from_numbers", []))
+        if default_cfg:
+            addresses = await db_client.list_active_address_strings_for_config(
+                default_cfg.id
+            )
+            return len(addresses)
     except Exception:
         pass
     return 0
@@ -151,6 +154,10 @@ class CreateCampaignRequest(BaseModel):
     workflow_id: int
     source_type: str = Field(..., pattern="^(google-sheet|csv)$")
     source_id: str  # Google Sheet URL or CSV file key
+    # Optional during the legacy → multi-config migration window. Required in
+    # a follow-up. When omitted, the dispatcher falls back to the org's
+    # default config.
+    telephony_configuration_id: Optional[int] = None
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
@@ -355,6 +362,25 @@ async def create_campaign(
             request.max_concurrency, user.selected_organization_id
         )
 
+    # Resolve which telephony config the campaign is pinned to. Explicit value
+    # wins; otherwise default to the org's default config so legacy clients keep
+    # working through the migration window.
+    telephony_configuration_id = request.telephony_configuration_id
+    if telephony_configuration_id:
+        cfg = await db_client.get_telephony_configuration_for_org(
+            telephony_configuration_id, user.selected_organization_id
+        )
+        if not cfg:
+            raise HTTPException(
+                status_code=400, detail="telephony_configuration_not_found"
+            )
+    else:
+        default_cfg = await db_client.get_default_telephony_configuration(
+            user.selected_organization_id
+        )
+        if default_cfg:
+            telephony_configuration_id = default_cfg.id
+
     # Build retry_config dict if provided
     retry_config = None
     if request.retry_config:
@@ -381,6 +407,7 @@ async def create_campaign(
         max_concurrency=request.max_concurrency,
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
+        telephony_configuration_id=telephony_configuration_id,
     )
 
     return _build_campaign_response(campaign, workflow_name)
@@ -441,13 +468,11 @@ async def start_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Start campaign execution"""
-    # Check if organization has TELEPHONY_CONFIGURATION configured
-    twilio_config = await db_client.get_configuration(
-        user.selected_organization_id,
-        OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+    # Block start if the org has no telephony configuration at all.
+    configs = await db_client.list_telephony_configurations(
+        user.selected_organization_id
     )
-
-    if not twilio_config or not twilio_config.value:
+    if not configs:
         raise HTTPException(
             status_code=401,
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
@@ -734,13 +759,11 @@ async def resume_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Resume a paused campaign"""
-    # Check if organization has TELEPHONY_CONFIGURATION configured
-    twilio_config = await db_client.get_configuration(
-        user.selected_organization_id,
-        OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+    # Block resume if the org has no telephony configuration at all.
+    configs = await db_client.list_telephony_configurations(
+        user.selected_organization_id
     )
-
-    if not twilio_config or not twilio_config.value:
+    if not configs:
         raise HTTPException(
             status_code=401,
             detail="You must configure telephony first by going to APP_URL/configure-telephony",

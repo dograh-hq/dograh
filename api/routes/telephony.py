@@ -5,7 +5,6 @@ Consolidated from split modules for easier maintenance.
 
 import json
 import uuid
-from datetime import UTC, datetime
 from typing import Optional
 
 from fastapi import (
@@ -18,15 +17,11 @@ from fastapi import (
 )
 from loguru import logger
 from pydantic import BaseModel, field_validator
-from sqlalchemy import text
 from sqlalchemy.future import select
-from starlette.responses import HTMLResponse
 from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
 from api.db.models import OrganizationConfigurationModel, UserModel
-from api.db.workflow_client import WorkflowClient
-from api.db.workflow_run_client import WorkflowRunClient
 from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
@@ -36,10 +31,6 @@ from api.services.telephony.call_transfer_manager import get_call_transfer_manag
 from api.services.telephony.factory import (
     get_all_telephony_providers,
     get_telephony_provider,
-)
-from api.services.telephony.status_processor import (
-    StatusCallbackRequest,
-    _process_status_update,
 )
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,

@@ -166,14 +166,16 @@ def _phone_number_to_response(
 
 
 async def _sync_inbound_for_phone_number(
-    config_id: int, address: str, workflow_id: Optional[int]
+    config_id: int, address: str, attach: bool
 ) -> ProviderSyncStatus:
     """Push inbound webhook configuration to the provider.
 
-    ``workflow_id`` set: build the inbound URL and ask the provider to point
-    its resource for ``address`` at it. ``None``: ask the provider to clear.
-    Failures are returned as ``ok=False`` so the caller can surface a warning
-    without aborting the DB write.
+    ``attach=True``: ask the provider to route this number's inbound calls
+    to our workflow-agnostic dispatcher (``/api/v1/telephony/inbound/run``).
+    ``attach=False``: ask the provider to detach. The dispatcher resolves
+    the workflow from the called number's ``inbound_workflow_id``, so the
+    webhook URL is the same for every assignment — providers only need to
+    bind/unbind the number, not rewrite per-workflow URLs.
     """
     try:
         provider = await get_telephony_provider_by_id(config_id)
@@ -182,9 +184,9 @@ async def _sync_inbound_for_phone_number(
         return ProviderSyncStatus(ok=False, message=f"Provider load failed: {e}")
 
     webhook_url: Optional[str] = None
-    if workflow_id is not None:
+    if attach:
         backend_endpoint, _ = await get_backend_endpoints()
-        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
 
     try:
         result = await provider.configure_inbound(address, webhook_url)
@@ -438,7 +440,7 @@ async def create_phone_number(
     response = _phone_number_to_response(row)
     if request.inbound_workflow_id is not None:
         response.provider_sync = await _sync_inbound_for_phone_number(
-            config_id, row.address, request.inbound_workflow_id
+            config_id, row.address, attach=True
         )
     return response
 
@@ -496,10 +498,11 @@ async def update_phone_number(
     response = _phone_number_to_response(row)
 
     # Sync provider-side webhook only when the inbound workflow actually changed.
-    inbound_changed = row.inbound_workflow_id != existing.inbound_workflow_id
-    if inbound_changed:
+    had_workflow = existing.inbound_workflow_id is not None
+    has_workflow = row.inbound_workflow_id is not None
+    if had_workflow != has_workflow:
         response.provider_sync = await _sync_inbound_for_phone_number(
-            config_id, row.address, row.inbound_workflow_id
+            config_id, row.address, attach=has_workflow
         )
     return response
 
@@ -541,11 +544,11 @@ async def delete_phone_number(
     if not deleted:
         raise HTTPException(status_code=404, detail="Phone number not found")
 
-    # Clear the upstream VoiceUrl so the provider stops POSTing to a dead
-    # workflow id. Best-effort — if the provider call fails, the user has
-    # already deleted the row and we just log.
+    # Clear the upstream binding so the provider stops POSTing to the
+    # dispatcher for a row that no longer exists. Best-effort — if the
+    # provider call fails, the user has already deleted the row and we log.
     if existing.inbound_workflow_id is not None:
-        await _sync_inbound_for_phone_number(config_id, existing.address, None)
+        await _sync_inbound_for_phone_number(config_id, existing.address, attach=False)
     return {"message": "Phone number deleted"}
 
 

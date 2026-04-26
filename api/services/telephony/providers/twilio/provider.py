@@ -399,11 +399,22 @@ class TwilioProvider(TelephonyProvider):
         return stored_account_sid == webhook_account_id
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """
         Verify the signature of an inbound Twilio webhook for security.
+        Twilio signs requests with the ``X-Twilio-Signature`` header.
         """
+        signature = headers.get("x-twilio-signature", "")
+        if not signature:
+            # Twilio always signs its webhooks; missing header means the
+            # request didn't come from Twilio (or was tampered with).
+            logger.warning("Inbound Twilio webhook missing X-Twilio-Signature")
+            return False
         return await self.verify_webhook_signature(url, webhook_data, signature)
 
     async def configure_inbound(

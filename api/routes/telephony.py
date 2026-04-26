@@ -10,7 +10,6 @@ from typing import Optional
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Request,
     WebSocket,
@@ -270,15 +269,8 @@ async def _validate_inbound_request(
     provider_class,
     normalized_data,
     webhook_data: dict,
+    headers: dict,
     webhook_body: str = "",
-    x_twilio_signature: str = None,
-    x_plivo_signature: str = None,
-    x_plivo_signature_ma: str = None,
-    x_plivo_signature_nonce: str = None,
-    x_vobiz_signature: str = None,
-    x_vobiz_timestamp: str = None,
-    x_cx_apikey: str = None,
-    telnyx_signature: str = None,
 ) -> tuple[bool, TelephonyError, dict, object]:
     """
     Validate all aspects of inbound request.
@@ -315,73 +307,23 @@ async def _validate_inbound_request(
     if phone_number_id is None:
         return False, TelephonyError.PHONE_NUMBER_NOT_CONFIGURED, {}, None
 
-    # Verify webhook signature/API key if provided
-    provider_instance = None
-    if (
-        x_twilio_signature
-        or x_plivo_signature
-        or x_plivo_signature_ma
-        or x_vobiz_signature
-        or x_cx_apikey
-        or telnyx_signature
-    ):
-        backend_endpoint, _ = await get_backend_endpoints()
-        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
-
-        # Use the credentials of the *matched* config so signature verification
-        # works in orgs that have multiple configs of the same provider.
-        provider_instance = await get_telephony_provider_by_id(
-            telephony_configuration_id
+    # Verify webhook signature using the matched config's credentials. The
+    # provider extracts its own signature/timestamp/nonce headers from the
+    # dict, so this dispatcher stays generic.
+    backend_endpoint, _ = await get_backend_endpoints()
+    webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
+    provider_instance = await get_telephony_provider_by_id(telephony_configuration_id)
+    signature_valid = await provider_instance.verify_inbound_signature(
+        webhook_url, webhook_data, headers, webhook_body
+    )
+    logger.info(f"Signature validation for {provider}: {signature_valid}")
+    if not signature_valid:
+        return (
+            False,
+            TelephonyError.SIGNATURE_VALIDATION_FAILED,
+            {},
+            provider_instance,
         )
-
-        if provider_class.PROVIDER_NAME == "twilio" and x_twilio_signature:
-            logger.info(f"Verifying Twilio signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url, webhook_data, x_twilio_signature
-            )
-        elif provider_class.PROVIDER_NAME == "plivo" and (
-            x_plivo_signature or x_plivo_signature_ma
-        ):
-            logger.info(f"Verifying Plivo signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url,
-                webhook_data,
-                x_plivo_signature or x_plivo_signature_ma,
-                x_plivo_signature_nonce,
-            )
-        elif provider_class.PROVIDER_NAME == "vobiz" and x_vobiz_signature:
-            logger.info(f"Verifying Vobiz signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url,
-                webhook_data,
-                x_vobiz_signature,
-                x_vobiz_timestamp,
-                webhook_body,
-            )
-        elif provider_class.PROVIDER_NAME == "cloudonix" and x_cx_apikey:
-            logger.info(f"Verifying Cloudonix API key for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url, webhook_data, x_cx_apikey
-            )
-        elif provider_class.PROVIDER_NAME == "telnyx" and telnyx_signature:
-            logger.info(f"Verifying Telnyx signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url, webhook_data, telnyx_signature
-            )
-        else:
-            logger.warning(
-                f"No signature/API key validation for provider {provider_class.PROVIDER_NAME}"
-            )
-            signature_valid = True
-
-        logger.info(f"Signature/API key validation result: {signature_valid}")
-        if not signature_valid:
-            return (
-                False,
-                TelephonyError.SIGNATURE_VALIDATION_FAILED,
-                {},
-                provider_instance,
-            )
 
     # Return success with workflow context
     workflow_context = {
@@ -392,12 +334,7 @@ async def _validate_inbound_request(
         "telephony_configuration_id": telephony_configuration_id,
         "from_phone_number_id": phone_number_id,
     }
-    return (
-        True,
-        "",
-        workflow_context,
-        provider_instance,
-    )  # TODO: do we still need instance in the client code
+    return (True, "", workflow_context, provider_instance)
 
 
 async def _create_inbound_workflow_run(
@@ -615,14 +552,6 @@ async def _handle_telephony_websocket(
 async def handle_inbound_telephony(
     workflow_id: int,
     request: Request,
-    x_twilio_signature: Optional[str] = Header(None),
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
-    x_vobiz_signature: Optional[str] = Header(None),
-    x_vobiz_timestamp: Optional[str] = Header(None),
-    x_cx_apikey: Optional[str] = Header(None),
-    telnyx_signature: Optional[str] = Header(None, alias="telnyx-signature-ed25519"),
 ):
     """Handle inbound telephony calls from any supported provider with common processing"""
     logger.info(f"Inbound call received for workflow_id: {workflow_id}")
@@ -652,15 +581,8 @@ async def handle_inbound_telephony(
             logger.warning(f"Non-inbound call received: {normalized_data.direction}")
             return generic_hangup_response()
 
-        logger.info(f"Inbound call headers: {dict(request.headers)}")
-        logger.info(f"Twilio signature header: {x_twilio_signature}")
-        logger.info(f"Vobiz signature header: {x_vobiz_signature}")
-        logger.info(f"Vobiz timestamp header: {x_vobiz_timestamp}")
-
-        webhook_body = ""
-        if provider_class.PROVIDER_NAME == "vobiz":
-            webhook_body = data_source
-            logger.info(f"Vobiz inbound call - Body: {json.dumps(webhook_data)}")
+        # Vobiz signs the raw body bytes; other providers don't read this.
+        webhook_body = data_source if provider_class.PROVIDER_NAME == "vobiz" else ""
 
         (
             is_valid,
@@ -672,15 +594,8 @@ async def handle_inbound_telephony(
             provider_class,
             normalized_data,
             webhook_data,
+            headers,
             webhook_body,
-            x_twilio_signature,
-            x_plivo_signature_v3,
-            x_plivo_signature_ma_v3,
-            x_plivo_signature_v3_nonce,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
-            x_cx_apikey,
-            telnyx_signature,
         )
 
         if not is_valid:
@@ -756,6 +671,199 @@ async def handle_inbound_telephony(
         return generic_hangup_response()
     except Exception as e:
         logger.error(f"Error processing inbound call: {e}")
+        return generic_hangup_response()
+
+
+@router.post("/inbound/run")
+async def handle_inbound_run(request: Request):
+    """Workflow-agnostic inbound dispatcher.
+
+    All providers can point a single webhook at this endpoint instead of one
+    URL per workflow. The dispatcher resolves the org from the webhook's
+    account_id and the workflow from the called number's
+    ``inbound_workflow_id``. This is what ``configure_inbound`` writes into
+    each provider's resource so per-workflow webhook bookkeeping disappears.
+
+    Provider-specific signature/timestamp headers are not enumerated here —
+    each provider's ``verify_inbound_signature`` reads its own headers from
+    the dict, so adding a new provider doesn't require changes to this route.
+    """
+    from api.services.telephony import registry as telephony_registry
+
+    logger.info("Inbound /run dispatch received")
+
+    try:
+        webhook_data, data_source = await parse_webhook_request(request)
+        headers = dict(request.headers)
+
+        provider_class = await _detect_provider(webhook_data, headers)
+        if not provider_class:
+            logger.error("Unable to detect provider for /inbound/run webhook")
+            return generic_hangup_response()
+
+        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+        logger.info(
+            f"/inbound/run normalized data — provider={normalized_data.provider} "
+            f"to={normalized_data.to_number} from={normalized_data.from_number}"
+        )
+
+        if normalized_data.direction != "inbound":
+            logger.warning(
+                f"Non-inbound call on /inbound/run: {normalized_data.direction}"
+            )
+            return generic_hangup_response()
+
+        # Vobiz signs the raw body bytes; other providers don't read this.
+        webhook_body = data_source if provider_class.PROVIDER_NAME == "vobiz" else ""
+
+        # 1. Resolve config globally from (provider, account_id).
+        spec = telephony_registry.get_optional(provider_class.PROVIDER_NAME)
+        account_field = spec.account_id_credential_field if spec else ""
+        config = await db_client.find_telephony_config_by_account(
+            provider_class.PROVIDER_NAME,
+            account_field,
+            normalized_data.account_id or "",
+        )
+        if not config:
+            logger.warning(
+                f"/inbound/run: no config matched provider="
+                f"{provider_class.PROVIDER_NAME} account_id={normalized_data.account_id}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.ACCOUNT_VALIDATION_FAILED
+            )
+
+        organization_id = config.organization_id
+        telephony_configuration_id = config.id
+
+        # 2. Resolve workflow via the called number's inbound_workflow_id.
+        phone_row = await db_client.find_active_phone_number_for_inbound(
+            organization_id,
+            normalized_data.to_number,
+            provider_class.PROVIDER_NAME,
+            country_hint=normalized_data.to_country,
+        )
+        # Legacy fallback for non-E.164 stored addresses.
+        if (
+            not phone_row
+            or phone_row.telephony_configuration_id != telephony_configuration_id
+        ):
+            phone_row = None
+            for row in await db_client.list_phone_numbers_for_config(
+                telephony_configuration_id
+            ):
+                if not row.is_active:
+                    continue
+                if numbers_match(
+                    normalized_data.to_number,
+                    row.address,
+                    normalized_data.to_country,
+                    normalized_data.from_country,
+                ):
+                    phone_row = row
+                    break
+
+        if not phone_row:
+            logger.warning(
+                f"/inbound/run: number {normalized_data.to_number} not registered "
+                f"in config {telephony_configuration_id}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.PHONE_NUMBER_NOT_CONFIGURED
+            )
+
+        if not phone_row.inbound_workflow_id:
+            logger.warning(
+                f"/inbound/run: number {normalized_data.to_number} has no "
+                f"inbound_workflow_id assigned"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.WORKFLOW_NOT_FOUND
+            )
+
+        workflow_id = phone_row.inbound_workflow_id
+        workflow = await db_client.get_workflow(workflow_id)
+        if not workflow:
+            return provider_class.generate_validation_error_response(
+                TelephonyError.WORKFLOW_NOT_FOUND
+            )
+        user_id = workflow.user_id
+
+        # 3. Verify webhook signature against the matched config's credentials.
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
+        provider_instance = await get_telephony_provider_by_id(
+            telephony_configuration_id
+        )
+        signature_valid = await provider_instance.verify_inbound_signature(
+            webhook_url, webhook_data, headers, webhook_body
+        )
+        if not signature_valid:
+            logger.warning(
+                f"/inbound/run: signature validation failed for "
+                f"{provider_class.PROVIDER_NAME}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.SIGNATURE_VALIDATION_FAILED
+            )
+
+        # 4. Quota check.
+        quota_result = await check_dograh_quota_by_user_id(user_id)
+        if not quota_result.has_quota:
+            logger.warning(
+                f"User {user_id} has exceeded quota: {quota_result.error_message}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.QUOTA_EXCEEDED
+            )
+
+        # 5. Create workflow run + return provider-shaped response.
+        workflow_run_id = await _create_inbound_workflow_run(
+            workflow_id,
+            user_id,
+            provider_class.PROVIDER_NAME,
+            normalized_data,
+            data_source,
+            telephony_configuration_id=telephony_configuration_id,
+            from_phone_number_id=phone_row.id,
+        )
+
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
+        websocket_url = (
+            f"{wss_backend_endpoint}/api/v1/telephony/ws/"
+            f"{workflow_id}/{user_id}/{workflow_run_id}"
+        )
+
+        if provider_class.PROVIDER_NAME == "telnyx":
+            if not provider_instance:
+                provider_instance = await get_telephony_provider_by_id(
+                    telephony_configuration_id
+                )
+            events_url = (
+                f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
+            )
+            try:
+                await provider_instance.answer_and_stream(
+                    call_control_id=normalized_data.call_id,
+                    stream_url=websocket_url,
+                    webhook_url=events_url,
+                )
+            except Exception as e:
+                logger.error(f"Failed to answer Telnyx inbound call: {e}")
+                return provider_class.generate_error_response(
+                    "ANSWER_FAILED", "Failed to answer call"
+                )
+            return {"status": "ok"}
+
+        return await provider_class.generate_inbound_response(
+            websocket_url, workflow_run_id
+        )
+
+    except ValueError as e:
+        logger.error(f"/inbound/run request parsing error: {e}")
+        return generic_hangup_response()
+    except Exception as e:
+        logger.error(f"/inbound/run unexpected error: {e}")
         return generic_hangup_response()
 
 

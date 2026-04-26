@@ -277,18 +277,30 @@ class TelephonyProvider(ABC):
 
     @abstractmethod
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """
         Verify the signature of an inbound webhook for security.
 
+        Each provider extracts its own signature/timestamp/nonce headers.
+        Returning True when no signature is present means "no verification
+        attempted" — providers should return False if a signature *is*
+        present but invalid.
+
         Args:
-            url: The full webhook URL
-            webhook_data: The webhook payload
-            signature: The signature header from the provider
+            url: The full webhook URL the provider POSTed to
+            webhook_data: Parsed webhook payload (form fields or JSON)
+            headers: HTTP headers from the request (case-insensitive lookup
+                is the provider's responsibility)
+            body: Raw request body — only used by providers that sign over
+                the body bytes (e.g. Vobiz)
 
         Returns:
-            True if signature is valid, False otherwise
+            True if signature is valid (or none required), False otherwise
         """
         pass
 

@@ -473,14 +473,20 @@ class VobizProvider(TelephonyProvider):
         self,
         url: str,
         webhook_data: Dict[str, Any],
-        signature: str,
-        timestamp: str = None,
+        headers: Dict[str, str],
         body: str = "",
     ) -> bool:
         """
         Verify the signature of an inbound Vobiz webhook for security.
-        Uses the same HMAC-SHA256 verification as other Vobiz webhooks.
+        Uses HMAC-SHA256 over ``timestamp + '.' + body`` with the auth_token.
         """
+        signature = headers.get("x-vobiz-signature", "")
+        timestamp = headers.get("x-vobiz-timestamp")
+        if not signature:
+            # Vobiz always signs its webhooks; missing header means the
+            # request didn't come from Vobiz (or was tampered with).
+            logger.warning("Inbound Vobiz webhook missing X-Vobiz-Signature")
+            return False
         return await self.verify_webhook_signature(
             url, webhook_data, signature, timestamp, body
         )

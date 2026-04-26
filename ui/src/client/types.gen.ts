@@ -2321,20 +2321,7 @@ export type PhoneNumberResponse = {
      * Updated At
      */
     updated_at: string;
-    /**
-     * Provider Sync
-     */
     provider_sync?: ProviderSyncStatus | null;
-};
-
-/**
- * ProviderSyncStatus
- *
- * Result of pushing a phone-number change to the upstream provider.
- */
-export type ProviderSyncStatus = {
-    ok: boolean;
-    message?: string | null;
 };
 
 /**
@@ -2612,6 +2599,26 @@ export type PropertySpec = {
  * `<PropertyInput>` switch and (where relevant) the SDK codegen template.
  */
 export type PropertyType = 'string' | 'number' | 'boolean' | 'options' | 'multi_options' | 'fixed_collection' | 'json' | 'tool_refs' | 'document_refs' | 'recording_ref' | 'credential_ref' | 'mention_textarea' | 'url';
+
+/**
+ * ProviderSyncStatus
+ *
+ * Result of pushing a phone-number change to the upstream provider.
+ *
+ * Returned alongside create/update responses when the route attempted to
+ * sync inbound webhook configuration. ``ok=False`` is a warning, not a
+ * fatal error — the DB write succeeded.
+ */
+export type ProviderSyncStatus = {
+    /**
+     * Ok
+     */
+    ok: boolean;
+    /**
+     * Message
+     */
+    message?: string | null;
+};
 
 /**
  * RecordingCreateRequestSchema
@@ -4730,40 +4737,6 @@ export type InitiateCallApiV1TelephonyInitiateCallPostResponses = {
 
 export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
     body?: never;
-    headers?: {
-        /**
-         * X-Twilio-Signature
-         */
-        'x-twilio-signature'?: string | null;
-        /**
-         * X-Plivo-Signature-V3
-         */
-        'x-plivo-signature-v3'?: string | null;
-        /**
-         * X-Plivo-Signature-Ma-V3
-         */
-        'x-plivo-signature-ma-v3'?: string | null;
-        /**
-         * X-Plivo-Signature-V3-Nonce
-         */
-        'x-plivo-signature-v3-nonce'?: string | null;
-        /**
-         * X-Vobiz-Signature
-         */
-        'x-vobiz-signature'?: string | null;
-        /**
-         * X-Vobiz-Timestamp
-         */
-        'x-vobiz-timestamp'?: string | null;
-        /**
-         * X-Cx-Apikey
-         */
-        'x-cx-apikey'?: string | null;
-        /**
-         * Telnyx-Signature-Ed25519
-         */
-        'telnyx-signature-ed25519'?: string | null;
-    };
     path: {
         /**
          * Workflow Id
@@ -4788,6 +4761,27 @@ export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors = {
 export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostError = HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors[keyof HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors];
 
 export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleInboundRunApiV1TelephonyInboundRunPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/inbound/run';
+};
+
+export type HandleInboundRunApiV1TelephonyInboundRunPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleInboundRunApiV1TelephonyInboundRunPostResponses = {
     /**
      * Successful Response
      */

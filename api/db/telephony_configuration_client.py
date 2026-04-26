@@ -67,6 +67,29 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def find_telephony_config_by_account(
+        self, provider: str, account_id_field: str, account_id: str
+    ) -> Optional[TelephonyConfigurationModel]:
+        """Global lookup used by the workflow-agnostic inbound dispatcher.
+
+        Returns the single config whose stored credentials contain
+        ``credentials[account_id_field] == account_id``. Filters in Python
+        over the per-provider candidate set since credentials is JSON.
+        """
+        if not account_id_field or not account_id:
+            return None
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyConfigurationModel).where(
+                    TelephonyConfigurationModel.provider == provider,
+                )
+            )
+            for cand in result.scalars().all():
+                stored = (cand.credentials or {}).get(account_id_field)
+                if stored and stored == account_id:
+                    return cand
+            return None
+
     async def list_telephony_configurations_by_provider(
         self, organization_id: int, provider: str
     ) -> List[TelephonyConfigurationModel]:

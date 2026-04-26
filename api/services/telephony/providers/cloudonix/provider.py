@@ -581,14 +581,20 @@ class CloudonixProvider(TelephonyProvider):
         return clean_number
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], api_key: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """
         Verify the API key of an inbound Cloudonix webhook for security.
 
-        Cloudonix uses x-cx-apikey header validation instead of signature verification.
-        The API key from the webhook should match the bearer_token in our configuration.
+        Cloudonix uses ``x-cx-apikey`` header validation instead of signature
+        verification. The API key from the webhook should match the
+        bearer_token in our configuration.
         """
+        api_key = headers.get("x-cx-apikey", "")
         if not api_key:
             logger.warning("No x-cx-apikey provided in Cloudonix webhook")
             return False

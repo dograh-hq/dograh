@@ -313,7 +313,11 @@ class ARIProvider(TelephonyProvider):
         return phone_number or ""
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """ARI authenticates via WebSocket connection credentials, not signatures."""
         return True

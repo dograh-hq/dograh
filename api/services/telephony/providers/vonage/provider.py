@@ -441,7 +441,11 @@ class VonageProvider(TelephonyProvider):
         return stored_api_key == webhook_account_id
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """
         Vonage inbound signature verification - minimalist implementation.

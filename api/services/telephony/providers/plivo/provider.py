@@ -6,7 +6,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse, urlunparse
@@ -407,14 +406,18 @@ class PlivoProvider(TelephonyProvider):
         self,
         url: str,
         webhook_data: Dict[str, Any],
-        signature: str,
-        nonce: str = "",
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
-        if os.getenv("ENVIRONMENT") == "local":
-            logger.warning(
-                "Skipping Plivo inbound signature verification in local environment"
-            )
-            return True
+        signature = headers.get("x-plivo-signature-v3") or headers.get(
+            "x-plivo-signature-ma-v3", ""
+        )
+        nonce = headers.get("x-plivo-signature-v3-nonce", "")
+        if not signature:
+            # Plivo always signs its webhooks; missing header means the
+            # request didn't come from Plivo (or was tampered with).
+            logger.warning("Inbound Plivo webhook missing X-Plivo-Signature-V3")
+            return False
         return await self.verify_webhook_signature(url, webhook_data, signature, nonce)
 
     @staticmethod

@@ -412,10 +412,15 @@ class TelnyxProvider(TelephonyProvider):
         return phone_number or ""
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """Required by the abstract interface. Telnyx signature verification
-        (Ed25519) is not yet implemented — accepts all inbound webhooks for now.
+        (Ed25519 via ``telnyx-signature-ed25519``) is not yet implemented —
+        accepts all inbound webhooks for now.
         """
         return True
 

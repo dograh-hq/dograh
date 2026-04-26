@@ -20,27 +20,94 @@ from api.services.worker_sync.protocol import WorkerSyncEventType
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
-# Provider configuration constants
-PROVIDER_MASKED_FIELDS = {
-    "twilio": ["account_sid", "auth_token"],
-    "plivo": ["auth_id", "auth_token"],
-    "vonage": ["private_key", "api_key", "api_secret"],
-    "vobiz": ["auth_id", "auth_token"],
-    "cloudonix": ["bearer_token"],
-    "ari": ["app_password"],
-    "telnyx": ["api_key"],
-}
+
+def _sensitive_fields(provider_name: str) -> List[str]:
+    """Field names that should be masked when displaying stored config.
+
+    Sourced from ProviderUIField.sensitive in the registry — the same source
+    of truth that drives the form-rendering UI.
+    """
+    spec = telephony_registry.get_optional(provider_name)
+    if spec is None or spec.ui_metadata is None:
+        return []
+    return [f.name for f in spec.ui_metadata.fields if f.sensitive]
 
 
 def _mask_sensitive(provider_name: str, value: dict) -> dict:
     """Return a copy of ``value`` with sensitive fields masked for display."""
-    masked_fields = PROVIDER_MASKED_FIELDS.get(provider_name, [])
     out = dict(value)
-    for field_name in masked_fields:
+    for field_name in _sensitive_fields(provider_name):
         v = out.get(field_name)
         if v:
             out[field_name] = mask_key(v)
     return out
+
+
+class TelephonyProviderUIField(BaseModel):
+    """One form field on a telephony provider's configuration UI."""
+
+    name: str
+    label: str
+    type: str
+    required: bool
+    sensitive: bool
+    description: Optional[str] = None
+    placeholder: Optional[str] = None
+
+
+class TelephonyProviderMetadata(BaseModel):
+    """UI form metadata for a single telephony provider."""
+
+    provider: str
+    display_name: str
+    fields: List[TelephonyProviderUIField]
+    docs_url: Optional[str] = None
+
+
+class TelephonyProvidersMetadataResponse(BaseModel):
+    """List of UI form definitions used by the telephony-config screen."""
+
+    providers: List[TelephonyProviderMetadata]
+
+
+@router.get(
+    "/telephony-providers/metadata",
+    response_model=TelephonyProvidersMetadataResponse,
+)
+async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
+    """Return the list of available telephony providers and their form schemas.
+
+    The UI uses this to render the configuration form generically instead of
+    hard-coding fields per provider. Adding a new provider only requires
+    declaring its ui_metadata in providers/<name>/__init__.py.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    providers = []
+    for spec in telephony_registry.all_specs():
+        if spec.ui_metadata is None:
+            continue
+        providers.append(
+            TelephonyProviderMetadata(
+                provider=spec.name,
+                display_name=spec.ui_metadata.display_name,
+                fields=[
+                    TelephonyProviderUIField(
+                        name=f.name,
+                        label=f.label,
+                        type=f.type,
+                        required=f.required,
+                        sensitive=f.sensitive,
+                        description=f.description,
+                        placeholder=f.placeholder,
+                    )
+                    for f in spec.ui_metadata.fields
+                ],
+                docs_url=spec.ui_metadata.docs_url,
+            )
+        )
+    return TelephonyProvidersMetadataResponse(providers=providers)
 
 
 @router.get("/telephony-config", response_model=TelephonyConfigurationResponse)
@@ -107,10 +174,8 @@ async def save_telephony_configuration(
 
 
 def preserve_masked_fields(request, existing_config, config_value):
-    provider = request.provider
-    masked_fields = PROVIDER_MASKED_FIELDS.get(provider, [])
-
-    for field_name in masked_fields:
+    """If the client re-submits a masked sensitive field, restore the stored value."""
+    for field_name in _sensitive_fields(request.provider):
         if hasattr(request, field_name):
             field_value = getattr(request, field_name)
             if field_value and is_mask_of(

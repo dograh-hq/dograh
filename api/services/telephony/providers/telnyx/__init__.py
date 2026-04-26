@@ -3,7 +3,12 @@
 from typing import Any, Dict
 
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.telephony.registry import ProviderSpec, register
+from api.services.telephony.registry import (
+    ProviderSpec,
+    ProviderUIField,
+    ProviderUIMetadata,
+    register,
+)
 
 from .config import TelnyxConfigurationRequest, TelnyxConfigurationResponse
 from .provider import TelnyxProvider
@@ -29,6 +34,29 @@ _AUDIO_CONFIG = AudioConfig(
 )
 
 
+_UI_METADATA = ProviderUIMetadata(
+    display_name="Telnyx",
+    docs_url="https://developers.telnyx.com/docs/voice",
+    fields=[
+        ProviderUIField(
+            name="api_key", label="API Key", type="password", sensitive=True
+        ),
+        ProviderUIField(
+            name="connection_id",
+            label="Call Control App ID",
+            type="text",
+            description="Telnyx Call Control Application ID (connection_id)",
+        ),
+        ProviderUIField(
+            name="from_numbers",
+            label="Phone Numbers",
+            type="string-array",
+            description="E.164-formatted Telnyx phone numbers",
+        ),
+    ],
+)
+
+
 SPEC = ProviderSpec(
     name="telnyx",
     provider_cls=TelnyxProvider,
@@ -37,6 +65,7 @@ SPEC = ProviderSpec(
     audio_config=_AUDIO_CONFIG,
     config_request_cls=TelnyxConfigurationRequest,
     router=routes_router,
+    ui_metadata=_UI_METADATA,
     config_response_cls=TelnyxConfigurationResponse,
 )
 

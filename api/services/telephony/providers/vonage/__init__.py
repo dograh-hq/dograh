@@ -3,7 +3,12 @@
 from typing import Any, Dict
 
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.telephony.registry import ProviderSpec, register
+from api.services.telephony.registry import (
+    ProviderSpec,
+    ProviderUIField,
+    ProviderUIMetadata,
+    register,
+)
 
 from .config import VonageConfigurationRequest, VonageConfigurationResponse
 from .provider import VonageProvider
@@ -31,6 +36,44 @@ _AUDIO_CONFIG = AudioConfig(
 )
 
 
+_UI_METADATA = ProviderUIMetadata(
+    display_name="Vonage",
+    docs_url="https://developer.vonage.com/en/voice/voice-api/overview",
+    fields=[
+        ProviderUIField(
+            name="application_id", label="Application ID", type="text"
+        ),
+        ProviderUIField(
+            name="private_key",
+            label="Private Key",
+            type="textarea",
+            sensitive=True,
+            description="Vonage RSA private key for JWT generation",
+        ),
+        ProviderUIField(
+            name="api_key",
+            label="API Key",
+            type="text",
+            sensitive=True,
+            required=False,
+        ),
+        ProviderUIField(
+            name="api_secret",
+            label="API Secret",
+            type="password",
+            sensitive=True,
+            required=False,
+        ),
+        ProviderUIField(
+            name="from_numbers",
+            label="Phone Numbers",
+            type="string-array",
+            description="Vonage phone numbers without + prefix",
+        ),
+    ],
+)
+
+
 SPEC = ProviderSpec(
     name="vonage",
     provider_cls=VonageProvider,
@@ -39,6 +82,7 @@ SPEC = ProviderSpec(
     audio_config=_AUDIO_CONFIG,
     config_request_cls=VonageConfigurationRequest,
     router=routes_router,
+    ui_metadata=_UI_METADATA,
     config_response_cls=VonageConfigurationResponse,
 )
 

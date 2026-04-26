@@ -3,7 +3,12 @@
 from typing import Any, Dict
 
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.telephony.registry import ProviderSpec, register
+from api.services.telephony.registry import (
+    ProviderSpec,
+    ProviderUIField,
+    ProviderUIMetadata,
+    register,
+)
 
 from .config import VobizConfigurationRequest, VobizConfigurationResponse
 from .provider import VobizProvider
@@ -29,6 +34,29 @@ _AUDIO_CONFIG = AudioConfig(
 )
 
 
+_UI_METADATA = ProviderUIMetadata(
+    display_name="Vobiz",
+    fields=[
+        ProviderUIField(
+            name="auth_id",
+            label="Account ID",
+            type="text",
+            sensitive=True,
+            description="Vobiz Account ID (e.g., MA_SYQRLN1K)",
+        ),
+        ProviderUIField(
+            name="auth_token", label="Auth Token", type="password", sensitive=True
+        ),
+        ProviderUIField(
+            name="from_numbers",
+            label="Phone Numbers",
+            type="string-array",
+            description="E.164-formatted phone numbers without + prefix",
+        ),
+    ],
+)
+
+
 SPEC = ProviderSpec(
     name="vobiz",
     provider_cls=VobizProvider,
@@ -37,6 +65,7 @@ SPEC = ProviderSpec(
     audio_config=_AUDIO_CONFIG,
     config_request_cls=VobizConfigurationRequest,
     router=routes_router,
+    ui_metadata=_UI_METADATA,
     config_response_cls=VobizConfigurationResponse,
 )
 

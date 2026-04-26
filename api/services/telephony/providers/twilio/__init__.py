@@ -3,7 +3,12 @@
 from typing import Any, Dict
 
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.telephony.registry import ProviderSpec, register
+from api.services.telephony.registry import (
+    ProviderSpec,
+    ProviderUIField,
+    ProviderUIMetadata,
+    register,
+)
 
 from .config import TwilioConfigurationRequest, TwilioConfigurationResponse
 from .provider import TwilioProvider
@@ -29,6 +34,34 @@ _AUDIO_CONFIG = AudioConfig(
 )
 
 
+_UI_METADATA = ProviderUIMetadata(
+    display_name="Twilio",
+    docs_url="https://www.twilio.com/docs/voice",
+    fields=[
+        ProviderUIField(
+            name="account_sid",
+            label="Account SID",
+            type="text",
+            sensitive=True,
+            description="Twilio Account SID (starts with AC)",
+        ),
+        ProviderUIField(
+            name="auth_token",
+            label="Auth Token",
+            type="password",
+            sensitive=True,
+            description="Twilio Auth Token",
+        ),
+        ProviderUIField(
+            name="from_numbers",
+            label="Phone Numbers",
+            type="string-array",
+            description="E.164-formatted Twilio phone numbers used for outbound calls",
+        ),
+    ],
+)
+
+
 SPEC = ProviderSpec(
     name="twilio",
     provider_cls=TwilioProvider,
@@ -37,6 +70,7 @@ SPEC = ProviderSpec(
     audio_config=_AUDIO_CONFIG,
     config_request_cls=TwilioConfigurationRequest,
     router=routes_router,
+    ui_metadata=_UI_METADATA,
     config_response_cls=TwilioConfigurationResponse,
 )
 

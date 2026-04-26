@@ -3,7 +3,12 @@
 from typing import Any, Dict
 
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.telephony.registry import ProviderSpec, register
+from api.services.telephony.registry import (
+    ProviderSpec,
+    ProviderUIField,
+    ProviderUIMetadata,
+    register,
+)
 
 from .config import PlivoConfigurationRequest, PlivoConfigurationResponse
 from .provider import PlivoProvider
@@ -29,6 +34,26 @@ _AUDIO_CONFIG = AudioConfig(
 )
 
 
+_UI_METADATA = ProviderUIMetadata(
+    display_name="Plivo",
+    docs_url="https://www.plivo.com/docs/voice/",
+    fields=[
+        ProviderUIField(
+            name="auth_id", label="Auth ID", type="text", sensitive=True
+        ),
+        ProviderUIField(
+            name="auth_token", label="Auth Token", type="password", sensitive=True
+        ),
+        ProviderUIField(
+            name="from_numbers",
+            label="Phone Numbers",
+            type="string-array",
+            description="E.164-formatted Plivo phone numbers used for outbound calls",
+        ),
+    ],
+)
+
+
 SPEC = ProviderSpec(
     name="plivo",
     provider_cls=PlivoProvider,
@@ -37,6 +62,7 @@ SPEC = ProviderSpec(
     audio_config=_AUDIO_CONFIG,
     config_request_cls=PlivoConfigurationRequest,
     router=routes_router,
+    ui_metadata=_UI_METADATA,
     config_response_cls=PlivoConfigurationResponse,
 )
 

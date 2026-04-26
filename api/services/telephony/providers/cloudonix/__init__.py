@@ -3,7 +3,12 @@
 from typing import Any, Dict
 
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.telephony.registry import ProviderSpec, register
+from api.services.telephony.registry import (
+    ProviderSpec,
+    ProviderUIField,
+    ProviderUIMetadata,
+    register,
+)
 
 from .config import CloudonixConfigurationRequest, CloudonixConfigurationResponse
 from .provider import CloudonixProvider
@@ -30,6 +35,30 @@ _AUDIO_CONFIG = AudioConfig(
 )
 
 
+_UI_METADATA = ProviderUIMetadata(
+    display_name="Cloudonix",
+    docs_url="https://docs.cloudonix.io/",
+    fields=[
+        ProviderUIField(
+            name="bearer_token",
+            label="Bearer Token",
+            type="password",
+            sensitive=True,
+            description="Cloudonix API Bearer Token",
+        ),
+        ProviderUIField(
+            name="domain_id", label="Domain ID", type="text"
+        ),
+        ProviderUIField(
+            name="from_numbers",
+            label="Phone Numbers",
+            type="string-array",
+            required=False,
+        ),
+    ],
+)
+
+
 SPEC = ProviderSpec(
     name="cloudonix",
     provider_cls=CloudonixProvider,
@@ -38,6 +67,7 @@ SPEC = ProviderSpec(
     audio_config=_AUDIO_CONFIG,
     config_request_cls=CloudonixConfigurationRequest,
     router=routes_router,
+    ui_metadata=_UI_METADATA,
     config_response_cls=CloudonixConfigurationResponse,
 )
 

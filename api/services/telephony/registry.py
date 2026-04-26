@@ -26,6 +26,32 @@ from typing import (
 
 from pydantic import BaseModel
 
+
+@dataclass(frozen=True)
+class ProviderUIField:
+    """One form field for the telephony configuration UI.
+
+    Used to generate provider-specific config forms without per-provider
+    UI code. Field semantics mirror the Pydantic config_request_cls.
+    """
+
+    name: str  # Must match the Pydantic field name on config_request_cls
+    label: str
+    type: str  # "text" | "password" | "textarea" | "string-array" | "number"
+    required: bool = True
+    sensitive: bool = False  # If true, mask when displaying stored value
+    description: Optional[str] = None
+    placeholder: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ProviderUIMetadata:
+    """Display metadata for a provider's configuration form."""
+
+    display_name: str
+    fields: List[ProviderUIField]
+    docs_url: Optional[str] = None
+
 if TYPE_CHECKING:
     from fastapi import APIRouter
 
@@ -62,6 +88,9 @@ class ProviderSpec:
         router: Optional FastAPI router exposing the provider's webhooks /
             status callbacks / answer URLs. Mounted under
             ``/api/v1/telephony`` by ``api.routes.telephony`` at startup.
+        ui_metadata: Optional form metadata used by the telephony-config
+            UI to render a provider-specific form. Surfaced via
+            ``GET /api/v1/telephony/providers/metadata``.
     """
 
     name: str
@@ -72,6 +101,7 @@ class ProviderSpec:
     config_request_cls: Type[BaseModel]
     config_response_cls: Type[BaseModel]
     router: Optional["APIRouter"] = None
+    ui_metadata: Optional[ProviderUIMetadata] = None
 
 
 _REGISTRY: Dict[str, ProviderSpec] = {}

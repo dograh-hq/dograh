@@ -3,7 +3,12 @@
 from typing import Any, Dict
 
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.telephony.registry import ProviderSpec, register
+from api.services.telephony.registry import (
+    ProviderSpec,
+    ProviderUIField,
+    ProviderUIMetadata,
+    register,
+)
 
 from .config import ARIConfigurationRequest, ARIConfigurationResponse
 from .provider import ARIProvider
@@ -30,6 +35,51 @@ _AUDIO_CONFIG = AudioConfig(
 )
 
 
+_UI_METADATA = ProviderUIMetadata(
+    display_name="Asterisk ARI",
+    fields=[
+        ProviderUIField(
+            name="ari_endpoint",
+            label="ARI Endpoint",
+            type="text",
+            description="ARI base URL (e.g., http://asterisk.example.com:8088)",
+        ),
+        ProviderUIField(
+            name="app_name",
+            label="Stasis App Name",
+            type="text",
+            description="Stasis application name registered in Asterisk",
+        ),
+        ProviderUIField(
+            name="app_password",
+            label="ARI Password",
+            type="password",
+            sensitive=True,
+        ),
+        ProviderUIField(
+            name="ws_client_name",
+            label="websocket_client.conf Name",
+            type="text",
+            required=False,
+            description="websocket_client.conf connection name for externalMedia",
+        ),
+        ProviderUIField(
+            name="inbound_workflow_id",
+            label="Inbound Workflow ID",
+            type="number",
+            required=False,
+        ),
+        ProviderUIField(
+            name="from_numbers",
+            label="From Extensions",
+            type="string-array",
+            required=False,
+            description="SIP extensions/numbers for outbound calls",
+        ),
+    ],
+)
+
+
 SPEC = ProviderSpec(
     name="ari",
     provider_cls=ARIProvider,
@@ -37,6 +87,7 @@ SPEC = ProviderSpec(
     transport_factory=create_transport,
     audio_config=_AUDIO_CONFIG,
     config_request_cls=ARIConfigurationRequest,
+    ui_metadata=_UI_METADATA,
     config_response_cls=ARIConfigurationResponse,
 )
 

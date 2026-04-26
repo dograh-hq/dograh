@@ -5,25 +5,15 @@ provider registry — see ProviderSpec.router.
 """
 
 import json
-from datetime import UTC, datetime
-from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Request
 from loguru import logger
-from starlette.responses import HTMLResponse
 
 from api.db import db_client
-from api.errors.telephony_errors import TelephonyError
 from api.services.telephony.factory import get_telephony_provider
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
-)
-from api.utils.common import get_backend_endpoints
-from api.utils.telephony_helper import (
-    generic_hangup_response,
-    normalize_webhook_data,
-    parse_webhook_request,
 )
 from pipecat.utils.run_context import set_current_run_id
 
@@ -86,6 +76,7 @@ async def handle_cloudonix_status_callback(
     await _process_status_update(workflow_run_id, status_update)
 
     return {"status": "success"}
+
 
 @router.post("/cloudonix/cdr")
 async def handle_cloudonix_cdr(request: Request):

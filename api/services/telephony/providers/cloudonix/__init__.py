@@ -45,9 +45,7 @@ _UI_METADATA = ProviderUIMetadata(
             sensitive=True,
             description="Cloudonix API Bearer Token",
         ),
-        ProviderUIField(
-            name="domain_id", label="Domain ID", type="text"
-        ),
+        ProviderUIField(name="domain_id", label="Domain ID", type="text"),
         ProviderUIField(
             name="from_numbers",
             label="Phone Numbers",

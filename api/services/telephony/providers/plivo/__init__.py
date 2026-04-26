@@ -37,9 +37,7 @@ _UI_METADATA = ProviderUIMetadata(
     display_name="Plivo",
     docs_url="https://www.plivo.com/docs/voice/",
     fields=[
-        ProviderUIField(
-            name="auth_id", label="Auth ID", type="text", sensitive=True
-        ),
+        ProviderUIField(name="auth_id", label="Auth ID", type="text", sensitive=True),
         ProviderUIField(
             name="auth_token", label="Auth Token", type="password", sensitive=True
         ),

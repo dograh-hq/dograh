@@ -13,7 +13,6 @@ Create Date: 2026-04-25 21:30:00.000000
 
 from typing import Sequence, Union
 
-import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -49,8 +48,7 @@ def upgrade() -> None:
     # Convert the mode column from the workflow_run_mode enum to VARCHAR(64).
     # Postgres requires a USING expression to cast the enum to text safely.
     op.execute(
-        "ALTER TABLE workflow_runs "
-        "ALTER COLUMN mode TYPE VARCHAR(64) USING mode::text"
+        "ALTER TABLE workflow_runs ALTER COLUMN mode TYPE VARCHAR(64) USING mode::text"
     )
     # Drop the now-unused enum type.
     op.execute("DROP TYPE workflow_run_mode")

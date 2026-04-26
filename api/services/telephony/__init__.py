@@ -8,4 +8,6 @@ so submodules like ``factory`` and ``registry`` can stay free of provider
 imports — no lazy flags, no cycle.
 """
 
-from . import providers as _providers  # noqa: F401  -- import for side effects (registration)
+from . import (
+    providers as _providers,  # noqa: F401  -- import for side effects (registration)
+)

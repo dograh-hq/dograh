@@ -52,6 +52,7 @@ class ProviderUIMetadata:
     fields: List[ProviderUIField]
     docs_url: Optional[str] = None
 
+
 if TYPE_CHECKING:
     from api.services.pipecat.audio_config import AudioConfig
     from api.services.telephony.base import TelephonyProvider

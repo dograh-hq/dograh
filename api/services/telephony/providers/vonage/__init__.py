@@ -39,9 +39,7 @@ _UI_METADATA = ProviderUIMetadata(
     display_name="Vonage",
     docs_url="https://developer.vonage.com/en/voice/voice-api/overview",
     fields=[
-        ProviderUIField(
-            name="application_id", label="Application ID", type="text"
-        ),
+        ProviderUIField(name="application_id", label="Application ID", type="text"),
         ProviderUIField(
             name="private_key",
             label="Private Key",

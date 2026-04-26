@@ -5,26 +5,19 @@ provider registry — see ProviderSpec.router.
 """
 
 import json
-from datetime import UTC, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response
+from fastapi import APIRouter, Header, Request
 from loguru import logger
 from starlette.responses import HTMLResponse
 
 from api.db import db_client
-from api.errors.telephony_errors import TelephonyError
 from api.services.telephony.factory import get_telephony_provider
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
 )
 from api.utils.common import get_backend_endpoints
-from api.utils.telephony_helper import (
-    generic_hangup_response,
-    normalize_webhook_data,
-    parse_webhook_request,
-)
 from pipecat.utils.run_context import set_current_run_id
 
 router = APIRouter()
@@ -86,6 +79,7 @@ async def _handle_plivo_status_callback(
     await _process_status_update(workflow_run_id, status_update)
     return {"status": "success"}
 
+
 @router.post("/plivo-xml", include_in_schema=False)
 async def handle_plivo_xml_webhook(
     workflow_id: int,
@@ -142,6 +136,7 @@ async def handle_plivo_xml_webhook(
     )
     return HTMLResponse(content=response_content, media_type="application/xml")
 
+
 @router.post("/plivo/hangup-callback/{workflow_run_id}")
 async def handle_plivo_hangup_callback(
     workflow_run_id: int,
@@ -158,6 +153,7 @@ async def handle_plivo_hangup_callback(
         x_plivo_signature_ma_v3,
         x_plivo_signature_v3_nonce,
     )
+
 
 @router.post("/plivo/ring-callback/{workflow_run_id}")
 async def handle_plivo_ring_callback(

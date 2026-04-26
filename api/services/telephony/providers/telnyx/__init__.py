@@ -65,6 +65,7 @@ SPEC = ProviderSpec(
     config_request_cls=TelnyxConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=TelnyxConfigurationResponse,
+    account_id_credential_field="connection_id",
 )
 
 

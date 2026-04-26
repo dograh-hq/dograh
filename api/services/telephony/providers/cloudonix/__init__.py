@@ -65,6 +65,7 @@ SPEC = ProviderSpec(
     config_request_cls=CloudonixConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=CloudonixConfigurationResponse,
+    account_id_credential_field="domain_id",
 )
 
 

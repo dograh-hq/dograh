@@ -8,10 +8,9 @@ Vobiz uses Plivo-compatible WebSocket protocol:
 from fastapi import WebSocket
 from loguru import logger
 
-from api.db import db_client
-from api.enums import OrganizationConfigurationKey
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_mixer import build_audio_out_mixer
+from api.services.telephony.factory import load_credentials_for_transport
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -28,6 +27,7 @@ async def create_transport(
     *,
     vad_config: dict | None = None,
     ambient_noise_config: dict | None = None,
+    telephony_configuration_id: int | None = None,
     stream_id: str,
     call_id: str,
 ):
@@ -37,20 +37,12 @@ async def create_transport(
         f"stream_id={stream_id}, call_id={call_id}"
     )
 
-    config = await db_client.get_configuration(
-        organization_id, OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value
+    config = await load_credentials_for_transport(
+        organization_id, telephony_configuration_id, expected_provider="vobiz"
     )
 
-    if not config or not config.value:
-        raise ValueError(
-            f"Vobiz credentials not configured for organization {organization_id}"
-        )
-
-    if config.value.get("provider") != "vobiz":
-        raise ValueError(f"Expected Vobiz provider, got {config.value.get('provider')}")
-
-    auth_id = config.value.get("auth_id")
-    auth_token = config.value.get("auth_token")
+    auth_id = config.get("auth_id")
+    auth_token = config.get("auth_token")
 
     if not auth_id or not auth_token:
         raise ValueError(

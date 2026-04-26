@@ -2,10 +2,9 @@
 
 from fastapi import WebSocket
 
-from api.db import db_client
-from api.enums import OrganizationConfigurationKey
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_mixer import build_audio_out_mixer
+from api.services.telephony.factory import load_credentials_for_transport
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -23,24 +22,17 @@ async def create_transport(
     *,
     vad_config: dict | None = None,
     ambient_noise_config: dict | None = None,
+    telephony_configuration_id: int | None = None,
     channel_id: str,
 ):
     """Create a transport for Asterisk ARI connections."""
-    config = await db_client.get_configuration(
-        organization_id, OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value
+    config = await load_credentials_for_transport(
+        organization_id, telephony_configuration_id, expected_provider="ari"
     )
 
-    if not config or not config.value:
-        raise ValueError(
-            f"ARI credentials not configured for organization {organization_id}"
-        )
-
-    if config.value.get("provider") != "ari":
-        raise ValueError(f"Expected ARI provider, got {config.value.get('provider')}")
-
-    ari_endpoint = config.value.get("ari_endpoint")
-    app_name = config.value.get("app_name")
-    app_password = config.value.get("app_password")
+    ari_endpoint = config.get("ari_endpoint")
+    app_name = config.get("app_name")
+    app_password = config.get("app_password")
 
     if not ari_endpoint or not app_name or not app_password:
         raise ValueError(

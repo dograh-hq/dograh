@@ -104,6 +104,11 @@ class ProviderSpec:
     config_request_cls: Type[BaseModel]
     config_response_cls: Type[BaseModel]
     ui_metadata: Optional[ProviderUIMetadata] = None
+    # Credential field that uniquely identifies the provider account. Used to
+    # (a) match an inbound webhook to the right org config when multiple configs
+    # exist for the same provider, and (b) reject duplicate-account saves.
+    # Empty string means the provider has no account-id concept (e.g. ARI).
+    account_id_credential_field: str = ""
 
 
 _REGISTRY: Dict[str, ProviderSpec] = {}

@@ -2,10 +2,9 @@
 
 from fastapi import WebSocket
 
-from api.db import db_client
-from api.enums import OrganizationConfigurationKey
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_mixer import build_audio_out_mixer
+from api.services.telephony.factory import load_credentials_for_transport
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -23,21 +22,17 @@ async def create_transport(
     *,
     vad_config: dict | None = None,
     ambient_noise_config: dict | None = None,
+    telephony_configuration_id: int | None = None,
     stream_sid: str,
     call_sid: str,
 ):
     """Create a transport for Twilio connections."""
-    config = await db_client.get_configuration(
-        organization_id, OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value
+    config = await load_credentials_for_transport(
+        organization_id, telephony_configuration_id, expected_provider="twilio"
     )
 
-    if not config or not config.value:
-        raise ValueError(
-            f"Twilio credentials not configured for organization {organization_id}"
-        )
-
-    account_sid = config.value.get("account_sid")
-    auth_token = config.value.get("auth_token")
+    account_sid = config.get("account_sid")
+    auth_token = config.get("auth_token")
 
     if not account_sid or not auth_token:
         raise ValueError(

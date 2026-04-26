@@ -60,6 +60,7 @@ SPEC = ProviderSpec(
     config_request_cls=PlivoConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=PlivoConfigurationResponse,
+    account_id_credential_field="auth_id",
 )
 
 

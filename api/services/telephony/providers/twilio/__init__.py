@@ -70,6 +70,7 @@ SPEC = ProviderSpec(
     config_request_cls=TwilioConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=TwilioConfigurationResponse,
+    account_id_credential_field="account_sid",
 )
 
 

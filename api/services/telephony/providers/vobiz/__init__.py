@@ -65,6 +65,7 @@ SPEC = ProviderSpec(
     config_request_cls=VobizConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=VobizConfigurationResponse,
+    account_id_credential_field="auth_id",
 )
 
 

@@ -80,6 +80,7 @@ SPEC = ProviderSpec(
     config_request_cls=VonageConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=VonageConfigurationResponse,
+    account_id_credential_field="api_key",
 )
 
 

@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from api.db import db_client
 from api.enums import TriggerState
 from api.services.quota_service import check_dograh_quota_by_user_id
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import get_default_telephony_provider
 from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/public/agent")
@@ -111,8 +111,14 @@ async def _initiate_call(
             detail="Trigger not found in the published Agent",
         )
 
-    # 6. Get telephony provider for the organization
-    provider = await get_telephony_provider(trigger.organization_id)
+    # 6. Get telephony provider for the organization (using its default config).
+    try:
+        provider = await get_default_telephony_provider(trigger.organization_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Telephony provider not configured for this organization",
+        )
 
     # Validate provider is configured
     if not provider.validate_config():
@@ -120,6 +126,10 @@ async def _initiate_call(
             status_code=400,
             detail="Telephony provider not configured for this organization",
         )
+
+    default_cfg = await db_client.get_default_telephony_configuration(
+        trigger.organization_id
+    )
 
     # 7. Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
@@ -136,6 +146,7 @@ async def _initiate_call(
             "phone_number": request.phone_number,
             "agent_uuid": uuid,
             "trigger_mode": "test" if use_draft else "production",
+            "telephony_configuration_id": default_cfg.id if default_cfg else None,
             **(request.initial_context or {}),
         },
         user_id=api_key.created_by,

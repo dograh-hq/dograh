@@ -17,12 +17,11 @@ from fastapi import (
 )
 from loguru import logger
 from pydantic import BaseModel, field_validator
-from sqlalchemy.future import select
 from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
-from api.db.models import OrganizationConfigurationModel, UserModel
-from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunState
+from api.db.models import UserModel
+from api.enums import CallType, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
@@ -30,7 +29,9 @@ from api.services.quota_service import check_dograh_quota, check_dograh_quota_by
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
+    get_default_telephony_provider,
     get_telephony_provider,
+    get_telephony_provider_by_id,
 )
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
@@ -52,6 +53,9 @@ class InitiateCallRequest(BaseModel):
     workflow_id: int
     workflow_run_id: int | None = None
     phone_number: str | None = None
+    # Optional explicit telephony config to use for the test call. If omitted,
+    # falls back to the user's per-user default (when set), then the org default.
+    telephony_configuration_id: int | None = None
 
 
 @router.post(
@@ -67,8 +71,39 @@ async def initiate_call(
     """Initiate a call using the configured telephony provider from web browser. This is
     supposed to be a test call method for the draft version of the agent."""
 
-    # Get the telephony provider for the organization
-    provider = await get_telephony_provider(user.selected_organization_id)
+    user_configuration = await db_client.get_user_configurations(user.id)
+
+    # Resolve which telephony config to use, in order of precedence:
+    # 1. explicit request value, 2. per-user default (when set), 3. org default.
+    user_default_cfg_id = (
+        (user_configuration.configuration or {}).get("test_telephony_configuration_id")
+        if user_configuration
+        else None
+    )
+    telephony_configuration_id = (
+        request.telephony_configuration_id or user_default_cfg_id
+    )
+
+    if telephony_configuration_id:
+        cfg = await db_client.get_telephony_configuration_for_org(
+            telephony_configuration_id, user.selected_organization_id
+        )
+        if not cfg:
+            raise HTTPException(
+                status_code=400, detail="telephony_configuration_not_found"
+            )
+        provider = await get_telephony_provider_by_id(telephony_configuration_id)
+    else:
+        try:
+            provider = await get_default_telephony_provider(
+                user.selected_organization_id
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="telephony_not_configured")
+        default_cfg = await db_client.get_default_telephony_configuration(
+            user.selected_organization_id
+        )
+        telephony_configuration_id = default_cfg.id if default_cfg else None
 
     # Validate provider is configured
     if not provider.validate_config():
@@ -84,8 +119,6 @@ async def initiate_call(
 
     # Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
-
-    user_configuration = await db_client.get_user_configurations(user.id)
 
     phone_number = request.phone_number or user_configuration.test_phone_number
 
@@ -117,6 +150,7 @@ async def initiate_call(
                 "phone_number": phone_number,
                 "called_number": phone_number,
                 "provider": provider.PROVIDER_NAME,
+                "telephony_configuration_id": telephony_configuration_id,
             },
             use_draft=True,
         )
@@ -159,6 +193,7 @@ async def initiate_call(
     updated_initial_context = {
         **(workflow_run.initial_context or {}),
         "called_number": phone_number,
+        "telephony_configuration_id": telephony_configuration_id,
     }
     if result.caller_number:
         updated_initial_context["caller_number"] = result.caller_number
@@ -174,65 +209,55 @@ async def initiate_call(
 async def _verify_organization_phone_number(
     phone_number: str,
     organization_id: int,
+    telephony_configuration_id: int,
+    provider: str,
     to_country: str = None,
     from_country: str = None,
-) -> bool:
-    """
-    Verify that a phone number belongs to the specified organization.
+) -> Optional[int]:
+    """Verify the called number is registered to the matched config and return
+    its ``telephony_phone_numbers.id``, or None when no row matches.
 
-    Args:
-        phone_number: The phone number to verify
-        organization_id: The organization ID to check against
-        to_country: ISO country code for the called number (e.g., "US", "IN")
-        from_country: ISO country code for the caller (e.g., "IN", "GB")
-
-    Returns:
-        True if the phone number belongs to the organization, False otherwise
+    Primary path: deterministic E.164 / SIP lookup via the new phone-number table.
+    Legacy fallback: ``numbers_match()`` over the matched config's active numbers,
+    so non-E.164 rows that survived the migration still route correctly.
     """
     try:
-        async with db_client.async_session() as session:
-            result = await session.execute(
-                select(OrganizationConfigurationModel).where(
-                    OrganizationConfigurationModel.organization_id == organization_id,
-                    OrganizationConfigurationModel.key
-                    == OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        match = await db_client.find_active_phone_number_for_inbound(
+            organization_id, phone_number, provider, country_hint=to_country
+        )
+        if match and match.telephony_configuration_id == telephony_configuration_id:
+            logger.info(
+                f"Phone number {phone_number} matched row {match.id} for org "
+                f"{organization_id} / config {telephony_configuration_id}"
+            )
+            return match.id
+
+        # Legacy fallback: scan the matched config's active numbers and apply
+        # the country-aware fuzzy matcher (covers non-E.164 storage).
+        rows = await db_client.list_phone_numbers_for_config(telephony_configuration_id)
+        for row in rows:
+            if not row.is_active:
+                continue
+            if numbers_match(phone_number, row.address, to_country, from_country):
+                logger.info(
+                    f"Phone number {phone_number} matched (fuzzy) row {row.id} "
+                    f"for config {telephony_configuration_id}"
                 )
-            )
+                return row.id
 
-            config = result.scalars().first()
-
-            if not config or not config.value:
-                logger.warning(
-                    f"No telephony configuration found for organization {organization_id}"
-                )
-                return False
-
-            from_numbers = config.value.get("from_numbers", [])
-            logger.debug(
-                f"Organization {organization_id} has from_numbers: {from_numbers}"
-            )
-
-            for configured_number in from_numbers:
-                if numbers_match(
-                    phone_number, configured_number, to_country, from_country
-                ):
-                    logger.info(
-                        f"Phone number {phone_number} verified for organization {organization_id} "
-                        f"(matches {configured_number}, to_country={to_country}, from_country={from_country})"
-                    )
-                    return True
-
-            logger.warning(
-                f"Phone number {phone_number} not found in organization {organization_id} from_numbers: {from_numbers} "
-                f"(to_country={to_country}, from_country={from_country})"
-            )
-            return False
+        logger.warning(
+            f"Phone number {phone_number} not registered to config "
+            f"{telephony_configuration_id} (org={organization_id}, "
+            f"to_country={to_country}, from_country={from_country})"
+        )
+        return None
 
     except Exception as e:
         logger.error(
-            f"Error verifying phone number {phone_number} for organization {organization_id}: {e}"
+            f"Error verifying phone number {phone_number} for organization "
+            f"{organization_id} / config {telephony_configuration_id}: {e}"
         )
-        return False
+        return None
 
 
 async def _detect_provider(webhook_data: dict, headers: dict):
@@ -275,21 +300,26 @@ async def _validate_inbound_request(
     user_id = workflow.user_id
     provider = normalized_data.provider
 
-    # Validate provider and account_id
-    validation_result = await _validate_organization_provider_config(
+    # Resolve which of the org's configs this webhook came from (account_id match).
+    (
+        validation_result,
+        telephony_configuration_id,
+    ) = await _resolve_inbound_telephony_config(
         organization_id, provider_class, normalized_data.account_id
     )
     if validation_result != TelephonyError.VALID:
         return False, validation_result, {}, None
 
-    # Verify phone number belongs to organization
-    is_valid = await _verify_organization_phone_number(
+    # Verify the called number is registered to that config.
+    phone_number_id = await _verify_organization_phone_number(
         normalized_data.to_number,
         organization_id,
+        telephony_configuration_id,
+        provider_class.PROVIDER_NAME,
         normalized_data.to_country,
         normalized_data.from_country,
     )
-    if not is_valid:
+    if phone_number_id is None:
         return False, TelephonyError.PHONE_NUMBER_NOT_CONFIGURED, {}, None
 
     # Verify webhook signature/API key if provided
@@ -305,8 +335,11 @@ async def _validate_inbound_request(
         backend_endpoint, _ = await get_backend_endpoints()
         webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
 
-        # Get the real telephony provider with actual credentials for signature verification
-        provider_instance = await get_telephony_provider(organization_id)
+        # Use the credentials of the *matched* config so signature verification
+        # works in orgs that have multiple configs of the same provider.
+        provider_instance = await get_telephony_provider_by_id(
+            telephony_configuration_id
+        )
 
         if provider_class.PROVIDER_NAME == "twilio" and x_twilio_signature:
             logger.info(f"Verifying Twilio signature for URL: {webhook_url}")
@@ -363,6 +396,8 @@ async def _validate_inbound_request(
         "organization_id": organization_id,
         "user_id": user_id,
         "provider": provider,
+        "telephony_configuration_id": telephony_configuration_id,
+        "from_phone_number_id": phone_number_id,
     }
     return (
         True,
@@ -373,7 +408,13 @@ async def _validate_inbound_request(
 
 
 async def _create_inbound_workflow_run(
-    workflow_id: int, user_id: int, provider: str, normalized_data, data_source: str
+    workflow_id: int,
+    user_id: int,
+    provider: str,
+    normalized_data,
+    data_source: str,
+    telephony_configuration_id: int,
+    from_phone_number_id: Optional[int] = None,
 ) -> int:
     """Create workflow run for inbound call and return run ID"""
     call_id = normalized_data.call_id
@@ -396,6 +437,8 @@ async def _create_inbound_workflow_run(
             "from_country": normalized_data.from_country,
             "to_country": normalized_data.to_country,
             "raw_webhook_data": normalized_data.raw_data,
+            "telephony_configuration_id": telephony_configuration_id,
+            "from_phone_number_id": from_phone_number_id,
         },
         gathered_context={
             "call_id": call_id,
@@ -408,42 +451,43 @@ async def _create_inbound_workflow_run(
     return workflow_run.id
 
 
-async def _validate_organization_provider_config(
+async def _resolve_inbound_telephony_config(
     organization_id: int, provider_class, account_id: str
-) -> TelephonyError:
-    """Validate provider and account_id, returning specific error type"""
+) -> tuple[TelephonyError, Optional[int]]:
+    """Find which of the org's telephony configs the inbound webhook came from.
+
+    Returns ``(VALID, config_id)`` on success or ``(error, None)`` otherwise.
+    Replaces the single-config check that assumed one provider per org.
+    """
+    from api.services.telephony.factory import find_telephony_config_for_inbound
+
     try:
-        config = await db_client.get_configuration(
-            organization_id,
-            OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        candidates = await db_client.list_telephony_configurations_by_provider(
+            organization_id, provider_class.PROVIDER_NAME
         )
-
-        if not config or not config.value:
+        if not candidates:
             logger.warning(
-                f"No telephony configuration found for organization {organization_id}"
+                f"No {provider_class.PROVIDER_NAME} configuration for org "
+                f"{organization_id}"
             )
-            return TelephonyError.ACCOUNT_VALIDATION_FAILED
+            return TelephonyError.PROVIDER_MISMATCH, None
 
-        stored_provider = config.value.get("provider")
-        if stored_provider != provider_class.PROVIDER_NAME:
+        match = await find_telephony_config_for_inbound(
+            organization_id, provider_class.PROVIDER_NAME, account_id
+        )
+        if not match:
             logger.warning(
-                f"Provider mismatch: webhook={provider_class.PROVIDER_NAME}, config={stored_provider}"
+                f"Account validation failed for {provider_class.PROVIDER_NAME}: "
+                f"webhook account_id={account_id} (org {organization_id})"
             )
-            return TelephonyError.PROVIDER_MISMATCH
+            return TelephonyError.ACCOUNT_VALIDATION_FAILED, None
 
-        # Use provider-specific validation
-        is_valid = provider_class.validate_account_id(config.value, account_id)
-        if not is_valid:
-            logger.warning(
-                f"Account validation failed for {provider_class.PROVIDER_NAME}: webhook={account_id}"
-            )
-            return TelephonyError.ACCOUNT_VALIDATION_FAILED
-
-        return TelephonyError.VALID
+        config_id, _ = match
+        return TelephonyError.VALID, config_id
 
     except Exception as e:
         logger.error(f"Exception during account validation: {e}")
-        return TelephonyError.ACCOUNT_VALIDATION_FAILED
+        return TelephonyError.ACCOUNT_VALIDATION_FAILED, None
 
 
 @router.websocket("/ws/ari")
@@ -668,6 +712,8 @@ async def handle_inbound_telephony(
             workflow_context["provider"],
             normalized_data,
             data_source,
+            telephony_configuration_id=workflow_context["telephony_configuration_id"],
+            from_phone_number_id=workflow_context.get("from_phone_number_id"),
         )
 
         # Generate response URLs
@@ -678,8 +724,8 @@ async def handle_inbound_telephony(
         if provider_class.PROVIDER_NAME == "telnyx":
             # Get provider instance with credentials if not already loaded
             if not provider_instance:
-                provider_instance = await get_telephony_provider(
-                    workflow_context["organization_id"]
+                provider_instance = await get_telephony_provider_by_id(
+                    workflow_context["telephony_configuration_id"]
                 )
 
             events_url = (

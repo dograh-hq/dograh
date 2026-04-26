@@ -129,6 +129,17 @@ async def run_pipeline_telephony(
             "ambient_noise_configuration"
         )
 
+    # The telephony config id is stamped on the workflow run when it's created
+    # (test call, campaign dispatch, inbound). Transports use it to load creds
+    # from the right config row. Falls back to None for legacy runs (transports
+    # then resolve the org's default config).
+    workflow_run = await db_client.get_workflow_run(workflow_run_id)
+    telephony_configuration_id = None
+    if workflow_run and workflow_run.initial_context:
+        telephony_configuration_id = workflow_run.initial_context.get(
+            "telephony_configuration_id"
+        )
+
     spec = telephony_registry.get(provider_name)
     audio_config = spec.audio_config
 
@@ -139,6 +150,7 @@ async def run_pipeline_telephony(
         workflow.organization_id,
         vad_config=vad_config,
         ambient_noise_config=ambient_noise_config,
+        telephony_configuration_id=telephony_configuration_id,
         **transport_kwargs,
     )
 

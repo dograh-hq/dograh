@@ -16,18 +16,6 @@ Before setting up Twilio integration, you'll need:
 - At least one Twilio phone number
 - Dograh AI instance running and accessible
 
-## Video Tutorial
-
-Watch this step-by-step guide to set up Twilio with Dograh AI:
-
-<iframe
-  className="w-full aspect-video rounded-xl"
-  src="https://www.youtube.com/embed/jlPD4CSJHHI"
-  title="Dograh Twilio Setup"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-  allowFullScreen
-></iframe>
-
 ## Configuration
 
 ### Step 1: Get Twilio Credentials
@@ -39,40 +27,45 @@ Watch this step-by-step guide to set up Twilio with Dograh AI:
 
 ### Step 2: Configure in Dograh AI
 
-1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
-2. Watch the Twilio setup video tutorial above for detailed guidance
-3. Select **Twilio** as your provider
-4. Enter your credentials:
+1. Navigate to **/telephony-configurations** and click **Add configuration**
+2. Select **Twilio** as your provider
+3. Enter your credentials:
    - Account SID
    - Auth Token
-   - From Phone Number (with country code, e.g., +1234567890)
-5. Click **Save Configuration**
+4. Click **Save Configuration**
+5. Open the configuration you just created and add at least one **phone number** (with country code in E.164 format, e.g. `+1234567890`). The default caller ID is used for outbound calls.
 
 ### Step 3: Test Your Configuration
 
 1. Create a test workflow
-2. Click "Test Call" to verify connection
+2. Click "Call" to verify connection
 3. Check call logs for successful connection
 
 ## Inbound Calling Setup
 
-To enable inbound calling with Twilio:
+Inbound routing is driven by the phone number itself — there is a **single webhook URL** for the entire org, and Dograh resolves which agent to run from the called number's assigned inbound workflow.
 
-1. **Complete Telephony Configuration**: Use the same [Configuration](#configuration) steps above
-2. **Get Your Workflow Webhook URL**: Find your workflow ID and construct the webhook URL as: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
+### Step 1: Assign an Inbound Workflow to the Phone Number
 
-### Configure Webhook in Twilio Console
+1. Go to **/telephony-configurations** and open your Twilio configuration
+2. In the **Phone numbers** section, edit the number that should receive inbound calls
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
 
-1. **Configure Phone Number Webhook**:
-   - Go to **Phone Numbers** → **Manage** → **Active Numbers** in Twilio Console
-   - Click on the phone number you want to use for inbound calls
-   - In the "Voice Configuration" section:
-     - Set **Webhook** to: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
-     - Set **HTTP Method** to: `POST`
-   - Click **Save Configuration**
+### Step 2: Configure the Webhook in Twilio Console
+
+1. Go to **Phone Numbers** → **Manage** → **Active Numbers** in Twilio Console
+2. Click the phone number you assigned an inbound workflow to in Step 1
+3. In the **Voice Configuration** section:
+   - Set **Webhook** to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - Set **HTTP Method** to: `POST`
+4. Click **Save Configuration**
 
    <Note>
-   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Dograh, replace `api.dograh.com` with your domain.
+     The webhook URL is the same for every workflow and every number in your org
+     — Dograh matches the inbound call to the right agent using the called
+     number's inbound workflow assignment from Step 1. If you're using
+     self-hosted Dograh, replace `api.dograh.com` with your domain.
    </Note>
 
    <img
@@ -86,9 +79,10 @@ To enable inbound calling with Twilio:
      alt="Twilio phone number voice configuration showing webhook URL setup for inbound calls"
    />
 
-2. **Verify Setup**:
-   - Ensure your Dograh AI instance is publicly accessible
-   - Verify any firewalls allow Twilio's IP ranges
+### Step 3: Verify Setup
+
+- Ensure your Dograh AI instance is publicly accessible
+- Verify any firewalls allow Twilio's IP ranges
 
 ### Test Inbound Calling
 
@@ -102,42 +96,39 @@ To enable inbound calling with Twilio:
   <Accordion title="Invalid phone number error">
     Ensure phone numbers include country code in E.164 format: `+1234567890`
   </Accordion>
-  
+
   <Accordion title="Authentication failed">
-    - Verify Account SID and Auth Token are correct
-    - Check for extra spaces in credentials
-    - Ensure credentials haven't been regenerated in Twilio Console
+    - Verify Account SID and Auth Token are correct - Check for extra spaces in
+    credentials - Ensure credentials haven't been regenerated in Twilio Console
   </Accordion>
-  
+
   <Accordion title="Webhook signature validation failing">
-    - Confirm your Auth Token matches exactly
-    - Verify the webhook URL matches what Twilio sends
-    - Check if you're behind a proxy that modifies requests
+    - Confirm your Auth Token matches exactly - Verify the webhook URL matches
+    what Twilio sends - Check if you're behind a proxy that modifies requests
   </Accordion>
-  
+
   <Accordion title="No audio on calls">
-    - Verify WebSocket connection is established
-    - Check firewall rules for WebSocket traffic
-    - Ensure audio pipeline is configured correctly
+    - Verify WebSocket connection is established - Check firewall rules for
+    WebSocket traffic - Ensure audio pipeline is configured correctly
   </Accordion>
-  
+
   <Accordion title="Inbound calls go to voicemail">
-    - Verify webhook URL is correctly configured in Twilio Console
-    - Ensure webhook URL is publicly accessible from internet
-    - Check that phone number is properly linked to webhook
-    - Verify Dograh AI instance is running and responding
+    - Verify the Twilio number's webhook is set to
+    `https://api.dograh.com/api/v1/telephony/inbound/run` - Ensure the webhook
+    URL is publicly accessible from the internet - Confirm the called number
+    exists in your Dograh telephony configuration and has an **Inbound
+    workflow** assigned - Verify Dograh AI instance is running and responding
   </Accordion>
-  
+
   <Accordion title="Voice agent doesn't respond to inbound calls">
-    - Confirm voice agent workflow is properly configured
-    - Check webhook signature validation is working
-    - Verify WebSocket connection establishes successfully
-    - Review call logs for error messages
+    - Confirm the phone number has an **Inbound workflow** assigned in
+    /telephony-configurations - Check webhook signature validation is working
+    (Auth Token in Dograh matches Twilio Console) - Verify WebSocket connection
+    establishes successfully - Review call logs for error messages
   </Accordion>
 </AccordionGroup>
 
 ## Best Practices
 
-- Store credentials securely in the database
 - Test your configuration with a single call before running campaigns
 - Monitor Twilio Console for usage and billing

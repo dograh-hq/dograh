@@ -2,7 +2,6 @@
 
 from typing import Any, Dict
 
-from api.services.pipecat.audio_config import AudioConfig
 from api.services.telephony.registry import (
     ProviderSpec,
     ProviderUIField,
@@ -25,18 +24,9 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-_AUDIO_CONFIG = AudioConfig(
-    transport_in_sample_rate=8000,
-    transport_out_sample_rate=8000,
-    vad_sample_rate=8000,
-    pipeline_sample_rate=8000,
-    buffer_size_seconds=5.0,
-)
-
-
 _UI_METADATA = ProviderUIMetadata(
     display_name="Plivo",
-    docs_url="https://www.plivo.com/docs/voice/",
+    docs_url="https://docs.dograh.com/integrations/telephony/plivo",
     fields=[
         ProviderUIField(name="auth_id", label="Auth ID", type="text", sensitive=True),
         ProviderUIField(
@@ -66,7 +56,7 @@ SPEC = ProviderSpec(
     provider_cls=PlivoProvider,
     config_loader=_config_loader,
     transport_factory=create_transport,
-    audio_config=_AUDIO_CONFIG,
+    transport_sample_rate=8000,
     config_request_cls=PlivoConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=PlivoConfigurationResponse,

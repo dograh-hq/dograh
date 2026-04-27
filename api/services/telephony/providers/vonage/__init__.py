@@ -2,7 +2,6 @@
 
 from typing import Any, Dict
 
-from api.services.pipecat.audio_config import AudioConfig
 from api.services.telephony.registry import (
     ProviderSpec,
     ProviderUIField,
@@ -26,18 +25,9 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-_AUDIO_CONFIG = AudioConfig(
-    transport_in_sample_rate=16000,
-    transport_out_sample_rate=16000,
-    vad_sample_rate=16000,
-    pipeline_sample_rate=16000,
-    buffer_size_seconds=5.0,
-)
-
-
 _UI_METADATA = ProviderUIMetadata(
     display_name="Vonage",
-    docs_url="https://developer.vonage.com/en/voice/voice-api/overview",
+    docs_url="https://docs.dograh.com/integrations/telephony/vonage",
     fields=[
         ProviderUIField(name="application_id", label="Application ID", type="text"),
         ProviderUIField(
@@ -74,7 +64,7 @@ SPEC = ProviderSpec(
     provider_cls=VonageProvider,
     config_loader=_config_loader,
     transport_factory=create_transport,
-    audio_config=_AUDIO_CONFIG,
+    transport_sample_rate=16000,
     config_request_cls=VonageConfigurationRequest,
     ui_metadata=_UI_METADATA,
     config_response_cls=VonageConfigurationResponse,

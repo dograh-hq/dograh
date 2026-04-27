@@ -141,7 +141,7 @@ async def run_pipeline_telephony(
         )
 
     spec = telephony_registry.get(provider_name)
-    audio_config = spec.audio_config
+    audio_config = create_audio_config(provider_name)
 
     transport = await spec.transport_factory(
         websocket,

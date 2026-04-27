@@ -80,38 +80,36 @@ class AudioConfig:
         return int(self.pipeline_sample_rate * 2 * self.max_recording_duration_seconds)
 
 
-# Non-telephony audio configs (used by WebRTC + small WebRTC).
-# Telephony providers register their own AudioConfig via ProviderSpec.
-_WEBRTC_AUDIO_CONFIG = AudioConfig(
-    transport_in_sample_rate=16000,  # Transport will resample from 24kHz
-    transport_out_sample_rate=16000,  # Transport will resample to 24kHz
-    vad_sample_rate=16000,
-    pipeline_sample_rate=16000,
-    buffer_size_seconds=5.0,
-)
-
-
 def create_audio_config(transport_type: str) -> AudioConfig:
-    """Create audio configuration based on transport type.
+    """Create audio configuration for a given transport.
 
-    Telephony providers contribute their AudioConfig through the provider
-    registry; non-telephony modes (webrtc, smallwebrtc) are handled here.
+    Telephony providers contribute their wire-format sample rate through the
+    provider registry (``ProviderSpec.transport_sample_rate``); WebRTC modes
+    use 16 kHz (transports handle resampling from/to 24 kHz). The remaining
+    AudioConfig fields are derived from the chosen rate.
     """
-    # Defer registry import so that audio_config has no telephony dependency
-    # at import time (the registry is itself imported by every telephony
-    # provider, which in turn imports AudioConfig).
+    # Defer registry import to avoid an import cycle: the registry is imported
+    # by every telephony provider package at startup.
     from api.enums import WorkflowRunMode
     from api.services.telephony import registry
 
-    spec = registry.get_optional(transport_type)
-    if spec is not None:
-        return spec.audio_config
-
-    if transport_type in (
+    telephony_spec = registry.get_optional(transport_type)
+    if telephony_spec is not None:
+        rate = telephony_spec.transport_sample_rate
+    elif transport_type in (
         WorkflowRunMode.WEBRTC.value,
         WorkflowRunMode.SMALLWEBRTC.value,
     ):
-        return _WEBRTC_AUDIO_CONFIG
+        rate = 16000
+    else:
+        logger.warning(
+            f"Unknown transport type: {transport_type}, using default config"
+        )
+        rate = 16000
 
-    logger.warning(f"Unknown transport type: {transport_type}, using default config")
-    return _WEBRTC_AUDIO_CONFIG
+    return AudioConfig(
+        transport_in_sample_rate=rate,
+        transport_out_sample_rate=rate,
+        vad_sample_rate=rate,
+        pipeline_sample_rate=rate,
+    )

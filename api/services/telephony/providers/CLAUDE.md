@@ -30,7 +30,7 @@ If you find yourself editing anything else, re-read the registry plumbing first:
 | --- | --- |
 | Outbound provider lookup | `factory.get_telephony_provider*` reads `registry.get(name).provider_cls` |
 | Stored credentials → constructor dict | `ProviderSpec.config_loader` |
-| Audio sample rate / VAD rate | `ProviderSpec.audio_config` |
+| Audio sample rate / VAD rate | `ProviderSpec.transport_sample_rate` (full `AudioConfig` is built in `pipecat/audio_config.py::create_audio_config`) |
 | Which transport runs in `run_pipeline_telephony` | `ProviderSpec.transport_factory` |
 | Save-request validation + masked response shape | `ProviderSpec.config_request_cls` / `config_response_cls` |
 | Form rendered by the telephony-config UI | `ProviderSpec.ui_metadata` (`ProviderUIField` list) |
@@ -46,7 +46,7 @@ SPEC = ProviderSpec(
     provider_cls=YourProvider,
     config_loader=_config_loader,                   # raw dict from DB → constructor dict
     transport_factory=create_transport,
-    audio_config=AudioConfig(...),
+    transport_sample_rate=8000,                     # wire-format rate; pipecat derives the full AudioConfig
     config_request_cls=YourProviderConfigurationRequest,
     config_response_cls=YourProviderConfigurationResponse,
     ui_metadata=ProviderUIMetadata(...),            # drives the form UI

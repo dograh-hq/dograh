@@ -26,6 +26,9 @@ from typing import (
 
 from pydantic import BaseModel
 
+if TYPE_CHECKING:
+    from api.services.telephony.base import TelephonyProvider
+
 
 @dataclass(frozen=True)
 class ProviderUIField:
@@ -53,11 +56,6 @@ class ProviderUIMetadata:
     docs_url: Optional[str] = None
 
 
-if TYPE_CHECKING:
-    from api.services.pipecat.audio_config import AudioConfig
-    from api.services.telephony.base import TelephonyProvider
-
-
 # Signature every provider's transport factory must satisfy.
 # Provider-specific args (stream_sid, call_sid, channel_id, ...) are passed via **kwargs.
 TransportFactory = Callable[..., Awaitable[Any]]
@@ -81,7 +79,9 @@ class ProviderSpec:
         transport_factory: Async callable that creates the pipecat transport
             for an accepted WebSocket. Provider-specific kwargs (stream_sid,
             call_sid, etc.) are forwarded as ``**kwargs``.
-        audio_config: The AudioConfig this provider's wire format requires.
+        transport_sample_rate: Wire-format audio sample rate this provider
+            uses (e.g. 8000 for Twilio/Plivo, 16000 for Vonage). The pipecat
+            layer derives the full ``AudioConfig`` from this.
         config_request_cls: Pydantic model for incoming save requests.
         config_response_cls: Pydantic model for outgoing (masked) responses.
         ui_metadata: Optional form metadata used by the telephony-config
@@ -100,7 +100,7 @@ class ProviderSpec:
     provider_cls: Type["TelephonyProvider"]
     config_loader: ConfigLoader
     transport_factory: TransportFactory
-    audio_config: "AudioConfig"
+    transport_sample_rate: int
     config_request_cls: Type[BaseModel]
     config_response_cls: Type[BaseModel]
     ui_metadata: Optional[ProviderUIMetadata] = None

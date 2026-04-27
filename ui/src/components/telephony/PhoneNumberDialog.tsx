@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 import {
   createPhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPost,
-  getWorkflowsApiV1WorkflowFetchGet,
+  getWorkflowsSummaryApiV1WorkflowSummaryGet,
   updatePhoneNumberApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersPhoneNumberIdPut,
 } from "@/client/sdk.gen";
 import type { PhoneNumberResponse } from "@/client/types.gen";
@@ -78,12 +78,12 @@ export function PhoneNumberDialog({
     let cancelled = false;
     (async () => {
       const token = await getAccessToken();
-      const res = await getWorkflowsApiV1WorkflowFetchGet({
+      const res = await getWorkflowsSummaryApiV1WorkflowSummaryGet({
         headers: { Authorization: `Bearer ${token}` },
         query: { status: "active" },
       });
       if (cancelled) return;
-      const items = (res.data as Array<{ id: number; name: string }> | undefined) ?? [];
+      const items = res.data ?? [];
       setWorkflows(items.map((w) => ({ id: w.id, name: w.name })));
     })();
     return () => {

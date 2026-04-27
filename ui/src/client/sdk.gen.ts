@@ -34,13 +34,6 @@ export const initiateCallApiV1TelephonyInitiateCallPost = <ThrowOnError extends 
 });
 
 /**
- * Handle Inbound Telephony
- *
- * Handle inbound telephony calls from any supported provider with common processing
- */
-export const handleInboundTelephonyApiV1TelephonyInboundWorkflowIdPost = <ThrowOnError extends boolean = false>(options: Options<HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData, ThrowOnError>) => (options.client ?? client).post<HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses, HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors, ThrowOnError>({ url: '/api/v1/telephony/inbound/{workflow_id}', ...options });
-
-/**
  * Handle Inbound Run
  *
  * Workflow-agnostic inbound dispatcher.
@@ -63,6 +56,22 @@ export const handleInboundRunApiV1TelephonyInboundRunPost = <ThrowOnError extend
  * Fallback endpoint that returns audio message when calls cannot be processed.
  */
 export const handleInboundFallbackApiV1TelephonyInboundFallbackPost = <ThrowOnError extends boolean = false>(options?: Options<HandleInboundFallbackApiV1TelephonyInboundFallbackPostData, ThrowOnError>) => (options?.client ?? client).post<HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses, HandleInboundFallbackApiV1TelephonyInboundFallbackPostErrors, ThrowOnError>({ url: '/api/v1/telephony/inbound/fallback', ...options });
+
+/**
+ * Handle Inbound Telephony
+ *
+ * [LEGACY] Per-workflow inbound webhook.
+ *
+ * Superseded by ``POST /inbound/run``, which resolves the workflow from
+ * the called number's ``inbound_workflow_id`` and lets a single webhook
+ * URL serve every workflow in the org. New integrations should point
+ * their provider at ``/inbound/run``; this route is kept only for
+ * existing provider configurations that still encode ``workflow_id``
+ * in the URL.
+ *
+ * @deprecated
+ */
+export const handleInboundTelephonyApiV1TelephonyInboundWorkflowIdPost = <ThrowOnError extends boolean = false>(options: Options<HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData, ThrowOnError>) => (options.client ?? client).post<HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses, HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors, ThrowOnError>({ url: '/api/v1/telephony/inbound/{workflow_id}', ...options });
 
 /**
  * Initiate Call Transfer

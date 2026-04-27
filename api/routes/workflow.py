@@ -814,10 +814,15 @@ async def create_workflow_draft(
 @router.get("/summary")
 async def get_workflows_summary(
     user: UserModel = Depends(get_user),
+    status: Optional[str] = Query(
+        None,
+        description="Filter by status (e.g. 'active' or 'archived'). Omit to return all.",
+    ),
 ) -> List[WorkflowSummaryResponse]:
     """Get minimal workflow information (id and name only) for all workflows"""
     workflows = await db_client.get_all_workflows(
-        organization_id=user.selected_organization_id
+        organization_id=user.selected_organization_id,
+        status=status,
     )
     return [
         WorkflowSummaryResponse(id=workflow.id, name=workflow.name)

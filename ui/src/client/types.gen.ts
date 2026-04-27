@@ -4735,38 +4735,6 @@ export type InitiateCallApiV1TelephonyInitiateCallPostResponses = {
     200: unknown;
 };
 
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
-    body?: never;
-    path: {
-        /**
-         * Workflow Id
-         */
-        workflow_id: number;
-    };
-    query?: never;
-    url: '/api/v1/telephony/inbound/{workflow_id}';
-};
-
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostError = HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors[keyof HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors];
-
-export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: unknown;
-};
-
 export type HandleInboundRunApiV1TelephonyInboundRunPostData = {
     body?: never;
     path?: never;
@@ -4803,6 +4771,38 @@ export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostErrors = {
 };
 
 export type HandleInboundFallbackApiV1TelephonyInboundFallbackPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostData = {
+    body?: never;
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/telephony/inbound/{workflow_id}';
+};
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostError = HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors[keyof HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostErrors];
+
+export type HandleInboundTelephonyApiV1TelephonyInboundWorkflowIdPostResponses = {
     /**
      * Successful Response
      */
@@ -5748,7 +5748,14 @@ export type GetWorkflowsSummaryApiV1WorkflowSummaryGetData = {
         'X-API-Key'?: string | null;
     };
     path?: never;
-    query?: never;
+    query?: {
+        /**
+         * Status
+         *
+         * Filter by status (e.g. 'active' or 'archived'). Omit to return all.
+         */
+        status?: string | null;
+    };
     url: '/api/v1/workflow/summary';
 };
 

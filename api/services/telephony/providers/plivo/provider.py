@@ -19,6 +19,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -38,6 +39,7 @@ class PlivoProvider(TelephonyProvider):
     def __init__(self, config: Dict[str, Any]):
         self.auth_id = config.get("auth_id")
         self.auth_token = config.get("auth_token")
+        self.application_id = config.get("application_id")
         self.from_numbers = config.get("from_numbers", [])
 
         if isinstance(self.from_numbers, str):
@@ -419,6 +421,81 @@ class PlivoProvider(TelephonyProvider):
             logger.warning("Inbound Plivo webhook missing X-Plivo-Signature-V3")
             return False
         return await self.verify_webhook_signature(url, webhook_data, signature, nonce)
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update the answer_url on the configured Plivo Application.
+
+        Plivo numbers don't carry an answer_url directly — the URL lives on a
+        Plivo Application, and a number is linked to one app via ``app_id``.
+        Every call to this method updates the answer_url on
+        ``self.application_id``, regardless of which ``address`` triggered the
+        sync. ``address`` is informational. Linking the number to
+        ``self.application_id`` (in the Plivo console, or via the Account
+        Phone Number API) is the operator's responsibility — we only update
+        the application's webhook here.
+
+        Clearing (``webhook_url=None``) is a no-op on Plivo's side: the URL
+        is shared across every number linked to this application, so
+        unsetting it for one number would silently break inbound for the
+        rest. The DB-level disconnect is sufficient — inbound calls without
+        a matching workflow are rejected by the backend.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Plivo configure_inbound clear for {address}: skipping "
+                f"application update (answer_url is shared across all numbers "
+                f"on application {self.application_id})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Plivo provider not properly configured"
+            )
+
+        if not self.application_id:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Plivo application_id is not configured. Set it in the "
+                    "telephony configuration so inbound webhooks can be "
+                    "synced to the right Application."
+                ),
+            )
+
+        app_endpoint = f"{self.base_url}/Application/{self.application_id}/"
+        data = {
+            "answer_url": webhook_url,
+            "answer_method": "POST",
+        }
+        auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(app_endpoint, json=data, auth=auth) as response:
+                    if response.status not in (200, 202):
+                        body = await response.text()
+                        logger.error(
+                            f"Plivo application update failed for "
+                            f"{self.application_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Plivo API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception updating Plivo application {self.application_id}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Plivo update failed: {e}")
+
+        logger.info(
+            f"Plivo answer_url set on application {self.application_id} "
+            f"(triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
 
     async def start_inbound_stream(
         self,

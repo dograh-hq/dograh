@@ -58,8 +58,7 @@ async def _handle_plivo_status_callback(
         is_valid = await provider.verify_inbound_signature(
             full_url,
             callback_data,
-            signature,
-            x_plivo_signature_v3_nonce,
+            dict(request.headers),
         )
         if not is_valid:
             logger.warning(f"[run {workflow_run_id}] Invalid Plivo webhook signature")
@@ -112,7 +111,7 @@ async def handle_plivo_xml_webhook(
             f"&organization_id={organization_id}"
         )
         is_valid = await provider.verify_inbound_signature(
-            full_url, callback_data, signature, x_plivo_signature_v3_nonce
+            full_url, callback_data, dict(request.headers)
         )
         if not is_valid:
             logger.warning(

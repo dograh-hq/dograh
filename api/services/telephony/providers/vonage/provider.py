@@ -16,6 +16,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -451,6 +452,115 @@ class VonageProvider(TelephonyProvider):
         Vonage inbound signature verification - minimalist implementation.
         """
         return True
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update the answer_url on Vonage's Application for ``address``.
+
+        Vonage routes inbound calls per-application: a single ``answer_url`` on
+        ``self.application_id`` applies to every number attached to it. The
+        ``address`` argument is informational — every call to this method
+        rewrites (or leaves alone) the application's webhook, regardless of
+        which number triggered the sync.
+
+        Vonage's PUT /v2/applications/{id} is full-replacement, so we GET the
+        current application, mutate ``capabilities.voice.webhooks.answer_url``,
+        and PUT the result back. ``api_key`` and ``api_secret`` are used for
+        Basic auth on the application API (the JWT auth used elsewhere is for
+        the Voice API, not the Application API).
+
+        Clearing (``webhook_url=None``) is a no-op on the Vonage side: the URL
+        is shared across all numbers on this application, so unsetting it for
+        one number would silently break inbound for every other number still
+        attached. The DB-level disconnect is sufficient — inbound calls
+        without a matching workflow are rejected by the backend.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Vonage configure_inbound clear for {address}: skipping "
+                f"application update (answer_url is shared across all numbers "
+                f"on application {self.application_id})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Vonage provider not properly configured"
+            )
+
+        if not (self.api_key and self.api_secret):
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Vonage api_key and api_secret are required to update the "
+                    "application's answer_url"
+                ),
+            )
+
+        app_endpoint = f"{self.base_url}/v2/applications/{self.application_id}"
+        auth = aiohttp.BasicAuth(self.api_key, self.api_secret)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(app_endpoint, auth=auth) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Failed to fetch Vonage application "
+                            f"{self.application_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Vonage API {response.status}: {body}",
+                        )
+                    app_data = await response.json()
+        except Exception as e:
+            logger.error(f"Exception fetching Vonage application: {e}")
+            return ProviderSyncResult(ok=False, message=f"Vonage lookup failed: {e}")
+
+        capabilities = app_data.get("capabilities") or {}
+        voice = capabilities.get("voice") or {}
+        webhooks = voice.get("webhooks") or {}
+
+        webhooks["answer_url"] = {
+            "address": webhook_url,
+            "http_method": "POST",
+        }
+        voice["webhooks"] = webhooks
+        capabilities["voice"] = voice
+
+        update_body = {
+            "name": app_data.get("name"),
+            "capabilities": capabilities,
+        }
+        if "privacy" in app_data:
+            update_body["privacy"] = app_data["privacy"]
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.put(
+                    app_endpoint, json=update_body, auth=auth
+                ) as response:
+                    if response.status not in (200, 201):
+                        body = await response.text()
+                        logger.error(
+                            f"Vonage application update failed for "
+                            f"{self.application_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Vonage API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(f"Exception updating Vonage application: {e}")
+            return ProviderSyncResult(ok=False, message=f"Vonage update failed: {e}")
+
+        logger.info(
+            f"Vonage answer_url set on application {self.application_id} "
+            f"(triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
 
     async def start_inbound_stream(
         self,

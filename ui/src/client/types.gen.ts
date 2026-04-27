@@ -2382,11 +2382,17 @@ export type PlivoConfigurationRequest = {
      */
     auth_token: string;
     /**
+     * Application Id
+     *
+     * Plivo Application ID. The application's answer_url is updated when inbound workflows are attached to numbers on this account.
+     */
+    application_id: string;
+    /**
      * From Numbers
      *
      * List of Plivo phone numbers
      */
-    from_numbers: Array<string>;
+    from_numbers?: Array<string>;
 };
 
 /**
@@ -2407,6 +2413,10 @@ export type PlivoConfigurationResponse = {
      * Auth Token
      */
     auth_token: string;
+    /**
+     * Application Id
+     */
+    application_id: string;
     /**
      * From Numbers
      */
@@ -4109,7 +4119,7 @@ export type VobizConfigurationRequest = {
      *
      * List of Vobiz phone numbers (E.164 without + prefix)
      */
-    from_numbers: Array<string>;
+    from_numbers?: Array<string>;
 };
 
 /**
@@ -4199,13 +4209,13 @@ export type VonageConfigurationRequest = {
      *
      * Vonage API Key
      */
-    api_key?: string | null;
+    api_key: string;
     /**
      * Api Secret
      *
      * Vonage API Secret
      */
-    api_secret?: string | null;
+    api_secret: string;
     /**
      * Application Id
      *
@@ -4223,7 +4233,7 @@ export type VonageConfigurationRequest = {
      *
      * List of Vonage phone numbers (without + prefix)
      */
-    from_numbers: Array<string>;
+    from_numbers?: Array<string>;
 };
 
 /**
@@ -4243,11 +4253,11 @@ export type VonageConfigurationResponse = {
     /**
      * Api Key
      */
-    api_key: string | null;
+    api_key: string;
     /**
      * Api Secret
      */
-    api_secret: string | null;
+    api_secret: string;
     /**
      * Private Key
      */

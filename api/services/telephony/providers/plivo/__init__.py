@@ -20,6 +20,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "provider": "plivo",
         "auth_id": value.get("auth_id"),
         "auth_token": value.get("auth_token"),
+        "application_id": value.get("application_id"),
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -40,6 +41,15 @@ _UI_METADATA = ProviderUIMetadata(
         ProviderUIField(name="auth_id", label="Auth ID", type="text", sensitive=True),
         ProviderUIField(
             name="auth_token", label="Auth Token", type="password", sensitive=True
+        ),
+        ProviderUIField(
+            name="application_id",
+            label="Application ID",
+            type="text",
+            description=(
+                "Plivo Application ID whose answer_url is updated when inbound "
+                "workflows are attached to numbers on this account"
+            ),
         ),
         ProviderUIField(
             name="from_numbers",

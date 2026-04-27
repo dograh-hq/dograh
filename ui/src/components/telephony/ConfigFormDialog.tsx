@@ -299,6 +299,7 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
         value={(value as string) ?? ""}
         onChange={(e) => onChange(e.target.value)}
         rows={6}
+        className="field-sizing-fixed resize-y break-all font-mono text-xs"
       />
     );
   }

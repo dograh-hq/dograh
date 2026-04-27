@@ -204,7 +204,7 @@ async def _normalize_with_phone_numbers(
     raw["provider"] = row.provider
     base = spec.config_loader(raw)
 
-    addresses = await db_client.list_active_address_strings_for_config(row.id)
+    addresses = await db_client.list_active_normalized_addresses_for_config(row.id)
     base["from_numbers"] = addresses
     return base
 

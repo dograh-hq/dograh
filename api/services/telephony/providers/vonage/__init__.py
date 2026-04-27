@@ -52,14 +52,12 @@ _UI_METADATA = ProviderUIMetadata(
             label="API Key",
             type="text",
             sensitive=True,
-            required=False,
         ),
         ProviderUIField(
             name="api_secret",
             label="API Secret",
             type="password",
             sensitive=True,
-            required=False,
         ),
         ProviderUIField(
             name="from_numbers",

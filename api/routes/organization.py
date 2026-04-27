@@ -166,7 +166,7 @@ def _phone_number_to_response(
 
 
 async def _sync_inbound_for_phone_number(
-    config_id: int, address: str, attach: bool
+    config_id: int, address: str
 ) -> ProviderSyncStatus:
     """Push inbound webhook configuration to the provider.
 
@@ -183,10 +183,8 @@ async def _sync_inbound_for_phone_number(
         logger.error(f"Failed to load telephony provider for config {config_id}: {e}")
         return ProviderSyncStatus(ok=False, message=f"Provider load failed: {e}")
 
-    webhook_url: Optional[str] = None
-    if attach:
-        backend_endpoint, _ = await get_backend_endpoints()
-        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
+    backend_endpoint, _ = await get_backend_endpoints()
+    webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
 
     try:
         result = await provider.configure_inbound(address, webhook_url)
@@ -454,7 +452,7 @@ async def create_phone_number(
     response = _phone_number_to_response(row)
     if request.inbound_workflow_id is not None:
         response.provider_sync = await _sync_inbound_for_phone_number(
-            config_id, row.address, attach=True
+            config_id, row.address
         )
     return response
 
@@ -516,13 +514,11 @@ async def update_phone_number(
 
     response = _phone_number_to_response(row)
 
-    # Sync provider-side webhook only when the inbound workflow actually changed.
-    had_workflow = existing.inbound_workflow_id is not None
-    has_workflow = row.inbound_workflow_id is not None
-    if had_workflow != has_workflow:
-        response.provider_sync = await _sync_inbound_for_phone_number(
-            config_id, row.address, attach=has_workflow
-        )
+    # Sync the provider application or address with the inbound
+    # calling webhook address
+    response.provider_sync = await _sync_inbound_for_phone_number(
+        config_id, row.address
+    )
     return response
 
 
@@ -563,11 +559,6 @@ async def delete_phone_number(
     if not deleted:
         raise HTTPException(status_code=404, detail="Phone number not found")
 
-    # Clear the upstream binding so the provider stops POSTing to the
-    # dispatcher for a row that no longer exists. Best-effort — if the
-    # provider call fails, the user has already deleted the row and we log.
-    if existing.inbound_workflow_id is not None:
-        await _sync_inbound_for_phone_number(config_id, existing.address, attach=False)
     return {"message": "Phone number deleted"}
 
 
@@ -595,7 +586,7 @@ async def get_telephony_configuration(user: UserModel = Depends(get_user)):
     if spec is None:
         return TelephonyConfigurationResponse()
 
-    addresses = await db_client.list_active_address_strings_for_config(cfg.id)
+    addresses = await db_client.list_active_normalized_addresses_for_config(cfg.id)
     masked = _mask_sensitive(cfg.provider, cfg.credentials or {})
     payload = {**masked, "provider": cfg.provider, "from_numbers": addresses}
     response_obj = spec.config_response_cls.model_validate(payload)
@@ -858,7 +849,7 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
             user.selected_organization_id
         )
         if default_cfg:
-            addresses = await db_client.list_active_address_strings_for_config(
+            addresses = await db_client.list_active_normalized_addresses_for_config(
                 default_cfg.id
             )
             from_numbers_count = len(addresses)

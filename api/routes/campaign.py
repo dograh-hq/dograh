@@ -47,7 +47,7 @@ async def _get_from_numbers_count(organization_id: int) -> int:
             organization_id
         )
         if default_cfg:
-            addresses = await db_client.list_active_address_strings_for_config(
+            addresses = await db_client.list_active_normalized_addresses_for_config(
                 default_cfg.id
             )
             return len(addresses)

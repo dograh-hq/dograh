@@ -11,8 +11,15 @@ class PlivoConfigurationRequest(BaseModel):
     provider: Literal["plivo"] = Field(default="plivo")
     auth_id: str = Field(..., description="Plivo Auth ID")
     auth_token: str = Field(..., description="Plivo Auth Token")
+    application_id: str = Field(
+        ...,
+        description=(
+            "Plivo Application ID. The application's answer_url is updated "
+            "when inbound workflows are attached to numbers on this account."
+        ),
+    )
     from_numbers: List[str] = Field(
-        ..., min_length=1, description="List of Plivo phone numbers"
+        default_factory=list, description="List of Plivo phone numbers"
     )
 
 
@@ -22,4 +29,5 @@ class PlivoConfigurationResponse(BaseModel):
     provider: Literal["plivo"] = Field(default="plivo")
     auth_id: str  # Masked
     auth_token: str  # Masked
+    application_id: str
     from_numbers: List[str]

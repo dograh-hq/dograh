@@ -12,8 +12,7 @@ class VobizConfigurationRequest(BaseModel):
     auth_id: str = Field(..., description="Vobiz Account ID (e.g., MA_SYQRLN1K)")
     auth_token: str = Field(..., description="Vobiz Auth Token")
     from_numbers: List[str] = Field(
-        ...,
-        min_length=1,
+        default_factory=list,
         description="List of Vobiz phone numbers (E.164 without + prefix)",
     )
 

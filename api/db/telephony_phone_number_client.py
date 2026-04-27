@@ -57,14 +57,15 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             )
             return [(row, name) for row, name in result.all()]
 
-    async def list_active_address_strings_for_config(
+    async def list_active_normalized_addresses_for_config(
         self, telephony_configuration_id: int
     ) -> List[str]:
-        """Active phone numbers as raw address strings — the shape providers
-        already accept in their ``from_numbers`` list."""
+        """Active phone numbers as canonical address strings (E.164 for PSTN,
+        normalized SIP otherwise) — the shape providers want in their
+        ``from_numbers`` list for caller-ID and rate-limit pool keys."""
         async with self.async_session() as session:
             result = await session.execute(
-                select(TelephonyPhoneNumberModel.address)
+                select(TelephonyPhoneNumberModel.address_normalized)
                 .where(
                     TelephonyPhoneNumberModel.telephony_configuration_id
                     == telephony_configuration_id,

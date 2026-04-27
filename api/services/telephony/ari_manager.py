@@ -491,8 +491,10 @@ class ARIConnection:
 
             user_id = workflow.user_id
 
-            # 3. Check quota
-            quota_result = await check_dograh_quota_by_user_id(user_id)
+            # 3. Check quota (apply per-workflow model_overrides).
+            quota_result = await check_dograh_quota_by_user_id(
+                user_id, workflow_id=self.inbound_workflow_id
+            )
             if not quota_result.has_quota:
                 logger.warning(
                     f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "

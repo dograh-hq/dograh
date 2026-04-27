@@ -322,10 +322,14 @@ class ARIProvider(TelephonyProvider):
         """ARI authenticates via WebSocket connection credentials, not signatures."""
         return True
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
         """ARI does not generate HTTP responses for inbound calls."""
         from fastapi import Response
 

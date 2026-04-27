@@ -389,6 +389,15 @@ async def _ensure_config_belongs_to_org(config_id: int, organization_id: int):
     return cfg
 
 
+async def _ensure_workflow_belongs_to_org(workflow_id: int, organization_id: int):
+    workflow = await db_client.get_workflow(
+        workflow_id, organization_id=organization_id
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return workflow
+
+
 @router.get(
     "/telephony-configs/{config_id}/phone-numbers",
     response_model=PhoneNumberListResponse,
@@ -416,6 +425,11 @@ async def create_phone_number(
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
     await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+
+    if request.inbound_workflow_id is not None:
+        await _ensure_workflow_belongs_to_org(
+            request.inbound_workflow_id, user.selected_organization_id
+        )
 
     try:
         row = await db_client.create_phone_number(
@@ -481,6 +495,11 @@ async def update_phone_number(
     existing = await db_client.get_phone_number_for_config(phone_number_id, config_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Phone number not found")
+
+    if request.inbound_workflow_id is not None:
+        await _ensure_workflow_belongs_to_org(
+            request.inbound_workflow_id, user.selected_organization_id
+        )
 
     row = await db_client.update_phone_number(
         phone_number_id=phone_number_id,

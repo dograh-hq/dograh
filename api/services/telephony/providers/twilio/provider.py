@@ -502,10 +502,14 @@ class TwilioProvider(TelephonyProvider):
             return None
         return numbers[0].get("sid")
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
         """
         Generate TwiML response for an inbound Twilio webhook.
 
@@ -516,7 +520,6 @@ class TwilioProvider(TelephonyProvider):
         # Generate StatusCallback URL using same pattern as outbound calls
         status_callback_attr = ""
         if workflow_run_id:
-            backend_endpoint, _ = await get_backend_endpoints()
             status_callback_url = f"{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
             status_callback_attr = f' statusCallback="{status_callback_url}"'
 

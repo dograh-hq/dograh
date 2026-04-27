@@ -183,22 +183,24 @@ def generic_hangup_response():
 
 
 async def parse_webhook_request(request: Request) -> tuple[dict, str]:
-    """Parse webhook request data from either JSON or form"""
+    """Parse webhook request data from either JSON or form.
+
+    Returns ``(webhook_data, raw_body)`` where ``raw_body`` is the
+    request body decoded as UTF-8 — kept around for providers (e.g.
+    Vobiz) whose signature is computed over the raw bytes.
+    """
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
     try:
-        # Try JSON first
         webhook_data = await request.json()
-        data_source = "JSON"
     except Exception:
         try:
-            # Fallback to form data
             form_data = await request.form()
             webhook_data = dict(form_data)
-            data_source = "FORM"
         except Exception as e:
             logger.error(f"Failed to parse webhook data: {e}")
             raise ValueError("Unable to parse webhook data")
 
-    return webhook_data, data_source
+    return webhook_data, raw_body
 
 
 def get_country_code(country_iso: str) -> str:

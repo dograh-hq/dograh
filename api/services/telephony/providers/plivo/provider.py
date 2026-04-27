@@ -420,15 +420,18 @@ class PlivoProvider(TelephonyProvider):
             return False
         return await self.verify_webhook_signature(url, webhook_data, signature, nonce)
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
         from fastapi import Response
 
         hangup_callback_attr = ""
         if workflow_run_id:
-            backend_endpoint, _ = await get_backend_endpoints()
             hangup_url = f"{backend_endpoint}/api/v1/telephony/plivo/hangup-callback/{workflow_run_id}"
             hangup_callback_attr = (
                 f' statusCallbackUrl="{hangup_url}" statusCallbackMethod="POST"'

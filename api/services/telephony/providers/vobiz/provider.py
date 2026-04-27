@@ -491,10 +491,14 @@ class VobizProvider(TelephonyProvider):
             url, webhook_data, signature, timestamp, body
         )
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
         """
         Generate Vobiz XML response for an inbound webhook.
 

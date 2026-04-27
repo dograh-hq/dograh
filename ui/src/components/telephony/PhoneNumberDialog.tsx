@@ -80,6 +80,7 @@ export function PhoneNumberDialog({
       const token = await getAccessToken();
       const res = await getWorkflowsApiV1WorkflowFetchGet({
         headers: { Authorization: `Bearer ${token}` },
+        query: { status: "active" },
       });
       if (cancelled) return;
       const items = (res.data as Array<{ id: number; name: string }> | undefined) ?? [];

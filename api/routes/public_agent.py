@@ -83,8 +83,11 @@ async def _initiate_call(
     if trigger.state != TriggerState.ACTIVE.value:
         raise HTTPException(status_code=404, detail="Agent trigger is not active")
 
-    # 4.5 Check Dograh quota before initiating the call
-    quota_result = await check_dograh_quota_by_user_id(api_key.created_by)
+    # 4.5 Check Dograh quota before initiating the call (apply the trigger's
+    # workflow's model_overrides so we evaluate the keys this run will use).
+    quota_result = await check_dograh_quota_by_user_id(
+        api_key.created_by, workflow_id=trigger.workflow_id
+    )
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 

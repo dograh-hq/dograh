@@ -104,8 +104,9 @@ async def initiate_call(
             detail="telephony_not_configured",
         )
 
-    # Check Dograh quota before initiating the call
-    quota_result = await check_dograh_quota(user)
+    # Check Dograh quota before initiating the call (apply per-workflow
+    # model_overrides so the keys we will actually use are the ones checked).
+    quota_result = await check_dograh_quota(user, workflow_id=request.workflow_id)
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
@@ -126,8 +127,12 @@ async def initiate_call(
     if not workflow_run_id:
         # Fetch workflow to merge template context variables (e.g. caller_number,
         # called_number set in workflow settings for testing pre-call data fetch)
-        workflow = await db_client.get_workflow_by_id(request.workflow_id)
-        template_vars = (workflow.template_context_variables or {}) if workflow else {}
+        workflow = await db_client.get_workflow(
+            request.workflow_id, organization_id=user.selected_organization_id
+        )
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        template_vars = workflow.template_context_variables or {}
 
         numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
         workflow_run_name = f"WR-TEL-OUT-{numeric_suffix:08d}"
@@ -270,7 +275,7 @@ async def _validate_inbound_request(
     normalized_data,
     webhook_data: dict,
     headers: dict,
-    webhook_body: str = "",
+    raw_body: str = "",
 ) -> tuple[bool, TelephonyError, dict, object]:
     """
     Validate all aspects of inbound request.
@@ -314,7 +319,7 @@ async def _validate_inbound_request(
     webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
     provider_instance = await get_telephony_provider_by_id(telephony_configuration_id)
     signature_valid = await provider_instance.verify_inbound_signature(
-        webhook_url, webhook_data, headers, webhook_body
+        webhook_url, webhook_data, headers, raw_body
     )
     logger.info(f"Signature validation for {provider}: {signature_valid}")
     if not signature_valid:
@@ -342,7 +347,6 @@ async def _create_inbound_workflow_run(
     user_id: int,
     provider: str,
     normalized_data,
-    data_source: str,
     telephony_configuration_id: int,
     from_phone_number_id: Optional[int] = None,
 ) -> int:
@@ -363,7 +367,6 @@ async def _create_inbound_workflow_run(
             "direction": "inbound",
             "account_id": normalized_data.account_id,
             "provider": provider,
-            "data_source": data_source,
             "from_country": normalized_data.from_country,
             "to_country": normalized_data.to_country,
             "raw_webhook_data": normalized_data.raw_data,
@@ -548,132 +551,6 @@ async def _handle_telephony_websocket(
             pass
 
 
-@router.post("/inbound/{workflow_id}")
-async def handle_inbound_telephony(
-    workflow_id: int,
-    request: Request,
-):
-    """Handle inbound telephony calls from any supported provider with common processing"""
-    logger.info(f"Inbound call received for workflow_id: {workflow_id}")
-
-    try:
-        webhook_data, data_source = await parse_webhook_request(request)
-        logger.info(
-            f"Inbound call data with data source: {data_source} and data :{dict(webhook_data)}"
-        )
-        headers = dict(request.headers)
-
-        # Detect provider and normalize data
-        provider_class = await _detect_provider(webhook_data, headers)
-        if not provider_class:
-            logger.error("Unable to detect provider for webhook")
-            return generic_hangup_response()
-
-        normalized_data = normalize_webhook_data(provider_class, webhook_data)
-
-        logger.info(
-            f"Inbound call - Provider: {normalized_data.provider}, Data source: {data_source}"
-        )
-        logger.info(f"Normalized data: {normalized_data}")
-
-        # Validate inbound direction
-        if normalized_data.direction != "inbound":
-            logger.warning(f"Non-inbound call received: {normalized_data.direction}")
-            return generic_hangup_response()
-
-        # Vobiz signs the raw body bytes; other providers don't read this.
-        webhook_body = data_source if provider_class.PROVIDER_NAME == "vobiz" else ""
-
-        (
-            is_valid,
-            error_type,
-            workflow_context,
-            provider_instance,
-        ) = await _validate_inbound_request(
-            workflow_id,
-            provider_class,
-            normalized_data,
-            webhook_data,
-            headers,
-            webhook_body,
-        )
-
-        if not is_valid:
-            logger.error(f"Request validation failed: {error_type}")
-            return provider_class.generate_validation_error_response(error_type)
-
-        # Check quota before processing
-        user_id = workflow_context["user_id"]
-        quota_result = await check_dograh_quota_by_user_id(user_id)
-        if not quota_result.has_quota:
-            logger.warning(
-                f"User {user_id} has exceeded quota for inbound calls: {quota_result.error_message}"
-            )
-            return provider_class.generate_validation_error_response(
-                TelephonyError.QUOTA_EXCEEDED
-            )
-
-        # Create workflow run
-        workflow_run_id = await _create_inbound_workflow_run(
-            workflow_id,
-            workflow_context["user_id"],
-            workflow_context["provider"],
-            normalized_data,
-            data_source,
-            telephony_configuration_id=workflow_context["telephony_configuration_id"],
-            from_phone_number_id=workflow_context.get("from_phone_number_id"),
-        )
-
-        # Generate response URLs
-        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-        websocket_url = f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
-
-        # Telnyx requires answering the call via REST API (not via webhook response)
-        if provider_class.PROVIDER_NAME == "telnyx":
-            # Get provider instance with credentials if not already loaded
-            if not provider_instance:
-                provider_instance = await get_telephony_provider_by_id(
-                    workflow_context["telephony_configuration_id"]
-                )
-
-            events_url = (
-                f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
-            )
-
-            try:
-                await provider_instance.answer_and_stream(
-                    call_control_id=normalized_data.call_id,
-                    stream_url=websocket_url,
-                    webhook_url=events_url,
-                )
-            except Exception as e:
-                logger.error(f"Failed to answer Telnyx inbound call: {e}")
-                return provider_class.generate_error_response(
-                    "ANSWER_FAILED", "Failed to answer call"
-                )
-
-            logger.info(
-                f"Answered Telnyx inbound call {normalized_data.call_id} for workflow_run {workflow_run_id}"
-            )
-            return {"status": "ok"}
-
-        response = await provider_class.generate_inbound_response(
-            websocket_url, workflow_run_id
-        )
-
-        logger.info(
-            f"Generated {normalized_data.provider} response for call {normalized_data.call_id}"
-        )
-        return response
-
-    except ValueError as e:
-        logger.error(f"Request parsing error: {e}")
-        return generic_hangup_response()
-    except Exception as e:
-        logger.error(f"Error processing inbound call: {e}")
-        return generic_hangup_response()
-
-
 @router.post("/inbound/run")
 async def handle_inbound_run(request: Request):
     """Workflow-agnostic inbound dispatcher.
@@ -693,7 +570,7 @@ async def handle_inbound_run(request: Request):
     logger.info("Inbound /run dispatch received")
 
     try:
-        webhook_data, data_source = await parse_webhook_request(request)
+        webhook_data, raw_body = await parse_webhook_request(request)
         headers = dict(request.headers)
 
         provider_class = await _detect_provider(webhook_data, headers)
@@ -712,9 +589,6 @@ async def handle_inbound_run(request: Request):
                 f"Non-inbound call on /inbound/run: {normalized_data.direction}"
             )
             return generic_hangup_response()
-
-        # Vobiz signs the raw body bytes; other providers don't read this.
-        webhook_body = data_source if provider_class.PROVIDER_NAME == "vobiz" else ""
 
         # 1. Resolve config globally from (provider, account_id).
         spec = telephony_registry.get_optional(provider_class.PROVIDER_NAME)
@@ -790,13 +664,13 @@ async def handle_inbound_run(request: Request):
         user_id = workflow.user_id
 
         # 3. Verify webhook signature against the matched config's credentials.
-        backend_endpoint, _ = await get_backend_endpoints()
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
         provider_instance = await get_telephony_provider_by_id(
             telephony_configuration_id
         )
         signature_valid = await provider_instance.verify_inbound_signature(
-            webhook_url, webhook_data, headers, webhook_body
+            webhook_url, webhook_data, headers, raw_body
         )
         if not signature_valid:
             logger.warning(
@@ -807,8 +681,10 @@ async def handle_inbound_run(request: Request):
                 TelephonyError.SIGNATURE_VALIDATION_FAILED
             )
 
-        # 4. Quota check.
-        quota_result = await check_dograh_quota_by_user_id(user_id)
+        # 4. Quota check (use the workflow's model_overrides if set).
+        quota_result = await check_dograh_quota_by_user_id(
+            user_id, workflow_id=workflow_id
+        )
         if not quota_result.has_quota:
             logger.warning(
                 f"User {user_id} has exceeded quota: {quota_result.error_message}"
@@ -823,40 +699,20 @@ async def handle_inbound_run(request: Request):
             user_id,
             provider_class.PROVIDER_NAME,
             normalized_data,
-            data_source,
             telephony_configuration_id=telephony_configuration_id,
             from_phone_number_id=phone_row.id,
         )
 
-        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         websocket_url = (
             f"{wss_backend_endpoint}/api/v1/telephony/ws/"
             f"{workflow_id}/{user_id}/{workflow_run_id}"
         )
 
-        if provider_class.PROVIDER_NAME == "telnyx":
-            if not provider_instance:
-                provider_instance = await get_telephony_provider_by_id(
-                    telephony_configuration_id
-                )
-            events_url = (
-                f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
-            )
-            try:
-                await provider_instance.answer_and_stream(
-                    call_control_id=normalized_data.call_id,
-                    stream_url=websocket_url,
-                    webhook_url=events_url,
-                )
-            except Exception as e:
-                logger.error(f"Failed to answer Telnyx inbound call: {e}")
-                return provider_class.generate_error_response(
-                    "ANSWER_FAILED", "Failed to answer call"
-                )
-            return {"status": "ok"}
-
-        return await provider_class.generate_inbound_response(
-            websocket_url, workflow_run_id
+        return await provider_instance.start_inbound_stream(
+            websocket_url=websocket_url,
+            workflow_run_id=workflow_run_id,
+            normalized_data=normalized_data,
+            backend_endpoint=backend_endpoint,
         )
 
     except ValueError as e:
@@ -898,6 +754,110 @@ async def handle_inbound_fallback(request: Request):
             f"[fallback] Received unknown provider callback: {json.dumps(webhook_data)} and request headers: {json.dumps(headers)}"
         )
 
+        return generic_hangup_response()
+
+
+@router.post("/inbound/{workflow_id}", deprecated=True)
+async def handle_inbound_telephony(
+    workflow_id: int,
+    request: Request,
+):
+    """[LEGACY] Per-workflow inbound webhook.
+
+    Superseded by ``POST /inbound/run``, which resolves the workflow from
+    the called number's ``inbound_workflow_id`` and lets a single webhook
+    URL serve every workflow in the org. New integrations should point
+    their provider at ``/inbound/run``; this route is kept only for
+    existing provider configurations that still encode ``workflow_id``
+    in the URL.
+    """
+    logger.info(
+        f"[legacy /inbound/{{workflow_id}}] Inbound call received for workflow_id: {workflow_id}"
+    )
+
+    try:
+        webhook_data, raw_body = await parse_webhook_request(request)
+        logger.info(f"Inbound call data: {dict(webhook_data)}")
+        headers = dict(request.headers)
+
+        # Detect provider and normalize data
+        provider_class = await _detect_provider(webhook_data, headers)
+        if not provider_class:
+            logger.error("Unable to detect provider for webhook")
+            return generic_hangup_response()
+
+        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+
+        logger.info(f"Inbound call - Provider: {normalized_data.provider}")
+        logger.info(f"Normalized data: {normalized_data}")
+
+        # Validate inbound direction
+        if normalized_data.direction != "inbound":
+            logger.warning(f"Non-inbound call received: {normalized_data.direction}")
+            return generic_hangup_response()
+
+        (
+            is_valid,
+            error_type,
+            workflow_context,
+            provider_instance,
+        ) = await _validate_inbound_request(
+            workflow_id,
+            provider_class,
+            normalized_data,
+            webhook_data,
+            headers,
+            raw_body,
+        )
+
+        if not is_valid:
+            logger.error(f"Request validation failed: {error_type}")
+            return provider_class.generate_validation_error_response(error_type)
+
+        # Check quota before processing (apply per-workflow model_overrides).
+        user_id = workflow_context["user_id"]
+        quota_result = await check_dograh_quota_by_user_id(
+            user_id, workflow_id=workflow_id
+        )
+        if not quota_result.has_quota:
+            logger.warning(
+                f"User {user_id} has exceeded quota for inbound calls: {quota_result.error_message}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.QUOTA_EXCEEDED
+            )
+
+        # Create workflow run
+        workflow_run_id = await _create_inbound_workflow_run(
+            workflow_id,
+            workflow_context["user_id"],
+            workflow_context["provider"],
+            normalized_data,
+            telephony_configuration_id=workflow_context["telephony_configuration_id"],
+            from_phone_number_id=workflow_context.get("from_phone_number_id"),
+        )
+
+        # Generate response URLs
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
+        websocket_url = f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
+
+        response = await provider_instance.start_inbound_stream(
+            websocket_url=websocket_url,
+            workflow_run_id=workflow_run_id,
+            normalized_data=normalized_data,
+            backend_endpoint=backend_endpoint,
+        )
+
+        logger.info(
+            f"Generated {normalized_data.provider} response for call {normalized_data.call_id}"
+        )
+        return response
+
+    except ValueError as e:
+        logger.error(f"Request parsing error: {e}")
+        return generic_hangup_response()
+    except Exception as e:
+        logger.error(f"Error processing inbound call: {e}")
         return generic_hangup_response()
 
 

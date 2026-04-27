@@ -424,16 +424,37 @@ class TelnyxProvider(TelephonyProvider):
         """
         return True
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
-        """Telnyx inbound calls don't use a webhook response for streaming.
-        The streaming is set up via Call Control commands.
-        """
-        from fastapi import Response
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
+        """Answer the inbound Telnyx call via Call Control and start streaming.
 
-        return Response(content="{}", media_type="application/json")
+        Unlike markup-response providers, Telnyx ignores webhook response
+        bodies for call control — the call must be answered with a REST
+        call back to Telnyx before media can flow. We do that here and
+        return a simple acknowledgement; on failure, return the
+        ANSWER_FAILED error response so the route stays provider-agnostic.
+        """
+        events_url = (
+            f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
+        )
+        try:
+            await self.answer_and_stream(
+                call_control_id=normalized_data.call_id,
+                stream_url=websocket_url,
+                webhook_url=events_url,
+            )
+        except Exception as e:
+            logger.error(f"Failed to answer Telnyx inbound call: {e}")
+            return self.generate_error_response(
+                "ANSWER_FAILED", "Failed to answer call"
+            )
+        return {"status": "ok"}
 
     @staticmethod
     def generate_error_response(error_type: str, message: str) -> tuple:

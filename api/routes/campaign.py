@@ -323,7 +323,9 @@ async def create_campaign(
         raise HTTPException(status_code=400, detail=validation_result.error.message)
 
     # Validate template variables against source data columns
-    workflow = await db_client.get_workflow_by_id(request.workflow_id)
+    workflow = await db_client.get_workflow(
+        request.workflow_id, organization_id=user.selected_organization_id
+    )
     if workflow:
         from api.services.workflow.dto import ReactFlowDTO
         from api.services.workflow.workflow import WorkflowGraph
@@ -478,15 +480,16 @@ async def start_campaign(
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
-    # Check Dograh quota before starting campaign
-    quota_result = await check_dograh_quota(user)
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
-
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Check Dograh quota before starting campaign (apply per-workflow
+    # model_overrides so we evaluate the keys this campaign will use).
+    quota_result = await check_dograh_quota(user, workflow_id=campaign.workflow_id)
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Start the campaign using the runner service
     try:
@@ -769,15 +772,16 @@ async def resume_campaign(
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
-    # Check Dograh quota before resuming campaign
-    quota_result = await check_dograh_quota(user)
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
-
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Check Dograh quota before resuming campaign (apply per-workflow
+    # model_overrides so we evaluate the keys this campaign will use).
+    quota_result = await check_dograh_quota(user, workflow_id=campaign.workflow_id)
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Resume the campaign using the runner service
     try:

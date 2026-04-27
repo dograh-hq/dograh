@@ -304,20 +304,35 @@ class TelephonyProvider(ABC):
         """
         pass
 
-    @staticmethod
     @abstractmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data: "NormalizedInboundData",
+        backend_endpoint: str,
+    ) -> Any:
         """
-        Generate the appropriate response for an inbound webhook.
+        Bring up the inbound media stream for this provider and return the
+        HTTP response body the webhook caller expects.
+
+        Markup-response providers (Twilio, Plivo, Vobiz, ...) build and
+        return their TwiML/XML/NCCO directly. Call-control providers
+        (Telnyx) issue the REST calls needed to answer the call and start
+        streaming, then return a simple acknowledgement.
 
         Args:
             websocket_url: WebSocket URL for audio streaming
-            workflow_run_id: Optional workflow run ID for tracking
+            workflow_run_id: Workflow run ID for tracking
+            normalized_data: Parsed inbound webhook payload (provides
+                ``call_id`` for providers that need it)
+            backend_endpoint: Public HTTPS base URL of this backend
+                (already resolved by the caller); providers that need to
+                build status / events URLs use this instead of re-fetching
 
         Returns:
-            FastAPI Response object
+            FastAPI Response object (or dict/JSON-serializable value)
         """
         pass
 

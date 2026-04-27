@@ -1,12 +1,13 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket, Pencil } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { toast } from "sonner";
 
+import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
 import {
     duplicateWorkflowEndpointApiV1WorkflowWorkflowIdDuplicatePost,
     publishWorkflowApiV1WorkflowWorkflowIdPublishPost,
@@ -38,6 +39,7 @@ interface WorkflowEditorHeaderProps {
     onRun: (mode: string) => Promise<void>;
     workflowId: number;
     saveWorkflow: (updateWorkflowDefinition?: boolean) => Promise<void>;
+    saveWorkflowConfigurations: (updates: { name: string }) => Promise<void>;
     user: { id: string; email?: string };
     onPhoneCallClick: () => void;
     onHistoryClick: () => void;
@@ -54,6 +56,7 @@ export const WorkflowEditorHeader = ({
     workflowValidationErrors,
     rfInstance,
     saveWorkflow,
+    saveWorkflowConfigurations,
     onRun,
     onPhoneCallClick,
     onHistoryClick,
@@ -69,6 +72,43 @@ export const WorkflowEditorHeader = ({
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
     const [publishing, setPublishing] = useState(false);
+
+    const setWorkflowNameGlobal = useWorkflowStore((state) => state.setWorkflowName);
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [editedName, setEditedName] = useState(workflowName);
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        setEditedName(workflowName);
+    }, [workflowName]);
+
+    useEffect(() => {
+        if (isEditingName && inputRef.current) {
+            inputRef.current.focus();
+        }
+    }, [isEditingName]);
+
+    const handleRenameSubmit = async () => {
+        const trimmed = editedName.trim();
+        if (!trimmed || trimmed === workflowName) {
+            setIsEditingName(false);
+            setEditedName(workflowName);
+            return;
+        }
+        setIsEditingName(false);
+        const promise = saveWorkflowConfigurations({ name: trimmed });
+        toast.promise(promise, {
+            loading: "Renaming...",
+            success: "Renamed successfully",
+            error: "Failed to rename",
+        });
+        try {
+            await promise;
+            setWorkflowNameGlobal(trimmed);
+        } catch {
+            setEditedName(workflowName);
+        }
+    };
 
     const hasValidationErrors = workflowValidationErrors.length > 0;
     const isCallDisabled = isDirty || hasValidationErrors;
@@ -162,12 +202,37 @@ export const WorkflowEditorHeader = ({
                 </button>
 
                 <div className="flex items-center gap-2">
-                    <h1 className="text-base font-medium text-white whitespace-nowrap">
-                        <span className="md:hidden">
-                            {workflowName.length > 8 ? `${workflowName.slice(0, 8)}…` : workflowName}
-                        </span>
-                        <span className="hidden md:inline">{workflowName}</span>
-                    </h1>
+                    {isEditingName && !isViewingHistoricalVersion ? (
+                        <input
+                            ref={inputRef}
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            onBlur={handleRenameSubmit}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") handleRenameSubmit();
+                                else if (e.key === "Escape") {
+                                    setIsEditingName(false);
+                                    setEditedName(workflowName);
+                                }
+                            }}
+                            className="text-base font-medium text-white bg-[#1a1a1a] border border-[#3a3a3a] rounded px-1.5 py-0.5 focus:outline-none focus:border-gray-400 w-[150px] md:w-[300px]"
+                        />
+                    ) : (
+                        <div 
+                            className={`flex items-center gap-2 ${!isViewingHistoricalVersion ? "cursor-pointer group" : ""}`}
+                            onClick={() => !isViewingHistoricalVersion && setIsEditingName(true)}
+                        >
+                            <h1 className="text-base font-medium text-white whitespace-nowrap">
+                                <span className="md:hidden">
+                                    {workflowName.length > 8 ? `${workflowName.slice(0, 8)}…` : workflowName}
+                                </span>
+                                <span className="hidden md:inline">{workflowName}</span>
+                            </h1>
+                            {!isViewingHistoricalVersion && (
+                                <Pencil className="w-4 h-4 text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
 
@@ -222,172 +287,4 @@ export const WorkflowEditorHeader = ({
                                 <span className="text-sm text-red-500">
                                     {workflowValidationErrors.length} {workflowValidationErrors.length === 1 ? "error" : "errors"}
                                 </span>
-                            </button>
-                        </PopoverTrigger>
-                        <PopoverContent
-                            align="end"
-                            className="w-80 bg-[#1a1a1a] border-[#3a3a3a] p-0"
-                        >
-                            <div className="px-4 py-3 border-b border-[#3a3a3a]">
-                                <h3 className="text-sm font-medium text-white">Validation Errors</h3>
-                            </div>
-                            <div className="max-h-64 overflow-y-auto">
-                                {workflowValidationErrors.map((error, index) => (
-                                    <div
-                                        key={index}
-                                        className="px-4 py-3 border-b border-[#2a2a2a] last:border-b-0"
-                                    >
-                                        <div className="flex items-start gap-2">
-                                            <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
-                                            <div className="flex-1 min-w-0">
-                                                {(error.kind === "node" || error.kind === "edge") && error.id && (
-                                                    <p className="text-xs text-gray-400 mb-1">
-                                                        {error.kind === "node" ? "Node" : "Edge"}: {error.id}
-                                                        {error.field && <span className="text-gray-500"> • {error.field}</span>}
-                                                    </p>
-                                                )}
-                                                <p className="text-sm text-white break-words">
-                                                    {error.message}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </PopoverContent>
-                    </Popover>
-                )}
-
-                {/* Call button with dropdown (hidden when viewing history) */}
-                {!isViewingHistoricalVersion && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant="outline"
-                                className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
-                                disabled={isCallDisabled}
-                            >
-                                <Phone className="w-4 h-4" />
-                                Call
-                                <ChevronDown className="w-4 h-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
-                                        workflow_id: workflowId,
-                                        workflow_name: workflowName,
-                                    });
-                                    onRun(WORKFLOW_RUN_MODES.SMALL_WEBRTC);
-                                }}
-                                className="text-white hover:bg-[#2a2a2a] cursor-pointer"
-                            >
-                                <Phone className="w-4 h-4 mr-2" />
-                                Web Call
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    // Delay opening dialog to next event cycle to allow DropdownMenu
-                                    // to clean up first, preventing pointer-events: none stuck on body
-                                    // See: https://github.com/radix-ui/primitives/issues/1241
-                                    setTimeout(onPhoneCallClick, 0);
-                                }}
-                                className="text-white hover:bg-[#2a2a2a] cursor-pointer"
-                            >
-                                <Phone className="w-4 h-4 mr-2" />
-                                Phone Call
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
-
-                {/* Save button (only shown when editing the draft) */}
-                {!isViewingHistoricalVersion && (
-                    <Button
-                        onClick={handleSave}
-                        disabled={!isDirty || savingWorkflow}
-                        className="bg-teal-600 hover:bg-teal-700 text-white px-4"
-                    >
-                        {savingWorkflow ? (
-                            <>
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Saving...
-                            </>
-                        ) : (
-                            "Save"
-                        )}
-                    </Button>
-                )}
-
-                {/* Publish button (only when on draft with no unsaved changes) */}
-                {!isViewingHistoricalVersion && hasDraft && (
-                    <Button
-                        onClick={handlePublish}
-                        disabled={isDirty || publishing || hasValidationErrors}
-                        variant="outline"
-                        className="border-[#3a3a3a] bg-transparent hover:bg-[#2a2a2a] text-white px-4"
-                    >
-                        {publishing ? (
-                            <>
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Publishing...
-                            </>
-                        ) : (
-                            <>
-                                <Rocket className="w-4 h-4 mr-2" />
-                                Publish
-                            </>
-                        )}
-                    </Button>
-                )}
-
-                {/* More options dropdown */}
-                <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="text-gray-400 hover:text-white hover:bg-[#2a2a2a]"
-                        >
-                            <MoreVertical className="w-5 h-5" />
-                        </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
-                        <DropdownMenuItem
-                            onClick={() => router.push(`/workflow/${workflowId}/runs`)}
-                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
-                        >
-                            <History className="w-4 h-4 mr-2" />
-                            View Runs
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            onClick={handleDuplicate}
-                            disabled={duplicating}
-                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
-                        >
-                            {duplicating ? (
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                                <Copy className="w-4 h-4 mr-2" />
-                            )}
-                            {duplicating ? "Duplicating..." : "Duplicate Workflow"}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            onClick={handleDownloadWorkflow}
-                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
-                        >
-                            <Download className="w-4 h-4 mr-2" />
-                            Download Workflow
-                        </DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-
-                {/* GitHub star badge - desktop only */}
-                <div className="hidden md:block">
-                    <GitHubStarBadge className="border-[#3a3a3a] bg-[#2a2a2a] text-white [&_span]:bg-transparent" source="workflow_editor_header" />
-                </div>
-            </div>
-        </div>
-    );
-};
+                            </button

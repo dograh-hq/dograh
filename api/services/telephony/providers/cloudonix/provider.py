@@ -684,9 +684,7 @@ class CloudonixProvider(TelephonyProvider):
                 f"Exception updating Cloudonix Voice Application "
                 f"{self.application_name}: {e}"
             )
-            return ProviderSyncResult(
-                ok=False, message=f"Cloudonix update failed: {e}"
-            )
+            return ProviderSyncResult(ok=False, message=f"Cloudonix update failed: {e}")
 
         logger.info(
             f"Cloudonix url set on Voice Application {self.application_name} "

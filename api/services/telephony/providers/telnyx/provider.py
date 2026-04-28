@@ -460,8 +460,7 @@ class TelnyxProvider(TelephonyProvider):
             )
 
         app_endpoint = (
-            f"{self.TELNYX_API_BASE}/call_control_applications/"
-            f"{self.connection_id}"
+            f"{self.TELNYX_API_BASE}/call_control_applications/{self.connection_id}"
         )
 
         try:

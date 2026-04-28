@@ -324,6 +324,151 @@ def _backfill_from_legacy_telephony_configuration() -> None:
         )
     )
 
+    _move_ari_inbound_workflow_to_phone_numbers()
+
+    _validate_migrated_configurations()
+
+
+def _move_ari_inbound_workflow_to_phone_numbers() -> None:
+    """ARI's legacy single-config-per-org model stored the inbound workflow as
+    ``credentials.inbound_workflow_id`` — one workflow for the whole connection
+    regardless of extension. The multi-config schema puts inbound routing on
+    ``telephony_phone_numbers`` (one workflow per extension), matching every
+    other provider, so the ARI request/response models no longer declare the
+    field. Copy it onto each linked phone number, then strip it from
+    credentials so the data and the schema agree before validation runs.
+    """
+    # 1. Backfill telephony_phone_numbers.inbound_workflow_id from each ARI
+    #    config's credentials.inbound_workflow_id. Only fill NULLs — the
+    #    inserts above leave this column NULL for every newly-created row,
+    #    but the guard keeps the step idempotent if rerun.
+    op.execute(
+        """
+        UPDATE telephony_phone_numbers tpn
+        SET inbound_workflow_id = ((tc.credentials::jsonb)->>'inbound_workflow_id')::integer,
+            updated_at = NOW()
+        FROM telephony_configurations tc
+        WHERE tpn.telephony_configuration_id = tc.id
+          AND tc.provider = 'ari'
+          AND (tc.credentials::jsonb) ? 'inbound_workflow_id'
+          AND ((tc.credentials::jsonb)->>'inbound_workflow_id') ~ '^[0-9]+$'
+          AND tpn.inbound_workflow_id IS NULL
+        """
+    )
+
+    # 2. Strip the legacy key from ARI configs' credentials so the schema and
+    #    the data agree (the ARI provider's request/response models no longer
+    #    declare inbound_workflow_id, which would otherwise trip the
+    #    extra-fields check in _validate_migrated_configurations).
+    op.execute(
+        """
+        UPDATE telephony_configurations
+        SET credentials = ((credentials::jsonb) - 'inbound_workflow_id')::json,
+            updated_at = NOW()
+        WHERE provider = 'ari'
+          AND (credentials::jsonb) ? 'inbound_workflow_id'
+        """
+    )
+
+
+def _validate_migrated_configurations() -> None:
+    """Round-trip every migrated row through its provider's Pydantic
+    request schema so legacy data that the live code can no longer parse
+    fails the migration loudly instead of silently breaking at runtime.
+
+    Migrations normally avoid importing live application modules to stay
+    replay-safe, but the whole point of this step is to compare the
+    just-written rows against the *current* schemas — so the import is
+    intentional. If a provider has been removed or renamed since the
+    legacy data was saved, that surfaces here as a missing-spec failure.
+
+    Validation mirrors what the runtime sees: ``provider`` + the JSONB
+    ``credentials`` columns + ``from_numbers`` joined from
+    ``telephony_phone_numbers``. We additionally reject credential keys
+    that aren't declared on the request model — Pydantic ignores extras
+    by default, so a stray legacy field (e.g. a renamed credential) would
+    otherwise slip through and only show up later as a confused operator
+    wondering why a value they entered does nothing.
+    """
+    import importlib
+
+    from pydantic import ValidationError
+
+    from api.services.telephony import registry
+
+    # Triggers each provider package's ``register()`` side effect.
+    importlib.import_module("api.services.telephony.providers")
+
+    bind = op.get_bind()
+
+    cfg_rows = bind.execute(
+        sa.text(
+            "SELECT id, organization_id, name, provider, credentials "
+            "FROM telephony_configurations"
+        )
+    ).fetchall()
+
+    failures = []
+
+    for cfg_id, org_id, cfg_name, provider, raw_credentials in cfg_rows:
+        credentials = (
+            raw_credentials
+            if isinstance(raw_credentials, dict)
+            else json.loads(raw_credentials or "{}")
+        )
+
+        spec = registry.get_optional(provider)
+        if spec is None:
+            failures.append(
+                f"id={cfg_id} org={org_id} name={cfg_name!r}: provider "
+                f"{provider!r} is not registered (registered: "
+                f"{sorted(registry.names())})"
+            )
+            continue
+
+        from_numbers = [
+            row[0]
+            for row in bind.execute(
+                sa.text(
+                    "SELECT address FROM telephony_phone_numbers "
+                    "WHERE telephony_configuration_id = :cfg_id"
+                ),
+                {"cfg_id": cfg_id},
+            ).fetchall()
+        ]
+
+        # Explicit keys win over anything in credentials so a stray "provider"
+        # or "from_numbers" left in the JSONB can't shadow the canonical values.
+        payload = {**credentials, "provider": provider, "from_numbers": from_numbers}
+
+        known_fields = set(spec.config_request_cls.model_fields)
+        extras = sorted(set(credentials) - known_fields - {"provider", "from_numbers"})
+        if extras:
+            failures.append(
+                f"id={cfg_id} org={org_id} name={cfg_name!r} provider={provider!r}: "
+                f"credentials contain unknown field(s) {extras} not declared on "
+                f"{spec.config_request_cls.__name__}"
+            )
+            continue
+
+        try:
+            spec.config_request_cls.model_validate(payload)
+        except ValidationError as exc:
+            failures.append(
+                f"id={cfg_id} org={org_id} name={cfg_name!r} provider={provider!r} "
+                f"failed {spec.config_request_cls.__name__} validation: {exc}"
+            )
+
+    if failures:
+        from loguru import logger
+
+        logger.warning(
+            "Migrated telephony configurations did not pass live Pydantic "
+            "validation. The migration will continue, but these rows will "
+            "fail at runtime until fixed in the new tables:\n  - "
+            + "\n  - ".join(failures)
+        )
+
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###

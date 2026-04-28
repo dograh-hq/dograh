@@ -50,7 +50,6 @@ _UI_METADATA = ProviderUIMetadata(
             name="from_numbers",
             label="Phone Numbers",
             type="string-array",
-            required=False,
         ),
     ],
 )

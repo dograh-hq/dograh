@@ -50,7 +50,6 @@ class ARIProvider(TelephonyProvider):
         self.ari_endpoint = config.get("ari_endpoint", "").rstrip("/")
         self.app_name = config.get("app_name", "")
         self.app_password = config.get("app_password", "")
-        self.inbound_workflow_id = config.get("inbound_workflow_id")
         self.from_numbers = config.get("from_numbers", [])
 
         if isinstance(self.from_numbers, str):

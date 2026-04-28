@@ -14,6 +14,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -39,10 +40,13 @@ class CloudonixProvider(TelephonyProvider):
             config: Dictionary containing:
                 - bearer_token: Cloudonix API Bearer Token
                 - domain_id: Cloudonix Domain ID
+                - application_name: Cloudonix Voice Application name whose
+                    url is updated by ``configure_inbound``
                 - from_numbers: List of phone numbers to use (optional, fetched from API if not provided)
         """
         self.bearer_token = config.get("bearer_token")
         self.domain_id = config.get("domain_id")
+        self.application_name = config.get("application_name")
         self.from_numbers = config.get("from_numbers", [])
 
         # Handle both single number (string) and multiple numbers (list)
@@ -615,6 +619,80 @@ class CloudonixProvider(TelephonyProvider):
             )
 
         return True  # TODO: update this post clarification from cloudonix
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update the ``url`` on the Cloudonix Voice Application.
+
+        PATCH is partial, so we send only ``url`` and ``method=POST`` (our
+        ``/inbound/run`` is POST-only); ``type``, ``active``, and ``profile``
+        are preserved as configured in the cockpit. The URL is shared across
+        every DNID on the application — clearing is a no-op to avoid
+        silently breaking inbound for sibling numbers.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Cloudonix configure_inbound clear for {address}: skipping "
+                f"application update (url is shared across all DNIDs on Voice "
+                f"Application {self.application_name})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Cloudonix provider not properly configured"
+            )
+
+        if not self.application_name:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Cloudonix application_name is not configured. Set it in "
+                    "the telephony configuration so inbound webhooks can be "
+                    "synced to the right Voice Application."
+                ),
+            )
+
+        app_endpoint = (
+            f"{self.base_url}/customers/self/domains/{self.domain_id}/"
+            f"applications/{self.application_name}"
+        )
+        data = {
+            "url": webhook_url,
+            "method": "POST",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.patch(
+                    app_endpoint, json=data, headers=self._get_auth_headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Cloudonix Voice Application update failed for "
+                            f"{self.application_name} on domain "
+                            f"{self.domain_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Cloudonix API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception updating Cloudonix Voice Application "
+                f"{self.application_name}: {e}"
+            )
+            return ProviderSyncResult(
+                ok=False, message=f"Cloudonix update failed: {e}"
+            )
+
+        logger.info(
+            f"Cloudonix url set on Voice Application {self.application_name} "
+            f"(domain={self.domain_id}, triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
 
     async def start_inbound_stream(
         self,

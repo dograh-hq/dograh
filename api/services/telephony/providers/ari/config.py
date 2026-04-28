@@ -1,6 +1,6 @@
 """ARI (Asterisk REST Interface) telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -20,9 +20,6 @@ class ARIConfigurationRequest(BaseModel):
         default="",
         description="websocket_client.conf connection name for externalMedia (e.g., dograh_staging)",
     )
-    inbound_workflow_id: Optional[int] = Field(
-        default=None, description="Workflow ID for inbound calls"
-    )
     from_numbers: List[str] = Field(
         default_factory=list,
         description="List of SIP extensions/numbers for outbound calls (optional)",
@@ -37,5 +34,4 @@ class ARIConfigurationResponse(BaseModel):
     app_name: str
     app_password: str  # Masked
     ws_client_name: str = ""
-    inbound_workflow_id: Optional[int] = None
     from_numbers: List[str]

@@ -16,6 +16,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -423,6 +424,113 @@ class TelnyxProvider(TelephonyProvider):
         accepts all inbound webhooks for now.
         """
         return True
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update webhook_event_url on the Telnyx Call Control Application.
+
+        PATCH requires application_name even on partial updates, so we GET
+        first to preserve whatever name the user set in the cockpit. The URL
+        is shared across every number on the application — clearing is a
+        no-op to avoid silently breaking inbound for sibling numbers.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Telnyx configure_inbound clear for {address}: skipping "
+                f"application update (webhook_event_url is shared across all "
+                f"numbers on Call Control Application {self.connection_id})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Telnyx provider not properly configured"
+            )
+
+        if not self.connection_id:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Telnyx connection_id (Call Control Application ID) is "
+                    "not configured. Set it in the telephony configuration "
+                    "so inbound webhooks can be synced to the right "
+                    "application."
+                ),
+            )
+
+        app_endpoint = (
+            f"{self.TELNYX_API_BASE}/call_control_applications/"
+            f"{self.connection_id}"
+        )
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    app_endpoint, headers=self._headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Failed to fetch Telnyx Call Control Application "
+                            f"{self.connection_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Telnyx API {response.status}: {body}",
+                        )
+                    app_data = await response.json()
+        except Exception as e:
+            logger.error(
+                f"Exception fetching Telnyx Call Control Application "
+                f"{self.connection_id}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Telnyx lookup failed: {e}")
+
+        application_name = (app_data.get("data") or {}).get("application_name")
+        if not application_name:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    f"Telnyx Call Control Application {self.connection_id} "
+                    f"did not return an application_name; cannot PATCH "
+                    f"without it."
+                ),
+            )
+
+        update_body = {
+            "application_name": application_name,
+            "webhook_event_url": webhook_url,
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.patch(
+                    app_endpoint, json=update_body, headers=self._headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Telnyx Call Control Application update failed "
+                            f"for {self.connection_id}: {response.status} "
+                            f"{body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Telnyx API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception updating Telnyx Call Control Application "
+                f"{self.connection_id}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Telnyx update failed: {e}")
+
+        logger.info(
+            f"Telnyx webhook_event_url set on Call Control Application "
+            f"{self.connection_id} (triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
 
     async def start_inbound_stream(
         self,

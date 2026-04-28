@@ -20,7 +20,6 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "ari_endpoint": value.get("ari_endpoint"),
         "app_name": value.get("app_name"),
         "app_password": value.get("app_password"),
-        "inbound_workflow_id": value.get("inbound_workflow_id"),
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -53,12 +52,6 @@ _UI_METADATA = ProviderUIMetadata(
             type="text",
             required=False,
             description="websocket_client.conf connection name for externalMedia",
-        ),
-        ProviderUIField(
-            name="inbound_workflow_id",
-            label="Inbound Workflow ID",
-            type="number",
-            required=False,
         ),
         ProviderUIField(
             name="from_numbers",

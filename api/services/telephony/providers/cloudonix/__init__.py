@@ -20,6 +20,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "bearer_token": value.get("bearer_token"),
         "api_key": value.get("api_key"),  # For x-cx-apikey validation
         "domain_id": value.get("domain_id"),
+        "application_name": value.get("application_name"),
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -36,6 +37,15 @@ _UI_METADATA = ProviderUIMetadata(
             description="Cloudonix API Bearer Token",
         ),
         ProviderUIField(name="domain_id", label="Domain ID", type="text"),
+        ProviderUIField(
+            name="application_name",
+            label="Application Name",
+            type="text",
+            description=(
+                "Cloudonix Voice Application name whose url is updated when "
+                "inbound workflows are attached to numbers on this domain"
+            ),
+        ),
         ProviderUIField(
             name="from_numbers",
             label="Phone Numbers",

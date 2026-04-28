@@ -14,6 +14,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -39,10 +40,13 @@ class VobizProvider(TelephonyProvider):
             config: Dictionary containing:
                 - auth_id: Vobiz Account ID (e.g., MA_SYQRLN1K)
                 - auth_token: Vobiz Auth Token
+                - application_id: Vobiz Application ID whose answer_url is
+                    updated by ``configure_inbound``
                 - from_numbers: List of phone numbers to use (E.164 format without +)
         """
         self.auth_id = config.get("auth_id")
         self.auth_token = config.get("auth_token")
+        self.application_id = config.get("application_id")
         self.from_numbers = config.get("from_numbers", [])
 
         # Handle both single number (string) and multiple numbers (list)
@@ -490,6 +494,81 @@ class VobizProvider(TelephonyProvider):
         return await self.verify_webhook_signature(
             url, webhook_data, signature, timestamp, body
         )
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update answer_url on the Vobiz Application (Plivo-compatible model).
+
+        Vobiz's update is partial so we POST only ``answer_url`` and
+        ``answer_method`` — ``app_name``, ``hangup_url``, etc. stay as the
+        user set them. The URL is shared across every number on the
+        application — clearing is a no-op to avoid silently breaking
+        inbound for sibling numbers.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Vobiz configure_inbound clear for {address}: skipping "
+                f"application update (answer_url is shared across all numbers "
+                f"on application {self.application_id})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Vobiz provider not properly configured"
+            )
+
+        if not self.application_id:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Vobiz application_id is not configured. Set it in the "
+                    "telephony configuration so inbound webhooks can be "
+                    "synced to the right Application."
+                ),
+            )
+
+        app_endpoint = (
+            f"{self.base_url}/v1/Account/{self.auth_id}/Application/"
+            f"{self.application_id}/"
+        )
+        data = {
+            "answer_url": webhook_url,
+            "answer_method": "POST",
+        }
+        headers = {
+            "X-Auth-ID": self.auth_id,
+            "X-Auth-Token": self.auth_token,
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    app_endpoint, json=data, headers=headers
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Vobiz application update failed for "
+                            f"{self.application_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Vobiz API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception updating Vobiz application {self.application_id}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Vobiz update failed: {e}")
+
+        logger.info(
+            f"Vobiz answer_url set on application {self.application_id} "
+            f"(triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
 
     async def start_inbound_stream(
         self,

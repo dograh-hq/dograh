@@ -103,6 +103,22 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return list(result.scalars().all())
 
+    async def list_all_telephony_configurations_by_provider(
+        self, provider: str
+    ) -> List[TelephonyConfigurationModel]:
+        """List configs of a given provider across every organization.
+
+        Used by background workers like the ARI manager that maintain
+        long-lived connections per config row, independent of any one org.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(TelephonyConfigurationModel).where(
+                    TelephonyConfigurationModel.provider == provider,
+                )
+            )
+            return list(result.scalars().all())
+
     async def create_telephony_configuration(
         self,
         organization_id: int,

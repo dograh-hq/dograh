@@ -82,6 +82,9 @@ class TelnyxProvider(TelephonyProvider):
             f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
         )
 
+        # stream_bidirectional_codec controls only the Dograh → Telnyx direction.
+        # The Telnyx → Dograh direction follows the PSTN leg and is announced via
+        # media_format.encoding in the WebSocket start message.
         payload = {
             "connection_id": self.connection_id,
             "to": to_number,
@@ -268,11 +271,15 @@ class TelnyxProvider(TelephonyProvider):
                 await websocket.close(code=4400, reason="Expected start event")
                 return
 
-            # Extract Telnyx-specific identifiers
+            # media_format.encoding is the codec Telnyx delivers on the
+            # inbound direction (Telnyx → Dograh); the outbound direction is
+            # pinned to PCMU separately via stream_bidirectional_codec.
             try:
                 stream_id = start_data.get("stream_id", "")
                 start_info = start_data.get("start", {})
                 call_control_id = start_info.get("call_control_id", "")
+                media_format = start_info.get("media_format") or {}
+                encoding = media_format.get("encoding") or "PCMU"
             except (KeyError, AttributeError):
                 logger.error("Missing stream_id or call_control_id in start message")
                 await websocket.close(code=4400, reason="Missing stream identifiers")
@@ -288,7 +295,7 @@ class TelnyxProvider(TelephonyProvider):
 
             logger.info(
                 f"Telnyx stream started: stream_id={stream_id}, "
-                f"call_control_id={call_control_id}"
+                f"call_control_id={call_control_id}, encoding={encoding}"
             )
 
             await run_pipeline_telephony(
@@ -301,6 +308,7 @@ class TelnyxProvider(TelephonyProvider):
                 transport_kwargs={
                     "stream_id": stream_id,
                     "call_control_id": call_control_id,
+                    "encoding": encoding,
                 },
             )
 

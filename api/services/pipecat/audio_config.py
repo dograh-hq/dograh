@@ -1,5 +1,4 @@
-"""
-Audio configuration for pipeline components.
+"""Audio configuration for pipeline components.
 
 This module provides centralized audio configuration to ensure consistent
 sample rates across all pipeline components and proper coordination between
@@ -10,8 +9,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from loguru import logger
-
-from api.enums import WorkflowRunMode
 
 
 @dataclass
@@ -84,61 +81,35 @@ class AudioConfig:
 
 
 def create_audio_config(transport_type: str) -> AudioConfig:
-    """Create audio configuration based on transport type.
+    """Create audio configuration for a given transport.
 
-    Args:
-        transport_type: Type of transport ("webrtc", "twilio", "plivo", "vonage", "vobiz", "cloudonix")
-
-    Returns:
-        AudioConfig instance with appropriate settings
+    Telephony providers contribute their wire-format sample rate through the
+    provider registry (``ProviderSpec.transport_sample_rate``); WebRTC modes
+    use 16 kHz (transports handle resampling from/to 24 kHz). The remaining
+    AudioConfig fields are derived from the chosen rate.
     """
-    if transport_type in (
-        WorkflowRunMode.TWILIO.value,
-        WorkflowRunMode.PLIVO.value,
-        WorkflowRunMode.VOBIZ.value,
-        WorkflowRunMode.CLOUDONIX.value,
-        WorkflowRunMode.ARI.value,
-        WorkflowRunMode.TELNYX.value,
-    ):
-        # Twilio, Plivo, Cloudonix, Vobiz, Telnyx, and ARI use MULAW at 8kHz
-        return AudioConfig(
-            transport_in_sample_rate=8000,
-            transport_out_sample_rate=8000,
-            vad_sample_rate=8000,  # Use matching VAD rate
-            pipeline_sample_rate=8000,  # Keep at 8kHz to avoid resampling
-            buffer_size_seconds=5.0,
-        )
-    elif transport_type == WorkflowRunMode.VONAGE.value:
-        # Vonage uses 16kHz Linear PCM
-        return AudioConfig(
-            transport_in_sample_rate=16000,
-            transport_out_sample_rate=16000,
-            vad_sample_rate=16000,  # Use matching VAD rate
-            pipeline_sample_rate=16000,  # Keep at 16kHz to avoid resampling
-            buffer_size_seconds=5.0,
-        )
-    elif transport_type in [
+    # Defer registry import to avoid an import cycle: the registry is imported
+    # by every telephony provider package at startup.
+    from api.enums import WorkflowRunMode
+    from api.services.telephony import registry
+
+    telephony_spec = registry.get_optional(transport_type)
+    if telephony_spec is not None:
+        rate = telephony_spec.transport_sample_rate
+    elif transport_type in (
         WorkflowRunMode.WEBRTC.value,
         WorkflowRunMode.SMALLWEBRTC.value,
-    ]:
-        # WebRTC typically uses 24kHz or 48kHz, but we limit pipeline to 16kHz
-        # The transport will handle resampling between 24kHz and 16kHz
-        return AudioConfig(
-            transport_in_sample_rate=16000,  # Transport will resample from 24kHz
-            transport_out_sample_rate=16000,  # Transport will resample to 24kHz
-            vad_sample_rate=16000,  # VAD native rate
-            pipeline_sample_rate=16000,  # Keep pipeline at 16kHz
-            buffer_size_seconds=5.0,
-        )
+    ):
+        rate = 16000
     else:
-        # Default configuration
         logger.warning(
             f"Unknown transport type: {transport_type}, using default config"
         )
-        return AudioConfig(
-            transport_in_sample_rate=16000,
-            transport_out_sample_rate=16000,
-            vad_sample_rate=16000,
-            pipeline_sample_rate=16000,
-            buffer_size_seconds=5.0,
-        )
+        rate = 16000
+
+    return AudioConfig(
+        transport_in_sample_rate=rate,
+        transport_out_sample_rate=rate,
+        vad_sample_rate=rate,
+        pipeline_sample_rate=rate,
+    )

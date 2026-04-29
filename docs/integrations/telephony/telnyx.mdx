@@ -1,0 +1,134 @@
+---
+title: "Telnyx Integration"
+description: "Configure Telnyx for voice communication in Dograh AI"
+---
+
+## Overview
+
+Telnyx is a cloud communications platform that provides programmable voice via its Call Control API. Dograh AI's Telnyx integration uses Call Control plus WebSocket media streaming to power your voice agents.
+
+## Prerequisites
+
+Before setting up Telnyx integration, you'll need:
+
+- A [Telnyx account](https://telnyx.com/)
+- An **API Key** from the Telnyx Mission Control Portal
+- A **Call Control Application** (its `connection_id` is what Dograh stores)
+- At least one Telnyx phone number assigned to that Call Control Application
+- Dograh AI instance running and accessible
+
+## Configuration
+
+### Step 1: Get Telnyx Credentials
+
+1. Log in to the [Telnyx Mission Control Portal](https://portal.telnyx.com/)
+2. Navigate to **API Keys** and create (or copy) an API Key
+3. Navigate to **Call Control** → **Applications** and create (or open) the application you'll use with Dograh
+4. Copy the application's **Connection ID** (Call Control App ID)
+5. Navigate to **Numbers** → **My Numbers** and assign your phone numbers to that Call Control Application
+
+### Step 2: Configure in Dograh AI
+
+1. Navigate to **/telephony-configurations** and click **Add configuration**
+2. Select **Telnyx** as your provider
+3. Enter your credentials:
+   - API Key
+   - Call Control App ID (Connection ID)
+4. Click **Save Configuration**
+5. Open the configuration you just created and add at least one **phone number** (with country code in E.164 format, e.g. `+1234567890`). The default caller ID is used for outbound calls.
+
+### Step 3: Test Your Configuration
+
+1. Create a test workflow
+2. Click "Call" to verify connection
+3. Check call logs for successful connection
+
+## Inbound Calling Setup
+
+Telnyx delivers inbound webhooks at the **Call Control Application** level — the webhook URL is configured once on the application, and applies to every number assigned to it. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Call Control Application's `webhook_event_url`** (provided the credentials are correct).
+
+### Step 1: Assign an Inbound Workflow to the Phone Number
+
+1. Go to **/telephony-configurations** and open your Telnyx configuration
+2. In the **Phone numbers** section, edit the number that should receive inbound calls
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
+
+### Step 2: Verify the Webhook URL on the Call Control Application
+
+1. Go to **Call Control** → **Applications** in the Telnyx Portal
+2. Open the application whose Connection ID you configured in Dograh
+3. In **Webhook Settings**, confirm:
+   - **Webhook URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **HTTP Method** is `POST`
+4. Make sure the phone numbers you want to use for inbound are assigned to this application
+
+   <Note>
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 1. The same URL is shared across every number on the Call
+     Control Application — Dograh matches the inbound call to the right
+     agent using the called number's inbound workflow assignment. If the
+     field is empty, shows a different URL, or Dograh surfaced a sync
+     warning on save, the auto-push failed — most often because the API
+     Key or Connection ID in Dograh is incorrect. Paste the URL into the
+     field yourself, set the method to `POST`, and save. On self-hosted
+     Dograh, replace `api.dograh.com` with your backend domain.
+   </Note>
+
+### Step 3: Verify Setup
+
+- Ensure your Dograh AI instance is publicly accessible
+- Verify any firewalls allow Telnyx's IP ranges
+
+### Test Inbound Calling
+
+1. Call your configured Telnyx phone number from another phone
+2. Verify your Dograh AI voice agent answers and responds
+3. Check call logs in both Dograh AI dashboard and Telnyx Portal
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid phone number error">
+    Ensure phone numbers include country code in E.164 format: `+1234567890`
+  </Accordion>
+
+  <Accordion title="Authentication failed">
+    - Verify the API Key is correct and active - Check for extra spaces in the
+    key - Ensure the key hasn't been revoked in the Telnyx Portal
+  </Accordion>
+
+  <Accordion title="Webhook signature validation failing">
+    - Telnyx signs webhooks with Ed25519 - confirm the public key on the
+    application hasn't changed - Verify the webhook URL matches what Telnyx
+    sends - Check if you're behind a proxy that modifies request bodies
+  </Accordion>
+
+  <Accordion title="No audio on calls">
+    - Verify WebSocket connection is established - Check firewall rules for
+    WebSocket traffic - Ensure audio pipeline is configured correctly
+  </Accordion>
+
+  <Accordion title="Inbound calls aren't answered">
+    - Verify the Call Control Application's webhook URL is set to
+    `https://api.dograh.com/api/v1/telephony/inbound/run` - Ensure the webhook
+    URL is publicly accessible from the internet - Confirm the called number
+    is assigned to the same Call Control Application whose Connection ID is
+    configured in Dograh - Confirm the called number exists in your Dograh
+    telephony configuration and has an **Inbound workflow** assigned - Verify
+    Dograh AI instance is running and responding
+  </Accordion>
+
+  <Accordion title="Voice agent doesn't respond to inbound calls">
+    - Confirm the phone number has an **Inbound workflow** assigned in
+    /telephony-configurations - Verify the API Key matches the one stored in
+    your Dograh telephony configuration - Verify WebSocket connection
+    establishes successfully - Review call logs for error messages
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- Test your configuration with a single call before running campaigns
+- Monitor the Telnyx Portal for usage and billing
+- Use a dedicated Call Control Application for Dograh so the shared webhook URL doesn't conflict with other systems

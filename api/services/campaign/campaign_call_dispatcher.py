@@ -1,7 +1,7 @@
 import asyncio
 import time
 from datetime import UTC, datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
@@ -15,9 +15,14 @@ from api.services.campaign.errors import (
     PhoneNumberPoolExhaustedError,
 )
 from api.services.campaign.rate_limiter import rate_limiter
-from api.services.telephony.base import TelephonyProvider
-from api.services.telephony.factory import get_telephony_provider
 from api.utils.common import get_backend_endpoints
+
+if TYPE_CHECKING:
+    # Type-only — importing api.services.telephony eagerly triggers the
+    # provider package init, which can pull in this module via the routes
+    # chain and create a circular import. Runtime calls below go through
+    # ``factory.get_telephony_provider`` (lazy import inside the method).
+    from api.services.telephony.base import TelephonyProvider
 
 
 class CampaignCallDispatcher:
@@ -26,9 +31,30 @@ class CampaignCallDispatcher:
     def __init__(self):
         self.default_concurrent_limit = int(DEFAULT_ORG_CONCURRENCY_LIMIT)
 
-    async def get_telephony_provider(self, organization_id: int) -> TelephonyProvider:
-        """Get telephony provider instance for specific organization"""
-        return await get_telephony_provider(organization_id)
+    async def get_telephony_provider(self, organization_id: int) -> "TelephonyProvider":
+        """Get telephony provider instance for specific organization (default config)."""
+        from api.services.telephony.factory import get_default_telephony_provider
+
+        return await get_default_telephony_provider(organization_id)
+
+    async def get_provider_for_campaign(self, campaign) -> "TelephonyProvider":
+        """Get the telephony provider pinned to this campaign's config. Falls back
+        to the org's default config for legacy campaigns whose
+        ``telephony_configuration_id`` was never backfilled."""
+        from api.services.telephony.factory import (
+            get_default_telephony_provider,
+            get_telephony_provider_by_id,
+        )
+
+        if campaign.telephony_configuration_id:
+            return await get_telephony_provider_by_id(
+                campaign.telephony_configuration_id
+            )
+        logger.warning(
+            f"Campaign {campaign.id} has no telephony_configuration_id; "
+            f"falling back to org default for {campaign.organization_id}"
+        )
+        return await get_default_telephony_provider(campaign.organization_id)
 
     async def get_org_concurrent_limit(self, organization_id: int) -> int:
         """Get the concurrent call limit for an organization."""
@@ -75,9 +101,9 @@ class CampaignCallDispatcher:
             logger.info(f"No more queued runs for campaign {campaign_id}")
             return 0
 
-        # Initialize from_number pool for this org's provider
+        # Initialize from_number pool for this campaign's telephony config.
         try:
-            provider = await self.get_telephony_provider(campaign.organization_id)
+            provider = await self.get_provider_for_campaign(campaign)
             if provider.from_numbers:
                 await rate_limiter.initialize_from_number_pool(
                     campaign.organization_id, provider.from_numbers
@@ -180,8 +206,8 @@ class CampaignCallDispatcher:
             )
             raise ValueError(f"No phone number in queued run {queued_run.id}")
 
-        # Get provider first to determine the mode
-        provider = await self.get_telephony_provider(campaign.organization_id)
+        # Get provider for this campaign's pinned telephony config.
+        provider = await self.get_provider_for_campaign(campaign)
         workflow_run_mode = provider.PROVIDER_NAME
 
         # Acquire a unique from_number from the pool
@@ -206,6 +232,7 @@ class CampaignCallDispatcher:
             "source_uuid": queued_run.source_uuid,
             "caller_number": from_number,
             "called_number": phone_number,
+            "telephony_configuration_id": campaign.telephony_configuration_id,
         }
 
         logger.info(f"Final initial_context: {initial_context}")

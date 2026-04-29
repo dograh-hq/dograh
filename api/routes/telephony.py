@@ -5,40 +5,32 @@ Consolidated from split modules for easier maintenance.
 
 import json
 import uuid
-from datetime import UTC, datetime
 from typing import Optional
 
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Request,
     WebSocket,
 )
 from loguru import logger
 from pydantic import BaseModel, field_validator
-from sqlalchemy import text
-from sqlalchemy.future import select
-from starlette.responses import HTMLResponse
 from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
-from api.db.models import OrganizationConfigurationModel, UserModel
-from api.db.workflow_client import WorkflowClient
-from api.db.workflow_run_client import WorkflowRunClient
-from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunState
+from api.db.models import UserModel
+from api.enums import CallType, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
-from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatcher
-from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
-from api.services.campaign.circuit_breaker import circuit_breaker
 from api.services.quota_service import check_dograh_quota, check_dograh_quota_by_user_id
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
+    get_default_telephony_provider,
     get_telephony_provider,
+    get_telephony_provider_by_id,
 )
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
@@ -60,111 +52,9 @@ class InitiateCallRequest(BaseModel):
     workflow_id: int
     workflow_run_id: int | None = None
     phone_number: str | None = None
-
-
-class StatusCallbackRequest(BaseModel):
-    """Generic status callback that can handle different providers"""
-
-    # Common fields
-    call_id: str
-    status: str
-    from_number: Optional[str] = None
-    to_number: Optional[str] = None
-    direction: Optional[str] = None
-    duration: Optional[str] = None
-
-    # Provider-specific fields stored as extra
-    extra: dict = {}
-
-    @classmethod
-    def from_twilio(cls, data: dict):
-        """Convert Twilio callback to generic format"""
-        return cls(
-            call_id=data.get("CallSid", ""),
-            status=data.get("CallStatus", ""),
-            from_number=data.get("From"),
-            to_number=data.get("To"),
-            direction=data.get("Direction"),
-            duration=data.get("CallDuration") or data.get("Duration"),
-            extra=data,
-        )
-
-    @classmethod
-    def from_plivo(cls, data: dict):
-        """Convert Plivo callback to generic format"""
-        status_map = {
-            "in-progress": "answered",
-            "ringing": "ringing",
-            "ring": "ringing",
-            "completed": "completed",
-            "hangup": "completed",
-            "stopstream": "completed",
-            "busy": "busy",
-            "no-answer": "no-answer",
-            "cancel": "canceled",
-            "cancelled": "canceled",
-            "timeout": "no-answer",
-        }
-        call_status = (data.get("CallStatus") or data.get("Event") or "").lower()
-        return cls(
-            call_id=data.get("CallUUID", "") or data.get("RequestUUID", ""),
-            status=status_map.get(call_status, call_status),
-            from_number=data.get("From"),
-            to_number=data.get("To"),
-            direction=data.get("Direction"),
-            duration=data.get("Duration"),
-            extra=data,
-        )
-
-    @classmethod
-    def from_vonage(cls, data: dict):
-        """Convert Vonage event to generic format"""
-        # Map Vonage status to common format
-        status_map = {
-            "started": "initiated",
-            "ringing": "ringing",
-            "answered": "answered",
-            "complete": "completed",
-            "failed": "failed",
-            "busy": "busy",
-            "timeout": "no-answer",
-            "rejected": "busy",
-        }
-
-        return cls(
-            call_id=data.get("uuid", ""),
-            status=status_map.get(data.get("status", ""), data.get("status", "")),
-            from_number=data.get("from"),
-            to_number=data.get("to"),
-            direction=data.get("direction"),
-            duration=data.get("duration"),
-            extra=data,
-        )
-
-    @classmethod
-    def from_cloudonix_cdr(cls, data: dict):
-        """Convert Cloudonix CDR to generic format"""
-        # Map Cloudonix disposition to common format
-        disposition_map = {
-            "ANSWER": "completed",
-            "BUSY": "busy",
-            "CANCEL": "canceled",
-            "FAILED": "failed",
-            "CONGESTION": "failed",
-            "NOANSWER": "no-answer",
-        }
-
-        disposition = data.get("disposition", "")
-        status = disposition_map.get(disposition.upper(), disposition.lower())
-
-        return cls(
-            call_id=data.get("session").get("token"),
-            status=status,
-            from_number=data.get("from"),
-            to_number=data.get("to"),
-            duration=str(data.get("billsec") or data.get("duration") or 0),
-            extra=data,
-        )
+    # Optional explicit telephony config to use for the test call. If omitted,
+    # falls back to the user's per-user default (when set), then the org default.
+    telephony_configuration_id: int | None = None
 
 
 @router.post(
@@ -180,8 +70,32 @@ async def initiate_call(
     """Initiate a call using the configured telephony provider from web browser. This is
     supposed to be a test call method for the draft version of the agent."""
 
-    # Get the telephony provider for the organization
-    provider = await get_telephony_provider(user.selected_organization_id)
+    user_configuration = await db_client.get_user_configurations(user.id)
+
+    # Resolve which telephony config to use: explicit request value, otherwise
+    # the org's default outbound config.
+    telephony_configuration_id = request.telephony_configuration_id
+
+    if telephony_configuration_id:
+        cfg = await db_client.get_telephony_configuration_for_org(
+            telephony_configuration_id, user.selected_organization_id
+        )
+        if not cfg:
+            raise HTTPException(
+                status_code=400, detail="telephony_configuration_not_found"
+            )
+        provider = await get_telephony_provider_by_id(telephony_configuration_id)
+    else:
+        try:
+            provider = await get_default_telephony_provider(
+                user.selected_organization_id
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="telephony_not_configured")
+        default_cfg = await db_client.get_default_telephony_configuration(
+            user.selected_organization_id
+        )
+        telephony_configuration_id = default_cfg.id if default_cfg else None
 
     # Validate provider is configured
     if not provider.validate_config():
@@ -190,15 +104,14 @@ async def initiate_call(
             detail="telephony_not_configured",
         )
 
-    # Check Dograh quota before initiating the call
-    quota_result = await check_dograh_quota(user)
+    # Check Dograh quota before initiating the call (apply per-workflow
+    # model_overrides so the keys we will actually use are the ones checked).
+    quota_result = await check_dograh_quota(user, workflow_id=request.workflow_id)
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
-
-    user_configuration = await db_client.get_user_configurations(user.id)
 
     phone_number = request.phone_number or user_configuration.test_phone_number
 
@@ -214,8 +127,12 @@ async def initiate_call(
     if not workflow_run_id:
         # Fetch workflow to merge template context variables (e.g. caller_number,
         # called_number set in workflow settings for testing pre-call data fetch)
-        workflow = await db_client.get_workflow_by_id(request.workflow_id)
-        template_vars = (workflow.template_context_variables or {}) if workflow else {}
+        workflow = await db_client.get_workflow(
+            request.workflow_id, organization_id=user.selected_organization_id
+        )
+        if not workflow:
+            raise HTTPException(status_code=404, detail="Workflow not found")
+        template_vars = workflow.template_context_variables or {}
 
         numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
         workflow_run_name = f"WR-TEL-OUT-{numeric_suffix:08d}"
@@ -230,6 +147,7 @@ async def initiate_call(
                 "phone_number": phone_number,
                 "called_number": phone_number,
                 "provider": provider.PROVIDER_NAME,
+                "telephony_configuration_id": telephony_configuration_id,
             },
             use_draft=True,
         )
@@ -272,6 +190,7 @@ async def initiate_call(
     updated_initial_context = {
         **(workflow_run.initial_context or {}),
         "called_number": phone_number,
+        "telephony_configuration_id": telephony_configuration_id,
     }
     if result.caller_number:
         updated_initial_context["caller_number"] = result.caller_number
@@ -287,65 +206,55 @@ async def initiate_call(
 async def _verify_organization_phone_number(
     phone_number: str,
     organization_id: int,
+    telephony_configuration_id: int,
+    provider: str,
     to_country: str = None,
     from_country: str = None,
-) -> bool:
-    """
-    Verify that a phone number belongs to the specified organization.
+) -> Optional[int]:
+    """Verify the called number is registered to the matched config and return
+    its ``telephony_phone_numbers.id``, or None when no row matches.
 
-    Args:
-        phone_number: The phone number to verify
-        organization_id: The organization ID to check against
-        to_country: ISO country code for the called number (e.g., "US", "IN")
-        from_country: ISO country code for the caller (e.g., "IN", "GB")
-
-    Returns:
-        True if the phone number belongs to the organization, False otherwise
+    Primary path: deterministic E.164 / SIP lookup via the new phone-number table.
+    Legacy fallback: ``numbers_match()`` over the matched config's active numbers,
+    so non-E.164 rows that survived the migration still route correctly.
     """
     try:
-        async with db_client.async_session() as session:
-            result = await session.execute(
-                select(OrganizationConfigurationModel).where(
-                    OrganizationConfigurationModel.organization_id == organization_id,
-                    OrganizationConfigurationModel.key
-                    == OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        match = await db_client.find_active_phone_number_for_inbound(
+            organization_id, phone_number, provider, country_hint=to_country
+        )
+        if match and match.telephony_configuration_id == telephony_configuration_id:
+            logger.info(
+                f"Phone number {phone_number} matched row {match.id} for org "
+                f"{organization_id} / config {telephony_configuration_id}"
+            )
+            return match.id
+
+        # Legacy fallback: scan the matched config's active numbers and apply
+        # the country-aware fuzzy matcher (covers non-E.164 storage).
+        rows = await db_client.list_phone_numbers_for_config(telephony_configuration_id)
+        for row in rows:
+            if not row.is_active:
+                continue
+            if numbers_match(phone_number, row.address, to_country, from_country):
+                logger.info(
+                    f"Phone number {phone_number} matched (fuzzy) row {row.id} "
+                    f"for config {telephony_configuration_id}"
                 )
-            )
+                return row.id
 
-            config = result.scalars().first()
-
-            if not config or not config.value:
-                logger.warning(
-                    f"No telephony configuration found for organization {organization_id}"
-                )
-                return False
-
-            from_numbers = config.value.get("from_numbers", [])
-            logger.debug(
-                f"Organization {organization_id} has from_numbers: {from_numbers}"
-            )
-
-            for configured_number in from_numbers:
-                if numbers_match(
-                    phone_number, configured_number, to_country, from_country
-                ):
-                    logger.info(
-                        f"Phone number {phone_number} verified for organization {organization_id} "
-                        f"(matches {configured_number}, to_country={to_country}, from_country={from_country})"
-                    )
-                    return True
-
-            logger.warning(
-                f"Phone number {phone_number} not found in organization {organization_id} from_numbers: {from_numbers} "
-                f"(to_country={to_country}, from_country={from_country})"
-            )
-            return False
+        logger.warning(
+            f"Phone number {phone_number} not registered to config "
+            f"{telephony_configuration_id} (org={organization_id}, "
+            f"to_country={to_country}, from_country={from_country})"
+        )
+        return None
 
     except Exception as e:
         logger.error(
-            f"Error verifying phone number {phone_number} for organization {organization_id}: {e}"
+            f"Error verifying phone number {phone_number} for organization "
+            f"{organization_id} / config {telephony_configuration_id}: {e}"
         )
-        return False
+        return None
 
 
 async def _detect_provider(webhook_data: dict, headers: dict):
@@ -365,15 +274,8 @@ async def _validate_inbound_request(
     provider_class,
     normalized_data,
     webhook_data: dict,
-    webhook_body: str = "",
-    x_twilio_signature: str = None,
-    x_plivo_signature: str = None,
-    x_plivo_signature_ma: str = None,
-    x_plivo_signature_nonce: str = None,
-    x_vobiz_signature: str = None,
-    x_vobiz_timestamp: str = None,
-    x_cx_apikey: str = None,
-    telnyx_signature: str = None,
+    headers: dict,
+    raw_body: str = "",
 ) -> tuple[bool, TelephonyError, dict, object]:
     """
     Validate all aspects of inbound request.
@@ -388,87 +290,45 @@ async def _validate_inbound_request(
     user_id = workflow.user_id
     provider = normalized_data.provider
 
-    # Validate provider and account_id
-    validation_result = await _validate_organization_provider_config(
+    # Resolve which of the org's configs this webhook came from (account_id match).
+    (
+        validation_result,
+        telephony_configuration_id,
+    ) = await _resolve_inbound_telephony_config(
         organization_id, provider_class, normalized_data.account_id
     )
     if validation_result != TelephonyError.VALID:
         return False, validation_result, {}, None
 
-    # Verify phone number belongs to organization
-    is_valid = await _verify_organization_phone_number(
+    # Verify the called number is registered to that config.
+    phone_number_id = await _verify_organization_phone_number(
         normalized_data.to_number,
         organization_id,
+        telephony_configuration_id,
+        provider_class.PROVIDER_NAME,
         normalized_data.to_country,
         normalized_data.from_country,
     )
-    if not is_valid:
+    if phone_number_id is None:
         return False, TelephonyError.PHONE_NUMBER_NOT_CONFIGURED, {}, None
 
-    # Verify webhook signature/API key if provided
-    provider_instance = None
-    if (
-        x_twilio_signature
-        or x_plivo_signature
-        or x_plivo_signature_ma
-        or x_vobiz_signature
-        or x_cx_apikey
-        or telnyx_signature
-    ):
-        backend_endpoint, _ = await get_backend_endpoints()
-        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
-
-        # Get the real telephony provider with actual credentials for signature verification
-        provider_instance = await get_telephony_provider(organization_id)
-
-        if provider_class.PROVIDER_NAME == "twilio" and x_twilio_signature:
-            logger.info(f"Verifying Twilio signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url, webhook_data, x_twilio_signature
-            )
-        elif provider_class.PROVIDER_NAME == "plivo" and (
-            x_plivo_signature or x_plivo_signature_ma
-        ):
-            logger.info(f"Verifying Plivo signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url,
-                webhook_data,
-                x_plivo_signature or x_plivo_signature_ma,
-                x_plivo_signature_nonce,
-            )
-        elif provider_class.PROVIDER_NAME == "vobiz" and x_vobiz_signature:
-            logger.info(f"Verifying Vobiz signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url,
-                webhook_data,
-                x_vobiz_signature,
-                x_vobiz_timestamp,
-                webhook_body,
-            )
-        elif provider_class.PROVIDER_NAME == "cloudonix" and x_cx_apikey:
-            logger.info(f"Verifying Cloudonix API key for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url, webhook_data, x_cx_apikey
-            )
-        elif provider_class.PROVIDER_NAME == "telnyx" and telnyx_signature:
-            logger.info(f"Verifying Telnyx signature for URL: {webhook_url}")
-            signature_valid = await provider_instance.verify_inbound_signature(
-                webhook_url, webhook_data, telnyx_signature
-            )
-        else:
-            logger.warning(
-                f"No signature/API key validation for provider {provider_class.PROVIDER_NAME}"
-            )
-            signature_valid = True
-
-        logger.info(f"Signature/API key validation result: {signature_valid}")
-        if not signature_valid:
-            return (
-                False,
-                TelephonyError.SIGNATURE_VALIDATION_FAILED,
-                {},
-                provider_instance,
-            )
+    # Verify webhook signature using the matched config's credentials. The
+    # provider extracts its own signature/timestamp/nonce headers from the
+    # dict, so this dispatcher stays generic.
+    backend_endpoint, _ = await get_backend_endpoints()
+    webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
+    provider_instance = await get_telephony_provider_by_id(telephony_configuration_id)
+    signature_valid = await provider_instance.verify_inbound_signature(
+        webhook_url, webhook_data, headers, raw_body
+    )
+    logger.info(f"Signature validation for {provider}: {signature_valid}")
+    if not signature_valid:
+        return (
+            False,
+            TelephonyError.SIGNATURE_VALIDATION_FAILED,
+            {},
+            provider_instance,
+        )
 
     # Return success with workflow context
     workflow_context = {
@@ -476,17 +336,19 @@ async def _validate_inbound_request(
         "organization_id": organization_id,
         "user_id": user_id,
         "provider": provider,
+        "telephony_configuration_id": telephony_configuration_id,
+        "from_phone_number_id": phone_number_id,
     }
-    return (
-        True,
-        "",
-        workflow_context,
-        provider_instance,
-    )  # TODO: do we still need instance in the client code
+    return (True, "", workflow_context, provider_instance)
 
 
 async def _create_inbound_workflow_run(
-    workflow_id: int, user_id: int, provider: str, normalized_data, data_source: str
+    workflow_id: int,
+    user_id: int,
+    provider: str,
+    normalized_data,
+    telephony_configuration_id: int,
+    from_phone_number_id: Optional[int] = None,
 ) -> int:
     """Create workflow run for inbound call and return run ID"""
     call_id = normalized_data.call_id
@@ -505,10 +367,11 @@ async def _create_inbound_workflow_run(
             "direction": "inbound",
             "account_id": normalized_data.account_id,
             "provider": provider,
-            "data_source": data_source,
             "from_country": normalized_data.from_country,
             "to_country": normalized_data.to_country,
             "raw_webhook_data": normalized_data.raw_data,
+            "telephony_configuration_id": telephony_configuration_id,
+            "from_phone_number_id": from_phone_number_id,
         },
         gathered_context={
             "call_id": call_id,
@@ -521,81 +384,43 @@ async def _create_inbound_workflow_run(
     return workflow_run.id
 
 
-async def _validate_organization_provider_config(
+async def _resolve_inbound_telephony_config(
     organization_id: int, provider_class, account_id: str
-) -> TelephonyError:
-    """Validate provider and account_id, returning specific error type"""
+) -> tuple[TelephonyError, Optional[int]]:
+    """Find which of the org's telephony configs the inbound webhook came from.
+
+    Returns ``(VALID, config_id)`` on success or ``(error, None)`` otherwise.
+    Replaces the single-config check that assumed one provider per org.
+    """
+    from api.services.telephony.factory import find_telephony_config_for_inbound
+
     try:
-        config = await db_client.get_configuration(
-            organization_id,
-            OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        candidates = await db_client.list_telephony_configurations_by_provider(
+            organization_id, provider_class.PROVIDER_NAME
         )
-
-        if not config or not config.value:
+        if not candidates:
             logger.warning(
-                f"No telephony configuration found for organization {organization_id}"
+                f"No {provider_class.PROVIDER_NAME} configuration for org "
+                f"{organization_id}"
             )
-            return TelephonyError.ACCOUNT_VALIDATION_FAILED
+            return TelephonyError.PROVIDER_MISMATCH, None
 
-        stored_provider = config.value.get("provider")
-        if stored_provider != provider_class.PROVIDER_NAME:
+        match = await find_telephony_config_for_inbound(
+            organization_id, provider_class.PROVIDER_NAME, account_id
+        )
+        if not match:
             logger.warning(
-                f"Provider mismatch: webhook={provider_class.PROVIDER_NAME}, config={stored_provider}"
+                f"Account validation failed for {provider_class.PROVIDER_NAME}: "
+                f"webhook account_id={account_id} (org {organization_id})"
             )
-            return TelephonyError.PROVIDER_MISMATCH
+            return TelephonyError.ACCOUNT_VALIDATION_FAILED, None
 
-        # Use provider-specific validation
-        is_valid = provider_class.validate_account_id(config.value, account_id)
-        if not is_valid:
-            logger.warning(
-                f"Account validation failed for {provider_class.PROVIDER_NAME}: webhook={account_id}"
-            )
-            return TelephonyError.ACCOUNT_VALIDATION_FAILED
-
-        return TelephonyError.VALID
+        config_id, _ = match
+        return TelephonyError.VALID, config_id
 
     except Exception as e:
         logger.error(f"Exception during account validation: {e}")
-        return TelephonyError.ACCOUNT_VALIDATION_FAILED
-
-
-@router.post("/twiml", include_in_schema=False)
-async def handle_twiml_webhook(
-    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int
-):
-    """
-    Handle initial webhook from telephony provider.
-    Returns provider-specific response (e.g., TwiML for Twilio).
-    """
-
-    provider = await get_telephony_provider(organization_id)
-
-    response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
-    )
-
-    return HTMLResponse(content=response_content, media_type="application/xml")
-
-
-@router.get("/ncco", include_in_schema=False)
-async def handle_ncco_webhook(
-    workflow_id: int,
-    user_id: int,
-    workflow_run_id: int,
-    organization_id: Optional[int] = None,
-):
-    """Handle NCCO (Nexmo Call Control Objects) webhook for Vonage.
-
-    Returns JSON response instead of XML like TwiML.
-    """
-
-    provider = await get_telephony_provider(organization_id or user_id)
-
-    response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
-    )
-
-    return json.loads(response_content)
+        return TelephonyError.ACCOUNT_VALIDATION_FAILED, None
 
 
 @router.websocket("/ws/ari")
@@ -726,1053 +551,175 @@ async def _handle_telephony_websocket(
             pass
 
 
-@router.post("/twilio/status-callback/{workflow_run_id}")
-async def handle_twilio_status_callback(
-    workflow_run_id: int,
-    request: Request,
-    x_webhook_signature: Optional[str] = Header(None),
-):
-    """Handle Twilio-specific status callbacks."""
-    set_current_run_id(workflow_run_id)
+@router.post("/inbound/run")
+async def handle_inbound_run(request: Request):
+    """Workflow-agnostic inbound dispatcher.
 
-    # Parse form data
-    form_data = await request.form()
-    callback_data = dict(form_data)
+    All providers can point a single webhook at this endpoint instead of one
+    URL per workflow. The dispatcher resolves the org from the webhook's
+    account_id and the workflow from the called number's
+    ``inbound_workflow_id``. This is what ``configure_inbound`` writes into
+    each provider's resource so per-workflow webhook bookkeeping disappears.
 
-    logger.info(
-        f"[run {workflow_run_id}] Received status callback: {json.dumps(callback_data)}"
-    )
-
-    # Get workflow run to find organization
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(f"Workflow run {workflow_run_id} not found for status callback")
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    # Get workflow and provider
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
-        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
-        return {"status": "ignored", "reason": "workflow_not_found"}
-
-    provider = await get_telephony_provider(workflow.organization_id)
-
-    if x_webhook_signature:
-        backend_endpoint, _ = await get_backend_endpoints()
-        full_url = f"{backend_endpoint}/api/v1/telephony/twilio/status-callback/{workflow_run_id}"
-
-        is_valid = await provider.verify_webhook_signature(
-            full_url, callback_data, x_webhook_signature
-        )
-
-        if not is_valid:
-            logger.warning(
-                f"Invalid webhook signature for workflow run {workflow_run_id}"
-            )
-            return {"status": "error", "reason": "invalid_signature"}
-
-    # Parse the callback data into generic format
-    parsed_data = provider.parse_status_callback(callback_data)
-
-    # Create StatusCallbackRequest from parsed data
-    status_update = StatusCallbackRequest(
-        call_id=parsed_data["call_id"],
-        status=parsed_data["status"],
-        from_number=parsed_data.get("from_number"),
-        to_number=parsed_data.get("to_number"),
-        direction=parsed_data.get("direction"),
-        duration=parsed_data.get("duration"),
-        extra=parsed_data.get("extra", {}),
-    )
-
-    # Process the status update
-    await _process_status_update(workflow_run_id, status_update)
-
-    return {"status": "success"}
-
-
-async def _process_status_update(workflow_run_id: int, status: StatusCallbackRequest):
-    """Process status updates from telephony providers."""
-
-    # Fetch fresh workflow_run to ensure we have the latest state
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(
-            f"[run {workflow_run_id}] Workflow run not found in status update"
-        )
-        return
-
-    # Log the status callback
-    telephony_callback_logs = workflow_run.logs.get("telephony_status_callbacks", [])
-    telephony_callback_log = {
-        "status": status.status,
-        "timestamp": datetime.now(UTC).isoformat(),
-        "call_id": status.call_id,
-        "duration": status.duration,
-        **status.extra,  # Include provider-specific data
-    }
-    telephony_callback_logs.append(telephony_callback_log)
-
-    # Update workflow run logs
-    await db_client.update_workflow_run(
-        run_id=workflow_run_id,
-        logs={"telephony_status_callbacks": telephony_callback_logs},
-    )
-
-    # Handle call completion - make these updates idempotent - i.e
-    # they should handle multiple API calls (one due to status update,
-    # and other due to CDR updates.)
-    if status.status == "completed":
-        logger.info(
-            f"[run {workflow_run_id}] Call completed with duration: {status.duration}s"
-        )
-
-        # Release concurrent slot if this was a campaign call
-        if workflow_run.campaign_id:
-            await campaign_call_dispatcher.release_call_slot(workflow_run_id)
-            await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id, is_failure=False
-            )
-
-        # Mark workflow run as completed
-        if workflow_run.state != WorkflowRunState.COMPLETED.value:
-            await db_client.update_workflow_run(
-                run_id=workflow_run_id,
-                is_completed=True,
-                state=WorkflowRunState.COMPLETED.value,
-            )
-
-    elif status.status in ["failed", "busy", "no-answer", "canceled", "error"]:
-        logger.warning(
-            f"[run {workflow_run_id}] Call failed with status: {status.status}"
-        )
-
-        # Release concurrent slot for terminal statuses if this was a campaign call
-        if workflow_run.campaign_id:
-            await campaign_call_dispatcher.release_call_slot(workflow_run_id)
-            await circuit_breaker.record_and_evaluate(
-                workflow_run.campaign_id,
-                is_failure=status.status in ("error", "failed"),
-            )
-
-        # Check if retry is needed for campaign calls (busy/no-answer)
-        if status.status in ["busy", "no-answer"] and workflow_run.campaign_id:
-            publisher = await get_campaign_event_publisher()
-            await publisher.publish_retry_needed(
-                workflow_run_id=workflow_run_id,
-                reason=status.status.replace(
-                    "-", "_"
-                ),  # Convert no-answer to no_answer
-                campaign_id=workflow_run.campaign_id,
-                queued_run_id=workflow_run.queued_run_id,
-            )
-
-        # Mark workflow run as completed with failure tags
-        call_tags = (
-            workflow_run.gathered_context.get("call_tags", [])
-            if workflow_run.gathered_context
-            else []
-        )
-        call_tags.extend(["not_connected", f"telephony_{status.status.lower()}"])
-
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id,
-            is_completed=True,
-            state=WorkflowRunState.COMPLETED.value,
-            gathered_context={"call_tags": call_tags},
-        )
-    elif status.status in ["in-progress", "initiated", "ringing"]:
-        # No Op
-        pass
-    else:
-        logger.warning(
-            f"[run {workflow_run_id}] Unexpected status update: {status.status}"
-        )
-
-
-@router.post("/telnyx/events/{workflow_run_id}")
-async def handle_telnyx_events(
-    request: Request,
-    workflow_run_id: int,
-):
-    """Handle Telnyx Call Control webhook events.
-
-    Telnyx sends all call lifecycle events (call.initiated, call.answered,
-    call.hangup, streaming.started, streaming.stopped) as JSON POST requests.
+    Provider-specific signature/timestamp headers are not enumerated here —
+    each provider's ``verify_inbound_signature`` reads its own headers from
+    the dict, so adding a new provider doesn't require changes to this route.
     """
-    set_current_run_id(workflow_run_id)
+    from api.services.telephony import registry as telephony_registry
 
-    event_data = await request.json()
-    logger.info(
-        f"[run {workflow_run_id}] Received Telnyx event: {json.dumps(event_data)}"
-    )
-
-    # Extract event type from Telnyx envelope
-    data = event_data.get("data", {})
-    event_type = data.get("event_type", "")
-
-    # Skip streaming events — they're informational only
-    if event_type in ("streaming.started", "streaming.stopped"):
-        logger.debug(f"[run {workflow_run_id}] Telnyx streaming event: {event_type}")
-        return {"status": "success"}
-
-    # Get workflow run and provider
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(f"Workflow run {workflow_run_id} not found for Telnyx event")
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
-        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
-        return {"status": "ignored", "reason": "workflow_not_found"}
-
-    provider = await get_telephony_provider(workflow.organization_id)
-
-    # Parse the callback data into generic format
-    parsed_data = provider.parse_status_callback(event_data)
-
-    status_update = StatusCallbackRequest(
-        call_id=parsed_data["call_id"],
-        status=parsed_data["status"],
-        from_number=parsed_data.get("from_number"),
-        to_number=parsed_data.get("to_number"),
-        direction=parsed_data.get("direction"),
-        duration=parsed_data.get("duration"),
-        extra=parsed_data.get("extra", {}),
-    )
-
-    await _process_status_update(workflow_run_id, status_update)
-
-    return {"status": "success"}
-
-
-@router.post("/vonage/events/{workflow_run_id}")
-async def handle_vonage_events(
-    request: Request,
-    workflow_run_id: int,
-):
-    """Handle Vonage-specific event webhooks.
-
-    Vonage sends all call events to a single endpoint.
-    Events include: started, ringing, answered, complete, failed, etc.
-    """
-    set_current_run_id(workflow_run_id)
-    # Parse the event data
-    event_data = await request.json()
-    logger.info(f"[run {workflow_run_id}] Received Vonage event: {event_data}")
-
-    # Get workflow run for processing
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.error(f"[run {workflow_run_id}] Workflow run not found")
-        return {"status": "error", "message": "Workflow run not found"}
-
-    # For a completed call that includes cost info, capture it immediately
-    if event_data.get("status") == "completed":
-        # Vonage sometimes includes price info in the webhook
-        if "price" in event_data or "rate" in event_data:
-            try:
-                if workflow_run.cost_info:
-                    # Store immediate cost info if available
-                    cost_info = workflow_run.cost_info.copy()
-                    if "price" in event_data:
-                        cost_info["vonage_webhook_price"] = float(event_data["price"])
-                    if "rate" in event_data:
-                        cost_info["vonage_webhook_rate"] = float(event_data["rate"])
-                    if "duration" in event_data:
-                        cost_info["vonage_webhook_duration"] = int(
-                            event_data["duration"]
-                        )
-
-                    await db_client.update_workflow_run(
-                        run_id=workflow_run_id, cost_info=cost_info
-                    )
-                    logger.info(
-                        f"[run {workflow_run_id}] Captured Vonage cost info from webhook"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[run {workflow_run_id}] Failed to capture Vonage cost from webhook: {e}"
-                )
-
-    # Get workflow and provider
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
-        logger.error(f"[run {workflow_run_id}] Workflow not found")
-        return {"status": "error", "message": "Workflow not found"}
-
-    provider = await get_telephony_provider(workflow.organization_id)
-
-    # Parse the event data into generic format
-    parsed_data = provider.parse_status_callback(event_data)
-
-    # Create StatusCallbackRequest from parsed data
-    status_update = StatusCallbackRequest(
-        call_id=parsed_data["call_id"],
-        status=parsed_data["status"],
-        from_number=parsed_data.get("from_number"),
-        to_number=parsed_data.get("to_number"),
-        direction=parsed_data.get("direction"),
-        duration=parsed_data.get("duration"),
-        extra=parsed_data.get("extra", {}),
-    )
-
-    # Process the status update
-    await _process_status_update(workflow_run_id, status_update)
-
-    # Return 204 No Content as expected by Vonage
-    return {"status": "ok"}
-
-
-@router.post("/vobiz-xml", include_in_schema=False)
-async def handle_vobiz_xml_webhook(
-    workflow_id: int, user_id: int, workflow_run_id: int, organization_id: int
-):
-    """
-    Handle initial webhook from Vobiz when call is answered.
-    Returns Vobiz XML response with Stream element.
-
-    Vobiz uses Plivo-compatible XML format similar to Twilio's TwiML.
-    """
-    set_current_run_id(workflow_run_id)
-    logger.info(
-        f"[run {workflow_run_id}] Vobiz XML webhook called - "
-        f"workflow_id={workflow_id}, user_id={user_id}, org_id={organization_id}"
-    )
-
-    provider = await get_telephony_provider(organization_id)
-
-    logger.debug(f"[run {workflow_run_id}] Using provider: {provider.PROVIDER_NAME}")
-
-    response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
-    )
-
-    logger.debug(
-        f"[run {workflow_run_id}] Vobiz XML response generated:\n{response_content}"
-    )
-
-    return HTMLResponse(content=response_content, media_type="application/xml")
-
-
-@router.post("/plivo-xml", include_in_schema=False)
-async def handle_plivo_xml_webhook(
-    workflow_id: int,
-    user_id: int,
-    workflow_run_id: int,
-    organization_id: int,
-    request: Request,
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
-):
-    """
-    Handle initial webhook from Plivo when an outbound call is answered.
-    Returns Plivo XML response with Stream element.
-    """
-    set_current_run_id(workflow_run_id)
-    provider = await get_telephony_provider(organization_id)
-
-    form_data = await request.form()
-    callback_data = dict(form_data)
-
-    signature = x_plivo_signature_v3 or x_plivo_signature_ma_v3
-    if signature:
-        backend_endpoint, _ = await get_backend_endpoints()
-        full_url = (
-            f"{backend_endpoint}/api/v1/telephony/plivo-xml"
-            f"?workflow_id={workflow_id}"
-            f"&user_id={user_id}"
-            f"&workflow_run_id={workflow_run_id}"
-            f"&organization_id={organization_id}"
-        )
-        is_valid = await provider.verify_inbound_signature(
-            full_url, callback_data, signature, x_plivo_signature_v3_nonce
-        )
-        if not is_valid:
-            logger.warning(
-                f"[run {workflow_run_id}] Invalid Plivo signature on answer webhook"
-            )
-            return provider.generate_error_response(
-                "invalid_signature", "Invalid webhook signature."
-            )
-
-    call_id = callback_data.get("CallUUID") or callback_data.get("RequestUUID")
-    if call_id:
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-        gathered_context = dict(workflow_run.gathered_context or {})
-        gathered_context["call_id"] = call_id
-        await db_client.update_workflow_run(
-            run_id=workflow_run_id, gathered_context=gathered_context
-        )
-
-    response_content = await provider.get_webhook_response(
-        workflow_id, user_id, workflow_run_id
-    )
-    return HTMLResponse(content=response_content, media_type="application/xml")
-
-
-async def _handle_plivo_status_callback(
-    workflow_run_id: int,
-    request: Request,
-    x_plivo_signature_v3: Optional[str],
-    x_plivo_signature_ma_v3: Optional[str],
-    x_plivo_signature_v3_nonce: Optional[str],
-):
-    set_current_run_id(workflow_run_id)
-
-    form_data = await request.form()
-    callback_data = dict(form_data)
-    logger.info(
-        f"[run {workflow_run_id}] Received Plivo callback: {json.dumps(callback_data)}"
-    )
-
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(f"Workflow run {workflow_run_id} not found for Plivo callback")
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
-        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
-        return {"status": "ignored", "reason": "workflow_not_found"}
-
-    provider = await get_telephony_provider(workflow.organization_id)
-
-    signature = x_plivo_signature_v3 or x_plivo_signature_ma_v3
-    if signature:
-        backend_endpoint, _ = await get_backend_endpoints()
-        callback_kind = request.url.path.split("/")[-2]
-        full_url = (
-            f"{backend_endpoint}/api/v1/telephony/plivo/{callback_kind}/{workflow_run_id}"
-        )
-        is_valid = await provider.verify_inbound_signature(
-            full_url,
-            callback_data,
-            signature,
-            x_plivo_signature_v3_nonce,
-        )
-        if not is_valid:
-            logger.warning(
-                f"[run {workflow_run_id}] Invalid Plivo webhook signature"
-            )
-            return {"status": "error", "reason": "invalid_signature"}
-
-    parsed_data = provider.parse_status_callback(callback_data)
-    status_update = StatusCallbackRequest(
-        call_id=parsed_data["call_id"],
-        status=parsed_data["status"],
-        from_number=parsed_data.get("from_number"),
-        to_number=parsed_data.get("to_number"),
-        direction=parsed_data.get("direction"),
-        duration=parsed_data.get("duration"),
-        extra=parsed_data.get("extra", {}),
-    )
-
-    await _process_status_update(workflow_run_id, status_update)
-    return {"status": "success"}
-
-
-@router.post("/plivo/hangup-callback/{workflow_run_id}")
-async def handle_plivo_hangup_callback(
-    workflow_run_id: int,
-    request: Request,
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
-):
-    """Handle Plivo hangup callbacks."""
-    return await _handle_plivo_status_callback(
-        workflow_run_id,
-        request,
-        x_plivo_signature_v3,
-        x_plivo_signature_ma_v3,
-        x_plivo_signature_v3_nonce,
-    )
-
-
-@router.post("/plivo/ring-callback/{workflow_run_id}")
-async def handle_plivo_ring_callback(
-    workflow_run_id: int,
-    request: Request,
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
-):
-    """Handle Plivo ring callbacks."""
-    return await _handle_plivo_status_callback(
-        workflow_run_id,
-        request,
-        x_plivo_signature_v3,
-        x_plivo_signature_ma_v3,
-        x_plivo_signature_v3_nonce,
-    )
-
-
-@router.post("/vobiz/hangup-callback/{workflow_run_id}")
-async def handle_vobiz_hangup_callback(
-    workflow_run_id: int,
-    request: Request,
-    x_vobiz_signature: Optional[str] = Header(None),
-    x_vobiz_timestamp: Optional[str] = Header(None),
-):
-    """Handle Vobiz hangup callback (sent when call ends).
-
-    Vobiz sends callbacks to hangup_url when the call terminates.
-    This includes call duration, status, and billing information.
-    """
-    set_current_run_id(workflow_run_id)
-
-    # Logging all headers and body to understand what Vobiz actually sends
-    all_headers = dict(request.headers)
-    logger.info(
-        f"[run {workflow_run_id}] Vobiz hangup callback - Headers: {json.dumps(all_headers)}"
-    )
-
-    # Parse the callback data (Vobiz sends form data or JSON)
-    form_data = await request.form()
-    callback_data = dict(form_data)
-
-    # TODO: Remove this debug logging after Vobiz team clarifies webhook authentication
-    logger.info(
-        f"[run {workflow_run_id}] Vobiz hangup callback - Body: {json.dumps(callback_data)}"
-    )
-    logger.info(
-        f"[run {workflow_run_id}] Received Vobiz hangup callback {json.dumps(callback_data)}"
-    )
-
-    # Verify signature if provided
-    if x_vobiz_signature:
-        # We need the workflow run to get organization for provider credentials
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-        if not workflow_run:
-            logger.warning(
-                f"[run {workflow_run_id}] Workflow run not found for signature verification"
-            )
-            return {"status": "error", "reason": "workflow_run_not_found"}
-
-        workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-        if not workflow:
-            logger.warning(
-                f"[run {workflow_run_id}] Workflow not found for signature verification"
-            )
-            return {"status": "error", "reason": "workflow_not_found"}
-
-        provider = await get_telephony_provider(workflow.organization_id)
-
-        # Get raw body for signature verification
-        raw_body = await request.body()
-        webhook_body = raw_body.decode("utf-8")
-
-        # Verify signature
-        backend_endpoint, _ = await get_backend_endpoints()
-        webhook_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
-
-        is_valid = await provider.verify_webhook_signature(
-            webhook_url,
-            callback_data,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
-            webhook_body,
-        )
-
-        if not is_valid:
-            logger.warning(
-                f"[run {workflow_run_id}] Invalid Vobiz hangup callback signature"
-            )
-            return {"status": "error", "reason": "invalid_signature"}
-
-        logger.info(f"[run {workflow_run_id}] Vobiz hangup callback signature verified")
-    else:
-        # Get workflow run for processing (signature verification already got it if needed)
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(
-            f"[run {workflow_run_id}] Workflow run not found for Vobiz hangup callback"
-        )
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    # Get workflow and provider
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
-        logger.warning(f"[run {workflow_run_id}] Workflow not found")
-        return {"status": "ignored", "reason": "workflow_not_found"}
-
-    provider = await get_telephony_provider(workflow.organization_id)
-
-    logger.debug(
-        f"[run {workflow_run_id}] Processing Vobiz hangup with provider: {provider.PROVIDER_NAME}"
-    )
-
-    # Parse the callback data into generic format
-    parsed_data = provider.parse_status_callback(callback_data)
-
-    logger.debug(
-        f"[run {workflow_run_id}] Parsed Vobiz callback data: {json.dumps(parsed_data)}"
-    )
-
-    # Create StatusCallbackRequest from parsed data
-    status_update = StatusCallbackRequest(
-        call_id=parsed_data["call_id"],
-        status=parsed_data["status"],
-        from_number=parsed_data.get("from_number"),
-        to_number=parsed_data.get("to_number"),
-        direction=parsed_data.get("direction"),
-        duration=parsed_data.get("duration"),
-        extra=parsed_data.get("extra", {}),
-    )
-
-    # Process the status update
-    await _process_status_update(workflow_run_id, status_update)
-
-    logger.info(f"[run {workflow_run_id}] Vobiz hangup callback processed successfully")
-
-    return {"status": "success"}
-
-
-@router.post("/vobiz/ring-callback/{workflow_run_id}")
-async def handle_vobiz_ring_callback(
-    workflow_run_id: int,
-    request: Request,
-    x_vobiz_signature: Optional[str] = Header(None),
-    x_vobiz_timestamp: Optional[str] = Header(None),
-):
-    """Handle Vobiz ring callback (sent when call starts ringing).
-
-    Vobiz can send callbacks to ring_url when the call starts ringing.
-    This is optional and used for tracking ringing status.
-    """
-    set_current_run_id(workflow_run_id)
-
-    # Logging all headers and body to understand what Vobiz actually sends
-    all_headers = dict(request.headers)
-    logger.info(
-        f"[run {workflow_run_id}] Vobiz ring callback - Headers: {json.dumps(all_headers)}"
-    )
-
-    # Parse the callback data
-    form_data = await request.form()
-    callback_data = dict(form_data)
-
-    # TODO: Remove this debug logging after Vobiz team clarifies webhook authentication
-    logger.info(
-        f"[run {workflow_run_id}] Vobiz ring callback - Body: {json.dumps(callback_data)}"
-    )
-
-    logger.info(
-        f"[run {workflow_run_id}] Received Vobiz ring callback {json.dumps(callback_data)}"
-    )
-
-    # Verify signature if provided
-    if x_vobiz_signature:
-        # We need the workflow run to get organization for provider credentials
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-        if not workflow_run:
-            logger.warning(
-                f"[run {workflow_run_id}] Workflow run not found for signature verification"
-            )
-            return {"status": "error", "reason": "workflow_run_not_found"}
-
-        workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-        if not workflow:
-            logger.warning(
-                f"[run {workflow_run_id}] Workflow not found for signature verification"
-            )
-            return {"status": "error", "reason": "workflow_not_found"}
-
-        provider = await get_telephony_provider(workflow.organization_id)
-
-        # Get raw body for signature verification
-        raw_body = await request.body()
-        webhook_body = raw_body.decode("utf-8")
-
-        # Verify signature
-        backend_endpoint, _ = await get_backend_endpoints()
-        webhook_url = (
-            f"{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
-        )
-
-        is_valid = await provider.verify_webhook_signature(
-            webhook_url,
-            callback_data,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
-            webhook_body,
-        )
-
-        if not is_valid:
-            logger.warning(
-                f"[run {workflow_run_id}] Invalid Vobiz ring callback signature"
-            )
-            return {"status": "error", "reason": "invalid_signature"}
-
-        logger.info(f"[run {workflow_run_id}] Vobiz ring callback signature verified")
-    else:
-        # Get workflow run for processing (signature verification already got it if needed)
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(
-            f"[run {workflow_run_id}] Workflow run not found for Vobiz ring callback"
-        )
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    # Log the ringing event
-    telephony_callback_logs = workflow_run.logs.get("telephony_status_callbacks", [])
-    ring_log = {
-        "status": "ringing",
-        "timestamp": datetime.now(UTC).isoformat(),
-        "call_id": callback_data.get("call_uuid", callback_data.get("CallUUID", "")),
-        "event_type": "ring",
-        "raw_data": callback_data,
-    }
-    telephony_callback_logs.append(ring_log)
-
-    # Update workflow run logs
-    await db_client.update_workflow_run(
-        run_id=workflow_run_id,
-        logs={"telephony_status_callbacks": telephony_callback_logs},
-    )
-
-    logger.info(f"[run {workflow_run_id}] Vobiz ring callback logged")
-
-    return {"status": "success"}
-
-
-@router.post("/cloudonix/status-callback/{workflow_run_id}")
-async def handle_cloudonix_status_callback(
-    workflow_run_id: int,
-    request: Request,
-):
-    """Handle Cloudonix-specific status callbacks.
-
-    Cloudonix sends call status updates to the callback URL specified during call initiation.
-    """
-    set_current_run_id(workflow_run_id)
-    # Parse callback data - determine if JSON or form data
-    content_type = request.headers.get("content-type", "")
-
-    if "application/json" in content_type:
-        callback_data = await request.json()
-    else:
-        # Assume form data (like Twilio)
-        form_data = await request.form()
-        callback_data = dict(form_data)
-
-    logger.info(
-        f"[run {workflow_run_id}] Received Cloudonix status callback: {json.dumps(callback_data)}"
-    )
-
-    # Get workflow run to find organization
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    if not workflow_run:
-        logger.warning(f"Workflow run {workflow_run_id} not found for status callback")
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    # Get workflow and provider
-    workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
-    if not workflow:
-        logger.warning(f"Workflow {workflow_run.workflow_id} not found")
-        return {"status": "ignored", "reason": "workflow_not_found"}
-
-    provider = await get_telephony_provider(workflow.organization_id)
-
-    # Parse the callback data into generic format
-    parsed_data = provider.parse_status_callback(callback_data)
-
-    # Create StatusCallbackRequest from parsed data
-    status_update = StatusCallbackRequest(
-        call_id=parsed_data["call_id"],
-        status=parsed_data["status"],
-        from_number=parsed_data.get("from_number"),
-        to_number=parsed_data.get("to_number"),
-        direction=parsed_data.get("direction"),
-        duration=parsed_data.get("duration"),
-        extra=parsed_data.get("extra", {}),
-    )
-
-    # Process the status update
-    await _process_status_update(workflow_run_id, status_update)
-
-    return {"status": "success"}
-
-
-@router.post("/vobiz/hangup-callback/workflow/{workflow_id}")
-async def handle_vobiz_hangup_callback_by_workflow(
-    workflow_id: int,
-    request: Request,
-    x_vobiz_signature: Optional[str] = Header(None),
-    x_vobiz_timestamp: Optional[str] = Header(None),
-):
-    """Handle Vobiz hangup callback with workflow_id - finds workflow run by call_id."""
-
-    all_headers = dict(request.headers)
-    logger.info(
-        f"[workflow {workflow_id}] Vobiz hangup callback - Headers: {json.dumps(all_headers)}"
-    )
+    logger.info("Inbound /run dispatch received")
 
     try:
-        callback_data, _ = await parse_webhook_request(request)
-    except ValueError:
-        callback_data = {}
-
-    call_uuid = callback_data.get("CallUUID") or callback_data.get("call_uuid")
-    logger.info(
-        f"[workflow {workflow_id}] Received Vobiz hangup callback for call {call_uuid}: {json.dumps(callback_data)}"
-    )
-
-    if not call_uuid:
-        logger.warning(
-            f"[workflow {workflow_id}] No call_uuid found in Vobiz hangup callback"
-        )
-        return {"status": "error", "message": "No call_uuid found"}
-
-    workflow_client = WorkflowClient()
-    workflow = await workflow_client.get_workflow_by_id(workflow_id)
-    if not workflow:
-        logger.warning(f"[workflow {workflow_id}] Workflow not found")
-        return {"status": "error", "message": "workflow_not_found"}
-
-    provider = await get_telephony_provider(workflow.organization_id)
-
-    if x_vobiz_signature:
-        raw_body = await request.body()
-        webhook_body = raw_body.decode("utf-8")
-        backend_endpoint, _ = await get_backend_endpoints()
-        webhook_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}"
-
-        is_valid = await provider.verify_webhook_signature(
-            webhook_url,
-            callback_data,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
-            webhook_body,
-        )
-
-        if not is_valid:
-            logger.warning(
-                f"[workflow {workflow_id}] Invalid Vobiz hangup callback signature"
-            )
-            return {"status": "error", "message": "invalid_signature"}
-
-        logger.info(
-            f"[workflow {workflow_id}] Vobiz hangup callback signature verified"
-        )
-
-    try:
-        db_client = WorkflowRunClient()
-        async with db_client.async_session() as session:
-            # Fetch workflow run with matching call_id in gathered_context
-            query = text("""
-                SELECT id FROM workflow_runs 
-                WHERE workflow_id = :workflow_id 
-                AND CAST(gathered_context AS jsonb) @> CAST(:call_id_json AS jsonb)
-                ORDER BY created_at DESC 
-                LIMIT 1
-            """)
-
-            result = await session.execute(
-                query,
-                {
-                    "workflow_id": workflow_id,
-                    "call_id_json": json.dumps({"call_id": call_uuid}),
-                },
-            )
-            workflow_run_row = result.fetchone()
-
-            if not workflow_run_row:
-                logger.warning(
-                    f"[workflow {workflow_id}] No workflow run found for call {call_uuid}"
-                )
-                return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-            workflow_run_id = workflow_run_row[0]
-            set_current_run_id(workflow_run_id)
-            logger.info(
-                f"[workflow {workflow_id}] Found workflow run {workflow_run_id} for call {call_uuid}"
-            )
-
-    except Exception as e:
-        logger.error(
-            f"[workflow {workflow_id}] Error finding workflow run for call {call_uuid}: {e}"
-        )
-        return {"status": "error", "message": str(e)}
-
-    try:
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-        if not workflow_run:
-            logger.warning(f"[run {workflow_run_id}] Workflow run not found")
-            return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-        parsed_data = provider.parse_status_callback(callback_data)
-
-        status = StatusCallbackRequest(
-            call_id=parsed_data["call_id"],
-            status=parsed_data["status"],
-            from_number=parsed_data.get("from_number"),
-            to_number=parsed_data.get("to_number"),
-            direction=parsed_data.get("direction"),
-            duration=parsed_data.get("duration"),
-            extra=parsed_data.get("extra", {}),
-        )
-
-        await _process_status_update(workflow_run_id, status)
-
-        logger.info(
-            f"[run {workflow_run_id}] Vobiz hangup callback processed successfully"
-        )
-        return {"status": "success"}
-
-    except Exception as e:
-        logger.error(
-            f"[run {workflow_run_id}] Error processing Vobiz hangup callback: {e}"
-        )
-        return {"status": "error", "message": str(e)}
-
-
-@router.post("/inbound/{workflow_id}")
-async def handle_inbound_telephony(
-    workflow_id: int,
-    request: Request,
-    x_twilio_signature: Optional[str] = Header(None),
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
-    x_vobiz_signature: Optional[str] = Header(None),
-    x_vobiz_timestamp: Optional[str] = Header(None),
-    x_cx_apikey: Optional[str] = Header(None),
-    telnyx_signature: Optional[str] = Header(None, alias="telnyx-signature-ed25519"),
-):
-    """Handle inbound telephony calls from any supported provider with common processing"""
-    logger.info(f"Inbound call received for workflow_id: {workflow_id}")
-
-    try:
-        webhook_data, data_source = await parse_webhook_request(request)
-        logger.info(
-            f"Inbound call data with data source: {data_source} and data :{dict(webhook_data)}"
-        )
+        webhook_data, raw_body = await parse_webhook_request(request)
         headers = dict(request.headers)
 
-        # Detect provider and normalize data
         provider_class = await _detect_provider(webhook_data, headers)
         if not provider_class:
-            logger.error("Unable to detect provider for webhook")
+            logger.error("Unable to detect provider for /inbound/run webhook")
             return generic_hangup_response()
 
         normalized_data = normalize_webhook_data(provider_class, webhook_data)
-
         logger.info(
-            f"Inbound call - Provider: {normalized_data.provider}, Data source: {data_source}"
+            f"/inbound/run normalized data — provider={normalized_data.provider} "
+            f"to={normalized_data.to_number} from={normalized_data.from_number}"
         )
-        logger.info(f"Normalized data: {normalized_data}")
 
-        # Validate inbound direction
         if normalized_data.direction != "inbound":
-            logger.warning(f"Non-inbound call received: {normalized_data.direction}")
+            logger.warning(
+                f"Non-inbound call on /inbound/run: {normalized_data.direction}"
+            )
             return generic_hangup_response()
 
-        logger.info(f"Inbound call headers: {dict(request.headers)}")
-        logger.info(f"Twilio signature header: {x_twilio_signature}")
-        logger.info(f"Vobiz signature header: {x_vobiz_signature}")
-        logger.info(f"Vobiz timestamp header: {x_vobiz_timestamp}")
-
-        webhook_body = ""
-        if provider_class.PROVIDER_NAME == "vobiz":
-            webhook_body = data_source
-            logger.info(f"Vobiz inbound call - Body: {json.dumps(webhook_data)}")
-
-        (
-            is_valid,
-            error_type,
-            workflow_context,
-            provider_instance,
-        ) = await _validate_inbound_request(
-            workflow_id,
-            provider_class,
-            normalized_data,
-            webhook_data,
-            webhook_body,
-            x_twilio_signature,
-            x_plivo_signature_v3,
-            x_plivo_signature_ma_v3,
-            x_plivo_signature_v3_nonce,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
-            x_cx_apikey,
-            telnyx_signature,
+        # 1. Resolve config globally from (provider, account_id).
+        spec = telephony_registry.get_optional(provider_class.PROVIDER_NAME)
+        account_field = spec.account_id_credential_field if spec else ""
+        config = await db_client.find_telephony_config_by_account(
+            provider_class.PROVIDER_NAME,
+            account_field,
+            normalized_data.account_id or "",
         )
+        if not config:
+            logger.warning(
+                f"/inbound/run: no config matched provider="
+                f"{provider_class.PROVIDER_NAME} account_id={normalized_data.account_id}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.ACCOUNT_VALIDATION_FAILED
+            )
 
-        if not is_valid:
-            logger.error(f"Request validation failed: {error_type}")
-            return provider_class.generate_validation_error_response(error_type)
+        organization_id = config.organization_id
+        telephony_configuration_id = config.id
 
-        # Check quota before processing
-        user_id = workflow_context["user_id"]
-        quota_result = await check_dograh_quota_by_user_id(user_id)
+        # 2. Resolve workflow via the called number's inbound_workflow_id.
+        phone_row = await db_client.find_active_phone_number_for_inbound(
+            organization_id,
+            normalized_data.to_number,
+            provider_class.PROVIDER_NAME,
+            country_hint=normalized_data.to_country,
+        )
+        # Legacy fallback for non-E.164 stored addresses.
+        if (
+            not phone_row
+            or phone_row.telephony_configuration_id != telephony_configuration_id
+        ):
+            phone_row = None
+            for row in await db_client.list_phone_numbers_for_config(
+                telephony_configuration_id
+            ):
+                if not row.is_active:
+                    continue
+                if numbers_match(
+                    normalized_data.to_number,
+                    row.address,
+                    normalized_data.to_country,
+                    normalized_data.from_country,
+                ):
+                    phone_row = row
+                    break
+
+        if not phone_row:
+            logger.warning(
+                f"/inbound/run: number {normalized_data.to_number} not registered "
+                f"in config {telephony_configuration_id}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.PHONE_NUMBER_NOT_CONFIGURED
+            )
+
+        if not phone_row.inbound_workflow_id:
+            logger.warning(
+                f"/inbound/run: number {normalized_data.to_number} has no "
+                f"inbound_workflow_id assigned"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.WORKFLOW_NOT_FOUND
+            )
+
+        workflow_id = phone_row.inbound_workflow_id
+        workflow = await db_client.get_workflow(workflow_id)
+        if not workflow:
+            return provider_class.generate_validation_error_response(
+                TelephonyError.WORKFLOW_NOT_FOUND
+            )
+        user_id = workflow.user_id
+
+        # 3. Verify webhook signature against the matched config's credentials.
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
+        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
+        provider_instance = await get_telephony_provider_by_id(
+            telephony_configuration_id
+        )
+        signature_valid = await provider_instance.verify_inbound_signature(
+            webhook_url, webhook_data, headers, raw_body
+        )
+        if not signature_valid:
+            logger.warning(
+                f"/inbound/run: signature validation failed for "
+                f"{provider_class.PROVIDER_NAME}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.SIGNATURE_VALIDATION_FAILED
+            )
+
+        # 4. Quota check (use the workflow's model_overrides if set).
+        quota_result = await check_dograh_quota_by_user_id(
+            user_id, workflow_id=workflow_id
+        )
         if not quota_result.has_quota:
             logger.warning(
-                f"User {user_id} has exceeded quota for inbound calls: {quota_result.error_message}"
+                f"User {user_id} has exceeded quota: {quota_result.error_message}"
             )
             return provider_class.generate_validation_error_response(
                 TelephonyError.QUOTA_EXCEEDED
             )
 
-        # Create workflow run
+        # 5. Create workflow run + return provider-shaped response.
         workflow_run_id = await _create_inbound_workflow_run(
             workflow_id,
-            workflow_context["user_id"],
-            workflow_context["provider"],
+            user_id,
+            provider_class.PROVIDER_NAME,
             normalized_data,
-            data_source,
+            telephony_configuration_id=telephony_configuration_id,
+            from_phone_number_id=phone_row.id,
         )
 
-        # Generate response URLs
-        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-        websocket_url = f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
-
-        # Telnyx requires answering the call via REST API (not via webhook response)
-        if provider_class.PROVIDER_NAME == "telnyx":
-            # Get provider instance with credentials if not already loaded
-            if not provider_instance:
-                provider_instance = await get_telephony_provider(
-                    workflow_context["organization_id"]
-                )
-
-            events_url = (
-                f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
-            )
-
-            try:
-                await provider_instance.answer_and_stream(
-                    call_control_id=normalized_data.call_id,
-                    stream_url=websocket_url,
-                    webhook_url=events_url,
-                )
-            except Exception as e:
-                logger.error(f"Failed to answer Telnyx inbound call: {e}")
-                return provider_class.generate_error_response(
-                    "ANSWER_FAILED", "Failed to answer call"
-                )
-
-            logger.info(
-                f"Answered Telnyx inbound call {normalized_data.call_id} for workflow_run {workflow_run_id}"
-            )
-            return {"status": "ok"}
-
-        response = await provider_class.generate_inbound_response(
-            websocket_url, workflow_run_id
+        websocket_url = (
+            f"{wss_backend_endpoint}/api/v1/telephony/ws/"
+            f"{workflow_id}/{user_id}/{workflow_run_id}"
         )
 
-        logger.info(
-            f"Generated {normalized_data.provider} response for call {normalized_data.call_id}"
+        return await provider_instance.start_inbound_stream(
+            websocket_url=websocket_url,
+            workflow_run_id=workflow_run_id,
+            normalized_data=normalized_data,
+            backend_endpoint=backend_endpoint,
         )
-        return response
 
     except ValueError as e:
-        logger.error(f"Request parsing error: {e}")
+        logger.error(f"/inbound/run request parsing error: {e}")
         return generic_hangup_response()
     except Exception as e:
-        logger.error(f"Error processing inbound call: {e}")
+        logger.error(f"/inbound/run unexpected error: {e}")
         return generic_hangup_response()
 
 
@@ -1810,57 +757,108 @@ async def handle_inbound_fallback(request: Request):
         return generic_hangup_response()
 
 
-@router.post("/cloudonix/cdr")
-async def handle_cloudonix_cdr(request: Request):
-    """Handle Cloudonix CDR (Call Detail Record) webhooks.
+@router.post("/inbound/{workflow_id}", deprecated=True)
+async def handle_inbound_telephony(
+    workflow_id: int,
+    request: Request,
+):
+    """[LEGACY] Per-workflow inbound webhook.
 
-    Cloudonix sends CDR records when calls complete. The CDR contains:
-    - domain: Used to identify the organization
-    - call_id: Used to find the workflow run
-    - disposition: Call termination status (ANSWER, BUSY, CANCEL, FAILED, CONGESTION, NOANSWER)
-    - duration/billsec: Call duration information
+    Superseded by ``POST /inbound/run``, which resolves the workflow from
+    the called number's ``inbound_workflow_id`` and lets a single webhook
+    URL serve every workflow in the org. New integrations should point
+    their provider at ``/inbound/run``; this route is kept only for
+    existing provider configurations that still encode ``workflow_id``
+    in the URL.
     """
-    try:
-        cdr_data = await request.json()
-    except Exception as e:
-        logger.error(f"Failed to parse Cloudonix CDR JSON: {e}")
-        return {"status": "error", "message": "Invalid JSON payload"}
-
-    # Extract domain to find organization
-    domain = cdr_data.get("domain")
-    if not domain:
-        logger.warning("Cloudonix CDR missing domain field")
-        return {"status": "error", "message": "Missing domain field"}
-
-    # Extract call_id to find workflow run
-    call_id = cdr_data.get("session").get("token")
-    logger.info(f"Cloudonix CDR data for call id {call_id} - {cdr_data}")
-    if not call_id:
-        logger.warning("Cloudonix CDR missing call_id field")
-        return {"status": "error", "message": "Missing call_id field"}
-
-    # Find workflow run by call_id in gathered_context
-    workflow_run = await db_client.get_workflow_run_by_call_id(call_id)
-    if not workflow_run:
-        logger.warning(f"No workflow run found for Cloudonix call_id: {call_id}")
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-    workflow_run_id = workflow_run.id
-    set_current_run_id(workflow_run_id)
-    logger.info(f"[run {workflow_run_id}] Processing Cloudonix CDR for call {call_id}")
-
-    # Convert CDR to status update using StatusCallbackRequest
-    status_update = StatusCallbackRequest.from_cloudonix_cdr(cdr_data)
-
-    # Process the status update
-    await _process_status_update(workflow_run_id, status_update)
-
     logger.info(
-        f"[run {workflow_run_id}] Cloudonix CDR processed successfully - "
-        f"disposition: {cdr_data.get('disposition')}, status: {status_update.status}"
+        f"[legacy /inbound/{{workflow_id}}] Inbound call received for workflow_id: {workflow_id}"
     )
 
-    return {"status": "success"}
+    try:
+        webhook_data, raw_body = await parse_webhook_request(request)
+        logger.info(f"Inbound call data: {dict(webhook_data)}")
+        headers = dict(request.headers)
+
+        # Detect provider and normalize data
+        provider_class = await _detect_provider(webhook_data, headers)
+        if not provider_class:
+            logger.error("Unable to detect provider for webhook")
+            return generic_hangup_response()
+
+        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+
+        logger.info(f"Inbound call - Provider: {normalized_data.provider}")
+        logger.info(f"Normalized data: {normalized_data}")
+
+        # Validate inbound direction
+        if normalized_data.direction != "inbound":
+            logger.warning(f"Non-inbound call received: {normalized_data.direction}")
+            return generic_hangup_response()
+
+        (
+            is_valid,
+            error_type,
+            workflow_context,
+            provider_instance,
+        ) = await _validate_inbound_request(
+            workflow_id,
+            provider_class,
+            normalized_data,
+            webhook_data,
+            headers,
+            raw_body,
+        )
+
+        if not is_valid:
+            logger.error(f"Request validation failed: {error_type}")
+            return provider_class.generate_validation_error_response(error_type)
+
+        # Check quota before processing (apply per-workflow model_overrides).
+        user_id = workflow_context["user_id"]
+        quota_result = await check_dograh_quota_by_user_id(
+            user_id, workflow_id=workflow_id
+        )
+        if not quota_result.has_quota:
+            logger.warning(
+                f"User {user_id} has exceeded quota for inbound calls: {quota_result.error_message}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.QUOTA_EXCEEDED
+            )
+
+        # Create workflow run
+        workflow_run_id = await _create_inbound_workflow_run(
+            workflow_id,
+            workflow_context["user_id"],
+            workflow_context["provider"],
+            normalized_data,
+            telephony_configuration_id=workflow_context["telephony_configuration_id"],
+            from_phone_number_id=workflow_context.get("from_phone_number_id"),
+        )
+
+        # Generate response URLs
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
+        websocket_url = f"{wss_backend_endpoint}/api/v1/telephony/ws/{workflow_id}/{workflow_context['user_id']}/{workflow_run_id}"
+
+        response = await provider_instance.start_inbound_stream(
+            websocket_url=websocket_url,
+            workflow_run_id=workflow_run_id,
+            normalized_data=normalized_data,
+            backend_endpoint=backend_endpoint,
+        )
+
+        logger.info(
+            f"Generated {normalized_data.provider} response for call {normalized_data.call_id}"
+        )
+        return response
+
+    except ValueError as e:
+        logger.error(f"Request parsing error: {e}")
+        return generic_hangup_response()
+    except Exception as e:
+        logger.error(f"Error processing inbound call: {e}")
+        return generic_hangup_response()
 
 
 class TransferCallRequest(BaseModel):
@@ -2065,3 +1063,33 @@ async def complete_transfer_function_call(transfer_id: str, request: Request):
         logger.error(f"Error completing transfer {transfer_id}: {e}")
 
     return {"status": "completed", "result": result}
+
+
+# Mount per-provider routers (webhook, status callbacks, answer URLs).
+#
+# Each provider's routes live at ``providers/<name>/routes.py`` and expose
+# a module-level ``router``. We discover them through the registry rather
+# than pre-importing them from each provider's __init__.py so that the
+# (heavy) route module — which transitively depends on status_processor,
+# campaign helpers, etc. — is only loaded when the HTTP layer is actually
+# being wired up, not when someone merely asks for a TelephonyProvider
+# class. This is what keeps the package init free of cycles.
+def _mount_provider_routers() -> None:
+    import importlib
+
+    from api.services.telephony import registry as _telephony_registry
+
+    for spec in _telephony_registry.all_specs():
+        try:
+            module = importlib.import_module(
+                f"api.services.telephony.providers.{spec.name}.routes"
+            )
+        except ModuleNotFoundError:
+            # Provider has no routes (e.g. ARI, which only has a WebSocket).
+            continue
+        provider_router = getattr(module, "router", None)
+        if provider_router is not None:
+            router.include_router(provider_router)
+
+
+_mount_provider_routers()

@@ -12,109 +12,91 @@ Vobiz is a cloud-based telephony service provider that offers global reach with 
 Before setting up Vobiz integration, you'll need:
 
 - A [Vobiz account](https://vobiz.com)
-- Auth ID from your Vobiz dashboard
-- Auth Token generated for your account
-- At least one configured phone number in your Vobiz account
+- Auth ID and Auth Token from your Vobiz dashboard
+- A Vobiz **Application** (used for inbound webhook routing)
+- At least one Vobiz phone number
 - Dograh AI instance running and accessible
 
 ## Configuration
 
 ### Step 1: Get Vobiz Credentials
 
-1. Sign up for a Vobiz account
-2. Log in to your Vobiz dashboard
-3. Navigate to your account settings to find your **Auth ID**
-4. Generate an **Auth Token** for API access
-5. Configure phone numbers in your Vobiz account for outbound calling
+1. Log in to your Vobiz dashboard
+2. Find your **Auth ID** and generate an **Auth Token** for API access
+3. Navigate to the **Applications** section and create (or open) the application you'll use with Dograh
+4. Copy the **Application ID** — Dograh will manage its `answer_url`
+5. Navigate to **Phone Numbers** and copy the numbers you plan to use
 
 ### Step 2: Configure in Dograh AI
 
-1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
+1. Navigate to **/telephony-configurations** and click **Add configuration**
 2. Select **Vobiz** as your provider
 3. Enter your credentials:
    - Auth ID
    - Auth Token
-   - From Phone Number (with country code, e.g., +1234567890)
+   - Application ID
 4. Click **Save Configuration**
-
-<Note>
-Vobiz provides cloud-based telephony services with global reach and competitive pricing.
-</Note>
+5. Open the configuration you just created and add at least one **phone number** (with country code in E.164 format, e.g. `+1234567890`). The default caller ID is used for outbound calls.
 
 ### Step 3: Test Your Configuration
 
 1. Create a test workflow
-2. Click "Test Call" to verify connection
+2. Click "Call" to verify connection
 3. Check call logs for successful connection
 
 ## Inbound Calling Setup
 
-To enable inbound calling with Vobiz:
+Vobiz numbers don't carry an `answer_url` directly — the URL lives on a Vobiz **Application**, and each number is linked to one application. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Vobiz Application's `answer_url`** (provided the credentials are correct).
 
-1. **Complete Telephony Configuration**: Use the same [Configuration](#configuration) steps above
-2. **Get Your Workflow Webhook URL**: Find your workflow ID and construct the webhook URL as: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
+### Step 1: Link the Phone Number to Your Vobiz Application
 
-### Configure Application in Vobiz Console
-
-Vobiz requires creating an XML application to handle inbound calls. Follow these steps:
-
-1. **Navigate to Applications**:
-   - Log in to your Vobiz Console
-   - Navigate to the **Applications** section
+1. Log in to your Vobiz Console and open the **Applications** section
+2. Edit the application whose ID you configured in Dograh
+3. Attach the phone number you want to use for inbound calls
+4. Save
 
    <img
      className="block dark:hidden"
-     src="/images/vobiz-inbound-config-1.png"
-     alt="Vobiz console showing Applications section navigation"
+     src="/images/vobiz-inbound-config-3.png"
+     alt="Vobiz application showing phone number attachment interface"
    />
    <img
      className="hidden dark:block"
-     src="/images/vobiz-inbound-config-1.png"
-     alt="Vobiz console showing Applications section navigation"
+     src="/images/vobiz-inbound-config-3.png"
+     alt="Vobiz application showing phone number attachment interface"
    />
 
-2. **Create New Application**:
-   - Click **Create New Application**
-   - Configure the XML application with the following URLs:
-     - **Answer URL**: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
-     - **Hangup URL**: `https://api.dograh.com/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}`
-     - **Fallback Answer URL**: `https://api.dograh.com/api/v1/telephony/inbound/fallback`
-   - Save the application
+### Step 2: Assign an Inbound Workflow to the Phone Number in Dograh
+
+1. Go to **/telephony-configurations** and open your Vobiz configuration
+2. In the **Phone numbers** section, edit the number that should receive inbound calls
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
+
+### Step 3: Verify the Answer URL on the Vobiz Application
+
+1. Open your Vobiz Console and navigate to **Applications**
+2. Open the application whose ID you configured in Dograh
+3. Confirm:
+   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **Answer Method** is `POST`
 
    <Note>
-   Replace `{workflow_id}` with your actual workflow ID. If using self-hosted Dograh, replace `api.dograh.com` with your domain.
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 2. The same URL is shared across every number linked to that
+     application — Dograh routes each inbound call to the right agent based
+     on the called number's inbound workflow assignment. If the field is
+     empty, shows a different URL, or Dograh surfaced a sync warning on
+     save, the auto-push failed — most often because the Auth ID/Token or
+     Application ID in Dograh is incorrect. Paste the URL into the field
+     yourself, set the method to `POST`, and save. On self-hosted Dograh,
+     replace `api.dograh.com` with your backend domain.
    </Note>
 
-   <img
-     className="block dark:hidden"
-     src="/images/vobiz-inbound-config-2.png"
-     alt="Vobiz XML application configuration showing Answer URL, Hangup URL, and Fallback Answer URL"
-   />
-   <img
-     className="hidden dark:block"
-     src="/images/vobiz-inbound-config-2.png"
-     alt="Vobiz XML application configuration showing Answer URL, Hangup URL, and Fallback Answer URL"
-   />
+### Step 4: Verify Setup
 
-3. **Attach Phone Number**:
-   - After saving the application, edit it to attach a phone number
-   - Select the phone number you want to use for inbound calls
-   - Link it to your created application
-
-   <img
-     className="block dark:hidden"
-     src="/images/vobiz-inbound-config-3.png"
-     alt="Vobiz application showing phone number attachment interface"
-   />
-   <img
-     className="hidden dark:block"
-     src="/images/vobiz-inbound-config-3.png"
-     alt="Vobiz application showing phone number attachment interface"
-   />
-
-2. **Verify Setup**:
-   - Ensure your Dograh AI instance is publicly accessible
-   - Verify any firewalls allow Vobiz's webhook requests
+- Ensure your Dograh AI instance is publicly accessible
+- Verify any firewalls allow Vobiz's webhook requests
 
 ### Test Inbound Calling
 
@@ -147,24 +129,26 @@ Vobiz requires creating an XML application to handle inbound calls. Follow these
     - Ensure audio pipeline is configured correctly
   </Accordion>
   
-  <Accordion title="Inbound calls not connecting">
-    - Verify webhook URL is correctly configured in Vobiz dashboard
-    - Ensure webhook URL is publicly accessible from internet
-    - Check that phone number is properly linked to webhook
-    - Verify Dograh AI instance is running and responding
+  <Accordion title="Inbound calls go to voicemail or aren't answered">
+    - Verify the phone number is linked to the same Vobiz Application whose
+    ID you configured in Dograh - Confirm the called number exists in your
+    Dograh telephony configuration and has an **Inbound workflow** assigned
+    - After assigning the inbound workflow, confirm Dograh successfully
+    updated the application's `answer_url` (no warning shown on save) -
+    Verify Dograh AI instance is running and responding
   </Accordion>
-  
+
   <Accordion title="Voice agent doesn't respond to inbound calls">
-    - Confirm voice agent workflow is properly configured
-    - Check webhook processing is working correctly
-    - Verify WebSocket connection establishes successfully
-    - Review call logs for error messages
+    - Confirm the phone number has an **Inbound workflow** assigned in
+    /telephony-configurations - Check webhook signature validation is working
+    (Auth Token in Dograh matches Vobiz dashboard) - Verify WebSocket connection
+    establishes successfully - Review call logs for error messages
   </Accordion>
 </AccordionGroup>
 
 ## Best Practices
 
-- Store credentials securely in the database
 - Test your configuration with a single call before running campaigns
 - Monitor Vobiz dashboard for usage and billing
 - Keep your Auth Token secure and rotate it periodically
+- Use a dedicated Vobiz Application for Dograh so the shared `answer_url` doesn't conflict with other systems

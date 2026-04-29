@@ -14,6 +14,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -39,10 +40,13 @@ class CloudonixProvider(TelephonyProvider):
             config: Dictionary containing:
                 - bearer_token: Cloudonix API Bearer Token
                 - domain_id: Cloudonix Domain ID
+                - application_name: Cloudonix Voice Application name whose
+                    url is updated by ``configure_inbound``
                 - from_numbers: List of phone numbers to use (optional, fetched from API if not provided)
         """
         self.bearer_token = config.get("bearer_token")
         self.domain_id = config.get("domain_id")
+        self.application_name = config.get("application_name")
         self.from_numbers = config.get("from_numbers", [])
 
         # Handle both single number (string) and multiple numbers (list)
@@ -384,7 +388,8 @@ class CloudonixProvider(TelephonyProvider):
         2. "start" event with streamSid and callSid
         3. Then audio messages
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_cloudonix
+        from api.db import db_client
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
             # Wait for "connected" event
@@ -421,9 +426,27 @@ class CloudonixProvider(TelephonyProvider):
                 f"stream_sid: {stream_sid} call_sid: {call_sid}"
             )
 
-            # Run the Cloudonix pipeline
-            await run_pipeline_cloudonix(
-                websocket, stream_sid, workflow_id, workflow_run_id, user_id
+            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+            call_id = (
+                workflow_run.gathered_context.get("call_id")
+                if workflow_run and workflow_run.gathered_context
+                else None
+            )
+            if not call_id:
+                logger.error(
+                    f"call_id not found in gathered_context for workflow run {workflow_run_id}"
+                )
+                await websocket.close(code=4400, reason="Missing call_id")
+                return
+
+            await run_pipeline_telephony(
+                websocket,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_id,
+                transport_kwargs={"call_id": call_id, "stream_sid": stream_sid},
             )
 
         except Exception as e:
@@ -562,14 +585,20 @@ class CloudonixProvider(TelephonyProvider):
         return clean_number
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], api_key: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """
         Verify the API key of an inbound Cloudonix webhook for security.
 
-        Cloudonix uses x-cx-apikey header validation instead of signature verification.
-        The API key from the webhook should match the bearer_token in our configuration.
+        Cloudonix uses ``x-cx-apikey`` header validation instead of signature
+        verification. The API key from the webhook should match the
+        bearer_token in our configuration.
         """
+        api_key = headers.get("x-cx-apikey", "")
         if not api_key:
             logger.warning("No x-cx-apikey provided in Cloudonix webhook")
             return False
@@ -591,10 +620,86 @@ class CloudonixProvider(TelephonyProvider):
 
         return True  # TODO: update this post clarification from cloudonix
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update the ``url`` on the Cloudonix Voice Application.
+
+        PATCH is partial, so we send only ``url`` and ``method=POST`` (our
+        ``/inbound/run`` is POST-only); ``type``, ``active``, and ``profile``
+        are preserved as configured in the cockpit. The URL is shared across
+        every DNID on the application — clearing is a no-op to avoid
+        silently breaking inbound for sibling numbers.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Cloudonix configure_inbound clear for {address}: skipping "
+                f"application update (url is shared across all DNIDs on Voice "
+                f"Application {self.application_name})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Cloudonix provider not properly configured"
+            )
+
+        if not self.application_name:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Cloudonix application_name is not configured. Set it in "
+                    "the telephony configuration so inbound webhooks can be "
+                    "synced to the right Voice Application."
+                ),
+            )
+
+        app_endpoint = (
+            f"{self.base_url}/customers/self/domains/{self.domain_id}/"
+            f"applications/{self.application_name}"
+        )
+        data = {
+            "url": webhook_url,
+            "method": "POST",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.patch(
+                    app_endpoint, json=data, headers=self._get_auth_headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Cloudonix Voice Application update failed for "
+                            f"{self.application_name} on domain "
+                            f"{self.domain_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Cloudonix API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception updating Cloudonix Voice Application "
+                f"{self.application_name}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Cloudonix update failed: {e}")
+
+        logger.info(
+            f"Cloudonix url set on Voice Application {self.application_name} "
+            f"(domain={self.domain_id}, triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
+
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
         """
         Generate the appropriate CXML response for an inbound Cloudonix webhook.
 

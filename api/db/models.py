@@ -30,7 +30,6 @@ from ..enums import (
     ToolStatus,
     TriggerState,
     WebhookCredentialType,
-    WorkflowRunMode,
     WorkflowRunState,
     WorkflowStatus,
 )
@@ -175,6 +174,117 @@ class OrganizationConfigurationModel(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "key", name="_organization_key_uc"),
         Index("ix_organization_configurations_organization_id", "organization_id"),
+    )
+
+
+class TelephonyConfigurationModel(Base):
+    __tablename__ = "telephony_configurations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    name = Column(String(64), nullable=False)
+    provider = Column(String(32), nullable=False)
+    credentials = Column(JSON, nullable=False, default=dict)
+    is_default_outbound = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    organization = relationship("OrganizationModel")
+    phone_numbers = relationship(
+        "TelephonyPhoneNumberModel",
+        back_populates="configuration",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "name", name="uq_telephony_configurations_org_name"
+        ),
+        Index("ix_telephony_configurations_org", "organization_id"),
+        Index(
+            "uq_telephony_configurations_default",
+            "organization_id",
+            unique=True,
+            postgresql_where=text("is_default_outbound = true"),
+        ),
+    )
+
+
+class TelephonyPhoneNumberModel(Base):
+    __tablename__ = "telephony_phone_numbers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
+    telephony_configuration_id = Column(
+        Integer,
+        ForeignKey("telephony_configurations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    address = Column(String(255), nullable=False)
+    address_normalized = Column(String(255), nullable=False)
+    address_type = Column(String(16), nullable=False)
+    country_code = Column(String(2), nullable=True)
+    label = Column(String(64), nullable=True)
+    inbound_workflow_id = Column(
+        Integer,
+        ForeignKey("workflows.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    is_active = Column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    is_default_caller_id = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    extra_metadata = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    configuration = relationship(
+        "TelephonyConfigurationModel", back_populates="phone_numbers"
+    )
+    inbound_workflow = relationship("WorkflowModel")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id",
+            "address_normalized",
+            name="uq_phone_numbers_org_address",
+        ),
+        Index("ix_phone_numbers_config", "telephony_configuration_id"),
+        Index(
+            "ix_phone_numbers_workflow",
+            "inbound_workflow_id",
+            postgresql_where=text("inbound_workflow_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_phone_numbers_inbound_lookup",
+            "address_normalized",
+            "organization_id",
+            postgresql_where=text("is_active = true"),
+        ),
+        Index(
+            "uq_phone_numbers_default_caller",
+            "telephony_configuration_id",
+            unique=True,
+            postgresql_where=text("is_default_caller_id = true"),
+        ),
     )
 
 
@@ -334,10 +444,10 @@ class WorkflowRunModel(Base):
         Integer, ForeignKey("workflow_definitions.id"), nullable=True
     )
     definition = relationship("WorkflowDefinitionModel", back_populates="workflow_runs")
-    mode = Column(
-        Enum(*[mode.value for mode in WorkflowRunMode], name="workflow_run_mode"),
-        nullable=False,
-    )
+    # Stored as VARCHAR (not a Postgres ENUM) so new telephony providers can
+    # be added purely in application code without a database migration.
+    # See WorkflowRunMode in api/enums.py for the canonical value set.
+    mode = Column(String(64), nullable=False)
     call_type = Column(
         Enum(*[call_type.value for call_type in CallType], name="workflow_call_type"),
         nullable=False,
@@ -519,6 +629,11 @@ class CampaignModel(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # Nullable during the legacy → multi-config migration window. Backfilled to the
+    # org's default config by the migration; will become NOT NULL in a follow-up.
+    telephony_configuration_id = Column(
+        Integer, ForeignKey("telephony_configurations.id"), nullable=True
+    )
 
     # Source configuration
     source_type = Column(String, nullable=False, default="google-sheet")
@@ -588,6 +703,11 @@ class CampaignModel(Base):
         Index("ix_campaigns_org_id", "organization_id"),
         Index("ix_campaigns_state", "state"),
         Index("ix_campaigns_workflow_id", "workflow_id"),
+        Index(
+            "ix_campaigns_telephony_config",
+            "telephony_configuration_id",
+            postgresql_where=text("telephony_configuration_id IS NOT NULL"),
+        ),
         # Index for efficient querying of active campaigns
         Index(
             "idx_campaigns_active_status",

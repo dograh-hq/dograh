@@ -11,6 +11,7 @@ from loguru import logger
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.configuration.registry import ServiceProviders
+from api.services.configuration.resolve import resolve_effective_config
 from api.services.mps_service_key_client import mps_service_key_client
 
 
@@ -23,14 +24,23 @@ class QuotaCheckResult:
     error_code: str = ""
 
 
-async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
+async def check_dograh_quota(
+    user: UserModel, workflow_id: int | None = None
+) -> QuotaCheckResult:
     """Check if user has sufficient Dograh quota for making a call.
 
     This function checks if the user is using any Dograh services (LLM, STT, TTS)
     and validates that they have sufficient credits remaining.
 
+    When ``workflow_id`` is provided, the workflow's per-workflow
+    ``model_overrides`` are merged onto the user's global config so the quota
+    check runs against the credentials that will actually be used for the call
+    (rather than always falling back to the user's defaults).
+
     Args:
         user: The user to check quota for
+        workflow_id: Optional workflow whose ``model_overrides`` should be
+            applied when resolving the effective service config.
 
     Returns:
         QuotaCheckResult with has_quota=True if user has sufficient quota or
@@ -40,6 +50,15 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
     try:
         # Get user configurations
         user_config = await db_client.get_user_configurations(user.id)
+
+        if workflow_id is not None:
+            workflow = await db_client.get_workflow_by_id(workflow_id)
+            if workflow:
+                model_overrides = (workflow.workflow_configurations or {}).get(
+                    "model_overrides"
+                )
+                if model_overrides:
+                    user_config = resolve_effective_config(user_config, model_overrides)
 
         # Check if user is using any Dograh service
         using_dograh = False
@@ -112,13 +131,20 @@ async def check_dograh_quota(user: UserModel) -> QuotaCheckResult:
         return QuotaCheckResult(has_quota=True)
 
 
-async def check_dograh_quota_by_user_id(user_id: int) -> QuotaCheckResult:
+async def check_dograh_quota_by_user_id(
+    user_id: int, workflow_id: int | None = None
+) -> QuotaCheckResult:
     """Check Dograh quota by user ID.
 
-    Convenience function that fetches the user and then checks quota.
+    Convenience function that fetches the user and then checks quota. When
+    ``workflow_id`` is provided, the workflow's ``model_overrides`` are
+    applied so the quota check evaluates the credentials that will actually
+    be used for the call.
 
     Args:
         user_id: The ID of the user to check quota for
+        workflow_id: Optional workflow whose per-workflow overrides should
+            be applied to the user's config before checking quota.
 
     Returns:
         QuotaCheckResult with quota status
@@ -129,4 +155,4 @@ async def check_dograh_quota_by_user_id(user_id: int) -> QuotaCheckResult:
             has_quota=False,
             error_message="User not found",
         )
-    return await check_dograh_quota(user)
+    return await check_dograh_quota(user, workflow_id=workflow_id)

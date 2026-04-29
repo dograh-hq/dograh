@@ -16,6 +16,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -241,7 +242,7 @@ class TelnyxProvider(TelephonyProvider):
         2. "start" event with stream_id, call_control_id, media_format
         3. "media" events with base64-encoded audio
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_telnyx
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         try:
             # Wait for "connected" event
@@ -290,14 +291,17 @@ class TelnyxProvider(TelephonyProvider):
                 f"call_control_id={call_control_id}"
             )
 
-            # Run the Telnyx pipeline
-            await run_pipeline_telnyx(
+            await run_pipeline_telephony(
                 websocket,
-                stream_id,
-                call_control_id,
-                workflow_id,
-                workflow_run_id,
-                user_id,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_control_id,
+                transport_kwargs={
+                    "stream_id": stream_id,
+                    "call_control_id": call_control_id,
+                },
             )
 
         except Exception as e:
@@ -409,23 +413,155 @@ class TelnyxProvider(TelephonyProvider):
         return phone_number or ""
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """Required by the abstract interface. Telnyx signature verification
-        (Ed25519) is not yet implemented — accepts all inbound webhooks for now.
+        (Ed25519 via ``telnyx-signature-ed25519``) is not yet implemented —
+        accepts all inbound webhooks for now.
         """
         return True
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
-        """Telnyx inbound calls don't use a webhook response for streaming.
-        The streaming is set up via Call Control commands.
-        """
-        from fastapi import Response
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update webhook_event_url on the Telnyx Call Control Application.
 
-        return Response(content="{}", media_type="application/json")
+        PATCH requires application_name even on partial updates, so we GET
+        first to preserve whatever name the user set in the cockpit. The URL
+        is shared across every number on the application — clearing is a
+        no-op to avoid silently breaking inbound for sibling numbers.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Telnyx configure_inbound clear for {address}: skipping "
+                f"application update (webhook_event_url is shared across all "
+                f"numbers on Call Control Application {self.connection_id})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Telnyx provider not properly configured"
+            )
+
+        if not self.connection_id:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Telnyx connection_id (Call Control Application ID) is "
+                    "not configured. Set it in the telephony configuration "
+                    "so inbound webhooks can be synced to the right "
+                    "application."
+                ),
+            )
+
+        app_endpoint = (
+            f"{self.TELNYX_API_BASE}/call_control_applications/{self.connection_id}"
+        )
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    app_endpoint, headers=self._headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Failed to fetch Telnyx Call Control Application "
+                            f"{self.connection_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Telnyx API {response.status}: {body}",
+                        )
+                    app_data = await response.json()
+        except Exception as e:
+            logger.error(
+                f"Exception fetching Telnyx Call Control Application "
+                f"{self.connection_id}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Telnyx lookup failed: {e}")
+
+        application_name = (app_data.get("data") or {}).get("application_name")
+        if not application_name:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    f"Telnyx Call Control Application {self.connection_id} "
+                    f"did not return an application_name; cannot PATCH "
+                    f"without it."
+                ),
+            )
+
+        update_body = {
+            "application_name": application_name,
+            "webhook_event_url": webhook_url,
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.patch(
+                    app_endpoint, json=update_body, headers=self._headers()
+                ) as response:
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"Telnyx Call Control Application update failed "
+                            f"for {self.connection_id}: {response.status} "
+                            f"{body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Telnyx API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception updating Telnyx Call Control Application "
+                f"{self.connection_id}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Telnyx update failed: {e}")
+
+        logger.info(
+            f"Telnyx webhook_event_url set on Call Control Application "
+            f"{self.connection_id} (triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
+
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
+        """Answer the inbound Telnyx call via Call Control and start streaming.
+
+        Unlike markup-response providers, Telnyx ignores webhook response
+        bodies for call control — the call must be answered with a REST
+        call back to Telnyx before media can flow. We do that here and
+        return a simple acknowledgement; on failure, return the
+        ANSWER_FAILED error response so the route stays provider-agnostic.
+        """
+        events_url = (
+            f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
+        )
+        try:
+            await self.answer_and_stream(
+                call_control_id=normalized_data.call_id,
+                stream_url=websocket_url,
+                webhook_url=events_url,
+            )
+        except Exception as e:
+            logger.error(f"Failed to answer Telnyx inbound call: {e}")
+            return self.generate_error_response(
+                "ANSWER_FAILED", "Failed to answer call"
+            )
+        return {"status": "ok"}
 
     @staticmethod
     def generate_error_response(error_type: str, message: str) -> tuple:

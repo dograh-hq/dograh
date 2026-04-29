@@ -90,8 +90,8 @@ Refer to the [Asterisk WebSocket documentation](https://docs.asterisk.org/) for 
 
 ### Step 1: Navigate to Telephony Settings
 
-1. Go to **Workflow** → **Phone Call** → **Configure Telephony**
-2. Select **Asterisk (ARI)** as your provider
+1. Navigate to **/telephony-configurations** and click **Add configuration**
+2. Select **Asterisk ARI** as your provider
 
 ### Step 2: Enter Your ARI Credentials
 
@@ -103,47 +103,69 @@ Configure the following fields:
 | **Stasis App Name** | The ARI username configured in `ari.conf` | `dograh` |
 | **App Password** | The ARI password configured in `ari.conf` | `your_secure_password` |
 | **WebSocket Client Name** | The connection name from `websocket_client.conf` | `dograh_staging` |
-| **Inbound Workflow ID** | The workflow to activate for inbound calls (optional) | `42` |
-| **SIP Extensions / Numbers** | Optional SIP extensions or trunk numbers for outbound calls | `PJSIP/6001` or `6001` |
+| **From Extensions** | Optional SIP extensions or trunk numbers for outbound calls | `PJSIP/6001` or `6001` |
 
-### Step 3: Save and Test
+### Step 3: Save and Add Extensions
 
 1. Click **Save Configuration**
-2. Create a test workflow
-3. Initiate a test call to verify the connection
+2. Open the configuration you just created and add each SIP extension that should be reachable as a **phone number** (e.g. `8000`). For inbound, you'll assign a workflow to each extension separately — see [Inbound Calling](#inbound-calling) below.
+3. Create a test workflow and initiate a test call to verify the connection.
 
 ## Inbound Calling
 
-Unlike other telephony providers that use HTTP webhooks for inbound calls, ARI delivers inbound calls as **StasisStart events on the ARI WebSocket**. Dograh automatically detects these events and activates the configured workflow.
+Unlike other telephony providers that use HTTP webhooks for inbound calls, ARI delivers inbound calls as **StasisStart events on the ARI WebSocket**. Dograh automatically detects these events and activates the workflow assigned to the called extension.
 
 ### How It Works
 
 1. An external call arrives at Asterisk and the dialplan routes it to `Stasis(dograh)`
-2. Asterisk fires a StasisStart event over the ARI WebSocket with the channel in `Ring` state
-3. Dograh identifies this as an inbound call, validates your quota, and creates a workflow run
+2. Asterisk fires a StasisStart event over the ARI WebSocket with the channel in `Ring` state and the dialed extension in the dialplan context
+3. Dograh looks up the called extension in your telephony configuration's phone numbers, finds the assigned workflow, validates quota, and creates a workflow run
 4. The call is answered, bridged to an external media channel, and your voice agent workflow begins
+
+Workflow assignment is **per extension**, so different extensions on the same Asterisk can route to different agents.
 
 ### Setting Up Inbound Calls
 
 **Step 1: Configure the Asterisk dialplan**
 
-Ensure your dialplan routes inbound calls to the Stasis application as shown in the [dialplan configuration above](#configure-the-stasis-dialplan-extensionsconf).
+Ensure your dialplan routes the extensions you care about into the Stasis application. Either route a specific extension:
 
-**Step 2: Set the Inbound Workflow ID in Dograh**
+```ini
+[from-external]
+exten => 8000,1,NoOp(Incoming call to 8000)
+ same => n,Stasis(dograh)
+ same => n,Hangup()
+```
 
-1. Go to **Workflow** → **Phone Call** → **Configure Telephony**
-2. In the ARI configuration, enter the **Inbound Workflow ID** — this is the ID of the workflow you want to activate when an inbound call arrives
-3. Click **Save Configuration**
+…or use a pattern that catches every extension you'll register in Dograh:
 
-You can find a workflow's ID in the URL when viewing it (e.g., `/workflows/42` means the ID is `42`).
+```ini
+[from-external]
+exten => _X.,1,NoOp(Incoming call to ${EXTEN})
+ same => n,Stasis(dograh)
+ same => n,Hangup()
+```
 
-<Note>
-If no Inbound Workflow ID is configured, inbound calls will be hung up immediately. You must set this field for inbound calling to work.
-</Note>
+Replace `dograh` with the app name you configured in `ari.conf` and in Dograh.
+
+**Step 2: Add the extension as a phone number in Dograh**
+
+1. Go to **/telephony-configurations** and open your Asterisk ARI configuration
+2. In the **Phone numbers** section, add a phone number whose address is the SIP extension (e.g. `8000`)
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
+
+   <Note>
+   Adding the extension in Dograh doesn't change Asterisk's dialplan — that's
+   what Step 1 is for. The Dograh entry tells the StasisStart handler which
+   workflow to run when a call to that extension reaches the Stasis app.
+   </Note>
+
+Repeat Step 2 for each extension that should reach a voice agent.
 
 **Step 3: Test an inbound call**
 
-Place a call to a number or extension routed to your Stasis application. You should see the workflow activate and the voice agent respond.
+Place a call to one of the extensions you configured. You should see the assigned workflow activate and the voice agent respond.
 
 ### Inbound Call Context
 
@@ -188,10 +210,14 @@ When an inbound call activates a workflow, the following context is available to
   </Accordion>
 
   <Accordion title="Inbound calls are immediately hung up">
-    - Verify the **Inbound Workflow ID** is set in your ARI telephony configuration
-    - Confirm the workflow ID exists and belongs to the same organization as the ARI config
+    - Verify the called extension is added as a phone number under your ARI
+    configuration in /telephony-configurations and has an **Inbound workflow**
+    assigned
+    - Confirm the workflow exists and belongs to the same organization as the
+    ARI config
     - Check that your organization has available quota
-    - Review Dograh logs for warnings mentioning "no inbound_workflow_id configured"
+    - Review Dograh logs for warnings like "no matching phone number registered
+    for config" or "has no inbound_workflow_id assigned"
   </Accordion>
 
   <Accordion title="WebSocket client connection issues">

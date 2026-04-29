@@ -1,0 +1,138 @@
+---
+title: "Plivo Integration"
+description: "Configure Plivo for voice communication in Dograh AI"
+---
+
+## Overview
+
+Plivo is a cloud communications platform that provides global voice and messaging APIs. Dograh AI's Plivo integration uses Plivo's XML and WebSocket streaming to power your voice agents.
+
+## Prerequisites
+
+Before setting up Plivo integration, you'll need:
+
+- A [Plivo account](https://www.plivo.com/)
+- Auth ID and Auth Token from your Plivo Console
+- A Plivo **Application** with Voice capability (used for inbound webhook routing)
+- At least one Plivo phone number
+- Dograh AI instance running and accessible
+
+## Configuration
+
+### Step 1: Get Plivo Credentials
+
+1. Log in to your [Plivo Console](https://console.plivo.com/)
+2. Find your **Auth ID** and **Auth Token** on the dashboard
+3. Navigate to **Voice** → **Applications** and create (or open) the application you'll use with Dograh
+4. Copy the **Application ID** (a UUID) — you'll attach numbers to this app and Dograh will manage its `answer_url`
+5. Navigate to **Phone Numbers** → **Your Numbers** and copy the numbers you plan to use
+
+### Step 2: Configure in Dograh AI
+
+1. Navigate to **/telephony-configurations** and click **Add configuration**
+2. Select **Plivo** as your provider
+3. Enter your credentials:
+   - Auth ID
+   - Auth Token
+   - Application ID
+4. Click **Save Configuration**
+5. Open the configuration you just created and add at least one **phone number** (with country code in E.164 format, e.g. `+1234567890`). The default caller ID is used for outbound calls.
+
+### Step 3: Test Your Configuration
+
+1. Create a test workflow
+2. Click "Call" to verify connection
+3. Check call logs for successful connection
+
+## Inbound Calling Setup
+
+Plivo numbers don't carry an `answer_url` directly — the URL lives on a Plivo **Application**, and each number is linked to one application. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Plivo Application's `answer_url`** (provided the credentials are correct). You don't need to set the webhook by hand.
+
+### Step 1: Link the Phone Number to Your Plivo Application
+
+1. Go to **Phone Numbers** → **Your Numbers** in the [Plivo Console](https://console.plivo.com/)
+2. Open the number you want to use for inbound calls
+3. Set its **Application** to the same application whose ID you configured in Dograh
+4. Save
+
+### Step 2: Assign an Inbound Workflow to the Phone Number in Dograh
+
+1. Go to **/telephony-configurations** and open your Plivo configuration
+2. In the **Phone numbers** section, edit the number that should receive inbound calls
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
+
+### Step 3: Verify the Answer URL on the Plivo Application
+
+1. Open your Plivo Application in the [Plivo Console](https://console.plivo.com/) under **Voice** → **Applications**
+2. Confirm:
+   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **Answer Method** is `POST`
+
+   <Note>
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 2. The same URL is shared across every number linked to that
+     application — Dograh routes each inbound call to the right agent based
+     on the called number's inbound workflow assignment. If the field is
+     empty, shows a different URL, or Dograh surfaced a sync warning on
+     save, the auto-push failed — most often because the Auth ID/Token or
+     Application ID in Dograh is incorrect. Paste the URL into the field
+     yourself, set the method to `POST`, and save the application. On
+     self-hosted Dograh, replace `api.dograh.com` with your backend domain.
+   </Note>
+
+### Step 4: Verify Setup
+
+- Ensure your Dograh AI instance is publicly accessible
+- Verify any firewalls allow Plivo's IP ranges
+
+### Test Inbound Calling
+
+1. Call your configured Plivo phone number from another phone
+2. Verify your Dograh AI voice agent answers and responds
+3. Check call logs in both Dograh AI dashboard and Plivo Console
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Invalid phone number error">
+    Ensure phone numbers include country code in E.164 format: `+1234567890`
+  </Accordion>
+
+  <Accordion title="Authentication failed">
+    - Verify Auth ID and Auth Token are correct - Check for extra spaces in
+    credentials - Ensure credentials haven't been regenerated in Plivo Console
+  </Accordion>
+
+  <Accordion title="Webhook signature validation failing">
+    - Confirm your Auth Token matches exactly - Verify the webhook URL matches
+    what Plivo sends - Check if you're behind a proxy that modifies requests
+  </Accordion>
+
+  <Accordion title="No audio on calls">
+    - Verify WebSocket connection is established - Check firewall rules for
+    WebSocket traffic - Ensure audio pipeline is configured correctly
+  </Accordion>
+
+  <Accordion title="Inbound calls go to voicemail or aren't answered">
+    - Verify the phone number is linked to the same Plivo Application whose
+    ID you configured in Dograh - Confirm the called number exists in your
+    Dograh telephony configuration and has an **Inbound workflow** assigned
+    - After assigning the inbound workflow, confirm Dograh successfully
+    updated the application's `answer_url` (no warning shown on save) -
+    Verify Dograh AI instance is running and responding
+  </Accordion>
+
+  <Accordion title="Voice agent doesn't respond to inbound calls">
+    - Confirm the phone number has an **Inbound workflow** assigned in
+    /telephony-configurations - Check webhook signature validation is working
+    (Auth Token in Dograh matches Plivo Console) - Verify WebSocket connection
+    establishes successfully - Review call logs for error messages
+  </Accordion>
+</AccordionGroup>
+
+## Best Practices
+
+- Test your configuration with a single call before running campaigns
+- Monitor Plivo Console for usage and billing
+- Use a dedicated Plivo Application for Dograh so the shared `answer_url` doesn't conflict with other systems

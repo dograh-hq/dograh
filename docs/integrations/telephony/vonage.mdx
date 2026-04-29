@@ -14,20 +14,9 @@ Before setting up Vonage integration, you'll need:
 - A [Vonage account](https://www.vonage.com/communications-apis/)
 - Vonage Application with Voice capability enabled
 - Application ID and Private Key from your Vonage Dashboard
-- At least one Vonage phone number
+- API Key and API Secret from your Vonage Dashboard
+- At least one Vonage phone number linked to the application
 - Dograh AI instance running and accessible
-
-## Video Tutorial
-
-Watch this step-by-step guide to set up Vonage with Dograh AI:
-
-<iframe
-  className="w-full aspect-video rounded-xl"
-  src="https://www.tella.tv/video/configuring-telephony-on-dograh-with-vonage-3wvo/embed?b=1&title=1&a=1&loop=0&t=0&muted=0&wt=1"
-  title="Dograh Vonage Setup"
-  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-  allowFullScreen
-></iframe>
 
 ## Configuration
 
@@ -48,37 +37,65 @@ Watch this step-by-step guide to set up Vonage with Dograh AI:
 
 ### Step 3: Configure in Dograh AI
 
-1. Navigate to **Workflow** → **Phone Call** → **Configure Telephony**
-2. Watch the Vonage setup video tutorial above for detailed guidance
-3. Select **Vonage** as your provider
-4. Enter your credentials:
+1. Navigate to **/telephony-configurations** and click **Add configuration**
+2. Select **Vonage** as your provider
+3. Enter your credentials:
    - Application ID
    - Private Key (entire key including BEGIN/END lines)
-   - API Key (Optional - for some operations)
-   - API Secret (Optional - for webhook verification)
-   - From Phone Number (without '+' prefix, e.g., 14155551234)
-5. Click **Save Configuration**
+   - API Key
+   - API Secret
+4. Click **Save Configuration**
+5. Open the configuration you just created and add at least one **phone number** (without `+` prefix, e.g. `14155551234`). The default caller ID is used for outbound calls.
 
 ### Step 4: Test Your Configuration
 
 1. Create a test workflow
-2. Click "Test Call" to verify connection
+2. Click "Call" to verify connection
 3. Check call logs for successful connection
 
-## Inbound Calling
+## Inbound Calling Setup
 
-<Note>
-**Coming Soon**: Inbound calling support for Vonage is currently under development and will be available in a future release. For now, Vonage integration supports outbound calling only.
-</Note>
+Vonage configures inbound webhooks at the **application level**, not per phone number. A single **Answer URL** on the Vonage application applies to every number linked to it. Dograh routes the call to the right agent based on the called number's inbound workflow assignment inside Dograh. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Vonage Application's Answer URL** (provided the credentials are correct).
 
-Vonage integration currently supports outbound calling. Inbound calling functionality is being developed and will include:
+### Step 1: Link Phone Numbers to Your Vonage Application
 
-- Webhook configuration for incoming calls
-- NCCO response handling
-- Event tracking for call lifecycle management
-- WebSocket audio streaming for inbound calls
+1. Open the [Vonage Dashboard](https://dashboard.nexmo.com/)
+2. Under **Numbers** → **Your Numbers**, link each number you want to use for inbound to the same Vonage Application whose ID you configured in Dograh
 
-For inbound calling needs, consider using [Twilio](/integrations/telephony/twilio), [Cloudonix](/integrations/telephony/cloudonix), or [Vobiz](/integrations/telephony/vobiz) which have full inbound support.
+### Step 2: Assign an Inbound Workflow to the Phone Number in Dograh
+
+1. Go to **/telephony-configurations** and open your Vonage configuration
+2. In the **Phone numbers** section, edit the number that should receive inbound calls
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
+
+### Step 3: Verify the Answer URL on the Vonage Application
+
+1. Open your Vonage Application in the [Vonage Dashboard](https://dashboard.nexmo.com/)
+2. Under **Capabilities** → **Voice**, confirm:
+   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **HTTP Method** is `POST`
+
+   <Note>
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 2. If the field is empty, shows a different URL, or Dograh
+     surfaced a sync warning on save, the auto-push failed — most often
+     because the API Key/Secret or Application ID in Dograh is incorrect.
+     Paste the URL into the field yourself, set the method to `POST`, and
+     save the application. On self-hosted Dograh, replace `api.dograh.com`
+     with your backend domain.
+   </Note>
+
+### Step 4: Verify Setup
+
+- Ensure your Dograh AI instance is publicly accessible
+- Verify any firewalls allow Vonage's IP ranges
+
+### Test Inbound Calling
+
+1. Call your configured Vonage phone number from another phone
+2. Verify your Dograh AI voice agent answers and responds
+3. Check call logs in both Dograh AI dashboard and Vonage Dashboard
 
 ## Audio Quality Optimization
 
@@ -124,17 +141,17 @@ Vonage uses higher quality audio (16kHz) which provides:
   </Accordion>
   
   <Accordion title="Inbound calls not reaching voice agent">
-    - Verify Answer URL is correctly configured in Vonage application
-    - Ensure Answer URL is publicly accessible and returns valid NCCO
-    - Check that phone numbers are linked to the correct application
-    - Verify Event URL is configured for call tracking
+    - Verify the Vonage application's Answer URL is set to `https://api.dograh.com/api/v1/telephony/inbound/run`
+    - Ensure the Answer URL is publicly accessible
+    - Confirm the called number is linked to the correct Vonage application
+    - Confirm the called number exists in your Dograh telephony configuration and has an **Inbound workflow** assigned
   </Accordion>
   
   <Accordion title="Voice agent doesn't respond to inbound calls">
-    - Confirm NCCO response includes correct WebSocket endpoint
-    - Check that organization_id in Event URL matches your setup
-    - Verify voice agent workflow is properly configured
-    - Review webhook logs for error responses
+    - Confirm the phone number has an **Inbound workflow** assigned in /telephony-configurations
+    - Verify API Key matches the one stored in your Dograh telephony configuration (used to identify the org from the inbound webhook)
+    - Verify WebSocket connection establishes successfully
+    - Review call logs for error messages
   </Accordion>
 </AccordionGroup>
 
@@ -154,42 +171,6 @@ Vonage pricing includes:
 - Optional features (recording, transcription)
 
 Check [Vonage pricing](https://www.vonage.com/communications-apis/voice/pricing/) for current rates.
-
-## Advanced Configuration
-
-### Custom Headers
-
-Add custom headers to WebSocket connections:
-
-```python
-# In your webhook response
-"headers": {
-    "X-Custom-Header": "value",
-    "Authorization": "Bearer token"
-}
-```
-
-### Call Recording
-
-Enable call recording via NCCO:
-
-```json
-{
-  "action": "record",
-  "eventUrl": ["https://your-domain/recording-webhook"],
-  "format": "mp3"
-}
-```
-
-## API Differences from Twilio
-
-| Feature | Twilio | Vonage |
-|---------|---------|---------|
-| Audio Format | 8kHz μ-law | 16kHz Linear PCM |
-| Control Format | TwiML (XML) | NCCO (JSON) |
-| Authentication | Basic Auth | JWT |
-| WebSocket Data | Base64 text | Binary frames |
-| Phone Format | With '+' | Without '+' |
 
 ## Next Steps
 

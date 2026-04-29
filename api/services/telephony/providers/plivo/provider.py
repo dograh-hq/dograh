@@ -6,7 +6,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse, urlunparse
@@ -20,6 +19,7 @@ from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
+    ProviderSyncResult,
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
@@ -39,6 +39,7 @@ class PlivoProvider(TelephonyProvider):
     def __init__(self, config: Dict[str, Any]):
         self.auth_id = config.get("auth_id")
         self.auth_token = config.get("auth_token")
+        self.application_id = config.get("application_id")
         self.from_numbers = config.get("from_numbers", [])
 
         if isinstance(self.from_numbers, str):
@@ -147,7 +148,9 @@ class PlivoProvider(TelephonyProvider):
     @staticmethod
     def _query_map(query: str) -> Dict[str, Any]:
         return {
-            PlivoProvider._stringify_signature_value(key): PlivoProvider._stringify_signature_value(value)
+            PlivoProvider._stringify_signature_value(
+                key
+            ): PlivoProvider._stringify_signature_value(value)
             for key, value in parse_qs(query, keep_blank_values=True).items()
         }
 
@@ -157,7 +160,9 @@ class PlivoProvider(TelephonyProvider):
         for key in sorted(params.keys()):
             value = params[key]
             if isinstance(value, list):
-                normalized_values = sorted(PlivoProvider._stringify_signature_value(value))
+                normalized_values = sorted(
+                    PlivoProvider._stringify_signature_value(value)
+                )
                 parts.append("&".join(f"{key}={item}" for item in normalized_values))
             else:
                 parts.append(f"{key}={PlivoProvider._stringify_signature_value(value)}")
@@ -169,7 +174,9 @@ class PlivoProvider(TelephonyProvider):
         for key in sorted(params.keys()):
             value = params[key]
             if isinstance(value, list):
-                normalized_values = sorted(PlivoProvider._stringify_signature_value(value))
+                normalized_values = sorted(
+                    PlivoProvider._stringify_signature_value(value)
+                )
                 parts.append("".join(f"{key}{item}" for item in normalized_values))
             elif isinstance(value, dict):
                 parts.append(f"{key}{PlivoProvider._sorted_params_string(value)}")
@@ -178,9 +185,13 @@ class PlivoProvider(TelephonyProvider):
         return "".join(parts)
 
     @staticmethod
-    def _construct_get_url(uri: str, params: Dict[str, Any], empty_post_params: bool = True) -> str:
+    def _construct_get_url(
+        uri: str, params: Dict[str, Any], empty_post_params: bool = True
+    ) -> str:
         parsed_uri = urlparse(uri)
-        base_url = urlunparse((parsed_uri.scheme, parsed_uri.netloc, parsed_uri.path, "", "", ""))
+        base_url = urlunparse(
+            (parsed_uri.scheme, parsed_uri.netloc, parsed_uri.path, "", "", "")
+        )
 
         combined_params = dict(params)
         combined_params.update(PlivoProvider._query_map(parsed_uri.query))
@@ -220,7 +231,9 @@ class PlivoProvider(TelephonyProvider):
             ).digest()
         ).decode("utf-8")
 
-        candidates = [candidate.strip() for candidate in signature.split(",") if candidate]
+        candidates = [
+            candidate.strip() for candidate in signature.split(",") if candidate
+        ]
         return any(hmac.compare_digest(computed, candidate) for candidate in candidates)
 
     async def get_webhook_response(
@@ -298,7 +311,7 @@ class PlivoProvider(TelephonyProvider):
         user_id: int,
         workflow_run_id: int,
     ) -> None:
-        from api.services.pipecat.run_pipeline import run_pipeline_plivo
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         first_msg = await websocket.receive_text()
         start_msg = json.loads(first_msg)
@@ -329,8 +342,14 @@ class PlivoProvider(TelephonyProvider):
             await websocket.close(code=4400, reason="Missing call ID")
             return
 
-        await run_pipeline_plivo(
-            websocket, stream_id, call_id, workflow_id, workflow_run_id, user_id
+        await run_pipeline_telephony(
+            websocket,
+            provider_name=self.PROVIDER_NAME,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+            call_id=call_id,
+            transport_kwargs={"stream_id": stream_id, "call_id": call_id},
         )
 
     @classmethod
@@ -338,8 +357,7 @@ class PlivoProvider(TelephonyProvider):
         cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
     ) -> bool:
         has_plivo_signature = (
-            "x-plivo-signature-v3" in headers
-            or "x-plivo-signature-ma-v3" in headers
+            "x-plivo-signature-v3" in headers or "x-plivo-signature-ma-v3" in headers
         )
         return has_plivo_signature and "CallUUID" in webhook_data
 
@@ -347,8 +365,11 @@ class PlivoProvider(TelephonyProvider):
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
         return NormalizedInboundData(
             provider=PlivoProvider.PROVIDER_NAME,
-            call_id=webhook_data.get("CallUUID", "") or webhook_data.get("RequestUUID", ""),
-            from_number=PlivoProvider.normalize_phone_number(webhook_data.get("From", "")),
+            call_id=webhook_data.get("CallUUID", "")
+            or webhook_data.get("RequestUUID", ""),
+            from_number=PlivoProvider.normalize_phone_number(
+                webhook_data.get("From", "")
+            ),
             to_number=PlivoProvider.normalize_phone_number(webhook_data.get("To", "")),
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
@@ -387,27 +408,111 @@ class PlivoProvider(TelephonyProvider):
         self,
         url: str,
         webhook_data: Dict[str, Any],
-        signature: str,
-        nonce: str = "",
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
-        if os.getenv("ENVIRONMENT") == "local":
-            logger.warning(
-                "Skipping Plivo inbound signature verification in local environment"
-            )
-            return True
+        signature = headers.get("x-plivo-signature-v3") or headers.get(
+            "x-plivo-signature-ma-v3", ""
+        )
+        nonce = headers.get("x-plivo-signature-v3-nonce", "")
+        if not signature:
+            # Plivo always signs its webhooks; missing header means the
+            # request didn't come from Plivo (or was tampered with).
+            logger.warning("Inbound Plivo webhook missing X-Plivo-Signature-V3")
+            return False
         return await self.verify_webhook_signature(url, webhook_data, signature, nonce)
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Update the answer_url on the configured Plivo Application.
+
+        Plivo numbers don't carry an answer_url directly — the URL lives on a
+        Plivo Application, and a number is linked to one app via ``app_id``.
+        Every call to this method updates the answer_url on
+        ``self.application_id``, regardless of which ``address`` triggered the
+        sync. ``address`` is informational. Linking the number to
+        ``self.application_id`` (in the Plivo console, or via the Account
+        Phone Number API) is the operator's responsibility — we only update
+        the application's webhook here.
+
+        Clearing (``webhook_url=None``) is a no-op on Plivo's side: the URL
+        is shared across every number linked to this application, so
+        unsetting it for one number would silently break inbound for the
+        rest. The DB-level disconnect is sufficient — inbound calls without
+        a matching workflow are rejected by the backend.
+        """
+        if webhook_url is None:
+            logger.info(
+                f"Plivo configure_inbound clear for {address}: skipping "
+                f"application update (answer_url is shared across all numbers "
+                f"on application {self.application_id})"
+            )
+            return ProviderSyncResult(ok=True)
+
+        if not self.validate_config():
+            return ProviderSyncResult(
+                ok=False, message="Plivo provider not properly configured"
+            )
+
+        if not self.application_id:
+            return ProviderSyncResult(
+                ok=False,
+                message=(
+                    "Plivo application_id is not configured. Set it in the "
+                    "telephony configuration so inbound webhooks can be "
+                    "synced to the right Application."
+                ),
+            )
+
+        app_endpoint = f"{self.base_url}/Application/{self.application_id}/"
+        data = {
+            "answer_url": webhook_url,
+            "answer_method": "POST",
+        }
+        auth = aiohttp.BasicAuth(self.auth_id, self.auth_token)
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(app_endpoint, json=data, auth=auth) as response:
+                    if response.status not in (200, 202):
+                        body = await response.text()
+                        logger.error(
+                            f"Plivo application update failed for "
+                            f"{self.application_id}: {response.status} {body}"
+                        )
+                        return ProviderSyncResult(
+                            ok=False,
+                            message=f"Plivo API {response.status}: {body}",
+                        )
+        except Exception as e:
+            logger.error(
+                f"Exception updating Plivo application {self.application_id}: {e}"
+            )
+            return ProviderSyncResult(ok=False, message=f"Plivo update failed: {e}")
+
+        logger.info(
+            f"Plivo answer_url set on application {self.application_id} "
+            f"(triggered by address {address})"
+        )
+        return ProviderSyncResult(ok=True)
+
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
         from fastapi import Response
 
         hangup_callback_attr = ""
         if workflow_run_id:
-            backend_endpoint, _ = await get_backend_endpoints()
             hangup_url = f"{backend_endpoint}/api/v1/telephony/plivo/hangup-callback/{workflow_run_id}"
-            hangup_callback_attr = f' statusCallbackUrl="{hangup_url}" statusCallbackMethod="POST"'
+            hangup_callback_attr = (
+                f' statusCallbackUrl="{hangup_url}" statusCallbackMethod="POST"'
+            )
 
         plivo_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>

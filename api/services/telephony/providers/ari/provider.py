@@ -50,7 +50,6 @@ class ARIProvider(TelephonyProvider):
         self.ari_endpoint = config.get("ari_endpoint", "").rstrip("/")
         self.app_name = config.get("app_name", "")
         self.app_password = config.get("app_password", "")
-        self.inbound_workflow_id = config.get("inbound_workflow_id")
         self.from_numbers = config.get("from_numbers", [])
 
         if isinstance(self.from_numbers, str):
@@ -251,7 +250,7 @@ class ARIProvider(TelephonyProvider):
         Unlike Twilio (which sends "connected" and "start" JSON messages),
         Asterisk chan_websocket starts streaming audio immediately.
         """
-        from api.services.pipecat.run_pipeline import run_pipeline_ari
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         # Get channel_id from workflow run context
         workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
@@ -263,8 +262,14 @@ class ARIProvider(TelephonyProvider):
             f"[ARI] Starting pipeline for workflow_run {workflow_run_id}, channel={channel_id}"
         )
 
-        await run_pipeline_ari(
-            websocket, channel_id, workflow_id, workflow_run_id, user_id
+        await run_pipeline_telephony(
+            websocket,
+            provider_name=self.PROVIDER_NAME,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+            call_id=channel_id,
+            transport_kwargs={"channel_id": channel_id},
         )
 
     # ======== INBOUND CALL METHODS ========
@@ -307,15 +312,23 @@ class ARIProvider(TelephonyProvider):
         return phone_number or ""
 
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """ARI authenticates via WebSocket connection credentials, not signatures."""
         return True
 
-    @staticmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data,
+        backend_endpoint: str,
+    ):
         """ARI does not generate HTTP responses for inbound calls."""
         from fastapi import Response
 

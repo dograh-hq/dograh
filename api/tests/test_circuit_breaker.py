@@ -366,7 +366,10 @@ class TestProcessStatusUpdateCircuitBreaker:
         """When a campaign call fails, record_and_evaluate should be called
         with is_failure=True."""
 
-        from api.routes.telephony import StatusCallbackRequest, _process_status_update
+        from api.services.telephony.status_processor import (
+            StatusCallbackRequest,
+            _process_status_update,
+        )
 
         mock_workflow_run = MagicMock()
         mock_workflow_run.id = 100
@@ -382,11 +385,13 @@ class TestProcessStatusUpdateCircuitBreaker:
         )
 
         with (
-            patch("api.routes.telephony.db_client") as mock_db,
-            patch("api.routes.telephony.campaign_call_dispatcher") as mock_dispatcher,
-            patch("api.routes.telephony.circuit_breaker") as mock_cb,
+            patch("api.services.telephony.status_processor.db_client") as mock_db,
             patch(
-                "api.routes.telephony.get_campaign_event_publisher"
+                "api.services.telephony.status_processor.campaign_call_dispatcher"
+            ) as mock_dispatcher,
+            patch("api.services.telephony.status_processor.circuit_breaker") as mock_cb,
+            patch(
+                "api.services.telephony.status_processor.get_campaign_event_publisher"
             ) as mock_get_publisher,
         ):
             mock_db.get_workflow_run_by_id = AsyncMock(return_value=mock_workflow_run)
@@ -407,7 +412,10 @@ class TestProcessStatusUpdateCircuitBreaker:
         """When a campaign call succeeds, record_and_evaluate should be called
         with is_failure=False."""
 
-        from api.routes.telephony import StatusCallbackRequest, _process_status_update
+        from api.services.telephony.status_processor import (
+            StatusCallbackRequest,
+            _process_status_update,
+        )
 
         mock_workflow_run = MagicMock()
         mock_workflow_run.id = 100
@@ -422,9 +430,11 @@ class TestProcessStatusUpdateCircuitBreaker:
         )
 
         with (
-            patch("api.routes.telephony.db_client") as mock_db,
-            patch("api.routes.telephony.campaign_call_dispatcher") as mock_dispatcher,
-            patch("api.routes.telephony.circuit_breaker") as mock_cb,
+            patch("api.services.telephony.status_processor.db_client") as mock_db,
+            patch(
+                "api.services.telephony.status_processor.campaign_call_dispatcher"
+            ) as mock_dispatcher,
+            patch("api.services.telephony.status_processor.circuit_breaker") as mock_cb,
         ):
             mock_db.get_workflow_run_by_id = AsyncMock(return_value=mock_workflow_run)
             mock_db.update_workflow_run = AsyncMock()
@@ -440,7 +450,10 @@ class TestProcessStatusUpdateCircuitBreaker:
     async def test_non_campaign_call_skips_circuit_breaker(self):
         """Calls without campaign_id should not interact with circuit breaker."""
 
-        from api.routes.telephony import StatusCallbackRequest, _process_status_update
+        from api.services.telephony.status_processor import (
+            StatusCallbackRequest,
+            _process_status_update,
+        )
 
         mock_workflow_run = MagicMock()
         mock_workflow_run.id = 100
@@ -455,8 +468,8 @@ class TestProcessStatusUpdateCircuitBreaker:
         )
 
         with (
-            patch("api.routes.telephony.db_client") as mock_db,
-            patch("api.routes.telephony.circuit_breaker") as mock_cb,
+            patch("api.services.telephony.status_processor.db_client") as mock_db,
+            patch("api.services.telephony.status_processor.circuit_breaker") as mock_cb,
         ):
             mock_db.get_workflow_run_by_id = AsyncMock(return_value=mock_workflow_run)
             mock_db.update_workflow_run = AsyncMock()

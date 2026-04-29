@@ -28,6 +28,19 @@ class CallInitiationResult:
 
 
 @dataclass
+class ProviderSyncResult:
+    """Result of pushing a configuration change to the upstream provider.
+
+    Used by ``configure_inbound`` (and similar provider-side syncs) so callers
+    can surface a non-fatal warning to the user when the DB write succeeded
+    but the provider API rejected the change.
+    """
+
+    ok: bool
+    message: Optional[str] = None  # human-readable detail when ok=False
+
+
+@dataclass
 class NormalizedInboundData:
     """Standardized inbound call data across all providers."""
 
@@ -264,37 +277,75 @@ class TelephonyProvider(ABC):
 
     @abstractmethod
     async def verify_inbound_signature(
-        self, url: str, webhook_data: Dict[str, Any], signature: str
+        self,
+        url: str,
+        webhook_data: Dict[str, Any],
+        headers: Dict[str, str],
+        body: str = "",
     ) -> bool:
         """
         Verify the signature of an inbound webhook for security.
 
+        Each provider extracts its own signature/timestamp/nonce headers.
+        Returning True when no signature is present means "no verification
+        attempted" — providers should return False if a signature *is*
+        present but invalid.
+
         Args:
-            url: The full webhook URL
-            webhook_data: The webhook payload
-            signature: The signature header from the provider
+            url: The full webhook URL the provider POSTed to
+            webhook_data: Parsed webhook payload (form fields or JSON)
+            headers: HTTP headers from the request (case-insensitive lookup
+                is the provider's responsibility)
+            body: Raw request body — only used by providers that sign over
+                the body bytes (e.g. Vobiz)
 
         Returns:
-            True if signature is valid, False otherwise
+            True if signature is valid (or none required), False otherwise
         """
         pass
 
-    @staticmethod
     @abstractmethod
-    async def generate_inbound_response(
-        websocket_url: str, workflow_run_id: int = None
-    ) -> tuple:
+    async def start_inbound_stream(
+        self,
+        *,
+        websocket_url: str,
+        workflow_run_id: int,
+        normalized_data: "NormalizedInboundData",
+        backend_endpoint: str,
+    ) -> Any:
         """
-        Generate the appropriate response for an inbound webhook.
+        Bring up the inbound media stream for this provider and return the
+        HTTP response body the webhook caller expects.
+
+        Markup-response providers (Twilio, Plivo, Vobiz, ...) build and
+        return their TwiML/XML/NCCO directly. Call-control providers
+        (Telnyx) issue the REST calls needed to answer the call and start
+        streaming, then return a simple acknowledgement.
 
         Args:
             websocket_url: WebSocket URL for audio streaming
-            workflow_run_id: Optional workflow run ID for tracking
+            workflow_run_id: Workflow run ID for tracking
+            normalized_data: Parsed inbound webhook payload (provides
+                ``call_id`` for providers that need it)
+            backend_endpoint: Public HTTPS base URL of this backend
+                (already resolved by the caller); providers that need to
+                build status / events URLs use this instead of re-fetching
 
         Returns:
-            FastAPI Response object
+            FastAPI Response object (or dict/JSON-serializable value)
         """
         pass
+
+    async def configure_inbound(
+        self, address: str, webhook_url: Optional[str]
+    ) -> ProviderSyncResult:
+        """Sync inbound routing for ``address`` to the provider.
+
+        ``webhook_url`` set: point the provider's resource for this number at
+        the URL. ``None``: clear it. Default is a no-op for providers that
+        don't support programmatic webhook configuration (e.g. ARI).
+        """
+        return ProviderSyncResult(ok=True)
 
     @staticmethod
     @abstractmethod

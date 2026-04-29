@@ -371,6 +371,9 @@ def _move_ari_inbound_workflow_to_phone_numbers() -> None:
     )
 
 
+_PLACEHOLDER_VALUE = "CHANGE_ME"
+
+
 def _validate_migrated_configurations() -> None:
     """Round-trip every migrated row through its provider's Pydantic
     request schema so legacy data that the live code can no longer parse
@@ -389,6 +392,14 @@ def _validate_migrated_configurations() -> None:
     by default, so a stray legacy field (e.g. a renamed credential) would
     otherwise slip through and only show up later as a confused operator
     wondering why a value they entered does nothing.
+
+    Required string fields that are *missing* from legacy credentials
+    (e.g. Plivo's ``application_id`` or Cloudonix's ``application_name``,
+    which post-date some legacy rows) are filled with the
+    ``"CHANGE_ME"`` placeholder and the row is rewritten in place. Without
+    this, the next ORM read fails Pydantic validation and the operator's
+    config form refuses to render — leaving them with no UI path to enter
+    the missing value.
     """
     import importlib
 
@@ -409,6 +420,7 @@ def _validate_migrated_configurations() -> None:
     ).fetchall()
 
     failures = []
+    patched = []
 
     for cfg_id, org_id, cfg_name, provider, raw_credentials in cfg_rows:
         credentials = (
@@ -425,6 +437,38 @@ def _validate_migrated_configurations() -> None:
                 f"{sorted(registry.names())})"
             )
             continue
+
+        added_placeholders = []
+        for field_name, field_info in spec.config_request_cls.model_fields.items():
+            if field_name in {"provider", "from_numbers"}:
+                continue
+            if field_name in credentials:
+                continue
+            if not field_info.is_required():
+                continue
+            # Only string fields get the sentinel — a non-string required field
+            # (e.g. an int port) would still fail validation with "CHANGE_ME"
+            # and the placeholder would mislead the operator. Surface it as a
+            # failure instead of silently writing a wrong-type value.
+            if field_info.annotation is not str:
+                continue
+            credentials[field_name] = _PLACEHOLDER_VALUE
+            added_placeholders.append(field_name)
+
+        if added_placeholders:
+            bind.execute(
+                sa.text(
+                    "UPDATE telephony_configurations "
+                    "SET credentials = CAST(:creds AS JSON), updated_at = NOW() "
+                    "WHERE id = :cfg_id"
+                ),
+                {"creds": json.dumps(credentials), "cfg_id": cfg_id},
+            )
+            patched.append(
+                f"id={cfg_id} org={org_id} name={cfg_name!r} provider={provider!r}: "
+                f"set placeholder {_PLACEHOLDER_VALUE!r} for missing required "
+                f"field(s) {added_placeholders}"
+            )
 
         from_numbers = [
             row[0]
@@ -459,15 +503,24 @@ def _validate_migrated_configurations() -> None:
                 f"failed {spec.config_request_cls.__name__} validation: {exc}"
             )
 
-    if failures:
+    if patched or failures:
         from loguru import logger
 
-        logger.warning(
-            "Migrated telephony configurations did not pass live Pydantic "
-            "validation. The migration will continue, but these rows will "
-            "fail at runtime until fixed in the new tables:\n  - "
-            + "\n  - ".join(failures)
-        )
+        if patched:
+            logger.warning(
+                "Migrated telephony configurations had missing required fields "
+                f"filled with the {_PLACEHOLDER_VALUE!r} placeholder. Update "
+                "these in the UI before relying on the affected providers:\n  - "
+                + "\n  - ".join(patched)
+            )
+
+        if failures:
+            logger.warning(
+                "Migrated telephony configurations did not pass live Pydantic "
+                "validation. The migration will continue, but these rows will "
+                "fail at runtime until fixed in the new tables:\n  - "
+                + "\n  - ".join(failures)
+            )
 
 
 def downgrade() -> None:

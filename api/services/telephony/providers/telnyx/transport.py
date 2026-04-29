@@ -24,6 +24,7 @@ async def create_transport(
     telephony_configuration_id: int | None = None,
     stream_id: str,
     call_control_id: str,
+    encoding: str = "PCMU",
 ):
     """Create a transport for Telnyx connections."""
     config = await load_credentials_for_transport(
@@ -36,12 +37,16 @@ async def create_transport(
             f"Incomplete Telnyx configuration for organization {organization_id}"
         )
 
+    # Pipecat's TelnyxFrameSerializer names its params from the call's POV,
+    # not Dograh's: ``inbound_encoding`` is what we *send into the call*
+    # (Dograh → Telnyx), and ``outbound_encoding`` is what we *receive out of
+    # the call* (Telnyx → Dograh).
     serializer = TelnyxFrameSerializer(
         stream_id=stream_id,
         call_control_id=call_control_id,
         api_key=api_key,
-        outbound_encoding="PCMU",
-        inbound_encoding="PCMU",
+        inbound_encoding="PCMU",       # Dograh → Telnyx; matches stream_bidirectional_codec
+        outbound_encoding=encoding,    # Telnyx → Dograh; from media_format.encoding
     )
 
     mixer = await build_audio_out_mixer(

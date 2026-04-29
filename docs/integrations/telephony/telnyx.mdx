@@ -45,7 +45,7 @@ Before setting up Telnyx integration, you'll need:
 
 ## Inbound Calling Setup
 
-Telnyx delivers inbound webhooks at the **Call Control Application** level — the webhook URL is configured once on the application, and applies to every number assigned to it. Dograh resolves which agent to run from the called number's assigned inbound workflow.
+Telnyx delivers inbound webhooks at the **Call Control Application** level — the webhook URL is configured once on the application, and applies to every number assigned to it. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Call Control Application's `webhook_event_url`** (provided the credentials are correct).
 
 ### Step 1: Assign an Inbound Workflow to the Phone Number
 
@@ -54,22 +54,25 @@ Telnyx delivers inbound webhooks at the **Call Control Application** level — t
 3. Set its **Inbound workflow** to the agent that should answer
 4. Save
 
-### Step 2: Configure the Webhook on the Call Control Application
+### Step 2: Verify the Webhook URL on the Call Control Application
 
 1. Go to **Call Control** → **Applications** in the Telnyx Portal
 2. Open the application whose Connection ID you configured in Dograh
-3. In **Webhook Settings**:
-   - Set **Webhook URL** to: `https://api.dograh.com/api/v1/telephony/inbound/run`
-   - Set **HTTP Method** to: `POST`
+3. In **Webhook Settings**, confirm:
+   - **Webhook URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **HTTP Method** is `POST`
 4. Make sure the phone numbers you want to use for inbound are assigned to this application
-5. Save
 
    <Note>
-     The webhook URL is the same for every workflow and every number on the
-     Call Control Application — Dograh matches the inbound call to the right
-     agent using the called number's inbound workflow assignment from Step 1.
-     If you're using self-hosted Dograh, replace `api.dograh.com` with your
-     domain.
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 1. The same URL is shared across every number on the Call
+     Control Application — Dograh matches the inbound call to the right
+     agent using the called number's inbound workflow assignment. If the
+     field is empty, shows a different URL, or Dograh surfaced a sync
+     warning on save, the auto-push failed — most often because the API
+     Key or Connection ID in Dograh is incorrect. Paste the URL into the
+     field yourself, set the method to `POST`, and save. On self-hosted
+     Dograh, replace `api.dograh.com` with your backend domain.
    </Note>
 
 ### Step 3: Verify Setup

@@ -55,20 +55,12 @@ Before setting up Vonage integration, you'll need:
 
 ## Inbound Calling Setup
 
-Vonage configures inbound webhooks at the **application level**, not per phone number. You set a single **Answer URL** on the Vonage application, and that URL applies to every number linked to it. Dograh routes the call to the right agent based on the called number's inbound workflow assignment inside Dograh.
+Vonage configures inbound webhooks at the **application level**, not per phone number. A single **Answer URL** on the Vonage application applies to every number linked to it. Dograh routes the call to the right agent based on the called number's inbound workflow assignment inside Dograh. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Vonage Application's Answer URL** (provided the credentials are correct).
 
-### Step 1: Configure the Answer URL on the Vonage Application
+### Step 1: Link Phone Numbers to Your Vonage Application
 
-1. Open your Vonage Application in the [Vonage Dashboard](https://dashboard.nexmo.com/)
-2. Under **Capabilities** → **Voice**, set:
-   - **Answer URL**: `https://api.dograh.com/api/v1/telephony/inbound/run`
-   - **HTTP Method**: `POST`
-3. Make sure the phone numbers you want to use for inbound are linked to this application
-4. Save the application
-
-   <Note>
-   If you're using self-hosted Dograh, replace `api.dograh.com` with your domain.
-   </Note>
+1. Open the [Vonage Dashboard](https://dashboard.nexmo.com/)
+2. Under **Numbers** → **Your Numbers**, link each number you want to use for inbound to the same Vonage Application whose ID you configured in Dograh
 
 ### Step 2: Assign an Inbound Workflow to the Phone Number in Dograh
 
@@ -77,7 +69,24 @@ Vonage configures inbound webhooks at the **application level**, not per phone n
 3. Set its **Inbound workflow** to the agent that should answer
 4. Save
 
-### Step 3: Verify Setup
+### Step 3: Verify the Answer URL on the Vonage Application
+
+1. Open your Vonage Application in the [Vonage Dashboard](https://dashboard.nexmo.com/)
+2. Under **Capabilities** → **Voice**, confirm:
+   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **HTTP Method** is `POST`
+
+   <Note>
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 2. If the field is empty, shows a different URL, or Dograh
+     surfaced a sync warning on save, the auto-push failed — most often
+     because the API Key/Secret or Application ID in Dograh is incorrect.
+     Paste the URL into the field yourself, set the method to `POST`, and
+     save the application. On self-hosted Dograh, replace `api.dograh.com`
+     with your backend domain.
+   </Note>
+
+### Step 4: Verify Setup
 
 - Ensure your Dograh AI instance is publicly accessible
 - Verify any firewalls allow Vonage's IP ranges

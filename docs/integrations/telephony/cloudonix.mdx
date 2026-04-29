@@ -61,13 +61,12 @@ Watch this step-by-step guide to set up Cloudonix with Dograh AI:
 
 ## Inbound Calling Setup
 
-Cloudonix routes inbound calls per **Voice Application** — the webhook URL is set once on the application, and applies to every DNID bound to it. Dograh updates that application's `url` programmatically whenever you assign an inbound workflow to a number, so you don't need to set the webhook by hand.
+Cloudonix routes inbound calls per **Voice Application** — the webhook URL is set once on the application, and applies to every DNID bound to it. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Voice Application's `url`** (provided the credentials are correct), so you don't need to set the webhook by hand.
 
-### Step 1: Set Up the Inbound Trunk and DNIDs
+### Step 1: Set Up the Inbound Trunk
 
 1. Log in to your [Cloudonix Console](https://cockpit.cloudonix.io)
 2. Navigate to **Trunks** → **Create Inbound Trunk** and configure your inbound trunk with your voice service provider
-3. Bind each DNID (phone number) you want to use for inbound to the same Voice Application whose name you configured in Dograh
 
    <img
      className="block dark:hidden"
@@ -80,20 +79,61 @@ Cloudonix routes inbound calls per **Voice Application** — the webhook URL is 
      alt="Cloudonix console showing domain selection"
    />
 
-### Step 2: Assign an Inbound Workflow to the Phone Number in Dograh
+### Step 2: Create the Voice Application and Link DNIDs
+
+1. In the Cloudonix cockpit, select your domain and navigate to **Applications**
+2. Create a new application (or open the existing one whose name you configured in Dograh) with these settings:
+   - **Application Resource Type**: `Remote Application Resource`
+   - **Application Runtime**: `Cloudonix (CXML)`
+   - **Application URL**: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **HTTP Method**: `POST`
+3. Under **DNID Numbers**, add each phone number (DNID) you want to route through this application
+4. Save
+
+   <Note>
+     The Application URL is what Dograh's auto-push updates in Step 3 — you
+     can leave it blank during creation and let the auto-push fill it in,
+     or paste the URL above so the application is usable immediately.
+     Either works. Self-hosted Dograh deployments use their backend domain
+     in place of `api.dograh.com`.
+   </Note>
+
+   <img
+     className="block dark:hidden"
+     src="/images/cloudonix-inbound-config-application.png"
+     alt="Cloudonix application form showing Remote Application Resource type, Cloudonix CXML runtime, the Dograh inbound URL, POST method, and a DNID number entry"
+   />
+   <img
+     className="hidden dark:block"
+     src="/images/cloudonix-inbound-config-application.png"
+     alt="Cloudonix application form showing Remote Application Resource type, Cloudonix CXML runtime, the Dograh inbound URL, POST method, and a DNID number entry"
+   />
+
+### Step 3: Assign an Inbound Workflow to the Phone Number in Dograh
 
 1. Go to **/telephony-configurations** and open your Cloudonix configuration
 2. In the **Phone numbers** section, edit the number that should receive inbound calls
 3. Set its **Inbound workflow** to the agent that should answer
 4. Save
 
+### Step 4: Verify the URL on the Voice Application
+
+1. Open your Cloudonix cockpit and navigate to your domain's **Applications**
+2. Open the application whose name you configured in Dograh
+3. Confirm:
+   - **URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **Method** is `POST`
+
    <Note>
-     On save, Dograh updates the `url` on your Cloudonix Voice Application to
-     `https://api.dograh.com/api/v1/telephony/inbound/run` (with `method=POST`).
-     The same URL is shared across every DNID bound to that application —
-     Dograh routes each inbound call to the right agent based on the called
-     number's inbound workflow assignment. If you're using self-hosted Dograh,
-     `api.dograh.com` is replaced with your domain.
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 3. The same URL is shared across every DNID bound to that
+     application — Dograh routes each inbound call to the right agent based
+     on the called number's inbound workflow assignment. If the field is
+     empty, shows a different URL, or Dograh surfaced a sync warning on
+     save, the auto-push failed — most often because the Bearer Token,
+     Domain ID, or Application Name in Dograh is incorrect. Paste the URL
+     into the field yourself, set the method to `POST`, and save. On
+     self-hosted Dograh, replace `api.dograh.com` with your backend domain.
    </Note>
 
    <img
@@ -107,7 +147,7 @@ Cloudonix routes inbound calls per **Voice Application** — the webhook URL is 
      alt="Cloudonix application showing webhook URL configuration"
    />
 
-### Step 3: Verify Setup
+### Step 5: Verify Setup
 
 - Ensure your Dograh AI instance is publicly accessible
 - Verify any firewalls allow Cloudonix's IP ranges

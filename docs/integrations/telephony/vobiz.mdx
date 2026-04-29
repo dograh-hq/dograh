@@ -46,7 +46,7 @@ Before setting up Vobiz integration, you'll need:
 
 ## Inbound Calling Setup
 
-Vobiz numbers don't carry an `answer_url` directly — the URL lives on a Vobiz **Application**, and each number is linked to one application. Dograh updates that application's `answer_url` programmatically whenever you assign an inbound workflow to a number, so you don't need to set the webhook by hand.
+Vobiz numbers don't carry an `answer_url` directly — the URL lives on a Vobiz **Application**, and each number is linked to one application. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Vobiz Application's `answer_url`** (provided the credentials are correct).
 
 ### Step 1: Link the Phone Number to Your Vobiz Application
 
@@ -73,16 +73,27 @@ Vobiz numbers don't carry an `answer_url` directly — the URL lives on a Vobiz 
 3. Set its **Inbound workflow** to the agent that should answer
 4. Save
 
+### Step 3: Verify the Answer URL on the Vobiz Application
+
+1. Open your Vobiz Console and navigate to **Applications**
+2. Open the application whose ID you configured in Dograh
+3. Confirm:
+   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **Answer Method** is `POST`
+
    <Note>
-     On save, Dograh updates the `answer_url` on your Vobiz Application to
-     `https://api.dograh.com/api/v1/telephony/inbound/run`. The same URL is
-     shared across every number linked to that application — Dograh routes
-     each inbound call to the right agent based on the called number's
-     inbound workflow assignment. If you're using self-hosted Dograh,
-     `api.dograh.com` is replaced with your domain.
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 2. The same URL is shared across every number linked to that
+     application — Dograh routes each inbound call to the right agent based
+     on the called number's inbound workflow assignment. If the field is
+     empty, shows a different URL, or Dograh surfaced a sync warning on
+     save, the auto-push failed — most often because the Auth ID/Token or
+     Application ID in Dograh is incorrect. Paste the URL into the field
+     yourself, set the method to `POST`, and save. On self-hosted Dograh,
+     replace `api.dograh.com` with your backend domain.
    </Note>
 
-### Step 3: Verify Setup
+### Step 4: Verify Setup
 
 - Ensure your Dograh AI instance is publicly accessible
 - Verify any firewalls allow Vobiz's webhook requests

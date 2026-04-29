@@ -46,7 +46,7 @@ Before setting up Plivo integration, you'll need:
 
 ## Inbound Calling Setup
 
-Plivo numbers don't carry an `answer_url` directly — the URL lives on a Plivo **Application**, and each number is linked to one application. Dograh updates that application's `answer_url` programmatically whenever you assign an inbound workflow to a number, so you don't need to set the webhook by hand.
+Plivo numbers don't carry an `answer_url` directly — the URL lives on a Plivo **Application**, and each number is linked to one application. **When you save an inbound workflow on a phone number, Dograh automatically pushes the webhook URL to your Plivo Application's `answer_url`** (provided the credentials are correct). You don't need to set the webhook by hand.
 
 ### Step 1: Link the Phone Number to Your Plivo Application
 
@@ -62,16 +62,26 @@ Plivo numbers don't carry an `answer_url` directly — the URL lives on a Plivo 
 3. Set its **Inbound workflow** to the agent that should answer
 4. Save
 
+### Step 3: Verify the Answer URL on the Plivo Application
+
+1. Open your Plivo Application in the [Plivo Console](https://console.plivo.com/) under **Voice** → **Applications**
+2. Confirm:
+   - **Answer URL** is set to: `https://api.dograh.com/api/v1/telephony/inbound/run`
+   - **Answer Method** is `POST`
+
    <Note>
-     On save, Dograh updates the `answer_url` on your Plivo Application to
-     `https://api.dograh.com/api/v1/telephony/inbound/run`. The same URL is
-     shared across every number linked to that application — Dograh routes
-     each inbound call to the right agent based on the called number's
-     inbound workflow assignment. If you're using self-hosted Dograh,
-     `api.dograh.com` is replaced with your domain.
+     Dograh pushed this URL automatically when you saved the inbound workflow
+     in Step 2. The same URL is shared across every number linked to that
+     application — Dograh routes each inbound call to the right agent based
+     on the called number's inbound workflow assignment. If the field is
+     empty, shows a different URL, or Dograh surfaced a sync warning on
+     save, the auto-push failed — most often because the Auth ID/Token or
+     Application ID in Dograh is incorrect. Paste the URL into the field
+     yourself, set the method to `POST`, and save the application. On
+     self-hosted Dograh, replace `api.dograh.com` with your backend domain.
    </Note>
 
-### Step 3: Verify Setup
+### Step 4: Verify Setup
 
 - Ensure your Dograh AI instance is publicly accessible
 - Verify any firewalls allow Plivo's IP ranges

@@ -25,6 +25,14 @@ if TYPE_CHECKING:
     from fastapi import WebSocket
 
 
+def normalize_event_type(event_type: str) -> str:
+    """Telnyx delivers event types with either dots or underscores
+    (e.g. ``streaming.started`` vs ``streaming_started``). Normalize to the
+    dotted form so all downstream matching can use a single canonical shape.
+    """
+    return (event_type or "").replace("_", ".")
+
+
 class TelnyxProvider(TelephonyProvider):
     """
     Telnyx implementation of TelephonyProvider.
@@ -187,7 +195,7 @@ class TelnyxProvider(TelephonyProvider):
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Parse Telnyx webhook event data into generic format."""
         event_data = data.get("data", data)
-        event_type = event_data.get("event_type", "")
+        event_type = normalize_event_type(event_data.get("event_type", ""))
         payload = event_data.get("payload", {})
 
         status = self._resolve_status(event_type, payload)
@@ -378,7 +386,7 @@ class TelnyxProvider(TelephonyProvider):
         # Check for Telnyx event structure
         data = webhook_data.get("data", {})
         if data.get("record_type") == "event" and "event_type" in data:
-            event_type = data.get("event_type", "")
+            event_type = normalize_event_type(data.get("event_type", ""))
             if event_type.startswith("call."):
                 return True
 
@@ -401,7 +409,7 @@ class TelnyxProvider(TelephonyProvider):
             from_number=TelnyxProvider.normalize_phone_number(payload.get("from", "")),
             to_number=TelnyxProvider.normalize_phone_number(payload.get("to", "")),
             direction=direction,
-            call_status=data.get("event_type", ""),
+            call_status=normalize_event_type(data.get("event_type", "")),
             account_id=payload.get("connection_id"),
             raw_data=webhook_data,
         )

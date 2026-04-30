@@ -7,7 +7,7 @@ Each row represents one provider account that an organization has connected
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 
@@ -140,7 +140,14 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
 
         async with self.async_session() as session:
-            if is_default_outbound:
+            existing_count = await session.scalar(
+                select(func.count(TelephonyConfigurationModel.id)).where(
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                )
+            )
+            if existing_count == 0:
+                is_default_outbound = True
+            elif is_default_outbound:
                 await self._clear_default_outbound(session, organization_id)
 
             row = TelephonyConfigurationModel(

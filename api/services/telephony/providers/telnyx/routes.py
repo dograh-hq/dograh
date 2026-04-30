@@ -11,6 +11,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.providers.telnyx.provider import normalize_event_type
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -37,9 +38,11 @@ async def handle_telnyx_events(
         f"[run {workflow_run_id}] Received Telnyx event: {json.dumps(event_data)}"
     )
 
-    # Extract event type from Telnyx envelope
+    # Extract event type from Telnyx envelope. Telnyx sometimes delivers the
+    # type with underscores (``streaming_started``) instead of dots
+    # (``streaming.started``); normalize so downstream comparisons match either.
     data = event_data.get("data", {})
-    event_type = data.get("event_type", "")
+    event_type = normalize_event_type(data.get("event_type", ""))
 
     # Skip streaming events — they're informational only
     if event_type in ("streaming.started", "streaming.stopped"):

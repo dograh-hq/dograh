@@ -45,8 +45,8 @@ async def create_transport(
         stream_id=stream_id,
         call_control_id=call_control_id,
         api_key=api_key,
-        inbound_encoding="PCMU",       # Dograh → Telnyx; matches stream_bidirectional_codec
-        outbound_encoding=encoding,    # Telnyx → Dograh; from media_format.encoding
+        inbound_encoding="PCMU",  # Dograh → Telnyx; matches stream_bidirectional_codec
+        outbound_encoding=encoding,  # Telnyx → Dograh; from media_format.encoding
     )
 
     mixer = await build_audio_out_mixer(

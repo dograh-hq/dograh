@@ -453,6 +453,80 @@ class CloudonixProvider(TelephonyProvider):
             logger.error(f"Error in Cloudonix WebSocket handler: {e}")
             raise
 
+    async def handle_external_websocket(
+        self,
+        websocket: "WebSocket",
+        *,
+        workflow_id: int,
+        user_id: int,
+        workflow_run_id: int,
+        params: Dict[str, str],
+    ) -> None:
+        """Agent-stream entry point — credentials come from the query string.
+
+        Cloudonix maps the params as: ``session`` is the bearer token,
+        ``AccountSid`` is the domain id. The websocket handshake (connected
+        / start) is identical to the standard inbound flow.
+        """
+        from api.services.pipecat.run_pipeline import run_pipeline_telephony
+
+        bearer_token = params.get("session")
+        domain_id = params.get("AccountSid")
+        if not bearer_token or not domain_id:
+            logger.error(
+                "Cloudonix agent-stream missing required params: session/AccountSid"
+            )
+            await websocket.close(
+                code=4400, reason="Missing session or AccountSid query params"
+            )
+            return
+
+        try:
+            first_msg = await websocket.receive_text()
+            msg = json.loads(first_msg)
+            if msg.get("event") != "connected":
+                logger.error(f"Expected 'connected' event, got: {msg.get('event')}")
+                await websocket.close(code=4400, reason="Expected connected event")
+                return
+
+            start_msg = json.loads(await websocket.receive_text())
+            if start_msg.get("event") != "start":
+                logger.error("Expected 'start' event second")
+                await websocket.close(code=4400, reason="Expected start event")
+                return
+
+            try:
+                stream_sid = start_msg["start"]["streamSid"]
+                call_sid = start_msg["start"]["callSid"]
+            except KeyError:
+                logger.error("Missing streamSid or callSid in start message")
+                await websocket.close(code=4400, reason="Missing stream identifiers")
+                return
+
+            logger.info(
+                f"Cloudonix agent-stream connected for workflow_run "
+                f"{workflow_run_id} stream_sid={stream_sid} call_sid={call_sid}"
+            )
+
+            await run_pipeline_telephony(
+                websocket,
+                provider_name=self.PROVIDER_NAME,
+                workflow_id=workflow_id,
+                workflow_run_id=workflow_run_id,
+                user_id=user_id,
+                call_id=call_sid,
+                transport_kwargs={
+                    "call_id": call_sid,
+                    "stream_sid": stream_sid,
+                    "bearer_token": bearer_token,
+                    "domain_id": domain_id,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Error in Cloudonix agent-stream handler: {e}")
+            raise
+
     # ======== INBOUND CALL METHODS ========
 
     @classmethod

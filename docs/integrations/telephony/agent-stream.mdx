@@ -1,0 +1,139 @@
+---
+title: "Agent Stream"
+description: "Stream audio to a Dograh agent over a WebSocket using inline provider credentials"
+---
+
+## Overview
+
+Agent Stream is a WebSocket endpoint that lets an external caller drive a Dograh agent run by passing everything inline in the query string — including the telephony provider's credentials. Unlike the standard inbound webhook flow, this path does **not** require a stored telephony configuration in your Dograh organization. You bring the credentials with you when you connect.
+
+This is useful when:
+
+- You manage your telephony tenant outside Dograh and only want Dograh as the agent runtime
+- You're integrating Dograh into a SIP gateway or in-house dialer
+- You need a single endpoint that doesn't need per-tenant DB rows for every caller
+
+The endpoint authenticates with a Dograh **API key** (so the connection itself is authorized against your organization), and routes the audio through the named provider's serializer.
+
+<Warning>
+  Agent Stream currently supports the **Cloudonix** provider only. Other providers
+  return `NotImplementedError` until a per-provider implementation lands. If you
+  need Twilio, Plivo, Telnyx, Vonage, ARI, or another provider, please open a
+  request on [GitHub Discussions](https://github.com/dograh-hq/dograh/discussions)
+  with your use case.
+</Warning>
+
+## Endpoint
+
+```
+wss://app.dograh.com/api/v1/agent-stream/{workflow_uuid}
+```
+
+`{workflow_uuid}` is the agent's stable UUID (see [Get the Agent UUID](#get-the-agent-uuid) below). On self-hosted deployments, replace `app.dograh.com` with your backend host.
+
+## Prerequisites
+
+- A Dograh agent (workflow) — published or in draft is fine
+- A Dograh API key with access to the organization that owns the agent
+- Provider credentials (for Cloudonix: bearer token + domain ID)
+
+## Get the Agent UUID
+
+The Agent UUID is the workflow's stable identifier — it doesn't change when versions are published. You can copy it from two places in the dashboard:
+
+**From the workflow editor**
+
+1. Open your agent in the workflow editor
+2. Click the **⋮** (more options) menu in the top-right of the header
+3. Click **Copy Agent UUID** — the toast confirms the copy
+
+**From the agent's Settings page**
+
+1. Open the agent and go to **Settings**
+2. Scroll to the **Agent UUID** section (also linked in the right-side nav)
+3. Click the UUID code block, or use the **Copy UUID** button
+
+## Create a Dograh API key
+
+Agent Stream auth uses your Dograh API key — not your provider's bearer token. The provider credentials go in separate query params (see [URL parameters](#url-parameters) below).
+
+1. From the dashboard, navigate to **API Keys**
+2. Click **Create API key**, give it a name, and copy the generated key (it starts with `dg_`)
+3. Store it securely — Dograh shows the full key only once at creation time
+
+For programmatic management, see the [API Keys reference](/api-reference/api-keys).
+
+<Note>
+  API keys are scoped to an organization. The agent referenced by the URL must
+  belong to the same organization as the key, otherwise the connection is
+  rejected with WebSocket close code `1008`.
+</Note>
+
+## Connect to the WebSocket
+
+### URL parameters
+
+| Param | Required | Description |
+| --- | --- | --- |
+| `api_key` | Yes | Your Dograh API key (`dg_...`). Authorizes the connection. |
+| `provider` | Yes | Provider name. Currently only `cloudonix` is supported. |
+| `session` | Yes (cloudonix) | Cloudonix domain bearer token used to drive the call (hangup, etc.). |
+| `AccountSid` | Yes (cloudonix) | Cloudonix domain ID. |
+| `CallSid` | Yes (cloudonix) | Cloudonix call SID for this session. |
+| `callId` | No | SIP-side call identifier; persisted on the workflow run for record-keeping. |
+| `from` | No | Caller phone number, persisted on the workflow run as `caller_number`. |
+| `to` | No | Called phone number, persisted on the workflow run as `called_number`. |
+
+### Cloudonix example
+
+```
+wss://app.dograh.com/api/v1/agent-stream/{workflow_uuid}
+  ?api_key=dg_xxxxxxxxxxxxxxxx
+  &provider=cloudonix
+  &session={CLOUDONIX_BEARER_TOKEN}
+  &AccountSid={CLOUDONIX_DOMAIN_ID}
+  &CallSid={CALL_SID}
+  &callId={SIP_CALL_ID}
+  &from=+15555550100
+  &to=+15555550199
+```
+
+Use this URL inside the CXML `<Stream>` your Cloudonix Voice Application returns when the call needs to be bridged to the Dograh agent:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://app.dograh.com/api/v1/agent-stream/{workflow_uuid}?api_key=dg_...&provider=cloudonix&session=...&AccountSid=...&CallSid=...&callId=...&from=...&to=..."/>
+  </Connect>
+  <Pause length="40"/>
+</Response>
+```
+
+The first two messages on the socket should be Cloudonix's standard `connected` and `start` events (Twilio-compatible framing). Dograh extracts `streamSid` and `callSid` from the `start` event and begins streaming audio.
+
+## Workflow run lifecycle
+
+When the WebSocket is accepted, Dograh:
+
+1. Resolves your API key to a user and organization
+2. Looks up the workflow by `workflow_uuid`, scoped to that organization
+3. Runs a quota check
+4. Creates a new `WorkflowRun` (`call_type=inbound`, `mode=cloudonix`, name `WR-AGS-XXXXXXXX`) with the `from`/`to`/`callId`/`AccountSid` fields stamped on `initial_context`
+5. Transitions the run to `running` and starts the agent pipeline
+
+The run is visible under the agent's **Runs** tab as soon as it's minted, just like an inbound or outbound call.
+
+## Close codes
+
+| Code | Reason |
+| --- | --- |
+| `1008` | Auth or routing failure — invalid API key, unknown provider, workflow not found in your organization, or quota exceeded |
+| `1011` | Server-side failure or unsupported provider for Agent Stream |
+| `4400` | Provider-level handshake error — for cloudonix, missing `session`/`AccountSid` or malformed `connected`/`start` events |
+
+## Security notes
+
+- Treat the URL as a secret — both the Dograh API key and the provider bearer token sit in the query string. Store and transmit it only over TLS, and avoid logging the raw URL in places where access is broader than your operations team.
+- Rotate the Dograh API key from the dashboard if you suspect it has leaked.
+- The Dograh API key authorizes the connection against your organization. The provider bearer token is only used by Dograh to drive provider-side actions (e.g. hangup) — it is not stored on the workflow run.

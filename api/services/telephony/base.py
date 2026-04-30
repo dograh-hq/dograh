@@ -336,6 +336,26 @@ class TelephonyProvider(ABC):
         """
         pass
 
+    async def handle_external_websocket(
+        self,
+        websocket: "WebSocket",
+        *,
+        workflow_id: int,
+        user_id: int,
+        workflow_run_id: int,
+        params: Dict[str, str],
+    ) -> None:
+        """Handle the agent-stream WebSocket where credentials are passed inline.
+
+        Used by ``/api/v1/agent-stream/{workflow_uuid}`` when the caller carries
+        provider credentials in the query string (no stored
+        ``TelephonyConfigurationModel`` row required). Default raises so
+        providers that haven't opted in fail loudly.
+        """
+        raise NotImplementedError(
+            f"Agent-stream not supported for provider {self.PROVIDER_NAME}"
+        )
+
     async def configure_inbound(
         self, address: str, webhook_url: Optional[str]
     ) -> ProviderSyncResult:

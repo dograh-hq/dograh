@@ -42,6 +42,7 @@ const edgeTypes = {
 interface RenderWorkflowProps {
     initialWorkflowName: string;
     workflowId: number;
+    workflowUuid?: string;
     initialFlow?: {
         nodes: FlowNode[];
         edges: FlowEdge[];
@@ -58,7 +59,7 @@ interface RenderWorkflowProps {
     user: { id: string; email?: string };
 }
 
-function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
+function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
     const router = useRouter();
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
@@ -303,6 +304,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     rfInstance={rfInstance}
                     onRun={onRun}
                     workflowId={workflowId}
+                    workflowUuid={workflowUuid}
                     saveWorkflow={guardedSaveWorkflow}
                     user={user}
                     onPhoneCallClick={() => setIsPhoneCallDialogOpen(true)}

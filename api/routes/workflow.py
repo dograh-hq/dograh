@@ -240,6 +240,7 @@ class WorkflowResponse(BaseModel):
     workflow_configurations: dict | None = None
     version_number: int | None = None
     version_status: str | None = None
+    workflow_uuid: str | None = None
 
 
 class WorkflowListResponse(BaseModel):
@@ -695,6 +696,7 @@ async def get_workflow(
         "workflow_configurations": workflow_configs,
         "version_number": active_def.version_number if active_def else None,
         "version_status": active_def.status if active_def else None,
+        "workflow_uuid": workflow.workflow_uuid,
     }
 
 

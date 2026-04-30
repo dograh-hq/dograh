@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { useState } from "react";
@@ -37,6 +37,7 @@ interface WorkflowEditorHeaderProps {
     rfInstance: React.RefObject<ReactFlowInstance<FlowNode, FlowEdge> | null>;
     onRun: (mode: string) => Promise<void>;
     workflowId: number;
+    workflowUuid?: string;
     saveWorkflow: (updateWorkflowDefinition?: boolean) => Promise<void>;
     user: { id: string; email?: string };
     onPhoneCallClick: () => void;
@@ -63,6 +64,7 @@ export const WorkflowEditorHeader = ({
     hasDraft,
     onPublished,
     workflowId,
+    workflowUuid,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
     const { toggleSidebar } = useSidebar();
@@ -120,6 +122,19 @@ export const WorkflowEditorHeader = ({
             }
         } finally {
             setDuplicating(false);
+        }
+    };
+
+    const handleCopyAgentUuid = async () => {
+        if (!workflowUuid) {
+            toast.error("Agent UUID not available");
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(workflowUuid);
+            toast.success("Agent UUID copied");
+        } catch {
+            toast.error("Failed to copy Agent UUID");
         }
     };
 
@@ -379,6 +394,14 @@ export const WorkflowEditorHeader = ({
                         >
                             <Download className="w-4 h-4 mr-2" />
                             Download Workflow
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={handleCopyAgentUuid}
+                            disabled={!workflowUuid}
+                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
+                        >
+                            <Clipboard className="w-4 h-4 mr-2" />
+                            Copy Agent UUID
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

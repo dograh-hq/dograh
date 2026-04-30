@@ -25,14 +25,22 @@ async def create_transport(
     telephony_configuration_id: int | None = None,
     call_id: str,
     stream_sid: str,
+    bearer_token: str | None = None,
+    domain_id: str | None = None,
 ):
-    """Create a transport for Cloudonix connections."""
-    config = await load_credentials_for_transport(
-        organization_id, telephony_configuration_id, expected_provider="cloudonix"
-    )
+    """Create a transport for Cloudonix connections.
 
-    bearer_token = config.get("bearer_token")
-    domain_id = config.get("domain_id")
+    When ``bearer_token`` and ``domain_id`` are both supplied, they are used
+    directly and no DB lookup is performed — this is the agent-stream path
+    where the caller brings credentials inline. Otherwise credentials are
+    resolved from the org's stored telephony configuration.
+    """
+    if not (bearer_token and domain_id):
+        config = await load_credentials_for_transport(
+            organization_id, telephony_configuration_id, expected_provider="cloudonix"
+        )
+        bearer_token = config.get("bearer_token")
+        domain_id = config.get("domain_id")
 
     if not bearer_token or not domain_id:
         raise ValueError(

@@ -97,12 +97,6 @@ export type AriConfigurationRequest = {
      */
     ws_client_name?: string;
     /**
-     * Inbound Workflow Id
-     *
-     * Workflow ID for inbound calls
-     */
-    inbound_workflow_id?: number | null;
-    /**
      * From Numbers
      *
      * List of SIP extensions/numbers for outbound calls (optional)
@@ -136,10 +130,6 @@ export type AriConfigurationResponse = {
      * Ws Client Name
      */
     ws_client_name?: string;
-    /**
-     * Inbound Workflow Id
-     */
-    inbound_workflow_id?: number | null;
     /**
      * From Numbers
      */
@@ -704,6 +694,12 @@ export type CloudonixConfigurationRequest = {
      */
     domain_id: string;
     /**
+     * Application Name
+     *
+     * Cloudonix Voice Application name. The application's url is updated when inbound workflows are attached to numbers on this domain.
+     */
+    application_name: string;
+    /**
      * From Numbers
      *
      * List of Cloudonix phone numbers (optional)
@@ -729,6 +725,10 @@ export type CloudonixConfigurationResponse = {
      * Domain Id
      */
     domain_id: string;
+    /**
+     * Application Name
+     */
+    application_name: string;
     /**
      * From Numbers
      */
@@ -4115,6 +4115,12 @@ export type VobizConfigurationRequest = {
      */
     auth_token: string;
     /**
+     * Application Id
+     *
+     * Vobiz Application ID. The application's answer_url is updated when inbound workflows are attached to numbers on this account.
+     */
+    application_id: string;
+    /**
      * From Numbers
      *
      * List of Vobiz phone numbers (E.164 without + prefix)
@@ -4140,6 +4146,10 @@ export type VobizConfigurationResponse = {
      * Auth Token
      */
     auth_token: string;
+    /**
+     * Application Id
+     */
+    application_id: string;
     /**
      * From Numbers
      */
@@ -4411,6 +4421,10 @@ export type WorkflowResponse = {
      * Version Status
      */
     version_status?: string | null;
+    /**
+     * Workflow Uuid
+     */
+    workflow_uuid?: string | null;
 };
 
 /**

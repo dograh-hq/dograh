@@ -446,6 +446,23 @@ class WorkflowClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def get_workflow_by_uuid(
+        self, workflow_uuid: str, organization_id: int
+    ) -> WorkflowModel | None:
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowModel)
+                .options(
+                    selectinload(WorkflowModel.current_definition),
+                    selectinload(WorkflowModel.released_definition),
+                )
+                .where(
+                    WorkflowModel.workflow_uuid == workflow_uuid,
+                    WorkflowModel.organization_id == organization_id,
+                )
+            )
+            return result.scalars().first()
+
     async def update_workflow(
         self,
         workflow_id: int,

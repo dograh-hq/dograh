@@ -174,12 +174,17 @@ async def _initiate_call(
         f"&organization_id={trigger.organization_id}"
     )
 
-    # 10. Initiate call via telephony provider
+    # 10. Initiate call via telephony provider. workflow_id and user_id are
+    # required by providers that build the media WebSocket URL at dial time
+    # (e.g. Telnyx, Cloudonix); without them the URL contains "None/None" and
+    # the stream connection fails.
     try:
         await provider.initiate_call(
             to_number=request.phone_number,
             webhook_url=webhook_url,
             workflow_run_id=workflow_run.id,
+            workflow_id=trigger.workflow_id,
+            user_id=api_key.created_by,
         )
     except Exception as e:
         logger.warning(

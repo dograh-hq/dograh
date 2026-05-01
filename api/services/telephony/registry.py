@@ -64,6 +64,13 @@ TransportFactory = Callable[..., Awaitable[Any]]
 # config dict that the provider class accepts in its constructor.
 ConfigLoader = Callable[[Dict[str, Any]], Dict[str, Any]]
 
+# Optional async hook invoked at create/update time. Receives the credentials
+# dict the route is about to persist and returns a (possibly modified) dict.
+# Use for provider-side I/O that mutates credentials before save (e.g. an
+# external resource that must exist by the time the row lands). I/O is
+# allowed; ``config_loader`` is reserved for pure dict reshaping.
+CredentialsPreprocessor = Callable[[Dict[str, Any]], Awaitable[Dict[str, Any]]]
+
 
 @dataclass(frozen=True)
 class ProviderSpec:
@@ -109,6 +116,10 @@ class ProviderSpec:
     # exist for the same provider, and (b) reject duplicate-account saves.
     # Empty string means the provider has no account-id concept (e.g. ARI).
     account_id_credential_field: str = ""
+    # Optional async hook to mutate credentials before they're persisted on
+    # create/update. Called with the post-mask, post-merge credentials dict
+    # and must return the dict to write. Raise HTTPException to abort save.
+    preprocess_credentials_on_save: Optional[CredentialsPreprocessor] = None
 
 
 _REGISTRY: Dict[str, ProviderSpec] = {}

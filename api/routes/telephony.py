@@ -365,16 +365,20 @@ async def _create_inbound_workflow_run(
             "caller_number": normalized_data.from_number,
             "called_number": normalized_data.to_number,
             "direction": "inbound",
-            "account_id": normalized_data.account_id,
             "provider": provider,
-            "from_country": normalized_data.from_country,
-            "to_country": normalized_data.to_country,
-            "raw_webhook_data": normalized_data.raw_data,
             "telephony_configuration_id": telephony_configuration_id,
-            "from_phone_number_id": from_phone_number_id,
         },
         gathered_context={
             "call_id": call_id,
+        },
+        logs={
+            "inbound_webhook": {
+                "account_id": normalized_data.account_id,
+                "from_country": normalized_data.from_country,
+                "to_country": normalized_data.to_country,
+                "from_phone_number_id": from_phone_number_id,
+                "raw_webhook_data": normalized_data.raw_data,
+            },
         },
     )
 
@@ -515,8 +519,16 @@ async def _handle_telephony_websocket(
             f"WebSocket connected for {provider_type} provider, workflow_run {workflow_run_id}"
         )
 
-        # Get the telephony provider instance
-        provider = await get_telephony_provider(workflow.organization_id)
+        # Get the telephony provider instance. Prefer the config id stamped on
+        # the run; fall back to the org default for legacy runs created before
+        # multi-config support.
+        telephony_configuration_id = (workflow_run.initial_context or {}).get(
+            "telephony_configuration_id"
+        )
+        if telephony_configuration_id:
+            provider = await get_telephony_provider_by_id(telephony_configuration_id)
+        else:
+            provider = await get_telephony_provider(workflow.organization_id)
 
         # Verify the provider matches what was stored
         if provider.PROVIDER_NAME != provider_type:

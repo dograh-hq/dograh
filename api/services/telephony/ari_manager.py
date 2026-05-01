@@ -537,6 +537,7 @@ class ARIConnection:
                     "called_number": called_number,
                     "direction": "inbound",
                     "provider": "ari",
+                    "telephony_configuration_id": self.telephony_configuration_id,
                 },
                 gathered_context={
                     "call_id": call_id,

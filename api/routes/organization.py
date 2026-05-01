@@ -157,6 +157,14 @@ def _credentials_from_payload(config: TelephonyConfigRequest) -> dict:
     return payload
 
 
+async def _run_preprocess_hook(provider: str, credentials: dict) -> dict:
+    """Invoke the provider's optional credentials preprocessor before save."""
+    spec = telephony_registry.get_optional(provider)
+    if spec and spec.preprocess_credentials_on_save:
+        return await spec.preprocess_credentials_on_save(credentials)
+    return credentials
+
+
 def _phone_number_to_response(
     row, inbound_workflow_name: Optional[str] = None
 ) -> PhoneNumberResponse:
@@ -237,6 +245,7 @@ async def create_telephony_configuration(
         raise HTTPException(status_code=400, detail="No organization selected")
 
     credentials = _credentials_from_payload(request.config)
+    credentials = await _run_preprocess_hook(request.config.provider, credentials)
 
     try:
         row = await db_client.create_telephony_configuration(
@@ -310,6 +319,7 @@ async def update_telephony_configuration(
         preserve_masked_fields(
             existing.provider, credentials, existing.credentials or {}
         )
+        credentials = await _run_preprocess_hook(existing.provider, credentials)
 
     try:
         row = await db_client.update_telephony_configuration(

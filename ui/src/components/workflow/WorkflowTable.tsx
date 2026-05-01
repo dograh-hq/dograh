@@ -1,6 +1,6 @@
 'use client';
 
-import { Archive, Eye, RotateCcw } from 'lucide-react';
+import { Archive, Pencil, RotateCcw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
@@ -33,7 +33,7 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
     const [isPending, startTransition] = useTransition();
     const [loadingWorkflowId, setLoadingWorkflowId] = useState<number | null>(null);
 
-    const handleView = (id: number) => {
+    const handleEdit = (id: number) => {
         router.push(`/workflow/${id}`);
     };
 
@@ -108,11 +108,11 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
                                     <Button
                                         variant="outline"
                                         size="sm"
-                                        onClick={() => handleView(workflow.id)}
+                                        onClick={() => handleEdit(workflow.id)}
                                         className="flex items-center gap-2"
                                     >
-                                        <Eye size={16} />
-                                        View
+                                        <Pencil size={16} />
+                                        Edit
                                     </Button>
                                     <Button
                                         variant={showArchived ? "default" : "outline"}

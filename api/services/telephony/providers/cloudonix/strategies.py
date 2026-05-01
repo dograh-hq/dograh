@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from loguru import logger
 
+from api.services.telephony.providers.cloudonix.provider import CLOUDONIX_API_BASE_URL
 from pipecat.serializers.call_strategies import HangupStrategy
 
 
@@ -41,7 +42,7 @@ class CloudonixHangupStrategy(HangupStrategy):
                 )
                 return False
 
-            endpoint = f"https://api.cloudonix.io/customers/self/domains/{domain_id}/sessions/{call_id}"
+            endpoint = f"{CLOUDONIX_API_BASE_URL}/customers/self/domains/{domain_id}/sessions/{call_id}"
             headers = {
                 "Authorization": f"Bearer {bearer_token}",
                 "Content-Type": "application/json",

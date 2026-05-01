@@ -5,7 +5,7 @@ an agent run by passing everything inline in the query string — including
 provider credentials. The standard ``/telephony/ws/...`` path requires a
 ``TelephonyConfigurationModel`` row stored in the org; this one does not.
 
-Auth: dograh API key via ``?api_key=`` (handled by ``get_user_ws``).
+Auth: the workflow UUID itself acts as the identifier — no API key.
 Routing: when ``?provider=<registered>`` matches a telephony provider, we
 dispatch to that provider's ``handle_external_websocket``. The raw-audio
 branch (no provider) is reserved for a future protocol decision and
@@ -15,15 +15,13 @@ currently rejects with 1011.
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, WebSocket
+from fastapi import APIRouter, WebSocket
 from loguru import logger
 from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
-from api.db.models import UserModel
 from api.enums import CallType, WorkflowRunState
-from api.services.auth.depends import get_user_ws
-from api.services.quota_service import check_dograh_quota
+from api.services.quota_service import check_dograh_quota_by_user_id
 from api.services.telephony import registry as telephony_registry
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
@@ -34,12 +32,10 @@ router = APIRouter(prefix="/agent-stream")
 async def agent_stream_websocket(
     websocket: WebSocket,
     workflow_uuid: str,
-    user: UserModel = Depends(get_user_ws),
 ):
     """Generic agent-stream WebSocket.
 
     Query params:
-        api_key: dograh API key (consumed by ``get_user_ws``)
         provider: registered telephony provider name (e.g. ``cloudonix``)
         from / to / callId: call metadata persisted on the workflow run
         ...: provider-specific credentials/identifiers (e.g. ``session``,
@@ -65,21 +61,18 @@ async def agent_stream_websocket(
         await websocket.close(code=1008, reason=f"Unknown provider: {provider_name}")
         return
 
-    workflow = await db_client.get_workflow_by_uuid(
-        workflow_uuid, organization_id=user.selected_organization_id
-    )
+    workflow = await db_client.get_workflow_by_uuid_unscoped(workflow_uuid)
     if not workflow:
-        logger.warning(
-            f"agent-stream workflow {workflow_uuid} not found for org "
-            f"{user.selected_organization_id}"
-        )
+        logger.warning(f"agent-stream workflow {workflow_uuid} not found")
         await websocket.close(code=1008, reason="Workflow not found")
         return
 
-    quota_result = await check_dograh_quota(user, workflow_id=workflow.id)
+    quota_result = await check_dograh_quota_by_user_id(
+        workflow.user_id, workflow_id=workflow.id
+    )
     if not quota_result.has_quota:
         logger.warning(
-            f"agent-stream quota exceeded for user {user.id}: "
+            f"agent-stream quota exceeded for user {workflow.user_id}: "
             f"{quota_result.error_message}"
         )
         await websocket.close(
@@ -96,8 +89,6 @@ async def agent_stream_websocket(
         "caller_number": params.get("from"),
         "called_number": params.get("to"),
         "direction": "inbound",
-        "account_id": params.get("AccountSid"),
-        "call_id": call_id,
     }
     workflow_run = await db_client.create_workflow_run(
         workflow_run_name,
@@ -107,6 +98,11 @@ async def agent_stream_websocket(
         call_type=CallType.INBOUND,
         initial_context=initial_context,
         gathered_context={"call_id": call_id} if call_id else {},
+        logs={
+            "inbound_webhook": {
+                "domain": params.get("Domain"),
+            },
+        },
     )
 
     set_current_run_id(workflow_run.id)

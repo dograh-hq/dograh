@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.27.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.26.0...dograh-v1.27.0) (2026-05-02)
+
+
+### Features
+
+* add create workflow tool in MCP ([3e3773f](https://github.com/dograh-hq/dograh/commit/3e3773f4007a86ee5091e4c9335159a5c15f98bf))
+* add examples to create workflow and use sdk ([f041e60](https://github.com/dograh-hq/dograh/commit/f041e6030da480703cfe2aadd7b5fddf55603d06))
+* add Plivo telephony provider support ([#245](https://github.com/dograh-hq/dograh/issues/245)) ([2218ba8](https://github.com/dograh-hq/dograh/commit/2218ba8ad9278251a6d2fb9eb7dad3f2f67734a0))
+* add posthog signup and signin events, enable backend posthog events for oss version ([#249](https://github.com/dograh-hq/dograh/issues/249)) ([f7c1f63](https://github.com/dograh-hq/dograh/commit/f7c1f63e1b4b2f471abaa9340bda8477afaf268f))
+* add test mode for API trigger ([4171ad7](https://github.com/dograh-hq/dograh/commit/4171ad7a54d696f15ac488f3b77b9d823ead92c8))
+* agent stream for cloudonix OPBX ([#261](https://github.com/dograh-hq/dograh/issues/261)) ([7fd3b96](https://github.com/dograh-hq/dograh/commit/7fd3b96470df9cd00ee088eb498e73baaf924681))
+* refactor telephony to support multiple telephony configurations ([#251](https://github.com/dograh-hq/dograh/issues/251)) ([e16f643](https://github.com/dograh-hq/dograh/commit/e16f6438bd4f316b804d46b1c6a61d3e865b3ac8))
+
+
+### Bug Fixes
+
+* api trigger for telnyx & cloudonix ([#258](https://github.com/dograh-hq/dograh/issues/258)) ([6c4830c](https://github.com/dograh-hq/dograh/commit/6c4830cb5e45af57b9e89e3c8c87642110263c8a))
+* honor telnyxs per-call codec in bidirectional stream ([#256](https://github.com/dograh-hq/dograh/issues/256)) ([085ab0a](https://github.com/dograh-hq/dograh/commit/085ab0a7aee39265f8ad71ff925a4b9ac00f1a10))
+* make trigger paths globally unique ([a1d4a1f](https://github.com/dograh-hq/dograh/commit/a1d4a1fab2a665a9e746fc4b53ab69609ec04fc3))
+* normalise telnyx event types ([#259](https://github.com/dograh-hq/dograh/issues/259)) ([14bc66d](https://github.com/dograh-hq/dograh/commit/14bc66d21dfb5513fa7598c5ca9b9ad4317f9eaf))
+
+
+### Documentation
+
+* add missing config image ([983b9be](https://github.com/dograh-hq/dograh/commit/983b9bee715ebb44065b647fa495c31c55f3a4ed))
+
 ## [1.26.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.25.0...dograh-v1.26.0) (2026-04-21)
 
 

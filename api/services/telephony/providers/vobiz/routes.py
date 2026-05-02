@@ -14,7 +14,6 @@ from starlette.responses import HTMLResponse
 
 from api.db import db_client
 from api.services.telephony.factory import (
-    get_telephony_provider,
     get_telephony_provider_for_run,
 )
 from api.services.telephony.status_processor import (
@@ -327,13 +326,34 @@ async def handle_vobiz_hangup_callback_by_workflow(
         )
         return {"status": "error", "message": "No call_uuid found"}
 
-    workflow_client = WorkflowClient()
-    workflow = await workflow_client.get_workflow_by_id(workflow_id)
+    workflow = await db_client.get_workflow_by_id(workflow_id)
     if not workflow:
         logger.warning(f"[workflow {workflow_id}] Workflow not found")
         return {"status": "error", "message": "workflow_not_found"}
 
-    provider = await get_telephony_provider(workflow.organization_id)
+    try:
+        workflow_run = await db_client.get_workflow_run_by_call_id(call_uuid)
+    except Exception as e:
+        logger.error(
+            f"[workflow {workflow_id}] Error finding workflow run for call {call_uuid}: {e}"
+        )
+        return {"status": "error", "message": str(e)}
+
+    if not workflow_run or workflow_run.workflow_id != workflow_id:
+        logger.warning(
+            f"[workflow {workflow_id}] No workflow run found for call {call_uuid}"
+        )
+        return {"status": "ignored", "reason": "workflow_run_not_found"}
+
+    workflow_run_id = workflow_run.id
+    set_current_run_id(workflow_run_id)
+    logger.info(
+        f"[workflow {workflow_id}] Found workflow run {workflow_run_id} for call {call_uuid}"
+    )
+
+    provider = await get_telephony_provider_for_run(
+        workflow_run, workflow.organization_id
+    )
 
     if x_vobiz_signature:
         raw_body = await request.body()
@@ -360,50 +380,6 @@ async def handle_vobiz_hangup_callback_by_workflow(
         )
 
     try:
-        db_client = WorkflowRunClient()
-        async with db_client.async_session() as session:
-            # Fetch workflow run with matching call_id in gathered_context
-            query = text("""
-                SELECT id FROM workflow_runs 
-                WHERE workflow_id = :workflow_id 
-                AND CAST(gathered_context AS jsonb) @> CAST(:call_id_json AS jsonb)
-                ORDER BY created_at DESC 
-                LIMIT 1
-            """)
-
-            result = await session.execute(
-                query,
-                {
-                    "workflow_id": workflow_id,
-                    "call_id_json": json.dumps({"call_id": call_uuid}),
-                },
-            )
-            workflow_run_row = result.fetchone()
-
-            if not workflow_run_row:
-                logger.warning(
-                    f"[workflow {workflow_id}] No workflow run found for call {call_uuid}"
-                )
-                return {"status": "ignored", "reason": "workflow_run_not_found"}
-
-            workflow_run_id = workflow_run_row[0]
-            set_current_run_id(workflow_run_id)
-            logger.info(
-                f"[workflow {workflow_id}] Found workflow run {workflow_run_id} for call {call_uuid}"
-            )
-
-    except Exception as e:
-        logger.error(
-            f"[workflow {workflow_id}] Error finding workflow run for call {call_uuid}: {e}"
-        )
-        return {"status": "error", "message": str(e)}
-
-    try:
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-        if not workflow_run:
-            logger.warning(f"[run {workflow_run_id}] Workflow run not found")
-            return {"status": "ignored", "reason": "workflow_run_not_found"}
-
         parsed_data = provider.parse_status_callback(callback_data)
 
         status = StatusCallbackRequest(

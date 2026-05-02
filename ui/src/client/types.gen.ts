@@ -473,6 +473,14 @@ export type CampaignResponse = {
      * Redialed Campaign Id
      */
     redialed_campaign_id?: number | null;
+    /**
+     * Telephony Configuration Id
+     */
+    telephony_configuration_id?: number | null;
+    /**
+     * Telephony Configuration Name
+     */
+    telephony_configuration_name?: string | null;
 };
 
 /**

@@ -615,6 +615,21 @@ export default function CampaignDetailPage() {
                                 </dd>
                             </div>
                             <div>
+                                <dt className="text-sm font-medium">Telephony Configuration</dt>
+                                <dd className="mt-1">
+                                    {campaign.telephony_configuration_id ? (
+                                        <button
+                                            onClick={() => router.push(`/telephony-configurations/${campaign.telephony_configuration_id}`)}
+                                            className="text-blue-600 hover:text-blue-800 hover:underline"
+                                        >
+                                            {campaign.telephony_configuration_name || `Configuration #${campaign.telephony_configuration_id}`}
+                                        </button>
+                                    ) : (
+                                        <span className="text-muted-foreground">Not assigned</span>
+                                    )}
+                                </dd>
+                            </div>
+                            <div>
                                 <dt className="text-sm font-medium">State</dt>
                                 <dd className="mt-1 capitalize">{campaign.state}</dd>
                             </div>

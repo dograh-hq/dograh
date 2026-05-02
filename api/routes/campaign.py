@@ -194,6 +194,8 @@ class CampaignResponse(BaseModel):
     total_queued_count: int = 0
     parent_campaign_id: Optional[int] = None
     redialed_campaign_id: Optional[int] = None
+    telephony_configuration_id: Optional[int] = None
+    telephony_configuration_name: Optional[str] = None
 
 
 class CampaignsResponse(BaseModel):
@@ -239,6 +241,7 @@ def _build_campaign_response(
     workflow_name: str,
     executed_count: int = 0,
     total_queued_count: int = 0,
+    telephony_configuration_name: Optional[str] = None,
 ) -> CampaignResponse:
     """Build a CampaignResponse from a campaign model."""
     # Get retry_config from campaign or use defaults
@@ -293,6 +296,8 @@ def _build_campaign_response(
         total_queued_count=total_queued_count,
         parent_campaign_id=parent_campaign_id,
         redialed_campaign_id=redialed_campaign_id,
+        telephony_configuration_id=campaign.telephony_configuration_id,
+        telephony_configuration_name=telephony_configuration_name,
     )
 
 
@@ -301,6 +306,22 @@ async def _get_campaign_stats(campaign_id: int) -> tuple[int, int]:
     stats_map = await db_client.get_queued_runs_stats_for_campaigns([campaign_id])
     s = stats_map.get(campaign_id, {})
     return s.get("executed", 0), s.get("total", 0)
+
+
+async def _get_telephony_configuration_name(
+    config_id: Optional[int], organization_id: int
+) -> Optional[str]:
+    """Resolve the display name for a campaign's telephony configuration.
+
+    Org-scoped lookup so a stale FK from another org (shouldn't happen, but
+    cheap to enforce) doesn't leak across tenants.
+    """
+    if config_id is None:
+        return None
+    cfg = await db_client.get_telephony_configuration_for_org(
+        config_id, organization_id
+    )
+    return cfg.name if cfg else None
 
 
 @router.post("/create")
@@ -412,7 +433,12 @@ async def create_campaign(
         telephony_configuration_id=telephony_configuration_id,
     )
 
-    return _build_campaign_response(campaign, workflow_name)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
+    return _build_campaign_response(
+        campaign, workflow_name, telephony_configuration_name=cfg_name
+    )
 
 
 @router.get("/")
@@ -433,12 +459,22 @@ async def get_campaigns(
         [c.id for c in campaigns]
     )
 
+    # Build {config_id: name} map by fetching all configs for the org once,
+    # rather than one lookup per campaign.
+    org_configs = await db_client.list_telephony_configurations(
+        user.selected_organization_id
+    )
+    config_name_map = {cfg.id: cfg.name for cfg in org_configs}
+
     campaign_responses = [
         _build_campaign_response(
             c,
             workflow_map.get(c.workflow_id, "Unknown"),
             executed_count=stats_map.get(c.id, {}).get("executed", 0),
             total_queued_count=stats_map.get(c.id, {}).get("total", 0),
+            telephony_configuration_name=config_name_map.get(
+                c.telephony_configuration_id
+            ),
         )
         for c in campaigns
     ]
@@ -459,8 +495,15 @@ async def get_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -502,8 +545,15 @@ async def start_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -529,8 +579,15 @@ async def pause_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -592,8 +649,15 @@ async def update_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -753,7 +817,16 @@ async def redial_campaign(
 
     workflow_name = await db_client.get_workflow_name(child.workflow_id, user.id)
     executed, total = await _get_campaign_stats(child.id)
-    return _build_campaign_response(child, workflow_name or "Unknown", executed, total)
+    cfg_name = await _get_telephony_configuration_name(
+        child.telephony_configuration_id, user.selected_organization_id
+    )
+    return _build_campaign_response(
+        child,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
+    )
 
 
 @router.post("/{campaign_id}/resume")
@@ -794,8 +867,15 @@ async def resume_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 

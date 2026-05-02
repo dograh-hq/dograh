@@ -13,7 +13,10 @@ from loguru import logger
 from starlette.responses import HTMLResponse
 
 from api.db import db_client
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import (
+    get_telephony_provider,
+    get_telephony_provider_for_run,
+)
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -43,7 +46,8 @@ async def handle_vobiz_xml_webhook(
         f"workflow_id={workflow_id}, user_id={user_id}, org_id={organization_id}"
     )
 
-    provider = await get_telephony_provider(organization_id)
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    provider = await get_telephony_provider_for_run(workflow_run, organization_id)
 
     logger.debug(f"[run {workflow_run_id}] Using provider: {provider.PROVIDER_NAME}")
 
@@ -107,7 +111,9 @@ async def handle_vobiz_hangup_callback(
             )
             return {"status": "error", "reason": "workflow_not_found"}
 
-        provider = await get_telephony_provider(workflow.organization_id)
+        provider = await get_telephony_provider_for_run(
+            workflow_run, workflow.organization_id
+        )
 
         # Get raw body for signature verification
         raw_body = await request.body()
@@ -147,7 +153,9 @@ async def handle_vobiz_hangup_callback(
         logger.warning(f"[run {workflow_run_id}] Workflow not found")
         return {"status": "ignored", "reason": "workflow_not_found"}
 
-    provider = await get_telephony_provider(workflow.organization_id)
+    provider = await get_telephony_provider_for_run(
+        workflow_run, workflow.organization_id
+    )
 
     logger.debug(
         f"[run {workflow_run_id}] Processing Vobiz hangup with provider: {provider.PROVIDER_NAME}"
@@ -229,7 +237,9 @@ async def handle_vobiz_ring_callback(
             )
             return {"status": "error", "reason": "workflow_not_found"}
 
-        provider = await get_telephony_provider(workflow.organization_id)
+        provider = await get_telephony_provider_for_run(
+            workflow_run, workflow.organization_id
+        )
 
         # Get raw body for signature verification
         raw_body = await request.body()

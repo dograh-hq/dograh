@@ -31,6 +31,7 @@ from api.services.telephony.factory import (
     get_default_telephony_provider,
     get_telephony_provider,
     get_telephony_provider_by_id,
+    get_telephony_provider_for_run,
 )
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
@@ -77,14 +78,14 @@ async def initiate_call(
     telephony_configuration_id = request.telephony_configuration_id
 
     if telephony_configuration_id:
-        cfg = await db_client.get_telephony_configuration_for_org(
-            telephony_configuration_id, user.selected_organization_id
-        )
-        if not cfg:
+        try:
+            provider = await get_telephony_provider_by_id(
+                telephony_configuration_id, user.selected_organization_id
+            )
+        except ValueError:
             raise HTTPException(
                 status_code=400, detail="telephony_configuration_not_found"
             )
-        provider = await get_telephony_provider_by_id(telephony_configuration_id)
     else:
         try:
             provider = await get_default_telephony_provider(
@@ -342,7 +343,9 @@ async def _validate_inbound_request(
     # dict, so this dispatcher stays generic.
     backend_endpoint, _ = await get_backend_endpoints()
     webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
-    provider_instance = await get_telephony_provider_by_id(telephony_configuration_id)
+    provider_instance = await get_telephony_provider_by_id(
+        telephony_configuration_id, organization_id
+    )
     signature_valid = await provider_instance.verify_inbound_signature(
         webhook_url, webhook_data, headers, raw_body
     )
@@ -544,16 +547,9 @@ async def _handle_telephony_websocket(
             f"WebSocket connected for {provider_type} provider, workflow_run {workflow_run_id}"
         )
 
-        # Get the telephony provider instance. Prefer the config id stamped on
-        # the run; fall back to the org default for legacy runs created before
-        # multi-config support.
-        telephony_configuration_id = (workflow_run.initial_context or {}).get(
-            "telephony_configuration_id"
+        provider = await get_telephony_provider_for_run(
+            workflow_run, workflow.organization_id
         )
-        if telephony_configuration_id:
-            provider = await get_telephony_provider_by_id(telephony_configuration_id)
-        else:
-            provider = await get_telephony_provider(workflow.organization_id)
 
         # Verify the provider matches what was stored
         if provider.PROVIDER_NAME != provider_type:
@@ -684,7 +680,7 @@ async def handle_inbound_run(request: Request):
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
         provider_instance = await get_telephony_provider_by_id(
-            telephony_configuration_id
+            telephony_configuration_id, config.organization_id
         )
         signature_valid = await provider_instance.verify_inbound_signature(
             webhook_url, webhook_data, headers, raw_body

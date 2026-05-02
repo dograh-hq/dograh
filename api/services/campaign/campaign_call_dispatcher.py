@@ -48,7 +48,7 @@ class CampaignCallDispatcher:
 
         if campaign.telephony_configuration_id:
             return await get_telephony_provider_by_id(
-                campaign.telephony_configuration_id
+                campaign.telephony_configuration_id, campaign.organization_id
             )
         logger.warning(
             f"Campaign {campaign.id} has no telephony_configuration_id; "

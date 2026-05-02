@@ -12,7 +12,7 @@ from loguru import logger
 from starlette.responses import HTMLResponse
 
 from api.db import db_client
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -48,7 +48,9 @@ async def _handle_plivo_status_callback(
         logger.warning(f"Workflow {workflow_run.workflow_id} not found")
         return {"status": "ignored", "reason": "workflow_not_found"}
 
-    provider = await get_telephony_provider(workflow.organization_id)
+    provider = await get_telephony_provider_for_run(
+        workflow_run, workflow.organization_id
+    )
 
     signature = x_plivo_signature_v3 or x_plivo_signature_ma_v3
     if signature:
@@ -95,7 +97,8 @@ async def handle_plivo_xml_webhook(
     Returns Plivo XML response with Stream element.
     """
     set_current_run_id(workflow_run_id)
-    provider = await get_telephony_provider(organization_id)
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    provider = await get_telephony_provider_for_run(workflow_run, organization_id)
 
     form_data = await request.form()
     callback_data = dict(form_data)
@@ -123,7 +126,6 @@ async def handle_plivo_xml_webhook(
 
     call_id = callback_data.get("CallUUID") or callback_data.get("RequestUUID")
     if call_id:
-        workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
         gathered_context = dict(workflow_run.gathered_context or {})
         gathered_context["call_id"] = call_id
         await db_client.update_workflow_run(

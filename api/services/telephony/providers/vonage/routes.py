@@ -11,7 +11,7 @@ from fastapi import APIRouter, Request
 from loguru import logger
 
 from api.db import db_client
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -33,7 +33,10 @@ async def handle_ncco_webhook(
     Returns JSON response instead of XML like TwiML.
     """
 
-    provider = await get_telephony_provider(organization_id or user_id)
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    provider = await get_telephony_provider_for_run(
+        workflow_run, organization_id or user_id
+    )
 
     response_content = await provider.get_webhook_response(
         workflow_id, user_id, workflow_run_id
@@ -97,7 +100,9 @@ async def handle_vonage_events(
         logger.error(f"[run {workflow_run_id}] Workflow not found")
         return {"status": "error", "message": "Workflow not found"}
 
-    provider = await get_telephony_provider(workflow.organization_id)
+    provider = await get_telephony_provider_for_run(
+        workflow_run, workflow.organization_id
+    )
 
     # Parse the event data into generic format
     parsed_data = provider.parse_status_callback(event_data)

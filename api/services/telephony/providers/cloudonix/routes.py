@@ -10,7 +10,7 @@ from fastapi import APIRouter, Request
 from loguru import logger
 
 from api.db import db_client
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -56,7 +56,9 @@ async def handle_cloudonix_status_callback(
         logger.warning(f"Workflow {workflow_run.workflow_id} not found")
         return {"status": "ignored", "reason": "workflow_not_found"}
 
-    provider = await get_telephony_provider(workflow.organization_id)
+    provider = await get_telephony_provider_for_run(
+        workflow_run, workflow.organization_id
+    )
 
     # Parse the callback data into generic format
     parsed_data = provider.parse_status_callback(callback_data)

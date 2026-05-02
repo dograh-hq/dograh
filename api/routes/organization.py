@@ -160,7 +160,7 @@ def _phone_number_to_response(
 
 
 async def _sync_inbound_for_phone_number(
-    config_id: int, address: str
+    config_id: int, organization_id: int, address: str
 ) -> ProviderSyncStatus:
     """Push inbound webhook configuration to the provider.
 
@@ -172,7 +172,7 @@ async def _sync_inbound_for_phone_number(
     bind/unbind the number, not rewrite per-workflow URLs.
     """
     try:
-        provider = await get_telephony_provider_by_id(config_id)
+        provider = await get_telephony_provider_by_id(config_id, organization_id)
     except Exception as e:
         logger.error(f"Failed to load telephony provider for config {config_id}: {e}")
         return ProviderSyncStatus(ok=False, message=f"Provider load failed: {e}")
@@ -488,7 +488,7 @@ async def create_phone_number(
     response = _phone_number_to_response(row)
     if request.inbound_workflow_id is not None:
         response.provider_sync = await _sync_inbound_for_phone_number(
-            config_id, row.address
+            config_id, user.selected_organization_id, row.address
         )
     return response
 
@@ -553,7 +553,7 @@ async def update_phone_number(
     # Sync the provider application or address with the inbound
     # calling webhook address
     response.provider_sync = await _sync_inbound_for_phone_number(
-        config_id, row.address
+        config_id, user.selected_organization_id, row.address
     )
     return response
 

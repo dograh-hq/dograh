@@ -24,27 +24,35 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 from loguru import logger
 
 from api.db import db_client
-from api.db.models import TelephonyConfigurationModel
+from api.db.models import TelephonyConfigurationModel, WorkflowRunModel
 from api.services.telephony import registry
 from api.services.telephony.base import TelephonyProvider
 
 
 async def load_telephony_config_by_id(
     telephony_configuration_id: int,
+    organization_id: int,
 ) -> Dict[str, Any]:
-    """Load and normalize the config row by primary key.
+    """Load and normalize the config row by primary key, scoped to the org.
 
     Returns a dict in the shape each provider class expects in its constructor
     (provider name + provider-specific credentials + ``from_numbers`` list of
-    raw address strings).
+    raw address strings). Raises ``ValueError`` if the config doesn't exist
+    or doesn't belong to ``organization_id`` — the org scope is what makes
+    this safe to expose to user-driven request flows.
     """
     if not telephony_configuration_id:
         raise ValueError("telephony_configuration_id is required")
+    if not organization_id:
+        raise ValueError("organization_id is required")
 
-    row = await db_client.get_telephony_configuration(telephony_configuration_id)
+    row = await db_client.get_telephony_configuration_for_org(
+        telephony_configuration_id, organization_id
+    )
     if not row:
         raise ValueError(
-            f"Telephony configuration {telephony_configuration_id} not found"
+            f"Telephony configuration {telephony_configuration_id} not found "
+            f"for organization {organization_id}"
         )
     return await _normalize_with_phone_numbers(row)
 
@@ -115,9 +123,30 @@ async def find_telephony_config_for_inbound(
 
 async def get_telephony_provider_by_id(
     telephony_configuration_id: int,
+    organization_id: int,
 ) -> TelephonyProvider:
-    config = await load_telephony_config_by_id(telephony_configuration_id)
+    config = await load_telephony_config_by_id(
+        telephony_configuration_id, organization_id
+    )
     return _instantiate(config)
+
+
+async def get_telephony_provider_for_run(
+    workflow_run: WorkflowRunModel,
+    organization_id: int,
+) -> TelephonyProvider:
+    """Resolve the provider for a given workflow run.
+
+    Prefers ``initial_context.telephony_configuration_id`` — stamped at run
+    creation by ``/initiate-call``, ``_create_inbound_workflow_run``, the
+    campaign dispatcher, and ``public_agent``. Falls back to the org's
+    default config so legacy runs created before the multi-config migration
+    still resolve.
+    """
+    cfg_id = (workflow_run.initial_context or {}).get("telephony_configuration_id")
+    if cfg_id:
+        return await get_telephony_provider_by_id(cfg_id, organization_id)
+    return await get_default_telephony_provider(organization_id)
 
 
 async def get_default_telephony_provider(organization_id: int) -> TelephonyProvider:
@@ -152,7 +181,9 @@ async def load_credentials_for_transport(
     Raises ValueError when the resolved config is for a different provider.
     """
     if telephony_configuration_id:
-        config = await load_telephony_config_by_id(telephony_configuration_id)
+        config = await load_telephony_config_by_id(
+            telephony_configuration_id, organization_id
+        )
     else:
         config = await load_default_telephony_config(organization_id)
 

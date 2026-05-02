@@ -20,6 +20,7 @@ from api.services.telephony.base import (
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -395,11 +396,15 @@ class TelnyxProvider(TelephonyProvider):
         if direction == "incoming":
             direction = "inbound"
 
+        from_raw = payload.get("from", "")
+        to_raw = payload.get("to", "")
         return NormalizedInboundData(
             provider=TelnyxProvider.PROVIDER_NAME,
             call_id=payload.get("call_control_id", ""),
-            from_number=TelnyxProvider.normalize_phone_number(payload.get("from", "")),
-            to_number=TelnyxProvider.normalize_phone_number(payload.get("to", "")),
+            from_number=normalize_telephony_address(from_raw).canonical
+            if from_raw
+            else "",
+            to_number=normalize_telephony_address(to_raw).canonical if to_raw else "",
             direction=direction,
             call_status=data.get("event_type", ""),
             account_id=payload.get("connection_id"),
@@ -412,13 +417,6 @@ class TelnyxProvider(TelephonyProvider):
         if not webhook_account_id:
             return False
         return config_data.get("connection_id") == webhook_account_id
-
-    @staticmethod
-    def normalize_phone_number(phone_number: str) -> str:
-        """Normalize phone number to E.164 format.
-        Telnyx already provides numbers in E.164 format
-        """
-        return phone_number or ""
 
     async def verify_inbound_signature(
         self,

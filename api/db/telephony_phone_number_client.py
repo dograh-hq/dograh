@@ -123,6 +123,104 @@ class TelephonyPhoneNumberClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def find_inbound_route_by_account(
+        self,
+        provider: str,
+        account_id_field: str,
+        account_id: str,
+        to_number: str,
+        country_hint: Optional[str] = None,
+        organization_id: Optional[int] = None,
+    ) -> Optional[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
+        """Combined primary-path lookup for inbound dispatch.
+
+        One SQL roundtrip that joins ``telephony_configurations`` and
+        ``telephony_phone_numbers`` and matches all of:
+        provider, ``credentials[account_id_field] == account_id``,
+        ``phone.address_normalized == canonical(to_number)``, and
+        ``phone.is_active``. Replaces the previous pattern of resolving the
+        config and the phone number in two separate queries with a Python-side
+        loop over candidate configs.
+
+        Returns ``(config, phone_number)`` or None when the primary path
+        misses (e.g. legacy non-E.164 stored addresses); the caller should
+        fall back to the fuzzy ``numbers_match`` path in that case.
+        """
+        if not (provider and account_id_field and account_id and to_number):
+            return None
+
+        normalized = normalize_telephony_address(to_number, country_hint=country_hint)
+
+        async with self.async_session() as session:
+            stmt = (
+                select(TelephonyConfigurationModel, TelephonyPhoneNumberModel)
+                .join(
+                    TelephonyPhoneNumberModel,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == TelephonyConfigurationModel.id,
+                )
+                .where(
+                    TelephonyConfigurationModel.provider == provider,
+                    TelephonyConfigurationModel.credentials.op("->>")(account_id_field)
+                    == account_id,
+                    TelephonyPhoneNumberModel.address_normalized
+                    == normalized.canonical,
+                    TelephonyPhoneNumberModel.is_active.is_(True),
+                )
+            )
+            if organization_id is not None:
+                stmt = stmt.where(
+                    TelephonyConfigurationModel.organization_id == organization_id
+                )
+            result = await session.execute(stmt)
+            row = result.first()
+            if not row:
+                return None
+            return row[0], row[1]
+
+    async def find_inbound_routing_conflict(
+        self,
+        provider: str,
+        account_id_field: str,
+        account_id: str,
+        address: str,
+        country_hint: Optional[str] = None,
+    ) -> Optional[Tuple[TelephonyConfigurationModel, TelephonyPhoneNumberModel]]:
+        """Inbound dispatch keys on (provider, credentials[account_id_field],
+        address_normalized) — see ``find_inbound_route_by_account``. That tuple
+        must be globally unique or two orgs would race for the same call.
+
+        Returns the conflicting (config, phone_number) — possibly in another
+        org — when inserting a row with this combination would break that
+        invariant, or None when the row is safe to insert. Returns None for
+        providers that don't carry an account_id (e.g. ARI), which use a
+        different inbound path.
+        """
+        if not (provider and account_id_field and account_id):
+            return None
+
+        normalized = normalize_telephony_address(address, country_hint=country_hint)
+
+        async with self.async_session() as session:
+            stmt = (
+                select(TelephonyConfigurationModel, TelephonyPhoneNumberModel)
+                .join(
+                    TelephonyPhoneNumberModel,
+                    TelephonyPhoneNumberModel.telephony_configuration_id
+                    == TelephonyConfigurationModel.id,
+                )
+                .where(
+                    TelephonyConfigurationModel.provider == provider,
+                    TelephonyConfigurationModel.credentials.op("->>")(account_id_field)
+                    == account_id,
+                    TelephonyPhoneNumberModel.address_normalized
+                    == normalized.canonical,
+                )
+            )
+            result = await session.execute(stmt)
+            row = result.first()
+            return (row[0], row[1]) if row else None
+
     async def create_phone_number(
         self,
         organization_id: int,

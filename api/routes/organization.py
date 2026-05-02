@@ -8,10 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
 from api.db import db_client
 from api.db.models import UserModel
-from api.db.telephony_configuration_client import (
-    TelephonyConfigurationDuplicateAccountError,
-    TelephonyConfigurationInUseError,
-)
+from api.db.telephony_configuration_client import TelephonyConfigurationInUseError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.telephony_config import (
     TelephonyConfigRequest,
@@ -130,17 +127,6 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
     return TelephonyProvidersMetadataResponse(providers=providers)
 
 
-def _account_id_field(provider: str) -> str:
-    """The credential field that uniquely identifies the provider account.
-
-    Empty string for providers without an account-id concept (e.g. ARI).
-    Drives the duplicate-account guard at save time and account-id matching
-    at inbound webhook time.
-    """
-    spec = telephony_registry.get_optional(provider)
-    return spec.account_id_credential_field if spec else ""
-
-
 def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):
     """If the client re-submitted a masked sensitive field, restore the original."""
     for field_name in _sensitive_fields(provider):
@@ -254,12 +240,20 @@ async def create_telephony_configuration(
             provider=request.config.provider,
             credentials=credentials,
             is_default_outbound=request.is_default_outbound,
-            account_id_credential_field=_account_id_field(request.config.provider),
         )
-    except TelephonyConfigurationDuplicateAccountError as e:
-        raise HTTPException(status_code=409, detail=str(e))
     except IntegrityError as e:
-        raise HTTPException(status_code=409, detail=f"Duplicate name: {e}")
+        if "uq_telephony_configurations_org_name" in str(e):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"A telephony configuration named '{request.name}' already "
+                    f"exists in this organization. Pick a different name."
+                ),
+            )
+        raise HTTPException(
+            status_code=409,
+            detail="Telephony configuration violates a uniqueness constraint.",
+        )
 
     capture_event(
         distinct_id=str(user.provider_id),
@@ -321,16 +315,12 @@ async def update_telephony_configuration(
         )
         credentials = await _run_preprocess_hook(existing.provider, credentials)
 
-    try:
-        row = await db_client.update_telephony_configuration(
-            config_id=config_id,
-            organization_id=user.selected_organization_id,
-            name=request.name,
-            credentials=credentials,
-            account_id_credential_field=_account_id_field(existing.provider),
-        )
-    except TelephonyConfigurationDuplicateAccountError as e:
-        raise HTTPException(status_code=409, detail=str(e))
+    row = await db_client.update_telephony_configuration(
+        config_id=config_id,
+        organization_id=user.selected_organization_id,
+        name=request.name,
+        credentials=credentials,
+    )
 
     return _detail_response(row)
 
@@ -432,12 +422,48 @@ async def create_phone_number(
 ):
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
-    await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
+    cfg = await _ensure_config_belongs_to_org(config_id, user.selected_organization_id)
 
     if request.inbound_workflow_id is not None:
         await _ensure_workflow_belongs_to_org(
             request.inbound_workflow_id, user.selected_organization_id
         )
+
+    # Inbound dispatch (find_inbound_route_by_account) keys on (provider,
+    # credentials[account_id_field], address_normalized) without the org, so
+    # that tuple has to be globally unique. Reject up front if another config —
+    # in this org or any other — already owns the same combination.
+    spec = telephony_registry.get_optional(cfg.provider)
+    account_field = spec.account_id_credential_field if spec else ""
+    account_id = (cfg.credentials or {}).get(account_field) if account_field else None
+    if account_id:
+        try:
+            conflict = await db_client.find_inbound_routing_conflict(
+                provider=cfg.provider,
+                account_id_field=account_field,
+                account_id=account_id,
+                address=request.address,
+                country_hint=request.country_code,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if conflict:
+            existing_cfg, existing_phone = conflict
+            same_org = existing_cfg.organization_id == user.selected_organization_id
+            scope = (
+                f"telephony configuration '{existing_cfg.name}'"
+                if same_org
+                else "another organization using the same provider account"
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Phone number {existing_phone.address} is already registered "
+                    f"under {scope}. Inbound calls cannot be uniquely routed when "
+                    f"the same number is configured against the same provider "
+                    f"account in more than one place."
+                ),
+            )
 
     try:
         row = await db_client.create_phone_number(
@@ -618,7 +644,6 @@ async def save_telephony_configuration(
     payload = request.model_dump()
     new_addresses = payload.pop("from_numbers", []) or []
     payload.pop("provider", None)
-    field = _account_id_field(request.provider)
 
     default = await db_client.get_default_telephony_configuration(
         user.selected_organization_id
@@ -626,27 +651,19 @@ async def save_telephony_configuration(
 
     if default and default.provider == request.provider:
         preserve_masked_fields(request.provider, payload, default.credentials or {})
-        try:
-            row = await db_client.update_telephony_configuration(
-                config_id=default.id,
-                organization_id=user.selected_organization_id,
-                credentials=payload,
-                account_id_credential_field=field,
-            )
-        except TelephonyConfigurationDuplicateAccountError as e:
-            raise HTTPException(status_code=409, detail=str(e))
+        row = await db_client.update_telephony_configuration(
+            config_id=default.id,
+            organization_id=user.selected_organization_id,
+            credentials=payload,
+        )
     else:
-        try:
-            row = await db_client.create_telephony_configuration(
-                organization_id=user.selected_organization_id,
-                name=f"{request.provider.title()} Default",
-                provider=request.provider,
-                credentials=payload,
-                is_default_outbound=True,
-                account_id_credential_field=field,
-            )
-        except TelephonyConfigurationDuplicateAccountError as e:
-            raise HTTPException(status_code=409, detail=str(e))
+        row = await db_client.create_telephony_configuration(
+            organization_id=user.selected_organization_id,
+            name=f"{request.provider.title()} Default",
+            provider=request.provider,
+            credentials=payload,
+            is_default_outbound=True,
+        )
 
     # Replace the phone-number set with the inline payload.
     existing_numbers = await db_client.list_phone_numbers_for_config(row.id)

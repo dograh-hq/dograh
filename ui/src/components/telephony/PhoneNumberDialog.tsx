@@ -40,6 +40,26 @@ interface PhoneNumberDialogProps {
 
 const NO_WORKFLOW = "__none__";
 
+// Mirrors api/schemas/telephony_phone_number.py::_validate_address_shape and
+// api/utils/telephony_address.py — keep in sync. Returns an error message
+// when the address would normalize to a broken canonical form, or null when
+// the input is acceptable.
+const ADDRESS_FORMAT_STRIP_RE = /[\s\-()]/g;
+const ADDRESS_E164_RE = /^\+\d{8,15}$/;
+const ADDRESS_BARE_DIGITS_RE = /^\d{8,15}$/;
+
+function validateAddress(rawAddress: string, countryCode: string): string | null {
+  const trimmed = rawAddress.trim();
+  if (!trimmed) return "Address is required";
+  if (/^sips?:/i.test(trimmed)) return null;
+  const stripped = trimmed.replace(ADDRESS_FORMAT_STRIP_RE, "");
+  if (ADDRESS_E164_RE.test(stripped)) return null;
+  if (ADDRESS_BARE_DIGITS_RE.test(stripped) && !countryCode.trim()) {
+    return "PSTN addresses without a leading '+' need a Country (ISO-2) hint, or include the country code in the address (e.g. +14155551234).";
+  }
+  return null;
+}
+
 export function PhoneNumberDialog({
   open,
   onOpenChange,
@@ -58,6 +78,7 @@ export function PhoneNumberDialog({
   const [inboundWorkflowId, setInboundWorkflowId] = useState<string>(NO_WORKFLOW);
   const [workflows, setWorkflows] = useState<{ id: number; name: string }[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [addressTouched, setAddressTouched] = useState(false);
 
   // Reset form when the dialog opens.
   useEffect(() => {
@@ -70,7 +91,11 @@ export function PhoneNumberDialog({
     setInboundWorkflowId(
       existing?.inbound_workflow_id ? String(existing.inbound_workflow_id) : NO_WORKFLOW,
     );
+    setAddressTouched(false);
   }, [open, existing]);
+
+  // Only validate the address on create — edits keep the immutable address.
+  const addressError = isEdit ? null : validateAddress(address, countryCode);
 
   // Load workflows for the inbound dropdown.
   useEffect(() => {
@@ -92,9 +117,13 @@ export function PhoneNumberDialog({
   }, [open, user, getAccessToken]);
 
   const handleSubmit = async () => {
-    if (!isEdit && !address.trim()) {
-      toast.error("Address is required");
-      return;
+    if (!isEdit) {
+      const err = validateAddress(address, countryCode);
+      if (err) {
+        setAddressTouched(true);
+        toast.error(err);
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -174,8 +203,13 @@ export function PhoneNumberDialog({
               placeholder="+19781899185, sip:101@asterisk.local, or 101"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
+              onBlur={() => setAddressTouched(true)}
               disabled={isEdit}
+              aria-invalid={addressTouched && !!addressError}
             />
+            {!isEdit && addressTouched && addressError && (
+              <p className="text-xs text-destructive">{addressError}</p>
+            )}
             {isEdit && (
               <p className="text-xs text-muted-foreground">
                 Address cannot be changed. Delete this number and create a new one to
@@ -257,7 +291,10 @@ export function PhoneNumberDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancel
           </Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button
+            onClick={handleSubmit}
+            disabled={submitting || (!isEdit && !!addressError)}
+          >
             {submitting ? "Saving..." : isEdit ? "Save changes" : "Add"}
           </Button>
         </DialogFooter>

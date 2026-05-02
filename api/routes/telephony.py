@@ -281,6 +281,7 @@ async def _validate_inbound_request(
     Validate all aspects of inbound request.
     Returns: (is_valid, error_type, workflow_context, provider_instance)
     """
+    from api.services.telephony import registry as telephony_registry
 
     workflow = await db_client.get_workflow(workflow_id)
     if not workflow:
@@ -290,27 +291,51 @@ async def _validate_inbound_request(
     user_id = workflow.user_id
     provider = normalized_data.provider
 
-    # Resolve which of the org's configs this webhook came from (account_id match).
-    (
-        validation_result,
-        telephony_configuration_id,
-    ) = await _resolve_inbound_telephony_config(
-        organization_id, provider_class, normalized_data.account_id
-    )
-    if validation_result != TelephonyError.VALID:
-        return False, validation_result, {}, None
+    # Primary path: one combined query that resolves config + phone number
+    # together (joins configs and phone_numbers with provider, account_id,
+    # and called-number filters). Falls back to the two-step config-then-
+    # phone resolution to cover providers without account_id (ARI) and
+    # legacy non-E.164 stored addresses.
+    spec = telephony_registry.get_optional(provider_class.PROVIDER_NAME)
+    account_field = spec.account_id_credential_field if spec else ""
 
-    # Verify the called number is registered to that config.
-    phone_number_id = await _verify_organization_phone_number(
-        normalized_data.to_number,
-        organization_id,
-        telephony_configuration_id,
-        provider_class.PROVIDER_NAME,
-        normalized_data.to_country,
-        normalized_data.from_country,
-    )
-    if phone_number_id is None:
-        return False, TelephonyError.PHONE_NUMBER_NOT_CONFIGURED, {}, None
+    telephony_configuration_id: Optional[int] = None
+    phone_number_id: Optional[int] = None
+
+    if account_field and normalized_data.account_id:
+        match = await db_client.find_inbound_route_by_account(
+            provider=provider_class.PROVIDER_NAME,
+            account_id_field=account_field,
+            account_id=normalized_data.account_id,
+            to_number=normalized_data.to_number,
+            country_hint=normalized_data.to_country,
+            organization_id=organization_id,
+        )
+        if match:
+            cfg_row, phone_row = match
+            telephony_configuration_id = cfg_row.id
+            phone_number_id = phone_row.id
+
+    if telephony_configuration_id is None:
+        (
+            validation_result,
+            telephony_configuration_id,
+        ) = await _resolve_inbound_telephony_config(
+            organization_id, provider_class, normalized_data.account_id
+        )
+        if validation_result != TelephonyError.VALID:
+            return False, validation_result, {}, None
+
+        phone_number_id = await _verify_organization_phone_number(
+            normalized_data.to_number,
+            organization_id,
+            telephony_configuration_id,
+            provider_class.PROVIDER_NAME,
+            normalized_data.to_country,
+            normalized_data.from_country,
+        )
+        if phone_number_id is None:
+            return False, TelephonyError.PHONE_NUMBER_NOT_CONFIGURED, {}, None
 
     # Verify webhook signature using the matched config's credentials. The
     # provider extracts its own signature/timestamp/nonce headers from the
@@ -602,61 +627,36 @@ async def handle_inbound_run(request: Request):
             )
             return generic_hangup_response()
 
-        # 1. Resolve config globally from (provider, account_id).
+        # 1. Resolve (config, phone_number) in a single SQL roundtrip that
+        # joins telephony_configurations and telephony_phone_numbers and
+        # filters on (provider, credentials[account_id_field], called number
+        # canonical address, is_active). The phone-number row's existence in
+        # the matched config simultaneously identifies the org — we never
+        # match a config from one org against a phone owned by another.
         spec = telephony_registry.get_optional(provider_class.PROVIDER_NAME)
         account_field = spec.account_id_credential_field if spec else ""
-        config = await db_client.find_telephony_config_by_account(
-            provider_class.PROVIDER_NAME,
-            account_field,
-            normalized_data.account_id or "",
-        )
-        if not config:
-            logger.warning(
-                f"/inbound/run: no config matched provider="
-                f"{provider_class.PROVIDER_NAME} account_id={normalized_data.account_id}"
-            )
-            return provider_class.generate_validation_error_response(
-                TelephonyError.ACCOUNT_VALIDATION_FAILED
-            )
 
-        organization_id = config.organization_id
-        telephony_configuration_id = config.id
-
-        # 2. Resolve workflow via the called number's inbound_workflow_id.
-        phone_row = await db_client.find_active_phone_number_for_inbound(
-            organization_id,
-            normalized_data.to_number,
-            provider_class.PROVIDER_NAME,
+        match = await db_client.find_inbound_route_by_account(
+            provider=provider_class.PROVIDER_NAME,
+            account_id_field=account_field,
+            account_id=normalized_data.account_id or "",
+            to_number=normalized_data.to_number,
             country_hint=normalized_data.to_country,
         )
-        # Legacy fallback for non-E.164 stored addresses.
-        if (
-            not phone_row
-            or phone_row.telephony_configuration_id != telephony_configuration_id
-        ):
-            phone_row = None
-            for row in await db_client.list_phone_numbers_for_config(
-                telephony_configuration_id
-            ):
-                if not row.is_active:
-                    continue
-                if numbers_match(
-                    normalized_data.to_number,
-                    row.address,
-                    normalized_data.to_country,
-                    normalized_data.from_country,
-                ):
-                    phone_row = row
-                    break
 
-        if not phone_row:
+        if not match:
             logger.warning(
-                f"/inbound/run: number {normalized_data.to_number} not registered "
-                f"in config {telephony_configuration_id}"
+                f"/inbound/run: no inbound route matched "
+                f"provider={provider_class.PROVIDER_NAME} "
+                f"account_id={normalized_data.account_id} "
+                f"to={normalized_data.to_number}"
             )
             return provider_class.generate_validation_error_response(
                 TelephonyError.PHONE_NUMBER_NOT_CONFIGURED
             )
+
+        config, phone_row = match
+        telephony_configuration_id = config.id
 
         if not phone_row.inbound_workflow_id:
             logger.warning(
@@ -668,8 +668,13 @@ async def handle_inbound_run(request: Request):
             )
 
         workflow_id = phone_row.inbound_workflow_id
-        workflow = await db_client.get_workflow(workflow_id)
+        workflow = await db_client.get_workflow(
+            workflow_id, organization_id=config.organization_id
+        )
         if not workflow:
+            logger.warning(
+                f"/inbound/run: workflow not found {workflow_id} for org {config.organization_id}"
+            )
             return provider_class.generate_validation_error_response(
                 TelephonyError.WORKFLOW_NOT_FOUND
             )

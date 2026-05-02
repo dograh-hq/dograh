@@ -1,6 +1,6 @@
 """Telnyx telephony configuration schemas."""
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -10,8 +10,13 @@ class TelnyxConfigurationRequest(BaseModel):
 
     provider: Literal["telnyx"] = Field(default="telnyx")
     api_key: str = Field(..., description="Telnyx API Key")
-    connection_id: str = Field(
-        ..., description="Telnyx Call Control Application ID (connection_id)"
+    connection_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Telnyx Call Control Application ID (connection_id). If omitted, "
+            "a Call Control Application is auto-created on save and its id is "
+            "stored on the configuration."
+        ),
     )
     # Phone numbers are managed via the dedicated phone-numbers endpoints; the
     # legacy /telephony-config POST shim still accepts them inline.
@@ -25,5 +30,5 @@ class TelnyxConfigurationResponse(BaseModel):
 
     provider: Literal["telnyx"] = Field(default="telnyx")
     api_key: str  # Masked
-    connection_id: str
+    connection_id: Optional[str] = None
     from_numbers: List[str]

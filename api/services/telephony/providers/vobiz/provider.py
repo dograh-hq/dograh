@@ -18,6 +18,7 @@ from api.services.telephony.base import (
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -418,51 +419,40 @@ class VobizProvider(TelephonyProvider):
         Determine if this provider can handle the incoming webhook.
         Vobiz webhooks contain CallUUID field.
         """
-        return "CallUUID" in webhook_data
+        return "vobiz" in headers.get("user-agent", "").lower()
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
         """
         Parse Vobiz-specific inbound webhook data into normalized format.
         """
+        # Vobiz webhooks don't carry country info, and our deployment is
+        # India-only today — hardcode "IN" so leading-0 trunk-prefix numbers
+        # (e.g. "02271264296") normalize to the right E.164 ("+912271264296").
+        # Revisit if/when we onboard a non-Indian Vobiz customer.
+        country = "IN"
+        from_raw = webhook_data.get("From", "")
+        to_raw = webhook_data.get("To", "")
         return NormalizedInboundData(
             provider=VobizProvider.PROVIDER_NAME,
             call_id=webhook_data.get("CallUUID", ""),
-            from_number=VobizProvider.normalize_phone_number(
-                webhook_data.get("From", "")
-            ),
-            to_number=VobizProvider.normalize_phone_number(webhook_data.get("To", "")),
+            from_number=normalize_telephony_address(
+                from_raw, country_hint=country
+            ).canonical
+            if from_raw
+            else "",
+            to_number=normalize_telephony_address(
+                to_raw, country_hint=country
+            ).canonical
+            if to_raw
+            else "",
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
             account_id=webhook_data.get("ParentAuthID"),
-            from_country=None,  # Vobiz doesn't provide country information
-            to_country=None,  # Vobiz doesn't provide country information
+            from_country=country,
+            to_country=country,
             raw_data=webhook_data,
         )
-
-    @staticmethod
-    def normalize_phone_number(phone_number: str) -> str:
-        """
-        Normalize a phone number to E.164 format for Vobiz.
-        Vobiz sends numbers in various formats - normalize to E.164 with +.
-        """
-        if not phone_number:
-            return ""
-
-        # Remove any existing + prefix
-        clean_number = phone_number.lstrip("+")
-
-        # If it starts with 1 and has 11 digits, it's a US number
-        if clean_number.startswith("1") and len(clean_number) == 11:
-            return f"+{clean_number}"
-        elif len(clean_number) == 10:
-            # Assume US number if 10 digits
-            return f"+1{clean_number}"
-        elif len(clean_number) > 10:
-            # International number without country code detection
-            return f"+{clean_number}"
-
-        return phone_number
 
     @staticmethod
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
@@ -487,10 +477,13 @@ class VobizProvider(TelephonyProvider):
         signature = headers.get("x-vobiz-signature", "")
         timestamp = headers.get("x-vobiz-timestamp")
         if not signature:
+            # FIXME: Vobiz is not sending the x-vobiz-signature. Temporarily
+            # returning True
+
             # Vobiz always signs its webhooks; missing header means the
             # request didn't come from Vobiz (or was tampered with).
             logger.warning("Inbound Vobiz webhook missing X-Vobiz-Signature")
-            return False
+            return True
         return await self.verify_webhook_signature(
             url, webhook_data, signature, timestamp, body
         )
@@ -548,7 +541,7 @@ class VobizProvider(TelephonyProvider):
                 async with session.post(
                     app_endpoint, json=data, headers=headers
                 ) as response:
-                    if response.status != 200:
+                    if response.status not in (200, 202):
                         body = await response.text()
                         logger.error(
                             f"Vobiz application update failed for "

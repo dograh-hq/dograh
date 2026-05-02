@@ -23,6 +23,7 @@ from api.services.telephony.base import (
     TelephonyProvider,
 )
 from api.utils.common import get_backend_endpoints
+from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
@@ -363,14 +364,16 @@ class PlivoProvider(TelephonyProvider):
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
+        from_raw = webhook_data.get("From", "")
+        to_raw = webhook_data.get("To", "")
         return NormalizedInboundData(
             provider=PlivoProvider.PROVIDER_NAME,
             call_id=webhook_data.get("CallUUID", "")
             or webhook_data.get("RequestUUID", ""),
-            from_number=PlivoProvider.normalize_phone_number(
-                webhook_data.get("From", "")
-            ),
-            to_number=PlivoProvider.normalize_phone_number(webhook_data.get("To", "")),
+            from_number=normalize_telephony_address(from_raw).canonical
+            if from_raw
+            else "",
+            to_number=normalize_telephony_address(to_raw).canonical if to_raw else "",
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
             account_id=webhook_data.get("AuthID") or webhook_data.get("ParentAuthID"),
@@ -388,21 +391,6 @@ class PlivoProvider(TelephonyProvider):
             "falling back to config existence check"
         )
         return bool(config_data.get("auth_id"))
-
-    @staticmethod
-    def normalize_phone_number(phone_number: str) -> str:
-        if not phone_number:
-            return ""
-
-        clean_number = phone_number.lstrip("+")
-        if clean_number.startswith("1") and len(clean_number) == 11:
-            return f"+{clean_number}"
-        if len(clean_number) == 10:
-            return f"+1{clean_number}"
-        if len(clean_number) > 10:
-            return f"+{clean_number}"
-
-        return phone_number
 
     async def verify_inbound_signature(
         self,

@@ -68,6 +68,9 @@ async def find_telephony_config_for_inbound(
 ) -> Optional[Tuple[int, Dict[str, Any]]]:
     """Match an inbound webhook to one of the org's configs of the detected
     provider. Returns ``(config_id, normalized_config)`` or None.
+
+    Always scoped to ``organization_id`` — never matches across orgs even if
+    two orgs happen to have credentials with the same account_id.
     """
     spec = registry.get_optional(provider_name)
     if not spec:
@@ -96,10 +99,10 @@ async def find_telephony_config_for_inbound(
             matched = next(
                 (c for c in candidates if c.is_default_outbound), candidates[0]
             )
-    else:
+    elif account_id:
         for cand in candidates:
             stored = (cand.credentials or {}).get(field)
-            if stored and account_id and stored == account_id:
+            if stored and stored == account_id:
                 matched = cand
                 break
 

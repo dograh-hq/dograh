@@ -351,13 +351,15 @@ class TwilioProvider(TelephonyProvider):
         """
         Parse Twilio-specific inbound webhook data into normalized format.
         """
+        from_raw = webhook_data.get("From", "")
+        to_raw = webhook_data.get("To", "")
         return NormalizedInboundData(
             provider=TwilioProvider.PROVIDER_NAME,
             call_id=webhook_data.get("CallSid", ""),
-            from_number=TwilioProvider.normalize_phone_number(
-                webhook_data.get("From", "")
-            ),
-            to_number=TwilioProvider.normalize_phone_number(webhook_data.get("To", "")),
+            from_number=normalize_telephony_address(from_raw).canonical
+            if from_raw
+            else "",
+            to_number=normalize_telephony_address(to_raw).canonical if to_raw else "",
             direction=webhook_data.get("Direction", ""),
             call_status=webhook_data.get("CallStatus", ""),
             account_id=webhook_data.get("AccountSid"),
@@ -367,27 +369,6 @@ class TwilioProvider(TelephonyProvider):
             or webhook_data.get("CalledCountry"),
             raw_data=webhook_data,
         )
-
-    @staticmethod
-    def normalize_phone_number(phone_number: str) -> str:
-        """
-        Normalize a phone number to E.164 format for Twilio.
-        Twilio already provides numbers in E.164 format.
-        """
-        if not phone_number:
-            return ""
-
-        # Twilio numbers are already in E.164 format (+1234567890)
-        if phone_number.startswith("+"):
-            return phone_number
-
-        # If for some reason it doesn't have +, assume US and add +1
-        if phone_number.startswith("1") and len(phone_number) == 11:
-            return f"+{phone_number}"
-        elif len(phone_number) == 10:
-            return f"+1{phone_number}"
-
-        return phone_number
 
     @staticmethod
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:

@@ -420,19 +420,6 @@ class VonageProvider(TelephonyProvider):
         )
 
     @staticmethod
-    def normalize_phone_number(phone_number: str) -> str:
-        """
-        Normalize a phone number to E.164 format for Vonage.
-        """
-        if not phone_number:
-            return ""
-
-        if phone_number.startswith("+"):
-            return phone_number
-
-        return f"+{phone_number}"
-
-    @staticmethod
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
         """Validate Vonage account_id from webhook matches configuration"""
         if not webhook_account_id:

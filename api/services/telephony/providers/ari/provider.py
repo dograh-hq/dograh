@@ -307,10 +307,6 @@ class ARIProvider(TelephonyProvider):
         """ARI doesn't use account IDs for validation."""
         return True
 
-    def normalize_phone_number(self, phone_number: str) -> str:
-        """Normalize phone number - ARI uses extensions as-is."""
-        return phone_number or ""
-
     async def verify_inbound_signature(
         self,
         url: str,

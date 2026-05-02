@@ -477,6 +477,7 @@ class CloudonixProvider(TelephonyProvider):
         self,
         websocket: "WebSocket",
         *,
+        organization_id: int,
         workflow_id: int,
         user_id: int,
         workflow_run_id: int,
@@ -486,9 +487,9 @@ class CloudonixProvider(TelephonyProvider):
 
         ``Domain`` (domain id) is read from the query string. The bearer
         token comes from the stored Cloudonix telephony configuration
-        matched by ``domain_id`` — never from the URL or stream payload.
-        The websocket handshake (connected / start) is identical to the
-        standard inbound flow.
+        matched by ``domain_id`` within the workflow's organization — never
+        from the URL or stream payload. The websocket handshake (connected
+        / start) is identical to the standard inbound flow.
 
         Before starting the pipeline we (a) require an existing Cloudonix
         telephony configuration for the supplied ``domain_id`` and (b)
@@ -504,7 +505,7 @@ class CloudonixProvider(TelephonyProvider):
             await websocket.close(code=4400, reason="Missing Domain query param")
             return
 
-        config = await self._find_config_by_domain(domain_id)
+        config = await self._find_config_by_domain(organization_id, domain_id)
         if not config:
             logger.error(
                 f"Cloudonix agent-stream: no telephony configuration found "
@@ -614,12 +615,20 @@ class CloudonixProvider(TelephonyProvider):
             )
             return False
 
-    async def _find_config_by_domain(self, domain_id: str):
-        """Find a Cloudonix config by its normalized ``domain_id``."""
-
-        return await db_client.find_telephony_config_by_account(
-            self.PROVIDER_NAME, "domain_id", self._normalize_domain(domain_id)
+    async def _find_config_by_domain(self, organization_id: int, domain_id: str):
+        """Find a Cloudonix config by its normalized ``domain_id`` within
+        ``organization_id`` — scoped lookup so credentials from a different
+        org can never be used."""
+        normalized = self._normalize_domain(domain_id)
+        if not normalized:
+            return None
+        candidates = await db_client.list_telephony_configurations_by_provider(
+            organization_id, self.PROVIDER_NAME
         )
+        for cand in candidates:
+            if (cand.credentials or {}).get("domain_id") == normalized:
+                return cand
+        return None
 
     # ======== INBOUND CALL METHODS ========
 
@@ -727,34 +736,6 @@ class CloudonixProvider(TelephonyProvider):
         return CloudonixProvider._normalize_domain(
             webhook_account_id
         ) == CloudonixProvider._normalize_domain(stored_domain)
-
-    def normalize_phone_number(self, phone_number: str) -> str:
-        """
-        Normalize a phone number to E.164 format for Cloudonix.
-
-        Cloudonix typically provides numbers in E.164 format already,
-        but we'll ensure proper formatting.
-        """
-        if not phone_number:
-            return ""
-
-        # Remove any spaces or formatting
-        clean_number = (
-            phone_number.replace(" ", "")
-            .replace("-", "")
-            .replace("(", "")
-            .replace(")", "")
-        )
-
-        # If already in E.164 format (+...), return as-is
-        if clean_number.startswith("+"):
-            return clean_number
-
-        # If starts with country code but no +, add it
-        if len(clean_number) >= 10:
-            return f"+{clean_number}"
-
-        return clean_number
 
     async def verify_inbound_signature(
         self,

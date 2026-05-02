@@ -15,11 +15,6 @@ from api.db.base_client import BaseDBClient
 from api.db.models import CampaignModel, TelephonyConfigurationModel
 
 
-class TelephonyConfigurationDuplicateAccountError(Exception):
-    """Raised when saving a config whose account_id collides with an existing
-    config of the same provider in the same organization."""
-
-
 class TelephonyConfigurationInUseError(Exception):
     """Raised when deleting a config that is still referenced by a campaign."""
 
@@ -67,29 +62,6 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return result.scalars().first()
 
-    async def find_telephony_config_by_account(
-        self, provider: str, account_id_field: str, account_id: str
-    ) -> Optional[TelephonyConfigurationModel]:
-        """Global lookup used by the workflow-agnostic inbound dispatcher.
-
-        Returns the single config whose stored credentials contain
-        ``credentials[account_id_field] == account_id``. Filters in Python
-        over the per-provider candidate set since credentials is JSON.
-        """
-        if not account_id_field or not account_id:
-            return None
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.provider == provider,
-                )
-            )
-            for cand in result.scalars().all():
-                stored = (cand.credentials or {}).get(account_id_field)
-                if stored and stored == account_id:
-                    return cand
-            return None
-
     async def list_telephony_configurations_by_provider(
         self, organization_id: int, provider: str
     ) -> List[TelephonyConfigurationModel]:
@@ -126,19 +98,9 @@ class TelephonyConfigurationClient(BaseDBClient):
         provider: str,
         credentials: Dict[str, Any],
         is_default_outbound: bool = False,
-        account_id_credential_field: Optional[str] = None,
     ) -> TelephonyConfigurationModel:
-        """Create a new config. Raises ``TelephonyConfigurationDuplicateAccountError``
-        if the same provider+account_id is already configured for the org."""
-        if account_id_credential_field:
-            await self._guard_duplicate_account(
-                organization_id,
-                provider,
-                credentials.get(account_id_credential_field),
-                account_id_credential_field,
-                exclude_id=None,
-            )
-
+        """Create a new config row. Duplicate-account guarding is the caller's
+        responsibility; this method does not enforce it."""
         async with self.async_session() as session:
             if is_default_outbound:
                 await self._clear_default_outbound(session, organization_id)
@@ -165,21 +127,11 @@ class TelephonyConfigurationClient(BaseDBClient):
         organization_id: int,
         name: Optional[str] = None,
         credentials: Optional[Dict[str, Any]] = None,
-        account_id_credential_field: Optional[str] = None,
     ) -> Optional[TelephonyConfigurationModel]:
         async with self.async_session() as session:
             row = await session.get(TelephonyConfigurationModel, config_id)
             if not row or row.organization_id != organization_id:
                 return None
-
-            if credentials is not None and account_id_credential_field:
-                await self._guard_duplicate_account(
-                    organization_id,
-                    row.provider,
-                    credentials.get(account_id_credential_field),
-                    account_id_credential_field,
-                    exclude_id=config_id,
-                )
 
             if name is not None:
                 row.name = name
@@ -230,33 +182,6 @@ class TelephonyConfigurationClient(BaseDBClient):
             await session.delete(row)
             await session.commit()
             return True
-
-    async def _guard_duplicate_account(
-        self,
-        organization_id: int,
-        provider: str,
-        account_id: Optional[str],
-        credential_field: str,
-        exclude_id: Optional[int],
-    ) -> None:
-        if not account_id:
-            return
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(TelephonyConfigurationModel).where(
-                    TelephonyConfigurationModel.organization_id == organization_id,
-                    TelephonyConfigurationModel.provider == provider,
-                )
-            )
-            for row in result.scalars().all():
-                if exclude_id is not None and row.id == exclude_id:
-                    continue
-                stored = (row.credentials or {}).get(credential_field)
-                if stored and stored == account_id:
-                    raise TelephonyConfigurationDuplicateAccountError(
-                        f"A {provider} configuration with this account is already "
-                        f"registered (config id {row.id})."
-                    )
 
     @staticmethod
     async def _clear_default_outbound(session, organization_id: int) -> None:

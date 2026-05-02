@@ -116,6 +116,7 @@ async def agent_stream_websocket(
     try:
         await provider_instance.handle_external_websocket(
             websocket,
+            organization_id=workflow.organization_id,
             workflow_id=workflow.id,
             user_id=workflow.user_id,
             workflow_run_id=workflow_run.id,

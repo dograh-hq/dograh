@@ -263,19 +263,6 @@ class TelephonyProvider(ABC):
         pass
 
     @abstractmethod
-    def normalize_phone_number(self, phone_number: str) -> str:
-        """
-        Normalize a phone number to E.164 format for this provider.
-
-        Args:
-            phone_number: Raw phone number from webhook
-
-        Returns:
-            Phone number in E.164 format (+country_code_number)
-        """
-        pass
-
-    @abstractmethod
     async def verify_inbound_signature(
         self,
         url: str,
@@ -340,6 +327,7 @@ class TelephonyProvider(ABC):
         self,
         websocket: "WebSocket",
         *,
+        organization_id: int,
         workflow_id: int,
         user_id: int,
         workflow_run_id: int,
@@ -349,8 +337,9 @@ class TelephonyProvider(ABC):
 
         Used by ``/api/v1/agent-stream/{workflow_uuid}`` when the caller carries
         provider credentials in the query string (no stored
-        ``TelephonyConfigurationModel`` row required). Default raises so
-        providers that haven't opted in fail loudly.
+        ``TelephonyConfigurationModel`` row required). ``organization_id`` is
+        passed so providers can scope any config lookups to the workflow's
+        org. Default raises so providers that haven't opted in fail loudly.
         """
         raise NotImplementedError(
             f"Agent-stream not supported for provider {self.PROVIDER_NAME}"

@@ -20,7 +20,9 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # pgvector image: api/alembic/versions/dc33eef8dabe_add_document_tables.py
+        # runs CREATE EXTENSION vector, which plain postgres doesn't ship.
+        image: pgvector/pgvector:pg17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

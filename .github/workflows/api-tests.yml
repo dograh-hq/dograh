@@ -4,10 +4,10 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'api/**'
-      - 'pipecat/**'
-      - 'scripts/**'
-      - '.github/workflows/api-tests.yml'
+      - "api/**"
+      - "pipecat/**"
+      - "scripts/**"
+      - ".github/workflows/api-tests.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -65,7 +65,7 @@ jobs:
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
           cache: pip
           cache-dependency-path: |
             api/requirements.txt
@@ -74,11 +74,12 @@ jobs:
       - name: Set up Node 22 (test_ts_bridge.py shells out to node)
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: "22"
 
       - name: Install api dependencies
         run: |
           pip install -r api/requirements.txt
+          pip install -r api/requirements.dev.txt
           pip install './pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb]'
 
       - name: Install ts_validator npm deps

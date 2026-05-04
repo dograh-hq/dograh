@@ -329,11 +329,7 @@ class PipecatEngine:
         )
 
         # Register function with LLM
-        self.llm.register_function(
-            name,
-            transition_func,
-            cancel_on_interruption=False,
-        )
+        self.llm.register_function(name, transition_func)
 
     async def _register_knowledge_base_function(
         self, document_uuids: list[str]

@@ -207,13 +207,10 @@ class CustomToolManager:
                 function_name = schema["function"]["name"]
 
                 # Create and register the handler
-                handler, timeout_secs, cancel_on_interruption = self._create_handler(
-                    tool, function_name
-                )
+                handler, timeout_secs = self._create_handler(tool, function_name)
                 self._engine.llm.register_function(
                     function_name,
                     handler,
-                    cancel_on_interruption=cancel_on_interruption,
                     timeout_secs=timeout_secs,
                 )
 
@@ -236,19 +233,16 @@ class CustomToolManager:
             Async handler function for the tool
         """
         timeout_secs: Optional[float] = None
-        cancel_on_interruption = True
 
         if tool.category == ToolCategory.END_CALL.value:
-            cancel_on_interruption = False
             handler = self._create_end_call_handler(tool, function_name)
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
             timeout_secs = 120.0
-            cancel_on_interruption = False
             handler = self._create_transfer_call_handler(tool, function_name)
         else:
             handler = self._create_http_tool_handler(tool, function_name)
 
-        return handler, timeout_secs, cancel_on_interruption
+        return handler, timeout_secs
 
     def _register_calculator_handler(self) -> None:
         """Register the built-in calculator function with the LLM."""

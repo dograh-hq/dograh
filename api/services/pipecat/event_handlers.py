@@ -188,7 +188,12 @@ def register_event_handlers(
                         await engine.llm.queue_frame(LLMContextFrame(engine.context))
                 else:
                     logger.debug("Playing text greeting via TTS")
-                    await task.queue_frame(TTSSpeakFrame(greeting_value))
+                    # append_to_context=True so the assistant aggregator commits
+                    # the greeting to the LLM context once TTS finishes; without
+                    # it the LLM would re-greet on its first generation.
+                    await task.queue_frame(
+                        TTSSpeakFrame(greeting_value, append_to_context=True)
+                    )
             else:
                 logger.debug(
                     "Both pipeline_started and client_connected received - triggering initial LLM generation"

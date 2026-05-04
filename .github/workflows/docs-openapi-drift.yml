@@ -43,6 +43,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://dummy:dummy@localhost/dummy
           REDIS_URL: redis://localhost:6379/0
           ENABLE_AWS_S3: "false"
+          MINIO_PUBLIC_ENDPOINT: http://localhost:9000
           DEPLOYMENT_MODE: oss
         run: python -u -m scripts.dump_docs_openapi
 
@@ -54,3 +55,14 @@ jobs:
             exit 1
           fi
           echo "OpenAPI spec is in sync."
+
+      - name: Send Slack notification - Failure
+        if: failure()
+        uses: slackapi/slack-github-action@v1.26.0
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        with:
+          payload: |
+            {
+              "text": "❌ Dograh Docs OpenAPI drift check failed on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+            }

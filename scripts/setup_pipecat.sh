@@ -14,12 +14,13 @@ echo "Setting up pipecat as a git submodule..."
 echo "Initializing git submodules..."
 git submodule update --init --recursive
 
+# Install dograh API requirements first so pipecat's extras win on any
+# shared transitive dependencies (matches api/Dockerfile and CI workflow).
+echo "Installing dograh API requirements..."
+pip install -r api/requirements.txt
+
 # Install pipecat in editable mode with all extras
 echo "Installing pipecat dependencies..."
 pip install -e ./pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb]
-
-# Install other requirements
-echo "Installing dograh API requirements..."
-pip install -r api/requirements.txt
 
 echo "Setup complete! Pipecat is now available as a git submodule."

@@ -12,12 +12,6 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
-from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
-from api.services.workflow.tools.custom_tool import (
-    execute_http_tool,
-    tool_to_function_schema,
-)
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
@@ -31,6 +25,12 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
+
+from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
+from api.services.workflow.tools.custom_tool import (
+    execute_http_tool,
+    tool_to_function_schema,
+)
 from pipecat.tests import MockLLMService, run_test
 
 
@@ -720,13 +720,19 @@ class TestCustomToolManagerUnit:
     @pytest.mark.asyncio
     async def test_get_tool_schemas_returns_correct_format(self):
         """Test that get_tool_schemas returns FunctionSchema objects."""
-        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
         from pipecat.adapters.schemas.function_schema import FunctionSchema
 
         # Create a mock engine
+        from api.services.workflow.pipecat_engine import PipecatEngine
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
         mock_engine = Mock()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
+        mock_engine._organization_id = None
+        mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
+            mock_engine
+        )
 
         manager = CustomToolManager(mock_engine)
 
@@ -754,29 +760,31 @@ class TestCustomToolManagerUnit:
             },
         )
 
-        with patch(
-            "api.services.workflow.pipecat_engine_custom_tools.get_organization_id_from_workflow_run"
-        ) as mock_get_org:
-            mock_get_org.return_value = 1
-
-            with patch(
+        with (
+            patch(
                 "api.services.workflow.pipecat_engine_custom_tools.db_client"
-            ) as mock_db:
-                mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
+            ) as mock_db,
+            patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
 
-                schemas = await manager.get_tool_schemas(["uuid-1"])
+            schemas = await manager.get_tool_schemas(["uuid-1"])
 
-                assert len(schemas) == 1
-                schema = schemas[0]
+            assert len(schemas) == 1
+            schema = schemas[0]
 
-                # Schema should be a FunctionSchema object
-                assert isinstance(schema, FunctionSchema)
+            # Schema should be a FunctionSchema object
+            assert isinstance(schema, FunctionSchema)
 
-                # FunctionSchema should have correct attributes
-                assert schema.name == "test_tool"
-                assert "param1" in schema.properties
-                assert schema.properties["param1"]["type"] == "string"
-                assert "param1" in schema.required
+            # FunctionSchema should have correct attributes
+            assert schema.name == "test_tool"
+            assert "param1" in schema.properties
+            assert schema.properties["param1"]["type"] == "string"
+            assert "param1" in schema.required
 
     @pytest.mark.asyncio
     async def test_register_handlers_creates_working_handler(self):
@@ -792,9 +800,15 @@ class TestCustomToolManagerUnit:
 
         mock_llm.register_function = capture_register
 
+        from api.services.workflow.pipecat_engine import PipecatEngine
+
         mock_engine = Mock()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
+        mock_engine._organization_id = None
+        mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
+            mock_engine
+        )
         mock_engine.llm = mock_llm
 
         manager = CustomToolManager(mock_engine)
@@ -815,20 +829,22 @@ class TestCustomToolManagerUnit:
             },
         )
 
-        with patch(
-            "api.services.workflow.pipecat_engine_custom_tools.get_organization_id_from_workflow_run"
-        ) as mock_get_org:
-            mock_get_org.return_value = 1
-
-            with patch(
+        with (
+            patch(
                 "api.services.workflow.pipecat_engine_custom_tools.db_client"
-            ) as mock_db:
-                mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
+            ) as mock_db,
+            patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
 
-                await manager.register_handlers(["uuid-1"])
+            await manager.register_handlers(["uuid-1"])
 
-                # Verify handler was registered
-                assert "api_call" in registered_handlers
+            # Verify handler was registered
+            assert "api_call" in registered_handlers
 
         # Now test that the handler works
         handler = registered_handlers["api_call"]

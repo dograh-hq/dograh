@@ -77,44 +77,17 @@ from sqlalchemy.pool import NullPool
 
 
 def get_test_database_url() -> str:
-    """
-    Get the test database URL by appending _test to the database name.
-
-    Example:
-        postgresql+asyncpg://user:pass@host/mydb
-        -> postgresql+asyncpg://user:pass@host/mydb_test
-    """
-    original_url = os.environ.get("DATABASE_URL")
-    if not original_url:
+    """Get the test database URL from the DATABASE_URL env var."""
+    test_url = os.environ.get("DATABASE_URL")
+    if not test_url:
         raise ValueError("DATABASE_URL environment variable is not set")
-
-    parsed = urlparse(original_url)
-    # Append _test to the database name (path without leading slash)
-    original_db_name = parsed.path.lstrip("/")
-    test_db_name = f"{original_db_name}_test"
-
-    # Reconstruct the URL with the new database name
-    test_url = urlunparse(
-        (
-            parsed.scheme,
-            parsed.netloc,
-            f"/{test_db_name}",
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        )
-    )
     return test_url
 
 
 def get_base_database_url() -> str:
-    """
-    Get base database URL (postgres) for creating/dropping test database.
-    """
-    original_url = os.environ.get("DATABASE_URL")
-    parsed = urlparse(original_url)
-    # Connect to 'postgres' database for admin operations
-    base_url = urlunparse(
+    """Get base database URL (postgres) for creating/dropping test database."""
+    parsed = urlparse(get_test_database_url())
+    return urlunparse(
         (
             parsed.scheme,
             parsed.netloc,
@@ -124,15 +97,12 @@ def get_base_database_url() -> str:
             parsed.fragment,
         )
     )
-    return base_url
 
 
 def get_test_db_name() -> str:
-    """Extract the test database name."""
-    original_url = os.environ.get("DATABASE_URL")
-    parsed = urlparse(original_url)
-    original_db_name = parsed.path.lstrip("/")
-    return f"{original_db_name}_test"
+    """Extract the test database name from DATABASE_URL."""
+    parsed = urlparse(get_test_database_url())
+    return parsed.path.lstrip("/")
 
 
 @pytest.fixture(scope="session")

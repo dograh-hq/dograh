@@ -23,6 +23,23 @@ from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pipecat.frames.frames import Frame, LLMContextFrame
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMAssistantAggregatorParams,
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+)
+from pipecat.tests.mock_transport import MockTransport
+from pipecat.transports.base_transport import TransportParams
+from pipecat.turns.user_mute import (
+    CallbackUserMuteStrategy,
+    MuteUntilFirstBotCompleteUserMuteStrategy,
+)
+from pipecat.utils.enums import EndTaskReason
 
 from api.enums import ToolCategory
 from api.services.workflow.dto import (
@@ -42,24 +59,7 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
 )
 from api.services.workflow.workflow import WorkflowGraph
 from api.tests.conftest import END_CALL_SYSTEM_PROMPT, START_CALL_SYSTEM_PROMPT
-from pipecat.frames.frames import Frame, LLMContextFrame
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMAssistantAggregatorParams,
-    LLMContextAggregatorPair,
-    LLMUserAggregatorParams,
-)
 from pipecat.tests import MockLLMService, MockTTSService
-from pipecat.tests.mock_transport import MockTransport
-from pipecat.transports.base_transport import TransportParams
-from pipecat.turns.user_mute import (
-    CallbackUserMuteStrategy,
-    MuteUntilFirstBotCompleteUserMuteStrategy,
-)
-from pipecat.utils.enums import EndTaskReason
 
 
 class EndCallTestHelper:
@@ -182,7 +182,7 @@ async def create_engine_with_tracking(
     engine.end_call_with_reason = tracked_end_call
 
     # Create context aggregator with user mute strategies (after engine so we can use its callback)
-    assistant_params = LLMAssistantAggregatorParams(expect_stripped_words=True)
+    assistant_params = LLMAssistantAggregatorParams()
 
     # Wrap should_mute_user to track calls
     original_should_mute_user = engine.should_mute_user
@@ -265,7 +265,7 @@ class TestEndCallViaNodeTransition:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -369,7 +369,7 @@ class TestEndCallViaNodeTransition:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -468,7 +468,7 @@ class TestEndCallViaCustomTool:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -560,7 +560,7 @@ class TestEndCallViaCustomTool:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -638,7 +638,7 @@ class TestEndCallViaClientDisconnect:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -729,7 +729,7 @@ class TestEndCallRaceConditions:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -841,7 +841,7 @@ class TestEndCallRaceConditions:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -937,7 +937,7 @@ class TestEndCallExtractionBehavior:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -1061,7 +1061,7 @@ class TestEndCallExtractionBehavior:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):

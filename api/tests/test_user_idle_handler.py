@@ -13,9 +13,6 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.workflow import WorkflowGraph
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
@@ -35,7 +32,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
-from pipecat.tests import MockLLMService, MockTTSService
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.turns.user_mute import (
@@ -46,6 +42,10 @@ from pipecat.turns.user_start import TranscriptionUserTurnStartStrategy
 from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
+
+from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.workflow import WorkflowGraph
+from pipecat.tests import MockLLMService, MockTTSService
 
 
 class UserSpeechInjector(FrameProcessor):
@@ -161,7 +161,7 @@ async def create_pipeline_with_speech_injection(
         user_idle_timeout=user_idle_timeout,
     )
 
-    assistant_params = LLMAssistantAggregatorParams(expect_stripped_words=True)
+    assistant_params = LLMAssistantAggregatorParams()
 
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params
@@ -257,7 +257,7 @@ class TestUserIdleHandler:
         )
 
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):

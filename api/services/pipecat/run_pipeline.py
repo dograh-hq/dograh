@@ -429,7 +429,6 @@ async def _run_pipeline(
     engine.set_audio_config(audio_config)
 
     assistant_params = LLMAssistantAggregatorParams(
-        expect_stripped_words=True,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 

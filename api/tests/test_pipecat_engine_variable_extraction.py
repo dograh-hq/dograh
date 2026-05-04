@@ -16,12 +16,6 @@ from typing import Any, Dict, List
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.pipecat_engine_variable_extractor import (
-    VariableExtractionManager,
-)
-from api.services.workflow.workflow import WorkflowGraph
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -31,9 +25,15 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
 )
-from pipecat.tests import MockLLMService, MockTTSService
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
+
+from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.pipecat_engine_variable_extractor import (
+    VariableExtractionManager,
+)
+from api.services.workflow.workflow import WorkflowGraph
+from pipecat.tests import MockLLMService, MockTTSService
 
 
 class TestVariableExtractionDuringTransitions:
@@ -97,7 +97,7 @@ class TestVariableExtractionDuringTransitions:
         context = LLMContext()
 
         # Add assistant context aggregator
-        assistant_params = LLMAssistantAggregatorParams(expect_stripped_words=True)
+        assistant_params = LLMAssistantAggregatorParams()
         context_aggregator = LLMContextAggregatorPair(
             context, assistant_params=assistant_params
         )
@@ -152,7 +152,7 @@ class TestVariableExtractionDuringTransitions:
 
         # Patch DB calls and extraction manager
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):

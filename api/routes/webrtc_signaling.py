@@ -24,6 +24,8 @@ from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from loguru import logger
+from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
 from api.constants import ENVIRONMENT
@@ -43,8 +45,6 @@ from api.services.pipecat.ws_sender_registry import (
     unregister_ws_sender,
 )
 from api.services.quota_service import check_dograh_quota
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 router = APIRouter(prefix="/ws")
 

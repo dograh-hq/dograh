@@ -9,7 +9,7 @@ the root api/conftest.py. This module provides lightweight, non-DB fixtures:
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -123,13 +123,28 @@ class MockToolModel:
 
 @pytest.fixture
 def mock_engine():
-    """Create a mock PipecatEngine."""
+    """Create a mock PipecatEngine.
+
+    Binds the real `_get_organization_id` method so the fetch + cache logic
+    runs against a patched `db_client.get_organization_id_by_workflow_run_id`
+    (returns org_id=1) for the duration of the fixture.
+    """
+    from api.services.workflow.pipecat_engine import PipecatEngine
+
     engine = Mock()
     engine._workflow_run_id = 1
     engine._call_context_vars = {"customer_name": "John Doe"}
+    engine._organization_id = None
+    engine._get_organization_id = PipecatEngine._get_organization_id.__get__(engine)
     engine.llm = Mock()
     engine.llm.register_function = Mock()
-    return engine
+
+    with patch(
+        "api.db:db_client.get_organization_id_by_workflow_run_id",
+        new_callable=AsyncMock,
+        return_value=1,
+    ):
+        yield engine
 
 
 @pytest.fixture

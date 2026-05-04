@@ -13,21 +13,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
-
-from api.db import db_client
-from api.enums import ToolCategory, WorkflowRunMode
-from api.services.pipecat.audio_playback import play_audio, play_audio_loop
-from api.services.telephony.call_transfer_manager import get_call_transfer_manager
-from api.services.telephony.factory import get_telephony_provider
-from api.services.telephony.transfer_event_protocol import TransferContext
-from api.services.workflow.disposition_mapper import (
-    get_organization_id_from_workflow_run,
-)
-from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
-from api.services.workflow.tools.custom_tool import (
-    execute_http_tool,
-    tool_to_function_schema,
-)
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import (
     FunctionCallResultProperties,
@@ -35,6 +20,18 @@ from pipecat.frames.frames import (
 )
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.enums import EndTaskReason
+
+from api.db import db_client
+from api.enums import ToolCategory, WorkflowRunMode
+from api.services.pipecat.audio_playback import play_audio, play_audio_loop
+from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.transfer_event_protocol import TransferContext
+from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
+from api.services.workflow.tools.custom_tool import (
+    execute_http_tool,
+    tool_to_function_schema,
+)
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -75,7 +72,6 @@ class CustomToolManager:
 
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
-        self._organization_id: Optional[int] = None
 
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
@@ -122,12 +118,8 @@ class CustomToolManager:
         return False
 
     async def get_organization_id(self) -> Optional[int]:
-        """Get and cache the organization ID from workflow run."""
-        if self._organization_id is None:
-            self._organization_id = await get_organization_id_from_workflow_run(
-                self._engine._workflow_run_id
-            )
-        return self._organization_id
+        """Get the organization ID from the engine (shared cache)."""
+        return await self._engine._get_organization_id()
 
     async def get_tool_schemas(self, tool_uuids: list[str]) -> list[FunctionSchema]:
         """Fetch custom tools and convert them to function schemas.
@@ -335,7 +327,7 @@ class CustomToolManager:
                     tool=tool,
                     arguments=function_call_params.arguments,
                     call_context_vars=self._engine._call_context_vars,
-                    organization_id=self._organization_id,
+                    organization_id=await self.get_organization_id(),
                 )
 
                 await function_call_params.result_callback(result)

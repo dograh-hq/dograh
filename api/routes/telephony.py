@@ -15,6 +15,7 @@ from fastapi import (
     WebSocket,
 )
 from loguru import logger
+from pipecat.utils.run_context import set_current_run_id
 from pydantic import BaseModel, field_validator
 from starlette.websockets import WebSocketDisconnect
 
@@ -44,7 +45,6 @@ from api.utils.telephony_helper import (
     numbers_match,
     parse_webhook_request,
 )
-from pipecat.utils.run_context import set_current_run_id
 
 router = APIRouter(prefix="/telephony")
 

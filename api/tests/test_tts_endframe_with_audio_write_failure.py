@@ -32,12 +32,6 @@ import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
-
-from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.pipecat_engine_variable_extractor import (
-    VariableExtractionManager,
-)
-from api.services.workflow.workflow import WorkflowGraph
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -48,7 +42,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
 )
-from pipecat.tests import MockLLMService, MockTTSService
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.turns.user_mute import (
@@ -56,6 +49,13 @@ from pipecat.turns.user_mute import (
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 from pipecat.utils.enums import EndTaskReason
+
+from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.pipecat_engine_variable_extractor import (
+    VariableExtractionManager,
+)
+from api.services.workflow.workflow import WorkflowGraph
+from pipecat.tests import MockLLMService, MockTTSService
 
 
 async def create_test_pipeline_with_failing_transport(
@@ -131,7 +131,7 @@ async def create_test_pipeline_with_failing_transport(
         user_mute_strategies=user_mute_strategies,
     )
 
-    assistant_params = LLMAssistantAggregatorParams(expect_stripped_words=True)
+    assistant_params = LLMAssistantAggregatorParams()
 
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params
@@ -204,7 +204,7 @@ class TestTTSPauseWithAudioWriteFailure:
 
         # Patch DB calls
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):
@@ -324,7 +324,7 @@ class TestTTSPauseWithAudioWriteFailure:
         )
 
         with patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ):

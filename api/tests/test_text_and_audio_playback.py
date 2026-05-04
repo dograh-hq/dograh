@@ -11,21 +11,6 @@ from typing import Any, Dict, List
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
-from api.services.pipecat.recording_audio_cache import RecordingAudio
-from api.services.workflow.dto import (
-    EdgeDataDTO,
-    EndCallNodeData,
-    EndCallRFNode,
-    Position,
-    ReactFlowDTO,
-    RFEdgeDTO,
-    StartCallNodeData,
-    StartCallRFNode,
-)
-from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
-from api.services.workflow.workflow import WorkflowGraph
 from pipecat.frames.frames import (
     Frame,
     LLMContextFrame,
@@ -42,9 +27,24 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
 )
-from pipecat.tests import MockLLMService, MockTTSService
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
+
+from api.services.pipecat.recording_audio_cache import RecordingAudio
+from api.services.workflow.dto import (
+    EdgeDataDTO,
+    EndCallNodeData,
+    EndCallRFNode,
+    Position,
+    ReactFlowDTO,
+    RFEdgeDTO,
+    StartCallNodeData,
+    StartCallRFNode,
+)
+from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+from api.services.workflow.workflow import WorkflowGraph
+from pipecat.tests import MockLLMService, MockTTSService
 
 # ─── Constants ──────────────────────────────────────────────────
 
@@ -189,7 +189,7 @@ async def run_pipeline_and_capture_frames(
     )
 
     context = LLMContext()
-    assistant_params = LLMAssistantAggregatorParams(expect_stripped_words=True)
+    assistant_params = LLMAssistantAggregatorParams()
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params
     )
@@ -234,7 +234,7 @@ async def run_pipeline_and_capture_frames(
 
     with (
         patch(
-            "api.services.workflow.pipecat_engine.get_organization_id_from_workflow_run",
+            "api.db:db_client.get_organization_id_by_workflow_run_id",
             new_callable=AsyncMock,
             return_value=1,
         ),

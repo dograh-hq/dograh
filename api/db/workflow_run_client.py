@@ -238,6 +238,22 @@ class WorkflowRunClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def get_organization_id_by_workflow_run_id(
+        self, run_id: int | None
+    ) -> int | None:
+        """Resolve organization_id from a workflow run via workflow.user."""
+        if not run_id:
+            return None
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowModel.organization_id)
+                .join(
+                    WorkflowRunModel, WorkflowRunModel.workflow_id == WorkflowModel.id
+                )
+                .where(WorkflowRunModel.id == run_id)
+            )
+            return result.scalar_one_or_none()
+
     async def get_workflow_runs_by_workflow_id(
         self,
         workflow_id: int,

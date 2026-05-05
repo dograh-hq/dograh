@@ -13,13 +13,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
-from pipecat.adapters.schemas.function_schema import FunctionSchema
-from pipecat.frames.frames import (
-    FunctionCallResultProperties,
-    TTSSpeakFrame,
-)
-from pipecat.services.llm_service import FunctionCallParams
-from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
@@ -32,6 +25,13 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.frames.frames import (
+    FunctionCallResultProperties,
+    TTSSpeakFrame,
+)
+from pipecat.services.llm_service import FunctionCallParams
+from pipecat.utils.enums import EndTaskReason
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine

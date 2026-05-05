@@ -1,14 +1,14 @@
 """Cloudonix transport factory."""
 
 from fastapi import WebSocket
-from pipecat.transports.websocket.fastapi import (
-    FastAPIWebsocketParams,
-    FastAPIWebsocketTransport,
-)
 
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_mixer import build_audio_out_mixer
 from api.services.telephony.factory import load_credentials_for_transport
+from pipecat.transports.websocket.fastapi import (
+    FastAPIWebsocketParams,
+    FastAPIWebsocketTransport,
+)
 
 from .serializers import CloudonixFrameSerializer
 from .strategies import CloudonixHangupStrategy

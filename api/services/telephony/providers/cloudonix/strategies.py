@@ -3,9 +3,9 @@
 from typing import Any, Dict
 
 from loguru import logger
-from pipecat.serializers.call_strategies import HangupStrategy
 
 from api.services.telephony.providers.cloudonix.provider import CLOUDONIX_API_BASE_URL
+from pipecat.serializers.call_strategies import HangupStrategy
 
 
 class CloudonixHangupStrategy(HangupStrategy):

@@ -1,6 +1,7 @@
 """Tests for LLM behavior when calling an unregistered function."""
 
 import pytest
+
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
@@ -12,7 +13,6 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
-
 from pipecat.tests import MockLLMService, run_test
 
 

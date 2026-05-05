@@ -28,10 +28,6 @@ deterministic and the synthesised audio length is short.
 import asyncio
 
 import pytest
-from pipecat.frames.frames import TranscriptionFrame
-from pipecat.tests.mock_transport import MockTransport
-from pipecat.transports.base_transport import TransportParams
-from pipecat.utils.time import time_now_iso8601
 
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.services.pipecat.audio_config import create_audio_config
@@ -40,7 +36,11 @@ from api.tests.integrations._run_pipeline_helpers import (
     create_workflow_run_rows,
     patch_run_pipeline_externals,
 )
+from pipecat.frames.frames import TranscriptionFrame
 from pipecat.tests import MockLLMService, MockTTSService
+from pipecat.tests.mock_transport import MockTransport
+from pipecat.transports.base_transport import TransportParams
+from pipecat.utils.time import time_now_iso8601
 
 GREETING_TEXT = (
     "Thanks for calling Happy Feet, this is Sarah. How can I help you today?"

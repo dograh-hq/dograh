@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 import aiohttp
 from loguru import logger
+
 from pipecat.serializers.call_strategies import HangupStrategy, TransferStrategy
 
 

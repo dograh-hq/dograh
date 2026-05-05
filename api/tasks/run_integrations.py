@@ -5,8 +5,6 @@ from typing import Any, Dict, Optional
 
 import httpx
 from loguru import logger
-from pipecat.utils.enums import EndTaskReason
-from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from pydantic import ValidationError
 
 from api.constants import BACKEND_API_ENDPOINT
@@ -23,6 +21,8 @@ from api.services.workflow.dto import (
 from api.services.workflow.qa import run_per_node_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
+from pipecat.utils.enums import EndTaskReason
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 
 def _should_skip_qa(

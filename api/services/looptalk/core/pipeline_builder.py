@@ -3,10 +3,6 @@
 from typing import Any, Dict
 
 from loguru import logger
-from pipecat.pipeline.pipeline import Pipeline
-from pipecat.processors.aggregators.llm_response_universal import (
-    LLMContextAggregatorPair,
-)
 
 from api.db.db_client import DBClient
 from api.services.looptalk.audio_streamer import get_or_create_audio_streamer
@@ -27,6 +23,10 @@ from api.services.pipecat.service_factory import (
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow import WorkflowGraph
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
 
 
 class LoopTalkPipelineBuilder:

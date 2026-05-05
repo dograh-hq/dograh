@@ -7,14 +7,14 @@ Vobiz uses Plivo-compatible WebSocket protocol:
 
 from fastapi import WebSocket
 from loguru import logger
-from pipecat.transports.websocket.fastapi import (
-    FastAPIWebsocketParams,
-    FastAPIWebsocketTransport,
-)
 
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_mixer import build_audio_out_mixer
 from api.services.telephony.factory import load_credentials_for_transport
+from pipecat.transports.websocket.fastapi import (
+    FastAPIWebsocketParams,
+    FastAPIWebsocketTransport,
+)
 
 from .serializers import VobizFrameSerializer
 

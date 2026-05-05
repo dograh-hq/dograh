@@ -347,6 +347,39 @@ export type CampaignDefaultsResponse = {
 };
 
 /**
+ * CampaignLogEntryResponse
+ *
+ * A single timestamped entry from the campaign's append-only log.
+ *
+ * Surfaced in the UI so operators can see why a campaign moved to
+ * paused / failed without digging through server logs.
+ */
+export type CampaignLogEntryResponse = {
+    /**
+     * Ts
+     */
+    ts: string;
+    /**
+     * Level
+     */
+    level: string;
+    /**
+     * Event
+     */
+    event: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Details
+     */
+    details?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
  * CampaignProgressResponse
  */
 export type CampaignProgressResponse = {
@@ -481,6 +514,10 @@ export type CampaignResponse = {
      * Telephony Configuration Name
      */
     telephony_configuration_name?: string | null;
+    /**
+     * Logs
+     */
+    logs?: Array<CampaignLogEntryResponse>;
 };
 
 /**

@@ -235,7 +235,10 @@ def register_event_handlers(
             workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
             if workflow_run and workflow_run.campaign_id:
                 await circuit_breaker.record_and_evaluate(
-                    campaign_id=workflow_run.campaign_id, is_failure=True
+                    campaign_id=workflow_run.campaign_id,
+                    is_failure=True,
+                    workflow_run_id=workflow_run_id,
+                    reason="pipeline_error",
                 )
             asyncio.create_task(
                 _capture_call_event(

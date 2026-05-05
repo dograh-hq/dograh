@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from 'date-fns';
-import { ArrowLeft, CalendarIcon, Check, Clock, Download, Pause, Pencil, Phone, Play, RefreshCw, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, ArrowLeft, CalendarIcon, Check, Clock, Download, Info, Pause, Pencil, Phone, Play, RefreshCw, X } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -380,6 +380,38 @@ export default function CampaignDetailPage() {
     };
 
     const canEdit = campaign && ['created', 'running', 'paused'].includes(campaign.state);
+
+    // Newest entries first. The backend appends chronologically; the UI is more
+    // useful when the most recent failure / pause is at the top.
+    const sortedLogs = (campaign?.logs ?? []).slice().reverse();
+
+    const getLogIcon = (level: string) => {
+        switch (level) {
+            case 'error':
+                return <AlertCircle className="h-4 w-4 text-destructive" />;
+            case 'warning':
+                return <AlertTriangle className="h-4 w-4 text-amber-500" />;
+            default:
+                return <Info className="h-4 w-4 text-blue-500" />;
+        }
+    };
+
+    const getLogBadgeVariant = (level: string): 'destructive' | 'secondary' | 'outline' => {
+        switch (level) {
+            case 'error':
+                return 'destructive';
+            case 'warning':
+                return 'outline';
+            default:
+                return 'secondary';
+        }
+    };
+
+    const formatLogTimestamp = (ts: string) => {
+        const d = new Date(ts);
+        if (isNaN(d.getTime())) return ts;
+        return d.toLocaleString();
+    };
 
     // Render action button based on state
     const renderActionButton = () => {
@@ -793,6 +825,56 @@ export default function CampaignDetailPage() {
                                 </div>
                             )}
                         </div>
+                    </CardContent>
+                </Card>
+
+                {/* Activity Log */}
+                <Card className="mb-6">
+                    <CardHeader>
+                        <CardTitle>Activity Log</CardTitle>
+                        <CardDescription>
+                            Recent state transitions and failures. Newest first.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        {sortedLogs.length === 0 ? (
+                            <p className="text-sm text-muted-foreground">No events recorded yet.</p>
+                        ) : (
+                            <ul className="space-y-3">
+                                {sortedLogs.map((entry, idx) => (
+                                    <li
+                                        key={`${entry.ts}-${idx}`}
+                                        className="flex gap-3 border-b last:border-b-0 pb-3 last:pb-0"
+                                    >
+                                        <div className="mt-0.5">{getLogIcon(entry.level)}</div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Badge variant={getLogBadgeVariant(entry.level)} className="text-xs">
+                                                    {entry.level}
+                                                </Badge>
+                                                <code className="text-xs text-muted-foreground">
+                                                    {entry.event}
+                                                </code>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {formatLogTimestamp(entry.ts)}
+                                                </span>
+                                            </div>
+                                            <p className="text-sm mt-1 break-words">{entry.message}</p>
+                                            {entry.details && Object.keys(entry.details).length > 0 && (
+                                                <details className="mt-1.5">
+                                                    <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                                                        Details
+                                                    </summary>
+                                                    <pre className="mt-1.5 text-xs bg-muted rounded p-2 overflow-x-auto whitespace-pre-wrap break-words">
+                                                        {JSON.stringify(entry.details, null, 2)}
+                                                    </pre>
+                                                </details>
+                                            )}
+                                        </div>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
                     </CardContent>
                 </Card>
 

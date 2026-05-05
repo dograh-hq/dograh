@@ -8,7 +8,10 @@ from api.services.campaign.campaign_call_dispatcher import campaign_call_dispatc
 from api.services.campaign.campaign_event_publisher import (
     get_campaign_event_publisher,
 )
-from api.services.campaign.errors import ConcurrentSlotAcquisitionError
+from api.services.campaign.errors import (
+    ConcurrentSlotAcquisitionError,
+    PhoneNumberPoolExhaustedError,
+)
 from api.services.campaign.source_sync_factory import get_sync_service
 
 
@@ -80,6 +83,13 @@ async def sync_campaign_source(ctx: Dict, campaign_id: int) -> None:
             source_sync_status="failed",
             source_sync_error=str(e),
         )
+        await db_client.append_campaign_log(
+            campaign_id=campaign_id,
+            level="error",
+            event="source_sync_failed",
+            message=f"Source sync failed: {e}",
+            details={"error": str(e)},
+        )
         raise
 
 
@@ -137,6 +147,39 @@ async def process_campaign_batch(
 
         # Update campaign state to failed
         await db_client.update_campaign(campaign_id=campaign_id, state="failed")
+        await db_client.append_campaign_log(
+            campaign_id=campaign_id,
+            level="error",
+            event="batch_failed",
+            message=f"Concurrent slot acquisition timeout: {e}",
+            details={"error": str(e), "reason": "concurrent_slot_timeout"},
+        )
+        raise
+
+    except PhoneNumberPoolExhaustedError as e:
+        logger.warning(f"Phone number pool exhausted for campaign {campaign_id}: {e}")
+
+        publisher = await get_campaign_event_publisher()
+        await publisher.publish_batch_failed(
+            campaign_id=campaign_id,
+            error=f"Phone number pool exhausted: {e}",
+            processed_count=0,
+        )
+
+        await db_client.update_campaign(campaign_id=campaign_id, state="failed")
+        await db_client.append_campaign_log(
+            campaign_id=campaign_id,
+            level="error",
+            event="phone_number_pool_exhausted",
+            message=(
+                f"Phone number pool exhausted for org {e.organization_id}: "
+                "no free from_number available to dispatch outbound calls"
+            ),
+            details={
+                "error": str(e),
+                "organization_id": e.organization_id,
+            },
+        )
         raise
 
     except Exception as e:
@@ -152,4 +195,11 @@ async def process_campaign_batch(
 
         # Update campaign state to failed
         await db_client.update_campaign(campaign_id=campaign_id, state="failed")
+        await db_client.append_campaign_log(
+            campaign_id=campaign_id,
+            level="error",
+            event="batch_failed",
+            message=f"Batch processing failed: {e}",
+            details={"error": str(e)},
+        )
         raise

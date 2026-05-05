@@ -198,7 +198,9 @@ class TestCircuitBreakerReset:
         result = await cb.reset(campaign_id=42)
 
         assert result is True
-        mock_redis.delete.assert_called_once_with("cb_failures:42", "cb_successes:42")
+        mock_redis.delete.assert_called_once_with(
+            "cb_failures:42", "cb_successes:42", "cb_recent_failures:42"
+        )
 
     @pytest.mark.asyncio
     async def test_reset_on_redis_error(self):
@@ -253,6 +255,7 @@ class TestRecordAndEvaluate:
         ):
             mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
             mock_db.update_campaign = AsyncMock()
+            mock_db.append_campaign_log = AsyncMock()
 
             mock_publisher = AsyncMock()
             mock_get_publisher.return_value = mock_publisher
@@ -353,6 +356,206 @@ class TestRecordAndEvaluate:
 
 
 # =============================================================================
+# Tests for recent-failures tracking (workflow_run_id + reason)
+# =============================================================================
+
+
+class TestCircuitBreakerRecentFailures:
+    """When a call fails, the circuit breaker should remember the workflow_run_id
+    and reason in a capped Redis list, and surface those entries in the campaign
+    log entry written when the breaker trips."""
+
+    @pytest.mark.asyncio
+    async def test_failure_pushes_recent_failure_entry(self):
+        """is_failure=True with run id + reason should push to recent-failures list."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {}
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            mock_db.append_campaign_log = AsyncMock()
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+            cb._push_recent_failure = AsyncMock()
+            cb._get_recent_failures = AsyncMock(return_value=[])
+
+            await cb.record_and_evaluate(
+                campaign_id=42,
+                is_failure=True,
+                workflow_run_id=100,
+                reason="failed",
+            )
+
+            cb._push_recent_failure.assert_called_once_with(
+                campaign_id=42, workflow_run_id=100, reason="failed"
+            )
+
+    @pytest.mark.asyncio
+    async def test_success_does_not_push_recent_failure(self):
+        """is_failure=False must not push to the recent-failures list."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {}
+
+        with patch("api.services.campaign.circuit_breaker.db_client") as mock_db:
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            cb.record_call_outcome = AsyncMock(return_value=(False, None))
+            cb._push_recent_failure = AsyncMock()
+            cb._get_recent_failures = AsyncMock(return_value=[])
+
+            await cb.record_and_evaluate(
+                campaign_id=42,
+                is_failure=False,
+                workflow_run_id=100,
+                reason=None,
+            )
+
+            cb._push_recent_failure.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_trip_log_includes_recent_failures_in_details(self):
+        """When the breaker trips, the campaign log entry's details should include
+        recent_failures fetched from the Redis list."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_campaign = MagicMock()
+        mock_campaign.id = 42
+        mock_campaign.state = "running"
+        mock_campaign.orchestrator_metadata = {}
+
+        stats = {
+            "failure_rate": 0.6,
+            "failure_count": 6,
+            "success_count": 4,
+            "threshold": 0.5,
+            "window_seconds": 120,
+        }
+
+        recent = [
+            {"workflow_run_id": 100, "reason": "failed", "ts": 1700000010.0},
+            {"workflow_run_id": 99, "reason": "error", "ts": 1700000000.0},
+        ]
+
+        with (
+            patch("api.services.campaign.circuit_breaker.db_client") as mock_db,
+            patch(
+                "api.services.campaign.circuit_breaker.get_campaign_event_publisher"
+            ) as mock_get_publisher,
+        ):
+            mock_db.get_campaign_by_id = AsyncMock(return_value=mock_campaign)
+            mock_db.update_campaign = AsyncMock()
+            mock_db.append_campaign_log = AsyncMock()
+
+            mock_publisher = AsyncMock()
+            mock_get_publisher.return_value = mock_publisher
+
+            cb.record_call_outcome = AsyncMock(return_value=(True, stats))
+            cb._push_recent_failure = AsyncMock()
+            cb._get_recent_failures = AsyncMock(return_value=recent)
+
+            await cb.record_and_evaluate(
+                campaign_id=42,
+                is_failure=True,
+                workflow_run_id=100,
+                reason="failed",
+            )
+
+            mock_db.append_campaign_log.assert_called_once()
+            kwargs = mock_db.append_campaign_log.call_args.kwargs
+            assert kwargs["campaign_id"] == 42
+            assert kwargs["event"] == "circuit_breaker_tripped"
+            assert kwargs["details"]["recent_failures"] == recent
+
+    @pytest.mark.asyncio
+    async def test_push_recent_failure_uses_lpush_and_ltrim(self):
+        """_push_recent_failure should LPUSH a JSON entry and LTRIM the list
+        to keep only the most recent N (default 20)."""
+        import json
+
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_redis = AsyncMock()
+        mock_redis.lpush = AsyncMock(return_value=1)
+        mock_redis.ltrim = AsyncMock(return_value=True)
+        mock_redis.expire = AsyncMock(return_value=True)
+        cb.redis_client = mock_redis
+
+        await cb._push_recent_failure(
+            campaign_id=42, workflow_run_id=100, reason="failed"
+        )
+
+        # Verify the key used
+        mock_redis.lpush.assert_called_once()
+        push_args = mock_redis.lpush.call_args.args
+        assert push_args[0] == "cb_recent_failures:42"
+
+        # Verify the payload includes the run id + reason
+        entry = json.loads(push_args[1])
+        assert entry["workflow_run_id"] == 100
+        assert entry["reason"] == "failed"
+        assert "ts" in entry
+
+        # Verify the cap (LTRIM 0 19 keeps 20 entries)
+        mock_redis.ltrim.assert_called_once_with("cb_recent_failures:42", 0, 19)
+
+    @pytest.mark.asyncio
+    async def test_get_recent_failures_decodes_lrange(self):
+        """_get_recent_failures should LRANGE the list and JSON-decode entries."""
+        import json
+
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_redis = AsyncMock()
+        entries = [
+            json.dumps({"workflow_run_id": 100, "reason": "failed", "ts": 1.0}),
+            json.dumps({"workflow_run_id": 99, "reason": "error", "ts": 0.5}),
+        ]
+        mock_redis.lrange = AsyncMock(return_value=entries)
+        cb.redis_client = mock_redis
+
+        result = await cb._get_recent_failures(campaign_id=42)
+
+        mock_redis.lrange.assert_called_once_with("cb_recent_failures:42", 0, -1)
+        assert result == [
+            {"workflow_run_id": 100, "reason": "failed", "ts": 1.0},
+            {"workflow_run_id": 99, "reason": "error", "ts": 0.5},
+        ]
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_recent_failures_key(self):
+        """reset() must also delete cb_recent_failures:{campaign_id}."""
+        from api.services.campaign.circuit_breaker import CircuitBreaker
+
+        cb = CircuitBreaker()
+
+        mock_redis = AsyncMock()
+        mock_redis.delete = AsyncMock(return_value=3)
+        cb.redis_client = mock_redis
+
+        await cb.reset(campaign_id=42)
+
+        mock_redis.delete.assert_called_once_with(
+            "cb_failures:42", "cb_successes:42", "cb_recent_failures:42"
+        )
+
+
+# =============================================================================
 # Integration tests: _process_status_update calls circuit_breaker
 # =============================================================================
 
@@ -405,7 +608,12 @@ class TestProcessStatusUpdateCircuitBreaker:
 
             await _process_status_update(100, status)
 
-            mock_cb.record_and_evaluate.assert_called_once_with(42, is_failure=True)
+            mock_cb.record_and_evaluate.assert_called_once_with(
+                42,
+                is_failure=True,
+                workflow_run_id=100,
+                reason="failed",
+            )
 
     @pytest.mark.asyncio
     async def test_success_status_calls_record_and_evaluate(self):

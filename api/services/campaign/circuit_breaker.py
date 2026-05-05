@@ -3,10 +3,15 @@
 Uses two Redis sorted sets (ZSETs) per campaign — one for failures, one for
 successes — as sliding windows.  ZCARD gives O(1) counts without iterating
 members, keeping the Lua scripts simple.
+
+A separate capped Redis list (``cb_recent_failures:{campaign_id}``) stores the
+last N failing ``{workflow_run_id, reason, ts}`` entries so the campaign log
+written when the breaker trips can show *which* calls pushed it over.
 """
 
+import json
 import time
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import redis.asyncio as aioredis
 from loguru import logger
@@ -14,6 +19,11 @@ from loguru import logger
 from api.constants import DEFAULT_CIRCUIT_BREAKER_CONFIG, REDIS_URL
 from api.db import db_client
 from api.services.campaign.campaign_event_publisher import get_campaign_event_publisher
+
+# Cap on the number of recent failure entries kept per campaign — large enough
+# to be useful for debugging a trip, small enough that the JSON details stay
+# bounded.
+MAX_RECENT_FAILURES = 20
 
 
 class CircuitBreaker:
@@ -34,6 +44,60 @@ class CircuitBreaker:
     def _keys(campaign_id: int) -> Tuple[str, str]:
         """Return (failures_key, successes_key) for a campaign."""
         return f"cb_failures:{campaign_id}", f"cb_successes:{campaign_id}"
+
+    @staticmethod
+    def _recent_failures_key(campaign_id: int) -> str:
+        """Return the Redis key used for the capped recent-failures list."""
+        return f"cb_recent_failures:{campaign_id}"
+
+    async def _push_recent_failure(
+        self,
+        campaign_id: int,
+        workflow_run_id: int,
+        reason: Optional[str],
+    ) -> None:
+        """Push a failure entry onto the capped recent-failures list."""
+        redis_client = await self._get_redis()
+        key = self._recent_failures_key(campaign_id)
+        entry = json.dumps(
+            {
+                "workflow_run_id": workflow_run_id,
+                "reason": reason,
+                "ts": time.time(),
+            }
+        )
+        try:
+            await redis_client.lpush(key, entry)
+            await redis_client.ltrim(key, 0, MAX_RECENT_FAILURES - 1)
+            # Keep this list around as long as the sliding window plus a buffer.
+            await redis_client.expire(
+                key,
+                DEFAULT_CIRCUIT_BREAKER_CONFIG["window_seconds"] + 60,
+            )
+        except Exception as e:
+            # Never let recent-failure bookkeeping disrupt the call path.
+            logger.error(
+                f"Failed to record recent failure for campaign {campaign_id}: {e}"
+            )
+
+    async def _get_recent_failures(self, campaign_id: int) -> List[Dict[str, Any]]:
+        """Return the recent-failures list (most-recent first)."""
+        redis_client = await self._get_redis()
+        key = self._recent_failures_key(campaign_id)
+        try:
+            entries = await redis_client.lrange(key, 0, -1)
+        except Exception as e:
+            logger.error(
+                f"Failed to read recent failures for campaign {campaign_id}: {e}"
+            )
+            return []
+        decoded: List[Dict[str, Any]] = []
+        for raw in entries:
+            try:
+                decoded.append(json.loads(raw))
+            except (TypeError, ValueError):
+                continue
+        return decoded
 
     async def record_call_outcome(
         self,
@@ -227,12 +291,24 @@ class CircuitBreaker:
             logger.error(f"Circuit breaker check error for campaign {campaign_id}: {e}")
             return False, None
 
-    async def record_and_evaluate(self, campaign_id: int, is_failure: bool) -> None:
+    async def record_and_evaluate(
+        self,
+        campaign_id: int,
+        is_failure: bool,
+        *,
+        workflow_run_id: Optional[int] = None,
+        reason: Optional[str] = None,
+    ) -> None:
         """Record a call outcome, and if the breaker trips, pause the campaign.
 
         This is the main entry point called from telephony status callbacks.
         It handles fetching campaign config, recording the outcome, and
         pausing + publishing an event if the breaker trips.
+
+        ``workflow_run_id`` and ``reason`` are optional but should be supplied
+        on failures: they are appended to a capped Redis list so the campaign
+        log entry written on trip can name the calls that pushed the breaker
+        over the threshold.
 
         Exceptions are caught internally so this never disrupts the caller.
         """
@@ -244,6 +320,13 @@ class CircuitBreaker:
             cb_config = {}
             if campaign.orchestrator_metadata:
                 cb_config = campaign.orchestrator_metadata.get("circuit_breaker", {})
+
+            if is_failure and workflow_run_id is not None:
+                await self._push_recent_failure(
+                    campaign_id=campaign_id,
+                    workflow_run_id=workflow_run_id,
+                    reason=reason,
+                )
 
             tripped, stats = await self.record_call_outcome(
                 campaign_id=campaign_id,
@@ -257,7 +340,22 @@ class CircuitBreaker:
                     f"pausing campaign. Stats: {stats}"
                 )
 
+                recent_failures = await self._get_recent_failures(campaign_id)
+
                 await db_client.update_campaign(campaign_id=campaign_id, state="paused")
+                await db_client.append_campaign_log(
+                    campaign_id=campaign_id,
+                    level="warning",
+                    event="circuit_breaker_tripped",
+                    message=(
+                        f"Paused: failure rate {stats['failure_rate']:.2%} "
+                        f"({stats['failure_count']}/"
+                        f"{stats['failure_count'] + stats['success_count']}) "
+                        f"exceeded threshold {stats['threshold']:.2%} "
+                        f"in {stats['window_seconds']}s window"
+                    ),
+                    details={**stats, "recent_failures": recent_failures},
+                )
 
                 publisher = await get_campaign_event_publisher()
                 await publisher.publish_circuit_breaker_tripped(
@@ -275,13 +373,16 @@ class CircuitBreaker:
     async def reset(self, campaign_id: int) -> bool:
         """Reset the circuit breaker state for a campaign.
 
-        Called when a campaign is resumed to give it a clean slate.
+        Called when a campaign is resumed to give it a clean slate. Also clears
+        the recent-failures list so log entries from the next trip reference
+        only post-resume failures.
         """
         redis_client = await self._get_redis()
         fail_key, succ_key = self._keys(campaign_id)
+        recent_key = self._recent_failures_key(campaign_id)
 
         try:
-            await redis_client.delete(fail_key, succ_key)
+            await redis_client.delete(fail_key, succ_key, recent_key)
             logger.info(f"Circuit breaker reset for campaign {campaign_id}")
             return True
         except Exception as e:

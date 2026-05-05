@@ -179,9 +179,12 @@ async def _process_status_update(workflow_run_id: int, status: StatusCallbackReq
 
         if workflow_run.campaign_id:
             await campaign_call_dispatcher.release_call_slot(workflow_run_id)
+            is_failure = status.status in ("error", "failed")
             await circuit_breaker.record_and_evaluate(
                 workflow_run.campaign_id,
-                is_failure=status.status in ("error", "failed"),
+                is_failure=is_failure,
+                workflow_run_id=workflow_run_id if is_failure else None,
+                reason=status.status if is_failure else None,
             )
 
         if status.status in ["busy", "no-answer"] and workflow_run.campaign_id:

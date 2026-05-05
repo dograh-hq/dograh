@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
@@ -133,35 +134,6 @@ class CampaignClient(BaseDBClient):
                 raise e
             await session.refresh(campaign)
             return campaign
-
-    async def update_campaign_progress(
-        self,
-        campaign_id: int,
-        processed_rows: int,
-        failed_rows: int,
-        organization_id: int,
-    ) -> None:
-        """Update campaign progress counters"""
-        async with self.async_session() as session:
-            query = select(CampaignModel).where(
-                CampaignModel.id == campaign_id,
-                CampaignModel.organization_id == organization_id,
-            )
-            result = await session.execute(query)
-            campaign = result.scalar_one_or_none()
-
-            if not campaign:
-                raise ValueError(f"Campaign {campaign_id} not found")
-
-            campaign.processed_rows = processed_rows
-            campaign.failed_rows = failed_rows
-            campaign.updated_at = datetime.now(UTC)
-
-            try:
-                await session.commit()
-            except Exception as e:
-                await session.rollback()
-                raise e
 
     async def get_campaign_runs(
         self,
@@ -451,6 +423,48 @@ class CampaignClient(BaseDBClient):
                 raise e
             await session.refresh(campaign)
             return campaign
+
+    async def append_campaign_log(
+        self,
+        campaign_id: int,
+        level: str,
+        event: str,
+        message: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Append a timestamped entry to the campaign's logs JSON array.
+
+        Uses a SQL-side jsonb concat so concurrent writers do not clobber
+        each other's entries.
+        """
+        entry: Dict[str, Any] = {
+            "ts": datetime.now(UTC).isoformat(),
+            "level": level,
+            "event": event,
+            "message": message,
+        }
+        if details:
+            entry["details"] = details
+
+        async with self.async_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE campaigns "
+                    "SET logs = (logs::jsonb || CAST(:entry AS jsonb))::json, "
+                    "    updated_at = :now "
+                    "WHERE id = :campaign_id"
+                ),
+                {
+                    "entry": json.dumps([entry]),
+                    "now": datetime.now(UTC),
+                    "campaign_id": campaign_id,
+                },
+            )
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
 
     # QueuedRun methods
     async def bulk_create_queued_runs(self, queued_runs_data: list[dict]) -> None:

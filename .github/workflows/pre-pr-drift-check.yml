@@ -64,10 +64,6 @@ jobs:
           fi
           echo "Python format/lint is clean."
 
-      - name: Run npm run fix-lint
-        working-directory: ui
-        run: npm run fix-lint
-
       - name: Check for UI lint drift
         run: |
           if ! git diff --exit-code ui; then

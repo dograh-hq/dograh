@@ -125,13 +125,14 @@
 
     state.isInitialized = true;
 
-    // Load styles
-    injectStyles();
-
     // Create widget UI based on mode
     if (state.config.embedMode === 'inline') {
+      injectStyles();
       createInlineWidget();
+    } else if (state.config.embedMode === 'headless') {
+      createHeadlessWidget();
     } else {
+      injectStyles();
       createFloatingWidget();
     }
 
@@ -295,6 +296,18 @@
     document.body.appendChild(container);
 
     // Store audio element reference
+    state.audioElement = audio;
+  }
+
+  /**
+   * Create headless widget (no UI — host page drives everything via window.DograhWidget API)
+   */
+  function createHeadlessWidget() {
+    const audio = document.createElement('audio');
+    audio.id = 'dograh-widget-audio';
+    audio.autoplay = true;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
     state.audioElement = audio;
   }
 
@@ -582,6 +595,10 @@
     // Use appropriate update function based on mode
     if (state.config.embedMode === 'inline') {
       updateInlineStatus(status, text, subtext);
+    } else if (state.config.embedMode === 'headless') {
+      if (state.callbacks.onStatusChange) {
+        state.callbacks.onStatusChange(status, text, subtext);
+      }
     } else {
       updateFloatingButton(status);
     }

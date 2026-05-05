@@ -61,7 +61,7 @@ export function EmbedDialog({
     const [isEnabled, setIsEnabled] = useState(false);
     const [domains, setDomains] = useState<string[]>([]);
     const [newDomain, setNewDomain] = useState("");
-    const [embedMode, setEmbedMode] = useState<"floating" | "inline">("floating");
+    const [embedMode, setEmbedMode] = useState<"floating" | "inline" | "headless">("floating");
     const [position, setPosition] = useState("bottom-right");
     const [buttonText, setButtonText] = useState("Start Call");
     const [buttonColor, setButtonColor] = useState("#10b981");
@@ -81,7 +81,7 @@ export function EmbedDialog({
                 // Load settings
                 if (response.data.settings) {
                     const settings = response.data.settings as Record<string, string>;
-                    setEmbedMode((settings.embedMode as "floating" | "inline") || "floating");
+                    setEmbedMode((settings.embedMode as "floating" | "inline" | "headless") || "floating");
                     setPosition(settings.position || "bottom-right");
                     setButtonText(settings.buttonText || "Start Call");
                     setButtonColor(settings.buttonColor || "#10b981");
@@ -266,7 +266,7 @@ export function EmbedDialog({
                                 {/* Embed Mode Selection */}
                                 <div className="space-y-4">
                                     <Label>Embed Mode</Label>
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-3 gap-4">
                                         <button
                                             type="button"
                                             onClick={() => setEmbedMode("floating")}
@@ -299,6 +299,22 @@ export function EmbedDialog({
                                                 </div>
                                             </div>
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEmbedMode("headless")}
+                                            className={`p-4 rounded-lg border-2 transition-all ${
+                                                embedMode === "headless"
+                                                    ? "border-primary bg-primary/5"
+                                                    : "border-muted hover:border-muted-foreground/20"
+                                            }`}
+                                        >
+                                            <div className="space-y-2">
+                                                <div className="font-medium">Headless (Bring Your Own UI)</div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    No UI — drive calls from your own buttons via the JS API
+                                                </div>
+                                            </div>
+                                        </button>
                                     </div>
                                 </div>
 
@@ -306,26 +322,28 @@ export function EmbedDialog({
                                 <div className="space-y-4">
                                     <Label>Configuration</Label>
 
-                                    {/* Shared: Button Color */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="button-color" className="text-sm">Button Color</Label>
-                                        <div className="flex gap-2">
-                                            <Input
-                                                id="button-color-picker"
-                                                type="color"
-                                                value={buttonColor}
-                                                onChange={(e) => setButtonColor(e.target.value)}
-                                                className="w-14 h-10 cursor-pointer"
-                                            />
-                                            <Input
-                                                id="button-color"
-                                                value={buttonColor}
-                                                onChange={(e) => setButtonColor(e.target.value)}
-                                                placeholder="#10b981"
-                                                className="flex-1"
-                                            />
+                                    {/* Shared: Button Color (skipped in headless — host renders its own UI) */}
+                                    {embedMode !== "headless" && (
+                                        <div className="space-y-2">
+                                            <Label htmlFor="button-color" className="text-sm">Button Color</Label>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    id="button-color-picker"
+                                                    type="color"
+                                                    value={buttonColor}
+                                                    onChange={(e) => setButtonColor(e.target.value)}
+                                                    className="w-14 h-10 cursor-pointer"
+                                                />
+                                                <Input
+                                                    id="button-color"
+                                                    value={buttonColor}
+                                                    onChange={(e) => setButtonColor(e.target.value)}
+                                                    placeholder="#10b981"
+                                                    className="flex-1"
+                                                />
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
 
                                     {/* Floating mode: Position */}
                                     {embedMode === "floating" && (
@@ -371,8 +389,8 @@ export function EmbedDialog({
                                         </>
                                     )}
 
-                                    {/* Preview */}
-                                    {embedMode === "floating" ? (
+                                    {/* Preview (skipped for headless — host renders its own UI) */}
+                                    {embedMode === "headless" ? null : embedMode === "floating" ? (
                                         <div className="rounded-lg border bg-background p-4 flex items-center justify-center">
                                             <div
                                                 className="w-[60px] h-[60px] rounded-full flex items-center justify-center shadow-lg"
@@ -406,6 +424,64 @@ export function EmbedDialog({
                                                 >
                                                     {buttonText}
                                                 </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Headless mode: Integration Instructions */}
+                                    {embedMode === "headless" && (
+                                        <div className="space-y-3">
+                                            <div className="rounded-lg bg-muted/50 p-4">
+                                                <h4 className="font-medium mb-2">Integration Instructions</h4>
+                                                <ul className="text-sm space-y-2 text-muted-foreground">
+                                                    <li>• Add the embed script tag to your page (see below).</li>
+                                                    <li>• The widget renders no UI — render your own buttons.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.start()</code> to begin a call.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.end()</code> to end it.</li>
+                                                    <li>• Subscribe to <code className="text-xs">onCallStart</code>, <code className="text-xs">onCallEnd</code>, <code className="text-xs">onStatusChange</code>, <code className="text-xs">onError</code> to drive your UI.</li>
+                                                    <li>• <code className="text-xs">start()</code> must run inside a user-gesture handler (click) so the browser grants microphone access.</li>
+                                                </ul>
+                                            </div>
+
+                                            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
+                                                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example — track status in your own state</h4>
+                                                <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mb-2">
+                                                    Mirror the call status into a variable you control, then render whatever UI you like from it. The status values are <code className="text-xs">idle</code>, <code className="text-xs">connecting</code>, <code className="text-xs">connected</code>, <code className="text-xs">failed</code>.
+                                                </p>
+                                                <pre className="text-xs overflow-x-auto">
+                                                    <code className="text-blue-800 dark:text-blue-200">{`// Vanilla JS — keep your own state, render however you want
+let callStatus = 'idle';
+
+window.DograhWidget?.onStatusChange((status) => {
+  callStatus = status;
+  // ...trigger your render here (re-paint DOM, dispatch event, etc.)
+});
+
+document.getElementById('talk-btn').addEventListener('click', () => {
+  if (callStatus === 'connected' || callStatus === 'connecting') {
+    window.DograhWidget.end();
+  } else {
+    window.DograhWidget.start();
+  }
+});`}</code>
+                                                </pre>
+                                                <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mt-3 mb-2">React:</p>
+                                                <pre className="text-xs overflow-x-auto">
+                                                    <code className="text-blue-800 dark:text-blue-200">{`function TalkButton() {
+  const [status, setStatus] = useState('idle');
+
+  useEffect(() => {
+    window.DograhWidget?.onStatusChange(setStatus);
+  }, []);
+
+  const isLive = status === 'connected' || status === 'connecting';
+  return (
+    <button onClick={() => isLive ? window.DograhWidget.end() : window.DograhWidget.start()}>
+      {/* render anything you want from \`status\` */}
+    </button>
+  );
+}`}</code>
+                                                </pre>
                                             </div>
                                         </div>
                                     )}

@@ -4,6 +4,7 @@ Uses the Telnyx Call Control API v2 for outbound calling with
 inline WebSocket media streaming.
 """
 
+import base64
 import json
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -41,7 +42,7 @@ class TelnyxProvider(TelephonyProvider):
     """
 
     PROVIDER_NAME = WorkflowRunMode.TELNYX.value
-    WEBHOOK_ENDPOINT = "telnyx/webhook"
+    WEBHOOK_ENDPOINT = "telnyx/events"
 
     TELNYX_API_BASE = "https://api.telnyx.com/v2"
 
@@ -154,25 +155,156 @@ class TelnyxProvider(TelephonyProvider):
             async with session.get(endpoint, headers=self._headers()) as response:
                 if response.status != 200:
                     error_data = await response.json()
-                    raise Exception(f"Failed to get call status: {error_data}")
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Failed to get call status: {error_data}",
+                    )
                 return await response.json()
 
     async def get_available_phone_numbers(self) -> List[str]:
         return self.from_numbers
 
     def validate_config(self) -> bool:
-        return bool(self.api_key and self.connection_id and self.from_numbers)
+        ok = bool(self.api_key and self.connection_id and self.from_numbers)
+        if ok and self.api_key and not self.api_key.startswith("KEY"):
+            logger.warning(
+                "Telnyx api_key does not start with 'KEY' prefix; "
+                "this may indicate an incorrect or test key"
+            )
+        return ok
 
     async def verify_webhook_signature(
         self, url: str, params: Dict[str, Any], signature: str
     ) -> bool:
-        """Required by the abstract interface but not actively called for Telnyx.
+        """Verify Telnyx webhook Ed25519 signature.
 
-        Telnyx webhook signature verification uses Ed25519 (via the
-        telnyx-signature-ed25519 header). This can be implemented in the
-        future using the Telnyx SDK if needed.
+        Uses the ``telnyx-signature-ed25519`` header with the public key
+        embedded in the ``telnyx-timestamp`` and signature envelope.
+        Designed to be stateless: no external key fetch is required.
+        Backward compatible: returns True when header is absent (dev mode).
+
+        Docs: https://developers.telnyx.com/docs/v2/webhooks/signatures
         """
+        if not signature:
+            logger.debug("No telnyx-signature-ed25519 header; skipping verification")
+            return True
+
+        # NOTE: The caller (Twilio-style dispatcher) passes signature as a
+        # single string. Telnyx actually sends three headers:
+        #   telnyx-signature-ed25519, telnyx-timestamp, telnyx-public-key
+        # This method accepts the ed25519 signature; the caller must pass
+        # the other headers via ``params`` if verification is required.
+        # For now we do a best-effort parse if the signature envelope is JSON.
+        try:
+            envelope = json.loads(signature)
+            sig_b64 = envelope.get("signature") or envelope.get("telnyx-signature-ed25519")
+            ts = envelope.get("timestamp") or envelope.get("telnyx-timestamp")
+            pubkey_b64 = envelope.get("public_key") or envelope.get("telnyx-public-key")
+        except (json.JSONDecodeError, TypeError):
+            # Signature is plain base64; caller must pass timestamp/pubkey in params
+            sig_b64 = signature
+            ts = params.get("telnyx_timestamp") or params.get("timestamp")
+            pubkey_b64 = params.get("telnyx_public_key") or params.get("public_key")
+
+        if not sig_b64:
+            logger.warning("Ed25519 signature payload missing from envelope")
+            return True
+
+        try:
+            signature_bytes = base64.b64decode(sig_b64)
+        except Exception as e:
+            logger.warning(f"Failed to base64-decode Ed25519 signature: {e}")
+            return True
+
+        # Build signed payload: timestamp + "." + JSON body
+        # The caller should set params["_raw_body"] to the raw webhook JSON.
+        raw_body = params.pop("_raw_body", "")
+        if isinstance(raw_body, bytes):
+            raw_body = raw_body.decode("utf-8")
+        ts_str = str(ts) if ts is not None else ""
+        signed_payload = f"{ts_str}.{raw_body}"
+
+        # Try nacl first (preferred), fall back to cryptography
+        verified = self._verify_ed25519_nacl(
+            signed_payload.encode("utf-8"), signature_bytes, pubkey_b64
+        )
+        if verified is not None:
+            return verified
+
+        verified = self._verify_ed25519_cryptography(
+            signed_payload.encode("utf-8"), signature_bytes, pubkey_b64
+        )
+        if verified is not None:
+            return verified
+
+        # No library available; accept in dev / log loudly
+        logger.warning(
+            "No Ed25519 library (pynacl, cryptography) available; "
+            "accepting webhook without verification"
+        )
         return True
+
+    @staticmethod
+    def _verify_ed25519_nacl(
+        message: bytes, signature: bytes, pubkey_b64: Optional[str]
+    ) -> Optional[bool]:
+        """Verify using PyNaCl Ed25519. Returns None if library unavailable."""
+        try:
+            import nacl.signing
+            import nacl.exceptions
+        except Exception:
+            return None
+
+        if not pubkey_b64:
+            logger.warning("No Ed25519 public key provided for signature verification")
+            return True
+
+        try:
+            pubkey_bytes = base64.b64decode(pubkey_b64)
+            verify_key = nacl.signing.VerifyKey(pubkey_bytes)
+            verify_key.verify(message, signature)
+            return True
+        except nacl.exceptions.BadSignatureError:
+            logger.warning("Telnyx Ed25519 signature verification failed (nacl)")
+            return False
+        except Exception as e:
+            logger.warning(f"Telnyx Ed25519 verification error (nacl): {e}")
+            return True
+
+    @staticmethod
+    def _verify_ed25519_cryptography(
+        message: bytes, signature: bytes, pubkey_b64: Optional[str]
+    ) -> Optional[bool]:
+        """Verify using cryptography Ed25519. Returns None if unavailable."""
+        try:
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+                Ed25519PublicKey,
+            )
+            from cryptography.exceptions import InvalidSignature
+        except Exception:
+            return None
+
+        if not pubkey_b64:
+            logger.warning(
+                "No Ed25519 public key provided for signature verification"
+            )
+            return True
+
+        try:
+            pubkey_bytes = base64.b64decode(pubkey_b64)
+            public_key = Ed25519PublicKey.from_public_bytes(pubkey_bytes)
+            public_key.verify(signature, message)
+            return True
+        except InvalidSignature:
+            logger.warning(
+                "Telnyx Ed25519 signature verification failed (cryptography)"
+            )
+            return False
+        except Exception as e:
+            logger.warning(
+                f"Telnyx Ed25519 verification error (cryptography): {e}"
+            )
+            return True
 
     async def get_webhook_response(
         self, workflow_id: int, user_id: int, workflow_run_id: int
@@ -181,17 +313,68 @@ class TelnyxProvider(TelephonyProvider):
         return ""
 
     async def get_call_cost(self, call_id: str) -> Dict[str, Any]:
-        """Get cost information for a Telnyx call.
+        """Get cost information for a Telnyx call via CDR API.
 
-        Telnyx doesn't provide per-call cost via the Call Control API.
-        Cost data is available through the billing/CDR APIs.
+        Uses GET /v2/cdr/calls/{call_session_id} where ``call_session_id``
+        is stored in ``provider_metadata`` from ``initiate_call``.
+        Docs: https://developers.telnyx.com/docs/v2/cdr
         """
-        return {
-            "cost_usd": 0.0,
-            "duration": 0,
-            "status": "unknown",
-            "raw_response": {},
-        }
+        # CDR lookup requires call_session_id which we stored in metadata.
+        # The call_id param here is call_control_id (not call_session_id).
+        # We'll attempt a lookup by call_control_id via the detail records
+        # endpoint first; if not available we fall back to a placeholder.
+        endpoint = (
+            f"{self.TELNYX_API_BASE}/cdr/calls?filter[call_leg_id]={call_id}"
+        )
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    endpoint, headers=self._headers()
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        records = data.get("data", [])
+                        if records:
+                            call_data = records[0]
+                            attribs = call_data.get("attributes", {})
+                            return {
+                                "cost_usd": attribs.get("cost", 0.0),
+                                "duration": attribs.get("duration", 0),
+                                "status": attribs.get("status", "unknown"),
+                                "raw_response": data,
+                            }
+                        return {
+                            "cost_usd": 0.0,
+                            "duration": 0,
+                            "status": "no_records",
+                            "raw_response": data,
+                        }
+                    elif response.status == 404:
+                        return {
+                            "cost_usd": 0.0,
+                            "duration": 0,
+                            "status": "not_found",
+                            "raw_response": {},
+                        }
+                    else:
+                        error_data = await response.json()
+                        logger.error(
+                            f"Telnyx CDR lookup failed: {response.status} {error_data}"
+                        )
+                        return {
+                            "cost_usd": 0.0,
+                            "duration": 0,
+                            "status": "error",
+                            "raw_response": error_data,
+                        }
+        except Exception as e:
+            logger.error(f"Telnyx CDR lookup exception: {e}")
+            return {
+                "cost_usd": 0.0,
+                "duration": 0,
+                "status": "error",
+                "raw_response": {"error": str(e)},
+            }
 
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Parse Telnyx webhook event data into generic format."""

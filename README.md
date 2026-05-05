@@ -79,7 +79,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 
 ### Voice Capabilities
 
-- Telephony: Built-in telephony integration like Twilio, Vonage, Vobiz, Cloudonix (easily add others)
+- Telephony: Built-in telephony integration like Twilio, Vonage, Telnyx, Vobiz, Cloudonix (easily add others)
 - Languages: English support (expandable to other languages)
 - Custom Models: Bring your own TTS/STT models
 - Real-time Processing: Low-latency voice interactions

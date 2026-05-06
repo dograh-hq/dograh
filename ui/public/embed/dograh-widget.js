@@ -627,11 +627,6 @@
   async function startCall() {
     updateStatus('connecting', 'Connecting...', 'Please wait while we establish the connection');
 
-    // Trigger call start callback
-    if (state.callbacks.onCallStart) {
-      state.callbacks.onCallStart();
-    }
-
     try {
       // Initialize session if using embed token
       if (state.config.token) {
@@ -785,9 +780,19 @@
       console.log('ICE connection state:', state.pc.iceConnectionState);
 
       if (state.pc.iceConnectionState === 'connected' || state.pc.iceConnectionState === 'completed') {
+        const wasAlreadyConnected = state.callStartedAt !== null;
         updateStatus('connected', 'Connected', 'Your voice call is now active');
-        state.callStartedAt = Date.now();
-        emitMessage('dograh:call_started', {});
+        if (!wasAlreadyConnected) {
+          state.callStartedAt = Date.now();
+          emitMessage('dograh:call_started', {});
+          if (state.callbacks.onCallStart) {
+            state.callbacks.onCallStart({
+              agentId: state.config.workflowId || null,
+              token: state.config.token || null,
+              workflowRunId: state.workflowRunId || null
+            });
+          }
+        }
       } else if (state.pc.iceConnectionState === 'failed' || state.pc.iceConnectionState === 'disconnected') {
         updateStatus('failed', 'Connection lost', 'The call has been disconnected');
         stopCall();
@@ -925,14 +930,19 @@
       ? Math.round((Date.now() - state.callStartedAt) / 1000)
       : 0;
     emitMessage('dograh:call_ended', { durationSeconds });
+
+    // Trigger call end callback with the same identifiers before we clear them
+    if (state.callbacks.onCallEnd) {
+      state.callbacks.onCallEnd({
+        agentId: state.config.workflowId || null,
+        token: state.config.token || null,
+        workflowRunId: state.workflowRunId || null,
+        durationSeconds
+      });
+    }
     state.callStartedAt = null;
 
     updateStatus('idle', 'Call ended', 'Click below to start a new call');
-
-    // Trigger call end callback
-    if (state.callbacks.onCallEnd) {
-      state.callbacks.onCallEnd();
-    }
 
     // Close WebSocket
     if (state.ws) {

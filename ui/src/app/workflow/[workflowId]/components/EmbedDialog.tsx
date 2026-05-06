@@ -1,4 +1,4 @@
-import { Check, Copy, Loader2, Plus, Rocket, Trash2 } from "lucide-react";
+import { Check, Copy, Loader2, Mic, Plus, Rocket, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -63,7 +63,7 @@ export function EmbedDialog({
     const [newDomain, setNewDomain] = useState("");
     const [embedMode, setEmbedMode] = useState<"floating" | "inline">("floating");
     const [position, setPosition] = useState("bottom-right");
-    const [buttonText, setButtonText] = useState("Start Call");
+    const [buttonText, setButtonText] = useState("Talk to Agent");
     const [buttonColor, setButtonColor] = useState("#10b981");
     const [callToActionText, setCallToActionText] = useState("Click to start voice conversation");
 
@@ -83,7 +83,7 @@ export function EmbedDialog({
                     const settings = response.data.settings as Record<string, string>;
                     setEmbedMode((settings.embedMode as "floating" | "inline") || "floating");
                     setPosition(settings.position || "bottom-right");
-                    setButtonText(settings.buttonText || "Start Call");
+                    setButtonText(settings.buttonText || "Talk to Agent");
                     setButtonColor(settings.buttonColor || "#10b981");
                     setCallToActionText(settings.callToActionText || "Click to start voice conversation");
                 }
@@ -306,24 +306,36 @@ export function EmbedDialog({
                                 <div className="space-y-4">
                                     <Label>Configuration</Label>
 
-                                    {/* Shared: Button Color */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="button-color" className="text-sm">Button Color</Label>
-                                        <div className="flex gap-2">
+                                    {/* Shared: Button Text + Button Color */}
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <Label htmlFor="button-text" className="text-sm">Button Text</Label>
                                             <Input
-                                                id="button-color-picker"
-                                                type="color"
-                                                value={buttonColor}
-                                                onChange={(e) => setButtonColor(e.target.value)}
-                                                className="w-14 h-10 cursor-pointer"
+                                                id="button-text"
+                                                value={buttonText}
+                                                onChange={(e) => setButtonText(e.target.value)}
+                                                placeholder="Talk to Agent"
+                                                maxLength={40}
                                             />
-                                            <Input
-                                                id="button-color"
-                                                value={buttonColor}
-                                                onChange={(e) => setButtonColor(e.target.value)}
-                                                placeholder="#10b981"
-                                                className="flex-1"
-                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="button-color" className="text-sm">Button Color</Label>
+                                            <div className="flex gap-2">
+                                                <Input
+                                                    id="button-color-picker"
+                                                    type="color"
+                                                    value={buttonColor}
+                                                    onChange={(e) => setButtonColor(e.target.value)}
+                                                    className="w-14 h-10 cursor-pointer"
+                                                />
+                                                <Input
+                                                    id="button-color"
+                                                    value={buttonColor}
+                                                    onChange={(e) => setButtonColor(e.target.value)}
+                                                    placeholder="#10b981"
+                                                    className="flex-1"
+                                                />
+                                            </div>
                                         </div>
                                     </div>
 
@@ -345,52 +357,29 @@ export function EmbedDialog({
                                         </div>
                                     )}
 
-                                    {/* Inline mode: Button Text, CTA Text */}
+                                    {/* Inline mode: Call to Action Text */}
                                     {embedMode === "inline" && (
-                                        <>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="button-text" className="text-sm">Button Text</Label>
-                                                    <Input
-                                                        id="button-text"
-                                                        value={buttonText}
-                                                        onChange={(e) => setButtonText(e.target.value)}
-                                                        placeholder="Start Call"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="cta-text" className="text-sm">Call to Action Text</Label>
-                                                    <Input
-                                                        id="cta-text"
-                                                        value={callToActionText}
-                                                        onChange={(e) => setCallToActionText(e.target.value)}
-                                                        placeholder="Click to start voice conversation"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="cta-text" className="text-sm">Call to Action Text</Label>
+                                            <Input
+                                                id="cta-text"
+                                                value={callToActionText}
+                                                onChange={(e) => setCallToActionText(e.target.value)}
+                                                placeholder="Click to start voice conversation"
+                                            />
+                                        </div>
                                     )}
 
                                     {/* Preview */}
                                     {embedMode === "floating" ? (
-                                        <div className="rounded-lg border bg-background p-4 flex items-center justify-center">
-                                            <div
-                                                className="w-[60px] h-[60px] rounded-full flex items-center justify-center shadow-lg"
-                                                style={{
-                                                    backgroundColor: buttonColor,
-                                                }}
+                                        <div className="rounded-lg border bg-muted/30 p-6 flex items-center justify-center">
+                                            <button
+                                                className="inline-flex items-center gap-2 rounded-full px-5 py-3 font-medium text-white shadow-lg whitespace-nowrap"
+                                                style={{ backgroundColor: buttonColor }}
                                             >
-                                                <svg
-                                                    width="24"
-                                                    height="24"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="white"
-                                                    strokeWidth="2"
-                                                >
-                                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                                                </svg>
-                                            </div>
+                                                <Mic className="h-4 w-4" />
+                                                {buttonText || "Talk to Agent"}
+                                            </button>
                                         </div>
                                     ) : (
                                         <div className="rounded-lg border bg-background p-6 flex items-center justify-center">

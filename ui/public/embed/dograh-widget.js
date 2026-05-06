@@ -33,6 +33,8 @@
     callbacks: {
       onReady: null,
       onCallStart: null,
+      onCallConnected: null,
+      onCallDisconnected: null,
       onCallEnd: null,
       onError: null,
       onStatusChange: null
@@ -627,6 +629,10 @@
   async function startCall() {
     updateStatus('connecting', 'Connecting...', 'Please wait while we establish the connection');
 
+    if (state.callbacks.onCallStart) {
+      state.callbacks.onCallStart();
+    }
+
     try {
       // Initialize session if using embed token
       if (state.config.token) {
@@ -784,9 +790,8 @@
         updateStatus('connected', 'Connected', 'Your voice call is now active');
         if (!wasAlreadyConnected) {
           state.callStartedAt = Date.now();
-          emitMessage('dograh:call_started', {});
-          if (state.callbacks.onCallStart) {
-            state.callbacks.onCallStart({
+          if (state.callbacks.onCallConnected) {
+            state.callbacks.onCallConnected({
               agentId: state.config.workflowId || null,
               token: state.config.token || null,
               workflowRunId: state.workflowRunId || null
@@ -925,15 +930,11 @@
    * Stop voice call
    */
   function stopCall() {
-    // Emit end message before clearing state so identifiers are still available
-    const durationSeconds = state.callStartedAt
-      ? Math.round((Date.now() - state.callStartedAt) / 1000)
-      : 0;
-    emitMessage('dograh:call_ended', { durationSeconds });
-
-    // Trigger call end callback with the same identifiers before we clear them
-    if (state.callbacks.onCallEnd) {
-      state.callbacks.onCallEnd({
+    // Fire onCallDisconnected only if the call had actually connected, with
+    // identifiers and duration. Must run before we clear callStartedAt.
+    if (state.callStartedAt && state.callbacks.onCallDisconnected) {
+      const durationSeconds = Math.round((Date.now() - state.callStartedAt) / 1000);
+      state.callbacks.onCallDisconnected({
         agentId: state.config.workflowId || null,
         token: state.config.token || null,
         workflowRunId: state.workflowRunId || null,
@@ -943,6 +944,10 @@
     state.callStartedAt = null;
 
     updateStatus('idle', 'Call ended', 'Click below to start a new call');
+
+    if (state.callbacks.onCallEnd) {
+      state.callbacks.onCallEnd();
+    }
 
     // Close WebSocket
     if (state.ws) {
@@ -977,22 +982,6 @@
   }
 
   /**
-   * Emit a postMessage event to the host window
-   * Allows the embedding website to listen for agent lifecycle events via:
-   *   window.addEventListener('message', (event) => { ... })
-   */
-  function emitMessage(eventType, detail) {
-    const message = {
-      type: eventType,
-      agentId: state.config.workflowId || null,
-      token: state.config.token || null,
-      workflowRunId: state.workflowRunId || null,
-      ...detail
-    };
-    window.postMessage(message, '*');
-  }
-
-  /**
    * Generate unique peer ID
    */
   function generatePeerId() {
@@ -1020,6 +1009,8 @@
     getState: () => state,
     onReady: (callback) => { state.callbacks.onReady = callback; },
     onCallStart: (callback) => { state.callbacks.onCallStart = callback; },
+    onCallConnected: (callback) => { state.callbacks.onCallConnected = callback; },
+    onCallDisconnected: (callback) => { state.callbacks.onCallDisconnected = callback; },
     onCallEnd: (callback) => { state.callbacks.onCallEnd = callback; },
     onError: (callback) => { state.callbacks.onError = callback; },
     onStatusChange: (callback) => { state.callbacks.onStatusChange = callback; },
@@ -1045,6 +1036,8 @@
       // Set callbacks if provided
       if (options.onReady) state.callbacks.onReady = options.onReady;
       if (options.onCallStart) state.callbacks.onCallStart = options.onCallStart;
+      if (options.onCallConnected) state.callbacks.onCallConnected = options.onCallConnected;
+      if (options.onCallDisconnected) state.callbacks.onCallDisconnected = options.onCallDisconnected;
       if (options.onCallEnd) state.callbacks.onCallEnd = options.onCallEnd;
       if (options.onError) state.callbacks.onError = options.onError;
       if (options.onStatusChange) state.callbacks.onStatusChange = options.onStatusChange;

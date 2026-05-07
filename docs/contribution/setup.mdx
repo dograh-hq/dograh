@@ -18,9 +18,9 @@ All commands below are shown for **macOS / Linux**. Expand the **Windows** tab f
 
 ### Steps
 1. Fork the Dograh repository by going to https://github.com/dograh-hq/dograh
-2. Clone the forked repository on your machine
+2. Clone the forked repository on your machine (use `--recurse-submodules` so the pipecat submodule is pulled in too)
 ```
-git clone https://github.com/<GITHUB_HANDLE>/dograh
+git clone --recurse-submodules https://github.com/<GITHUB_HANDLE>/dograh
 cd dograh
 ```
 3. Create a python virtual environment
@@ -34,19 +34,15 @@ python -m venv venv
 .\venv\Scripts\Activate.ps1
 ```
 </CodeGroup>
-4. Install the requirements
-```
-pip install -r api/requirements.txt
-```
-5. Ensure you are on right version of Node.js using `node --version`
+4. Ensure you are on right version of Node.js using `node --version`
 ```
 nvm use 24
 ```
-6. Install UI dependencies
+5. Install UI dependencies
 ```
 cd ui && npm install && cd ..
 ```
-7. Start local docker services 
+6. Start local docker services 
 <Note>Please ensure you dont have any other instance of conflicting services running by checking `docker ps`</Note>
 ```
 docker compose -f docker-compose-local.yaml up -d
@@ -59,7 +55,7 @@ CONTAINER ID   IMAGE         COMMAND                  CREATED          STATUS   
 6c7cb8afdf18   redis:7       "docker-entrypoint.s…"   18 seconds ago   Up 18 seconds (healthy)   0.0.0.0:6379->6379/tcp, [::]:6379->6379/tcp   dograh-redis-1
 a57e3e92b02c   minio/minio   "/usr/bin/docker-ent…"   18 seconds ago   Up 18 seconds (healthy)   127.0.0.1:9000-9001->9000-9001/tcp            dograh-minio-1
 ```
-8. Setup environment variables
+7. Setup environment variables
 <CodeGroup>
 ```bash macOS/Linux
 cp api/.env.example api/.env && cp ui/.env.example ui/.env
@@ -69,16 +65,24 @@ Copy-Item api/.env.example api/.env
 Copy-Item ui/.env.example ui/.env
 ```
 </CodeGroup>
-9. Setup pipecat git submodule
+8. Install Python requirements. The script initializes the pipecat submodule, installs `api/requirements.txt`, and installs pipecat with the required extras. Add the dev flag if you also want the pipecat dev dependency group (pytest, ruff, pre-commit, etc.).
 <CodeGroup>
 ```bash macOS/Linux
-bash scripts/setup_pipecat.sh
+# Default (runtime only)
+bash scripts/setup_requirements.sh
+
+# Include pipecat dev dependencies
+bash scripts/setup_requirements.sh --dev
 ```
 ```powershell Windows
-.\scripts\setup_pipecat.ps1
+# Default (runtime only)
+.\scripts\setup_requirements.ps1
+
+# Include pipecat dev dependencies
+.\scripts\setup_requirements.ps1 -Dev
 ```
 </CodeGroup>
-10. Start backend services 
+9. Start backend services 
 <CodeGroup>
 ```bash macOS/Linux
 bash scripts/start_services_dev.sh
@@ -105,11 +109,11 @@ tail -f logs/latest/*.log
 Get-Content logs/latest/*.log -Wait
 ```
 </CodeGroup>
-11. Start the UI
+10. Start the UI
 ```
 cd ui && npm run dev
 ```
-12. You should be able to open the application on `localhost:3000` now
+11. You should be able to open the application on `localhost:3000` now
 
 ### Next Steps
 We ship with AGENTS.md and CLAUDE.md which will help the Coding Agents get started quickly with the codebase. This should help your favourite coding agents to be able to navigate the codebase quickly and you can make changes to it and suit your specification better. 

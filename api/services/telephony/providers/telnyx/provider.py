@@ -9,7 +9,7 @@ import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
-from fastapi import HTTPException
+from fastapi import HTTPException, WebSocketDisconnect
 from loguru import logger
 
 from api.enums import WorkflowRunMode

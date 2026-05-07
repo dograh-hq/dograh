@@ -1,11 +1,5 @@
-mypy==1.15.0
-ruff==0.11.3
-pytest==8.3.5
-pytest-asyncio==0.26.0
-pre-commit==4.2.0
-watchfiles==1.1.0
-python-dotenv==1.2.1
+mypy==2.0.0
+watchfiles==1.1.1
 datamodel-code-generator==0.56.1
 twine==6.2.0
-build==1.2.2
 -e ./sdk/python

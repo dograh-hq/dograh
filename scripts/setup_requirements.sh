@@ -59,4 +59,4 @@ if [ "$DEV_MODE" -eq 1 ]; then
     pip install --group pipecat/pyproject.toml:dev
 fi
 
-echo "Setup complete! Pipecat is now available as a git submodule."
+echo "Setup complete! Requirements are installed."

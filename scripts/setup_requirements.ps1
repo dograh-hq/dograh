@@ -45,4 +45,4 @@ if ($Dev) {
     pip install --group pipecat/pyproject.toml:dev
 }
 
-Write-Host "Setup complete! Pipecat is now available as a git submodule."
+Write-Host "Setup complete! Requirements are installed."

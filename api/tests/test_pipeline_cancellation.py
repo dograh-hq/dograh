@@ -2,7 +2,6 @@ import asyncio
 
 import pytest
 from loguru import logger
-
 from pipecat.frames.frames import (
     EndTaskFrame,
     Frame,

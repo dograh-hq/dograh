@@ -7,7 +7,6 @@
 """Internal frame serializer for agent-to-agent communication."""
 
 from loguru import logger
-
 from pipecat.frames.frames import (
     Frame,
     InputAudioRawFrame,

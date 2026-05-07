@@ -9,7 +9,7 @@ import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
-from fastapi import HTTPException
+from fastapi import HTTPException, WebSocketDisconnect
 from loguru import logger
 
 from api.enums import WorkflowRunMode
@@ -21,8 +21,6 @@ from api.services.telephony.base import (
 )
 from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
-
-from fastapi import WebSocketDisconnect
 
 if TYPE_CHECKING:
     from fastapi import WebSocket

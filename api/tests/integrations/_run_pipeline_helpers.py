@@ -29,11 +29,12 @@ from contextlib import ExitStack, contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-from api.db.models import OrganizationModel, UserModel
-from api.enums import WorkflowRunMode
 from pipecat.frames.frames import Frame
 from pipecat.observers.base_observer import BaseObserver
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+from api.db.models import OrganizationModel, UserModel
+from api.enums import WorkflowRunMode
 from pipecat.tests import MockLLMService, MockTTSService
 
 USER_CONFIGURATION: dict[str, Any] = {

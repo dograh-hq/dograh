@@ -3,6 +3,7 @@ import os
 import sys
 
 import loguru
+from pipecat.utils.run_context import run_id_var
 
 from api.constants import (
     ENVIRONMENT,
@@ -15,7 +16,6 @@ from api.constants import (
 )
 from api.enums import Environment
 from api.utils.worker import get_worker_id, is_worker_process
-from pipecat.utils.run_context import run_id_var
 
 # Track if logging has been initialized
 _logging_initialized = False

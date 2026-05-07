@@ -12,12 +12,6 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
-from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
-from api.services.workflow.tools.custom_tool import (
-    execute_http_tool,
-    tool_to_function_schema,
-)
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
@@ -31,6 +25,12 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
+
+from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
+from api.services.workflow.tools.custom_tool import (
+    execute_http_tool,
+    tool_to_function_schema,
+)
 from pipecat.tests import MockLLMService, run_test
 
 
@@ -721,9 +721,10 @@ class TestCustomToolManagerUnit:
     async def test_get_tool_schemas_returns_correct_format(self):
         """Test that get_tool_schemas returns FunctionSchema objects."""
         # Create a mock engine
+        from pipecat.adapters.schemas.function_schema import FunctionSchema
+
         from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
-        from pipecat.adapters.schemas.function_schema import FunctionSchema
 
         mock_engine = Mock()
         mock_engine._workflow_run_id = 1

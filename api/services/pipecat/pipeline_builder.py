@@ -105,22 +105,52 @@ def build_realtime_pipeline(
     assistant_context_aggregator,
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
+    voicemail_detector=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
     Realtime services (e.g. OpenAI Realtime, Gemini Live) handle STT+LLM+TTS
     internally, so no separate STT or TTS processors are needed.
+
+    Args:
+        voicemail_detector: Optional VoicemailDetector. Placed *below* the
+            realtime LLM. This is asymmetric with the non-realtime layout
+            (where the detector sits between STT and the main user aggregator)
+            because the realtime LLM is both the source of TranscriptionFrame
+            (broadcast downstream) and the sink of LLMContextFrame (consumed
+            by _handle_context without forwarding). Placing the detector below
+            the realtime LLM means: downstream TranscriptionFrames reach the
+            classifier branch, UserStartedSpeakingFrame /
+            UserStoppedSpeakingFrame are forwarded through by the LLM, and the
+            main aggregator's LLMContextFrame is absorbed by the realtime LLM
+            and never leaks into the classifier (which would otherwise run a
+            voicemail completion on the workflow's main context).
+
+            The TTS gate and LLM gate are intentionally not used: the realtime
+            LLM reacts to audio directly, not to LLMContextFrames. On voicemail
+            detection we drop the call via end_call_with_reason; the detector's
+            ConversationGate also blocks downstream audio output until the call
+            ends.
     """
     processors = [
         transport.input(),
         user_context_aggregator,
         realtime_llm,
-        pipeline_engine_callback_processor,
-        transport.output(),
-        audio_buffer,
-        assistant_context_aggregator,
-        pipeline_metrics_aggregator,
     ]
+
+    if voicemail_detector:
+        logger.info("Adding native voicemail detector to realtime pipeline")
+        processors.append(voicemail_detector.detector())
+
+    processors.extend(
+        [
+            pipeline_engine_callback_processor,
+            transport.output(),
+            audio_buffer,
+            assistant_context_aggregator,
+            pipeline_metrics_aggregator,
+        ]
+    )
 
     return Pipeline(processors)
 

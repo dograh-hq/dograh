@@ -139,6 +139,7 @@ class TelnyxProvider(TelephonyProvider):
                     status="initiated",
                     caller_number=from_number,
                     provider_metadata={
+                        "call_id": call_control_id,
                         "call_control_id": call_control_id,
                         "call_leg_id": call_leg_id,
                         "call_session_id": call_session_id,
@@ -321,6 +322,15 @@ class TelnyxProvider(TelephonyProvider):
                 },
             )
 
+        except WebSocketDisconnect as e:
+            # Telnyx opens the WebSocket during `bridging` (pre-answer) but only
+            # sends the `start` event on `call.answered`. If the call ends before
+            # answer (no-answer timeout, busy, declined), Telnyx closes the
+            # socket abruptly — surface this as an expected end-of-call.
+            logger.info(
+                f"[run {workflow_run_id}] Telnyx WebSocket closed before stream start "
+                f"(call ended pre-answer): code={e.code}, reason={e.reason!r}"
+            )
         except Exception as e:
             logger.error(f"Error in Telnyx WebSocket handler: {e}")
             raise

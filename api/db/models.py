@@ -683,6 +683,16 @@ class CampaignModel(Base):
         JSON, nullable=False, default=dict, server_default=text("'{}'::json")
     )
 
+    # Append-only timestamped log entries for state transitions, failures,
+    # and circuit-breaker events. Surfaced in the UI so operators can see
+    # why a campaign moved to paused/failed without digging through logs.
+    logs = Column(
+        JSON,
+        nullable=False,
+        default=list,
+        server_default=text("'[]'::json"),
+    )
+
     # Timestamps
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     started_at = Column(DateTime(timezone=True), nullable=True)

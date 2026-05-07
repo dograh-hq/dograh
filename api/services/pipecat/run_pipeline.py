@@ -427,11 +427,13 @@ async def _run_pipeline(
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
     if is_realtime:
-        # Realtime services have server-side VAD/turn detection.
-        # For stop strategy, lets rely on SmartTurnAnalyzer which is
-        # enabled by default
+        # Realtime services do server-side turn detection for response generation,
+        # but we still need a client-side stop strategy so the user aggregator emits
+        # UserStoppedSpeakingFrame. Without it, downstream consumers (e.g. voicemail
+        # detector) and Gemini Live's _finalize_pending flag never see a turn end.
         user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy()], stop=[]
+            start=[VADUserTurnStartStrategy()],
+            stop=[SpeechTimeoutUserTurnStopStrategy()],
         )
 
         # Lets not start the pipeline as muted for Realtime
@@ -521,7 +523,6 @@ async def _run_pipeline(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
-    # Voicemail detection and recording router are not supported in realtime mode
     voicemail_detector = None
     recording_router = None
 
@@ -533,58 +534,61 @@ async def _run_pipeline(
     )
     engine.set_fetch_recording_audio(fetch_audio)
 
-    if not is_realtime:
-        # Create voicemail detector if enabled in workflow configurations
-        voicemail_config = (workflow.workflow_configurations or {}).get(
-            "voicemail_detection", {}
+    # Voicemail detection works in both modes. In realtime mode the detector sits
+    # after the realtime LLM and consumes the TranscriptionFrames it broadcasts;
+    # the LLM gate / TTS gate are not used (the realtime LLM responds to audio
+    # directly, not LLMContextFrames), so on detection we rely on
+    # end_call_with_reason to drop the call.
+    voicemail_config = (workflow.workflow_configurations or {}).get(
+        "voicemail_detection", {}
+    )
+    if voicemail_config.get("enabled", False):
+        logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
+        # Create a separate LLM instance for the voicemail sub-pipeline
+        # (can't share with main pipeline as it would mess up frame linking)
+        if voicemail_config.get("use_workflow_llm", True):
+            voicemail_llm = create_llm_service(user_config)
+        else:
+            voicemail_llm = create_llm_service_from_provider(
+                provider=voicemail_config.get("provider", "openai"),
+                model=voicemail_config.get("model", "gpt-4.1"),
+                api_key=voicemail_config.get("api_key", ""),
+            )
+
+        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
+        custom_system_prompt = voicemail_config.get("system_prompt") or None
+
+        voicemail_detector = VoicemailDetector(
+            llm=voicemail_llm,
+            long_speech_timeout=long_speech_timeout,
+            custom_system_prompt=custom_system_prompt,
         )
-        if voicemail_config.get("enabled", False):
-            logger.info(
-                f"Voicemail detection enabled for workflow run {workflow_run_id}"
-            )
-            # Create a separate LLM instance for the voicemail sub-pipeline
-            # (can't share with main pipeline as it would mess up frame linking)
-            if voicemail_config.get("use_workflow_llm", True):
-                voicemail_llm = create_llm_service(user_config)
-            else:
-                voicemail_llm = create_llm_service_from_provider(
-                    provider=voicemail_config.get("provider", "openai"),
-                    model=voicemail_config.get("model", "gpt-4.1"),
-                    api_key=voicemail_config.get("api_key", ""),
-                )
 
-            long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
-            custom_system_prompt = voicemail_config.get("system_prompt") or None
-
-            voicemail_detector = VoicemailDetector(
-                llm=voicemail_llm,
-                long_speech_timeout=long_speech_timeout,
-                custom_system_prompt=custom_system_prompt,
+        # Register event handler to end task when voicemail is detected
+        @voicemail_detector.event_handler("on_voicemail_detected")
+        async def _on_voicemail_detected(_processor):
+            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
+            await engine.end_call_with_reason(
+                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
+                abort_immediately=True,
             )
 
-            # Register event handler to end task when voicemail is detected
-            @voicemail_detector.event_handler("on_voicemail_detected")
-            async def _on_voicemail_detected(_processor):
-                logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-                await engine.end_call_with_reason(
-                    reason=EndTaskReason.VOICEMAIL_DETECTED.value,
-                    abort_immediately=True,
-                )
-
-        # Create recording router if workflow has active recordings
-        if has_recordings:
-            recording_router = RecordingRouterProcessor(
-                audio_sample_rate=audio_config.pipeline_sample_rate,
-                fetch_recording_audio=fetch_audio,
+    # Recording router is only meaningful in non-realtime mode (it routes between
+    # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
+    # directly).
+    if not is_realtime and has_recordings:
+        recording_router = RecordingRouterProcessor(
+            audio_sample_rate=audio_config.pipeline_sample_rate,
+            fetch_recording_audio=fetch_audio,
+        )
+        # Warm the recording cache in the background so audio is ready
+        # before the first playback request.
+        asyncio.create_task(
+            warm_recording_cache(
+                organization_id=workflow.organization_id,
+                pipeline_sample_rate=audio_config.pipeline_sample_rate,
             )
-            # Warm the recording cache in the background so audio is ready
-            # before the first playback request.
-            asyncio.create_task(
-                warm_recording_cache(
-                    organization_id=workflow.organization_id,
-                    pipeline_sample_rate=audio_config.pipeline_sample_rate,
-                )
-            )
+        )
 
     # Build the pipeline
     if is_realtime:
@@ -596,6 +600,7 @@ async def _run_pipeline(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
+            voicemail_detector=voicemail_detector,
         )
     else:
         pipeline = build_pipeline(

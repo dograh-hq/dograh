@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   pytest:
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
 

@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -172,6 +172,20 @@ class UpdateCampaignRequest(BaseModel):
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
 
 
+class CampaignLogEntryResponse(BaseModel):
+    """A single timestamped entry from the campaign's append-only log.
+
+    Surfaced in the UI so operators can see why a campaign moved to
+    paused / failed without digging through server logs.
+    """
+
+    ts: str
+    level: str
+    event: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
+
+
 class CampaignResponse(BaseModel):
     id: int
     name: str
@@ -196,6 +210,7 @@ class CampaignResponse(BaseModel):
     redialed_campaign_id: Optional[int] = None
     telephony_configuration_id: Optional[int] = None
     telephony_configuration_name: Optional[str] = None
+    logs: List[CampaignLogEntryResponse] = Field(default_factory=list)
 
 
 class CampaignsResponse(BaseModel):
@@ -298,6 +313,11 @@ def _build_campaign_response(
         redialed_campaign_id=redialed_campaign_id,
         telephony_configuration_id=campaign.telephony_configuration_id,
         telephony_configuration_name=telephony_configuration_name,
+        logs=[
+            CampaignLogEntryResponse(**entry)
+            for entry in (campaign.logs or [])
+            if isinstance(entry, dict)
+        ],
     )
 
 

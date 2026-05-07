@@ -720,9 +720,9 @@ class TestCustomToolManagerUnit:
     @pytest.mark.asyncio
     async def test_get_tool_schemas_returns_correct_format(self):
         """Test that get_tool_schemas returns FunctionSchema objects."""
+        # Create a mock engine
         from pipecat.adapters.schemas.function_schema import FunctionSchema
 
-        # Create a mock engine
         from api.services.workflow.pipecat_engine import PipecatEngine
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 

@@ -16,7 +16,7 @@ from fastapi import (
 )
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
@@ -30,7 +30,6 @@ from api.services.telephony.call_transfer_manager import get_call_transfer_manag
 from api.services.telephony.factory import (
     get_all_telephony_providers,
     get_default_telephony_provider,
-    get_telephony_provider,
     get_telephony_provider_by_id,
     get_telephony_provider_for_run,
 )
@@ -872,110 +871,6 @@ async def handle_inbound_telephony(
     except Exception as e:
         logger.error(f"Error processing inbound call: {e}")
         return generic_hangup_response()
-
-
-class TransferCallRequest(BaseModel):
-    """Request model for initiating a call transfer."""
-
-    destination: str  # E.164 format phone number (required)
-    organization_id: int  # Organization ID for provider configuration
-    transfer_id: str  # Unique identifier for tracking this transfer
-    conference_name: str  # Conference name for the transfer
-    timeout: Optional[int] = 20  # seconds to wait for answer
-
-    @field_validator("destination")
-    @classmethod
-    def validate_destination(cls, destination: str) -> str:
-        """Validate destination is in E.164 format."""
-        import re
-
-        if not destination or not destination.strip():
-            raise ValueError("Destination phone number is required")
-
-        E164_PHONE_REGEX = r"^\+[1-9]\d{1,14}$"
-        if not re.match(E164_PHONE_REGEX, destination.strip()):
-            raise ValueError(
-                f"Invalid phone number format: {destination}. Must be E.164 format (e.g., +1234567890)"
-            )
-
-        return destination.strip()
-
-
-@router.post("/call-transfer")
-async def initiate_call_transfer(request: TransferCallRequest):
-    """Initiate a call transfer via the telephony provider.
-
-    This endpoint only initiates the outbound call. Transfer context
-    (original_call_sid, etc.) is stored by the caller
-    before invoking this endpoint.
-    """
-    logger.info(
-        f"Starting call transfer to {request.destination} with transfer_id: {request.transfer_id}"
-    )
-
-    try:
-        try:
-            provider = await get_telephony_provider(request.organization_id)
-        except ValueError as e:
-            logger.error(f"Transfer provider validation failed: {e}")
-            raise HTTPException(
-                status_code=400, detail=f"Call transfer not supported: {str(e)}"
-            )
-
-        if not provider.supports_transfers():
-            raise HTTPException(
-                status_code=400,
-                detail=f"Provider '{provider.PROVIDER_NAME}' does not support call transfers",
-            )
-
-        if not provider.validate_config():
-            logger.error(f"Provider {provider.PROVIDER_NAME} configuration is invalid")
-            raise HTTPException(
-                status_code=400,
-                detail=f"Telephony provider '{provider.PROVIDER_NAME}' is not properly configured for transfers",
-            )
-
-        logger.info(f"Initiating transfer call via {provider.PROVIDER_NAME} provider")
-        try:
-            transfer_result = await provider.transfer_call(
-                destination=request.destination,
-                transfer_id=request.transfer_id,
-                conference_name=request.conference_name,
-                timeout=request.timeout,
-            )
-        except NotImplementedError as e:
-            logger.error(
-                f"Provider {provider.PROVIDER_NAME} doesn't support transfers: {e}"
-            )
-            raise HTTPException(
-                status_code=400,
-                detail=f"Provider '{provider.PROVIDER_NAME}' does not support call transfers",
-            )
-        except Exception as e:
-            logger.error(f"Provider transfer call failed: {e}")
-            raise HTTPException(
-                status_code=500, detail=f"Transfer call failed: {str(e)}"
-            )
-
-        call_sid = transfer_result.get("call_sid")
-        logger.info(f"Transfer call initiated successfully: {call_sid}")
-        logger.debug(f"Transfer result: {transfer_result}")
-
-        return {
-            "status": "transfer_initiated",
-            "call_id": call_sid,
-            "message": f"Calling {request.destination}...",
-            "transfer_id": request.transfer_id,
-            "provider": provider.PROVIDER_NAME,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error during transfer call: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Internal error during transfer: {str(e)}"
-        )
 
 
 @router.post("/transfer-result/{transfer_id}")

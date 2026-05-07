@@ -345,7 +345,12 @@ class CampaignCallDispatcher:
             )
 
             # Record call initiation failure in circuit breaker
-            await circuit_breaker.record_and_evaluate(campaign.id, is_failure=True)
+            await circuit_breaker.record_and_evaluate(
+                campaign.id,
+                is_failure=True,
+                workflow_run_id=workflow_run.id,
+                reason="call_initiation_failed",
+            )
 
             # Release concurrent slot on failure
             mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run.id)
@@ -459,13 +464,18 @@ class CampaignCallDispatcher:
             await asyncio.sleep(1)
 
     async def acquire_from_number(
-        self, organization_id: int, timeout: float = 60
+        self, organization_id: int, timeout: float = 600
     ) -> Optional[str]:
         """
         Acquire a from_number from the pool with retry.
         Waits up to timeout seconds, polling every 1s.
 
-        Returns the phone number or None if timeout is exceeded.
+        Args:
+            organization_id: ID of the organization for which to acquire the from_number.
+            timeout: Maximum time in seconds to wait for a from_number before giving up.
+
+        Returns:
+            The acquired phone number as a string, or None if timeout is exceeded.
         """
         wait_start = time.time()
 

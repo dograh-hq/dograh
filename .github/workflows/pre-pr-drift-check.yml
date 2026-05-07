@@ -1,14 +1,16 @@
-name: Docs OpenAPI drift check
+name: Pre-PR drift check
 
 on:
   pull_request:
     branches: [main]
     paths:
       - "api/**"
+      - "ui/**"
       - "pipecat/**"
       - "scripts/dump_docs_openapi.py"
+      - "scripts/format.sh"
       - "docs/api-reference/openapi.json"
-      - ".github/workflows/docs-openapi-drift.yml"
+      - ".github/workflows/pre-pr-drift-check.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -16,6 +18,7 @@ concurrency:
 
 jobs:
   drift-check:
+    if: ${{ !startsWith(github.head_ref, 'release-please--') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -44,6 +47,29 @@ jobs:
       - name: Install api and pipecat dependencies
         run: ./scripts/setup_requirements.sh --dev
 
+      - name: Install ui dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Run scripts/format.sh
+        run: ./scripts/format.sh
+
+      - name: Check for Python format/lint drift
+        run: |
+          if ! git diff --exit-code api; then
+            echo "::error::Python files are not formatted. Run './scripts/format.sh' locally and commit the result before raising the PR."
+            exit 1
+          fi
+          echo "Python format/lint is clean."
+
+      - name: Check for UI lint drift
+        run: |
+          if ! git diff --exit-code ui; then
+            echo "::error::UI files have outstanding lint fixes. Run 'npm run fix-lint' inside ui/ locally and commit the result before raising the PR."
+            exit 1
+          fi
+          echo "UI lint is clean."
+
       - name: Dump OpenAPI spec
         env:
           DATABASE_URL: postgresql+asyncpg://dummy:dummy@localhost/dummy
@@ -53,7 +79,7 @@ jobs:
           DEPLOYMENT_MODE: oss
         run: python -u -m scripts.dump_docs_openapi
 
-      - name: Check for drift
+      - name: Check for OpenAPI drift
         run: |
           if ! git diff --exit-code docs/api-reference/openapi.json; then
             echo "::error::docs/api-reference/openapi.json is out of sync with the FastAPI app."
@@ -70,5 +96,5 @@ jobs:
         with:
           payload: |
             {
-              "text": "❌ Dograh Docs OpenAPI drift check failed on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+              "text": "❌ Dograh pre-PR drift check failed on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
             }

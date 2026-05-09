@@ -18,3 +18,4 @@ bcrypt==5.0.0
 email-validator==2.3.0
 posthog==7.11.1
 fastmcp==3.2.4
+PyNaCl==1.6.2

@@ -28,6 +28,8 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEventType,
 )
 
+from api.utils.common import get_backend_endpoints
+
 router = APIRouter()
 
 
@@ -56,7 +58,8 @@ async def handle_telnyx_events(
     """
     set_current_run_id(workflow_run_id)
 
-    event_data = await request.json()
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    event_data = json.loads(raw_body)
     logger.info(
         f"[run {workflow_run_id}] Received Telnyx event: {json.dumps(event_data)}"
     )
@@ -66,11 +69,6 @@ async def handle_telnyx_events(
     # (``streaming.started``); normalize so downstream comparisons match either.
     data = event_data.get("data", {})
     event_type = normalize_event_type(data.get("event_type", ""))
-
-    # Skip streaming events — they're informational only
-    if event_type in ("streaming.started", "streaming.stopped"):
-        logger.debug(f"[run {workflow_run_id}] Telnyx streaming event: {event_type}")
-        return {"status": "success"}
 
     # Get workflow run and provider
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
@@ -86,6 +84,20 @@ async def handle_telnyx_events(
     provider = await get_telephony_provider_for_run(
         workflow_run, workflow.organization_id
     )
+
+    backend_endpoint, _ = await get_backend_endpoints()
+    webhook_url = f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
+    signature_valid = await provider.verify_inbound_signature(
+        webhook_url, event_data, dict(request.headers), raw_body
+    )
+    if not signature_valid:
+        logger.warning(f"[run {workflow_run_id}] Invalid Telnyx webhook signature")
+        return {"status": "error", "reason": "invalid_signature"}
+
+    # Skip streaming events. They are informational only, but still verified.
+    if event_type in ("streaming.started", "streaming.stopped"):
+        logger.debug(f"[run {workflow_run_id}] Telnyx streaming event: {event_type}")
+        return {"status": "success"}
 
     # Parse the callback data into generic format
     parsed_data = provider.parse_status_callback(event_data)

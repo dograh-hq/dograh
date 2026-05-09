@@ -4,11 +4,15 @@ Uses the Telnyx Call Control API v2 for outbound calling with
 inline WebSocket media streaming.
 """
 
+import base64
+import binascii
 import json
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
+import nacl.exceptions
+import nacl.signing
 from fastapi import HTTPException, WebSocketDisconnect
 from loguru import logger
 
@@ -32,6 +36,13 @@ def normalize_event_type(event_type: str) -> str:
     dotted form so all downstream matching can use a single canonical shape.
     """
     return (event_type or "").replace("_", ".")
+
+
+def _get_header(headers: Dict[str, str], name: str) -> str:
+    for key, value in headers.items():
+        if key.lower() == name:
+            return value
+    return ""
 
 
 class TelnyxProvider(TelephonyProvider):
@@ -168,13 +179,44 @@ class TelnyxProvider(TelephonyProvider):
     async def verify_webhook_signature(
         self, url: str, params: Dict[str, Any], signature: str
     ) -> bool:
-        """Required by the abstract interface but not actively called for Telnyx.
+        """Verify a Telnyx Ed25519 webhook signature.
 
-        Telnyx webhook signature verification uses Ed25519 (via the
-        telnyx-signature-ed25519 header). This can be implemented in the
-        future using the Telnyx SDK if needed.
+        Telnyx signs ``{timestamp}|{json_payload}`` and sends the signature in
+        ``telnyx-signature-ed25519``. The public key is read from provider
+        configuration, not from the request.
+
+        Docs:
+        https://developers.telnyx.com/development/api-fundamentals/webhooks/receiving-webhooks
         """
-        return True
+        timestamp = params.get("telnyx_timestamp") or params.get("timestamp")
+        raw_body = params.get("_raw_body", "")
+
+        if not signature or not timestamp:
+            logger.warning("Missing Telnyx webhook signature or timestamp")
+            return False
+
+        if not self.webhook_public_key:
+            logger.warning("Missing Telnyx webhook_public_key configuration")
+            return False
+
+        if isinstance(raw_body, bytes):
+            raw_body = raw_body.decode("utf-8", errors="replace")
+
+        try:
+            signature_bytes = base64.b64decode(signature, validate=True)
+            public_key_bytes = base64.b64decode(
+                self.webhook_public_key.strip(), validate=True
+            )
+            verify_key = nacl.signing.VerifyKey(public_key_bytes)
+            signed_payload = f"{timestamp}|{raw_body}".encode("utf-8")
+            verify_key.verify(signed_payload, signature_bytes)
+            return True
+        except (binascii.Error, ValueError) as e:
+            logger.warning(f"Invalid Telnyx webhook signature material: {e}")
+            return False
+        except nacl.exceptions.BadSignatureError:
+            logger.warning("Telnyx webhook signature verification failed")
+            return False
 
     async def get_webhook_response(
         self, workflow_id: int, user_id: int, workflow_run_id: int
@@ -420,9 +462,9 @@ class TelnyxProvider(TelephonyProvider):
         return NormalizedInboundData(
             provider=TelnyxProvider.PROVIDER_NAME,
             call_id=payload.get("call_control_id", ""),
-            from_number=normalize_telephony_address(from_raw).canonical
-            if from_raw
-            else "",
+            from_number=(
+                normalize_telephony_address(from_raw).canonical if from_raw else ""
+            ),
             to_number=normalize_telephony_address(to_raw).canonical if to_raw else "",
             direction=direction,
             call_status=normalize_event_type(data.get("event_type", "")),
@@ -444,11 +486,14 @@ class TelnyxProvider(TelephonyProvider):
         headers: Dict[str, str],
         body: str = "",
     ) -> bool:
-        """Required by the abstract interface. Telnyx signature verification
-        (Ed25519 via ``telnyx-signature-ed25519``) is not yet implemented —
-        accepts all inbound webhooks for now.
-        """
-        return True
+        """Verify the signature of an inbound Telnyx webhook."""
+        signature = _get_header(headers, "telnyx-signature-ed25519")
+        timestamp = _get_header(headers, "telnyx-timestamp")
+        return await self.verify_webhook_signature(
+            url,
+            {"telnyx_timestamp": timestamp, "_raw_body": body},
+            signature,
+        )
 
     async def configure_inbound(
         self, address: str, webhook_url: Optional[str]

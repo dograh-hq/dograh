@@ -75,6 +75,34 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return list(result.scalars().all())
 
+    async def count_telnyx_configs_missing_webhook_public_key(
+        self, organization_id: int
+    ) -> int:
+        """Count Telnyx configs in this org with no webhook_public_key in credentials.
+
+        Used by the org-warnings endpoint to surface a UI nudge until customers
+        paste their portal-issued public key.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(func.count(TelephonyConfigurationModel.id)).where(
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                    TelephonyConfigurationModel.provider == "telnyx",
+                    (
+                        TelephonyConfigurationModel.credentials.op("->>")(
+                            "webhook_public_key"
+                        ).is_(None)
+                    )
+                    | (
+                        TelephonyConfigurationModel.credentials.op("->>")(
+                            "webhook_public_key"
+                        )
+                        == ""
+                    ),
+                )
+            )
+            return int(result.scalar() or 0)
+
     async def list_all_telephony_configurations_by_provider(
         self, provider: str
     ) -> List[TelephonyConfigurationModel]:

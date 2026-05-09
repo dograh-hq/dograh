@@ -27,6 +27,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "provider": "telnyx",
         "api_key": value.get("api_key"),
         "connection_id": value.get("connection_id"),
+        "webhook_public_key": value.get("webhook_public_key"),
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -122,6 +123,18 @@ _UI_METADATA = ProviderUIMetadata(
             description=(
                 "Telnyx Call Control Application ID (connection_id). Leave "
                 "blank and we will auto-create one for you on save."
+            ),
+        ),
+        ProviderUIField(
+            name="webhook_public_key",
+            label="Webhook Public Key",
+            type="textarea",
+            required=False,
+            sensitive=False,
+            description=(
+                "Public key from Mission Control Portal → Keys & Credentials "
+                "→ Public Key. Used to verify Telnyx webhook signatures. "
+                "Without it, webhooks from Telnyx will be rejected."
             ),
         ),
         ProviderUIField(

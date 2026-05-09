@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  AlertTriangle,
   ChevronRight,
   Copy,
   ExternalLink,
@@ -44,10 +45,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useAuth } from "@/lib/auth";
 
 export default function TelephonyConfigurationsPage() {
   const { user, getAccessToken, loading: authLoading } = useAuth();
+  const {
+    telnyxMissingWebhookPublicKeyCount,
+    refresh: refreshWarnings,
+  } = useTelephonyConfigWarnings();
   const [items, setItems] = useState<TelephonyConfigurationListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
@@ -74,6 +80,14 @@ export default function TelephonyConfigurationsPage() {
       setLoading(false);
     }
   }, [authLoading, user, getAccessToken]);
+
+  // After a save (create/update), the backing config may have flipped between
+  // missing/present webhook_public_key — refresh the cached warning state so
+  // the page banner and nav badge update without a manual reload.
+  const onSaved = useCallback(async () => {
+    await fetchItems();
+    await refreshWarnings();
+  }, [fetchItems, refreshWarnings]);
 
   useEffect(() => {
     fetchItems();
@@ -155,6 +169,30 @@ export default function TelephonyConfigurationsPage() {
             <Plus className="h-4 w-4 mr-2" /> Add configuration
           </Button>
         </div>
+
+        {telnyxMissingWebhookPublicKeyCount > 0 && (
+          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+              <div className="space-y-1 text-sm">
+                <p className="font-medium">Webhook public key not configured</p>
+                <p>
+                  {telnyxMissingWebhookPublicKeyCount === 1
+                    ? "1 Telnyx configuration is"
+                    : `${telnyxMissingWebhookPublicKeyCount} Telnyx configurations are`}{" "}
+                  missing a webhook public key. Without it, Telnyx call status
+                  updates and inbound calls will be rejected starting{" "}
+                  <span className="font-medium">15 May 2026</span>. Copy your
+                  public key from{" "}
+                  <span className="whitespace-nowrap">
+                    Mission Control Portal → Keys &amp; Credentials → Public Key
+                  </span>{" "}
+                  and paste it into the affected Telnyx configuration below.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="grid gap-3">
@@ -263,13 +301,13 @@ export default function TelephonyConfigurationsPage() {
         open={createOpen}
         onOpenChange={setCreateOpen}
         existing={null}
-        onSaved={fetchItems}
+        onSaved={onSaved}
       />
       <ConfigFormDialog
         open={editOpen}
         onOpenChange={setEditOpen}
         existing={editTarget}
-        onSaved={fetchItems}
+        onSaved={onSaved}
       />
 
       <AlertDialog

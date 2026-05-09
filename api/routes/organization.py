@@ -87,6 +87,17 @@ class TelephonyProvidersMetadataResponse(BaseModel):
     providers: List[TelephonyProviderMetadata]
 
 
+class TelephonyConfigWarningsResponse(BaseModel):
+    """Aggregated telephony-configuration warning counts for the user's org.
+
+    Drives the page banner and nav badge that nudge customers to finish
+    optional-but-recommended configuration steps. Shape is a flat dict so
+    new warning types can be added without breaking the client.
+    """
+
+    telnyx_missing_webhook_public_key_count: int
+
+
 @router.get(
     "/telephony-providers/metadata",
     response_model=TelephonyProvidersMetadataResponse,
@@ -125,6 +136,27 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
             )
         )
     return TelephonyProvidersMetadataResponse(providers=providers)
+
+
+@router.get(
+    "/telephony-config-warnings",
+    response_model=TelephonyConfigWarningsResponse,
+)
+async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
+    """Return aggregated warning counts for the current org's telephony configs.
+
+    Today this surfaces only Telnyx configs missing ``webhook_public_key``;
+    additional warning types should be added as new fields on the response.
+    """
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    telnyx_missing = await db_client.count_telnyx_configs_missing_webhook_public_key(
+        user.selected_organization_id
+    )
+    return TelephonyConfigWarningsResponse(
+        telnyx_missing_webhook_public_key_count=telnyx_missing,
+    )
 
 
 def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):

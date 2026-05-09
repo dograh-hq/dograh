@@ -2,6 +2,7 @@
 
 import type { Team } from "@stackframe/stack";
 import {
+  AlertTriangle,
   ArrowUpCircle,
   AudioLines,
   Brain,
@@ -55,6 +56,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
@@ -73,6 +75,8 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
+  const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
+  const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
 
   // On mobile the sidebar renders as a full-width sheet overlay, so treat it
   // as always "expanded" regardless of the desktop collapsed/expanded state.
@@ -191,6 +195,8 @@ export function AppSidebar() {
   const SidebarLink = ({ item }: { item: typeof overviewSection[0] }) => {
     const isItemActive = isActive(item.url);
     const Icon = item.icon;
+    const showWarningDot =
+      item.url === "/telephony-configurations" && hasTelephonyWarning;
 
     if (effectiveState === "collapsed") {
       return (
@@ -204,14 +210,30 @@ export function AppSidebar() {
                   isItemActive && "bg-accent text-accent-foreground"
                 )}
               >
-                <Link href={item.url} onClick={handleMobileNavClick}>
+                <Link href={item.url} onClick={handleMobileNavClick} className="relative">
                   <Icon className="h-4 w-4" />
-                  <span className="sr-only">{item.title}</span>
+                  {showWarningDot && (
+                    <AlertTriangle
+                      aria-hidden
+                      className="absolute -right-0.5 -top-0.5 h-3 w-3 text-amber-500"
+                    />
+                  )}
+                  <span className="sr-only">
+                    {item.title}
+                    {showWarningDot && " — action required before 15 May 2026"}
+                  </span>
                 </Link>
               </SidebarMenuButton>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>{item.title}</p>
+              <p>
+                {item.title}
+                {showWarningDot && (
+                  <span className="block text-amber-600 dark:text-amber-400">
+                    Action required before 15 May 2026
+                  </span>
+                )}
+              </p>
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -229,6 +251,21 @@ export function AppSidebar() {
         <Link href={item.url} onClick={handleMobileNavClick}>
           <Icon className="h-4 w-4" />
           <span>{item.title}</span>
+          {showWarningDot && (
+            <TooltipProvider delayDuration={0}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertTriangle
+                    aria-label="Action required on a telephony configuration before 15 May 2026"
+                    className="ml-auto h-3.5 w-3.5 text-amber-500"
+                  />
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Action required before 15 May 2026</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </Link>
       </SidebarMenuButton>
     );

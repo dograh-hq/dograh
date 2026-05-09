@@ -18,6 +18,14 @@ class TelnyxConfigurationRequest(BaseModel):
             "stored on the configuration."
         ),
     )
+    webhook_public_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Webhook public key from Mission Control Portal → Keys & "
+            "Credentials → Public Key. Used to verify Telnyx webhook "
+            "signatures."
+        ),
+    )
     # Phone numbers are managed via the dedicated phone-numbers endpoints; the
     # legacy /telephony-config POST shim still accepts them inline.
     from_numbers: List[str] = Field(
@@ -31,4 +39,5 @@ class TelnyxConfigurationResponse(BaseModel):
     provider: Literal["telnyx"] = Field(default="telnyx")
     api_key: str  # Masked
     connection_id: Optional[str] = None
+    webhook_public_key: Optional[str] = None
     from_numbers: List[str]

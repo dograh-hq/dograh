@@ -48,6 +48,7 @@ class TelnyxProvider(TelephonyProvider):
     def __init__(self, config: Dict[str, Any]):
         self.api_key = config.get("api_key")
         self.connection_id = config.get("connection_id")
+        self.webhook_public_key = config.get("webhook_public_key")
         self.from_numbers = config.get("from_numbers", [])
 
         if isinstance(self.from_numbers, str):

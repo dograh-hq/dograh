@@ -204,6 +204,9 @@ echo -e "${BLUE}[6/6] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
+# Change environment from local to production so that coturn filters local IPs
+ENVIRONMENT=production
+
 # Backend API endpoint (public URL the backend uses to build webhook/embed links)
 BACKEND_API_ENDPOINT=https://$SERVER_IP
 

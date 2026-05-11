@@ -66,11 +66,19 @@ class HealthResponse(BaseModel):
     backend_api_endpoint: str
     deployment_mode: str
     auth_provider: str
+    turn_enabled: bool
+    force_turn_relay: bool
 
 
 @router.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    from api.constants import APP_VERSION, AUTH_PROVIDER, DEPLOYMENT_MODE
+    from api.constants import (
+        APP_VERSION,
+        AUTH_PROVIDER,
+        DEPLOYMENT_MODE,
+        FORCE_TURN_RELAY,
+        TURN_SECRET,
+    )
     from api.utils.common import get_backend_endpoints
 
     logger.debug("Health endpoint called")
@@ -81,4 +89,6 @@ async def health() -> HealthResponse:
         backend_api_endpoint=backend_endpoint,
         deployment_mode=DEPLOYMENT_MODE,
         auth_provider=AUTH_PROVIDER,
+        turn_enabled=bool(TURN_SECRET),
+        force_turn_relay=FORCE_TURN_RELAY,
     )

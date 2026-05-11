@@ -80,7 +80,7 @@ services:
       - shared-tmp:/tmp
     environment:
       # Core application config
-      ENVIRONMENT: "local"
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
       LOG_LEVEL: "INFO"
 
       # Replace this environment variable if you are using a custom
@@ -196,7 +196,7 @@ services:
     image: coturn/coturn:4.8.0
     container_name: coturn
     restart: unless-stopped
-    profiles: ["remote"]
+    profiles: ["remote", "local-turn"]
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"

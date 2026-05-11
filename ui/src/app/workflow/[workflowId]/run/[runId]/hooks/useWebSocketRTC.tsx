@@ -4,6 +4,7 @@ import { client } from "@/client/client.gen";
 import { getTurnCredentialsApiV1TurnCredentialsGet, validateUserConfigurationsApiV1UserConfigurationsUserValidateGet, validateWorkflowApiV1WorkflowWorkflowIdValidatePost } from "@/client/sdk.gen";
 import { TurnCredentialsResponse } from "@/client/types.gen";
 import { WorkflowValidationError } from "@/components/flow/types";
+import { useAppConfig } from "@/context/AppConfigContext";
 import logger from '@/lib/logger';
 
 import { sdpFilterCodec } from "../utils";
@@ -48,6 +49,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const [isStarting, setIsStarting] = useState(false);
     const [feedbackMessages, setFeedbackMessages] = useState<FeedbackMessage[]>([]);
     const initialContext = initialContextVariables || {};
+    const { config: appConfig } = useAppConfig();
 
     const {
         audioInputs,
@@ -122,6 +124,16 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         const config: RTCConfiguration = {
             iceServers
         };
+
+        // Diagnostic: when the backend is started with FORCE_TURN_RELAY=true,
+        // restrict the browser to relay-only candidates so media must traverse
+        // TURN. Lets you verify TURN connectivity end-to-end — a TURN
+        // misconfiguration surfaces as an ICE failure instead of silently
+        // falling back to host/srflx.
+        if (appConfig?.forceTurnRelay) {
+            config.iceTransportPolicy = 'relay';
+            logger.info('FORCE_TURN_RELAY is on — restricting browser ICE to relay candidates only');
+        }
 
         const pc = new RTCPeerConnection(config);
 
@@ -528,24 +540,30 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         setConnectionStatus('connecting');
 
         try {
-            // Fetch time-limited TURN credentials from backend API
-            try {
-                const turnResponse = await getTurnCredentialsApiV1TurnCredentialsGet({
-                    headers: {
-                        'Authorization': `Bearer ${accessToken}`,
-                    },
-                });
-                if (turnResponse.data) {
-                    turnCredentialsRef.current = turnResponse.data;
-                    logger.info(`TURN credentials obtained, TTL: ${turnResponse.data.ttl}s`);
-                } else if (turnResponse.response.status === 503) {
-                    // TURN not configured on server - this is OK, we'll use STUN only
-                    logger.info('TURN server not configured, using STUN only');
-                } else {
-                    logger.warn(`Failed to fetch TURN credentials: ${turnResponse.response.status}`);
+            // Fetch time-limited TURN credentials from backend API only if the
+            // server reports a TURN server is configured. Skipping the request
+            // avoids a 503 on OSS local deployments that don't run coturn.
+            if (appConfig?.turnEnabled === false) {
+                logger.info('TURN server disabled in app config, using STUN only');
+            } else {
+                try {
+                    const turnResponse = await getTurnCredentialsApiV1TurnCredentialsGet({
+                        headers: {
+                            'Authorization': `Bearer ${accessToken}`,
+                        },
+                    });
+                    if (turnResponse.data) {
+                        turnCredentialsRef.current = turnResponse.data;
+                        logger.info(`TURN credentials obtained, TTL: ${turnResponse.data.ttl}s`);
+                    } else if (turnResponse.response.status === 503) {
+                        // TURN not configured on server - this is OK, we'll use STUN only
+                        logger.info('TURN server not configured, using STUN only');
+                    } else {
+                        logger.warn(`Failed to fetch TURN credentials: ${turnResponse.response.status}`);
+                    }
+                } catch (e) {
+                    logger.warn('Failed to fetch TURN credentials, continuing without TURN:', e);
                 }
-            } catch (e) {
-                logger.warn('Failed to fetch TURN credentials, continuing without TURN:', e);
             }
 
             // Validate API keys

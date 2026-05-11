@@ -1812,6 +1812,14 @@ export type HealthResponse = {
      * Auth Provider
      */
     auth_provider: string;
+    /**
+     * Turn Enabled
+     */
+    turn_enabled: boolean;
+    /**
+     * Force Turn Relay
+     */
+    force_turn_relay: boolean;
 };
 
 /**

@@ -133,6 +133,11 @@ TURN_HOST = os.getenv("TURN_HOST", "localhost")
 TURN_PORT = int(os.getenv("TURN_PORT", "3478"))
 TURN_TLS_PORT = int(os.getenv("TURN_TLS_PORT", "5349"))
 TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))
+# Diagnostic flag: when true, strip all non-relay ICE candidates from the
+# answer SDP so every media path must traverse the TURN server. Use for
+# verifying TURN connectivity end-to-end; expect connection failures if
+# TURN is misconfigured or unreachable.
+FORCE_TURN_RELAY = os.getenv("FORCE_TURN_RELAY", "false").lower() == "true"
 
 # OSS Email/Password Auth
 OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")

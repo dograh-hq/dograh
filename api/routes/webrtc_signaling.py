@@ -28,7 +28,7 @@ from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENVIRONMENT
+from api.constants import ENVIRONMENT, FORCE_TURN_RELAY
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment
@@ -78,21 +78,54 @@ def is_private_ip_candidate(candidate_str: str) -> bool:
 
 
 def filter_outbound_sdp(sdp: str) -> str:
-    """Strip a=candidate lines with private/CGNAT IPs from an outbound answer SDP.
+    """Strip ICE candidates from an outbound answer SDP based on env config.
 
-    aiortc gathers host candidates from every interface on the box, including
-    Docker bridges (172.17.0.1, 172.18.0.1). Advertising those to the browser
-    causes coturn "peer IP X denied" errors when the browser asks TURN to
-    permit them. No-op in LOCAL so docker-compose dev keeps working.
+    Two filters apply:
+
+    1. In non-LOCAL environments, drop host candidates with private/CGNAT IPs.
+       aiortc gathers host candidates from every interface on the box, including
+       Docker bridges (172.17.0.1, 172.18.0.1). Advertising those to the browser
+       causes coturn "peer IP X denied" errors when the browser asks TURN to
+       permit them.
+
+    2. When FORCE_TURN_RELAY is set, drop every non-relay candidate so the
+       only path the browser can use is via TURN. Lets you verify TURN
+       connectivity end-to-end — if TURN is broken, the call simply fails.
     """
-    if ENVIRONMENT == Environment.LOCAL.value:
+    if ENVIRONMENT == Environment.LOCAL.value and not FORCE_TURN_RELAY:
         return sdp
+
     lines = sdp.split("\r\n")
-    filtered = [
-        line
-        for line in lines
-        if not (line.startswith("a=candidate:") and is_private_ip_candidate(line[2:]))
-    ]
+    filtered: List[str] = []
+    dropped_non_relay = 0
+    kept_relay = 0
+    for line in lines:
+        if line.startswith("a=candidate:"):
+            candidate_str = line[2:]
+            if FORCE_TURN_RELAY and " typ relay" not in candidate_str:
+                dropped_non_relay += 1
+                continue
+            if ENVIRONMENT != Environment.LOCAL.value and is_private_ip_candidate(
+                candidate_str
+            ):
+                continue
+            if FORCE_TURN_RELAY:
+                kept_relay += 1
+        filtered.append(line)
+
+    if FORCE_TURN_RELAY:
+        if kept_relay == 0:
+            logger.warning(
+                "FORCE_TURN_RELAY is on but the answer SDP has no relay candidates "
+                f"(dropped {dropped_non_relay} non-relay). TURN may be unreachable; "
+                "the connection will fail."
+            )
+        else:
+            logger.info(
+                f"FORCE_TURN_RELAY: kept {kept_relay} relay candidates, "
+                f"dropped {dropped_non_relay} non-relay"
+            )
+
     return "\r\n".join(filtered)
 
 

@@ -77,6 +77,25 @@ def is_private_ip_candidate(candidate_str: str) -> bool:
     return False
 
 
+def filter_outbound_sdp(sdp: str) -> str:
+    """Strip a=candidate lines with private/CGNAT IPs from an outbound answer SDP.
+
+    aiortc gathers host candidates from every interface on the box, including
+    Docker bridges (172.17.0.1, 172.18.0.1). Advertising those to the browser
+    causes coturn "peer IP X denied" errors when the browser asks TURN to
+    permit them. No-op in LOCAL so docker-compose dev keeps working.
+    """
+    if ENVIRONMENT == Environment.LOCAL.value:
+        return sdp
+    lines = sdp.split("\r\n")
+    filtered = [
+        line
+        for line in lines
+        if not (line.startswith("a=candidate:") and is_private_ip_candidate(line[2:]))
+    ]
+    return "\r\n".join(filtered)
+
+
 def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
     """Build ICE servers configuration including TURN if configured.
 
@@ -247,7 +266,11 @@ class SignalingManager:
             await ws.send_json(
                 {
                     "type": "answer",
-                    "payload": {"sdp": answer["sdp"], "type": "answer", "pc_id": pc_id},
+                    "payload": {
+                        "sdp": filter_outbound_sdp(answer["sdp"]),
+                        "type": "answer",
+                        "pc_id": pc_id,
+                    },
                 }
             )
         else:
@@ -299,7 +322,7 @@ class SignalingManager:
                 {
                     "type": "answer",
                     "payload": {
-                        "sdp": answer["sdp"],
+                        "sdp": filter_outbound_sdp(answer["sdp"]),
                         "type": answer["type"],
                         "pc_id": answer["pc_id"],
                     },
@@ -380,7 +403,7 @@ class SignalingManager:
             {
                 "type": "answer",
                 "payload": {
-                    "sdp": answer["sdp"],
+                    "sdp": filter_outbound_sdp(answer["sdp"]),
                     "type": "answer",
                     "pc_id": pc_id,  # Use the client's pc_id
                 },

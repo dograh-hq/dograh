@@ -72,6 +72,7 @@ jobs:
           cache: pip
           cache-dependency-path: |
             api/requirements.txt
+            api/requirements.dev.txt
             pipecat/pyproject.toml
 
       - name: Set up Node 22 (test_ts_bridge.py shells out to node)
@@ -79,11 +80,8 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Install api dependencies
-        run: |
-          pip install -r api/requirements.txt
-          pip install -r api/requirements.dev.txt
-          pip install './pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb]'
+      - name: Install api and pipecat dependencies
+        run: ./scripts/setup_requirements.sh --dev
 
       - name: Install ts_validator npm deps
         working-directory: api/mcp_server/ts_validator

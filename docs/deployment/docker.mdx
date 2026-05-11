@@ -46,6 +46,38 @@ http://localhost:3010
 You can disable telemetry by setting `ENABLE_TELEMETRY=false` in the command above.
 </Note>
 
+### Troubleshooting WebRTC Connectivity
+
+The Quick Start above relies on direct peer-to-peer WebRTC between your browser and the API container. On most single-machine setups this works without any extra configuration. If you hit any of the following, you likely need a TURN server in the path:
+
+- The call connects but no audio flows in either direction
+- The browser console reports `iceConnectionState: failed`
+- You are testing from a phone or another device on your LAN against the laptop running Docker
+- A VPN, corporate firewall, or strict NAT sits between the browser and Docker
+
+For these cases, use the alternate local setup script which configures a coturn TURN server alongside the rest of the stack:
+
+```bash
+curl -o setup_local.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_local.sh && chmod +x setup_local.sh && ./setup_local.sh
+```
+
+The script will prompt you for:
+- Whether to enable coturn (answer `y`)
+- The host browsers should use to reach TURN (press Enter for `127.0.0.1`; use your LAN IP if testing from another device on the same network)
+- A shared secret for the TURN server (press Enter to generate a random one)
+
+It creates `docker-compose.yaml`, `turnserver.conf`, and a `.env` file with TURN credentials. Start the stack with the `local-turn` profile so coturn comes up alongside the other services:
+
+```bash
+docker compose --profile local-turn up --pull always
+```
+
+The application is still available at `http://localhost:3010`.
+
+<Note>
+To verify that media is actually traversing TURN (and not silently falling back to a direct path), set `FORCE_TURN_RELAY=true` in `.env` and restart the API. The browser will then only use relay ICE candidates — if TURN is misconfigured or unreachable, the call fails cleanly with `ICE failed` in the console instead of appearing to work. Set it back to `false` once you have verified connectivity.
+</Note>
+
 ## Option 2: Remote Server Deployment
 
 Watch the video tutorial below for a step-by-step walkthrough of deploying Dograh AI to a remote server.

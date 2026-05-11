@@ -241,12 +241,10 @@ async def _run_pipeline(
         raise HTTPException(status_code=400, detail="Workflow run already completed")
 
     merged_call_context_vars = workflow_run.initial_context
-    # If there is some extra call_context_vars, update them
+    # If there is some extra call_context_vars, fold them in. Persistence
+    # happens once below, after runtime_configuration is also resolved.
     if call_context_vars:
         merged_call_context_vars = {**merged_call_context_vars, **call_context_vars}
-        await db_client.update_workflow_run(
-            workflow_run_id, initial_context=merged_call_context_vars
-        )
 
     # Get user configuration
     user_config = await db_client.get_user_configurations(user_id)
@@ -311,6 +309,36 @@ async def _run_pipeline(
         tts = create_tts_service(user_config, audio_config)
         llm = create_llm_service(user_config)
         inference_llm = None
+
+    # Stamp the providers/models actually resolved for this run onto
+    # initial_context so they're available for post-call analytics
+    # (model_overrides may have shifted them away from the org-level
+    # user_config).
+    if is_realtime:
+        # llm_* refers to the side-channel text LLM (variable extraction,
+        # voicemail detection); realtime_* is the speech-to-speech service.
+        runtime_configuration = {
+            "realtime_provider": user_config.realtime.provider,
+            "realtime_model": user_config.realtime.model,
+            "llm_provider": user_config.llm.provider,
+            "llm_model": user_config.llm.model,
+        }
+    else:
+        runtime_configuration = {
+            "stt_provider": user_config.stt.provider,
+            "stt_model": user_config.stt.model,
+            "tts_provider": user_config.tts.provider,
+            "tts_model": user_config.tts.model,
+            "llm_provider": user_config.llm.provider,
+            "llm_model": user_config.llm.model,
+        }
+    merged_call_context_vars = {
+        **merged_call_context_vars,
+        "runtime_configuration": runtime_configuration,
+    }
+    await db_client.update_workflow_run(
+        workflow_run_id, initial_context=merged_call_context_vars
+    )
 
     workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(run_workflow_json))
 

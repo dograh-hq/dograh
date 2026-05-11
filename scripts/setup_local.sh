@@ -27,12 +27,39 @@ if [[ -z "$ENABLE_COTURN" ]]; then
 fi
 
 if [[ "$ENABLE_COTURN" == "true" ]]; then
+    # Pick a TURN_HOST that's reachable from BOTH the browser (running on the
+    # host) and the API container (running in docker). 127.0.0.1 is tempting
+    # but doesn't work for the api container — its own loopback isn't where
+    # coturn lives, so aiortc can't allocate a relay and FORCE_TURN_RELAY
+    # ends up with an empty answer SDP. The host's LAN IP works for both.
+    detect_lan_ip() {
+        local ip=""
+        if command -v ipconfig >/dev/null 2>&1; then
+            for iface in en0 en1 en2 en3 en4; do
+                ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
+                [[ -n "$ip" ]] && { echo "$ip"; return; }
+            done
+        fi
+        if command -v ip >/dev/null 2>&1; then
+            ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}')
+            [[ -n "$ip" ]] && { echo "$ip"; return; }
+        fi
+        if command -v hostname >/dev/null 2>&1; then
+            ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+            [[ -n "$ip" ]] && { echo "$ip"; return; }
+        fi
+    }
+
+    DEFAULT_TURN_HOST="$(detect_lan_ip)"
+    DEFAULT_TURN_HOST="${DEFAULT_TURN_HOST:-127.0.0.1}"
+
     # Get the host browsers/peers will use to reach the TURN server
     if [[ -z "$TURN_HOST" ]]; then
-        echo -e "${YELLOW}Enter the host browsers should use to reach TURN (press Enter for 127.0.0.1):${NC}"
+        echo -e "${YELLOW}Enter the host browsers AND the API container will use to reach TURN${NC}"
+        echo -e "${YELLOW}(press Enter for ${DEFAULT_TURN_HOST}):${NC}"
         read -p "> " TURN_HOST
     fi
-    TURN_HOST="${TURN_HOST:-127.0.0.1}"
+    TURN_HOST="${TURN_HOST:-$DEFAULT_TURN_HOST}"
 
     # Validate that TURN_HOST is either an IP or a hostname (basic check)
     if ! [[ "$TURN_HOST" =~ ^[A-Za-z0-9.-]+$ ]]; then

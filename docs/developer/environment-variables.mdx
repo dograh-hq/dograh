@@ -93,6 +93,7 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 | `TURN_TLS_PORT` | `5349` | TURN server TLS port |
 | `TURN_SECRET` | `null` | **Required for WebRTC.** Shared secret for TURN credential generation |
 | `TURN_CREDENTIAL_TTL` | `86400` | TURN credential validity in seconds (default: 24h) |
+| `FORCE_TURN_RELAY` | `false` | Diagnostic flag. When `true`, restricts ICE to relay-only candidates on both server (SDP filter) and browser (`iceTransportPolicy: 'relay'`). Use to verify TURN connectivity end-to-end — calls fail cleanly if TURN is misconfigured instead of silently falling back to a direct path. |
 
 ---
 

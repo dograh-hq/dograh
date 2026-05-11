@@ -106,7 +106,7 @@ async def check_dograh_quota(
 
                 logger.info(
                     f"Dograh quota check passed for key ...{api_key[-8:]}: "
-                    f"${remaining:.2f} remaining"
+                    f"{remaining:.2f} credits remaining"
                 )
             except Exception as e:
                 logger.error(f"Failed to check quota for Dograh key: {str(e)}")

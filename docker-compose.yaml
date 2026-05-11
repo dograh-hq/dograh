@@ -121,6 +121,7 @@ services:
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
       TURN_HOST: "${TURN_HOST:-}"
       TURN_SECRET: "${TURN_SECRET:-}"
+      FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
 
       OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
 

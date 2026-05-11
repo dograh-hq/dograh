@@ -1,10 +1,10 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, ChevronDown, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -21,6 +21,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
     Popover,
     PopoverContent,
@@ -47,6 +48,7 @@ interface WorkflowEditorHeaderProps {
     onBackToDraft: () => void;
     hasDraft: boolean;
     onPublished: () => void;
+    renameWorkflow: (newName: string) => Promise<void>;
 }
 
 export const WorkflowEditorHeader = ({
@@ -65,12 +67,19 @@ export const WorkflowEditorHeader = ({
     onPublished,
     workflowId,
     workflowUuid,
+    renameWorkflow,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
     const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
     const [publishing, setPublishing] = useState(false);
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [nameDraft, setNameDraft] = useState('');
+    const [nameError, setNameError] = useState<string | null>(null);
+    const [isRenaming, setIsRenaming] = useState(false);
+    const nameInputRef = useRef<HTMLInputElement>(null);
+    const renameButtonRef = useRef<HTMLButtonElement>(null);
 
     const hasValidationErrors = workflowValidationErrors.length > 0;
     const isCallDisabled = isDirty || hasValidationErrors;
@@ -158,6 +167,68 @@ export const WorkflowEditorHeader = ({
         URL.revokeObjectURL(url);
     };
 
+    const enterEditMode = () => {
+        setNameDraft(workflowName);
+        setNameError(null);
+        setIsEditingName(true);
+    };
+
+    const exitEditMode = () => {
+        setIsEditingName(false);
+        setNameError(null);
+        // Return focus to the pencil button so keyboard users aren't stranded.
+        // Defer to next tick so React commits the input unmount first.
+        setTimeout(() => renameButtonRef.current?.focus(), 0);
+    };
+
+    const attemptSave = async () => {
+        if (isRenaming) return;
+        const trimmed = nameDraft.trim();
+        if (trimmed.length === 0) {
+            setNameError("Name cannot be empty");
+            return;
+        }
+        if (trimmed === workflowName) {
+            // No-op: exit cleanly with no API call.
+            exitEditMode();
+            return;
+        }
+        setIsRenaming(true);
+        setNameError(null);
+        try {
+            await renameWorkflow(trimmed);
+            // Success: store update already propagated workflowName. Exit edit mode.
+            setIsRenaming(false);
+            exitEditMode();
+        } catch {
+            // Roll back: keep user's typed value, reopen the input, focus it,
+            // surface a sonner toast (matches existing duplicate/publish failure pattern).
+            setIsRenaming(false);
+            toast.error("Failed to rename workflow");
+            setTimeout(() => nameInputRef.current?.focus(), 0);
+        }
+    };
+
+    const handleRenameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            void attemptSave();
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            exitEditMode();
+        }
+    };
+
+    const handleRenameBlur = () => {
+        // On blur with empty/whitespace, revert silently to display mode so the user is never trapped.
+        const trimmed = nameDraft.trim();
+        if (trimmed.length === 0) {
+            exitEditMode();
+            return;
+        }
+        void attemptSave();
+    };
+
     return (
         <div className="flex items-center justify-between w-full h-14 px-4 bg-[#1a1a1a] border-b border-[#2a2a2a]">
             {/* Left section: Mobile menu + Back button + Workflow name */}
@@ -177,12 +248,49 @@ export const WorkflowEditorHeader = ({
                 </button>
 
                 <div className="flex items-center gap-2">
-                    <h1 className="text-base font-medium text-white whitespace-nowrap">
-                        <span className="md:hidden">
-                            {workflowName.length > 8 ? `${workflowName.slice(0, 8)}…` : workflowName}
-                        </span>
-                        <span className="hidden md:inline">{workflowName}</span>
-                    </h1>
+                    {isEditingName ? (
+                        <div className="flex flex-col gap-1">
+                            <Input
+                                ref={nameInputRef}
+                                value={nameDraft}
+                                onChange={(e) => {
+                                    setNameDraft(e.target.value);
+                                    if (nameError) setNameError(null);
+                                }}
+                                onKeyDown={handleRenameKeyDown}
+                                onBlur={handleRenameBlur}
+                                disabled={isRenaming}
+                                autoFocus
+                                onFocus={(e) => e.currentTarget.select()}
+                                aria-label="Workflow name"
+                                aria-invalid={nameError !== null}
+                                className="h-8 max-w-xs bg-[#2a2a2a] border-[#3a3a3a] text-white text-base font-medium"
+                            />
+                            {nameError && (
+                                <span className="text-xs text-red-500" role="alert">{nameError}</span>
+                            )}
+                        </div>
+                    ) : (
+                        <>
+                            <h1 className="text-base font-medium text-white whitespace-nowrap truncate max-w-[14rem] md:max-w-md">
+                                <span className="md:hidden">
+                                    {workflowName.length > 8 ? `${workflowName.slice(0, 8)}…` : workflowName}
+                                </span>
+                                <span className="hidden md:inline">{workflowName}</span>
+                            </h1>
+                            {!isViewingHistoricalVersion && (
+                                <button
+                                    ref={renameButtonRef}
+                                    type="button"
+                                    onClick={enterEditMode}
+                                    aria-label="Rename workflow"
+                                    className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+                                >
+                                    <Pencil className="w-4 h-4 text-gray-400" />
+                                </button>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
 

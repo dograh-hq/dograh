@@ -15,7 +15,7 @@ import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } fr
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { WorkflowConfigurations } from '@/types/workflow-configurations';
+import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from '@/types/workflow-configurations';
 
 import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
@@ -92,6 +92,8 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         setIsAddNodePanelOpen,
         handleNodeSelect,
         saveWorkflow,
+        workflowConfigurations,
+        saveWorkflowConfigurations,
         onConnect,
         onEdgesChange,
         onNodesChange,
@@ -312,6 +314,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         }
     }, [saveWorkflow, isViewingHistoricalVersion, fetchVersions]);
 
+    const renameWorkflow = useCallback(async (newName: string) => {
+        await saveWorkflowConfigurations(
+            workflowConfigurations ?? DEFAULT_WORKFLOW_CONFIGURATIONS,
+            newName,
+        );
+    }, [saveWorkflowConfigurations, workflowConfigurations]);
+
     // Memoize the context value to prevent unnecessary re-renders
     const workflowContextValue = useMemo(() => ({
         saveWorkflow: guardedSaveWorkflow,
@@ -342,6 +351,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
                     onBackToDraft={handleBackToDraft}
                     hasDraft={hasDraft}
                     onPublished={handlePublished}
+                    renameWorkflow={renameWorkflow}
                 />
 
                 {/* Workflow Canvas */}

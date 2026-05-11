@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.28.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.27.0...dograh-v1.28.0) (2026-05-11)
+
+
+### Features
+
+* add headless mode, redesign floating widget, refactor lifecycle callbacks ([#268](https://github.com/dograh-hq/dograh/issues/268)) ([d2a119c](https://github.com/dograh-hq/dograh/commit/d2a119c38ac5cd73ca52d0b323f4889423932172))
+* add logs in campaigns for failure or pausing ([#265](https://github.com/dograh-hq/dograh/issues/265)) ([d4b6afb](https://github.com/dograh-hq/dograh/commit/d4b6afb0204fc54548e1b4268b6c0c0c9be0ed44))
+* add telnyx webhook api key in telephony config ([#270](https://github.com/dograh-hq/dograh/issues/270)) ([01c201b](https://github.com/dograh-hq/dograh/commit/01c201bf092bb1df94f2685c7aaed612af79415a))
+* add voicemail detection in realtime branch ([025bc14](https://github.com/dograh-hq/dograh/commit/025bc143928a30e7876ee576503a4750a1835909))
+* add workflow graph constraints fixtures ([5a358d4](https://github.com/dograh-hq/dograh/commit/5a358d4d297f5e085bbb0b947b20b54b111e07a5))
+* enable FORCE_TURN_RELAY to diagnose turn connectivity for local deployment setups ([#272](https://github.com/dograh-hq/dograh/issues/272)) ([e2fe1f3](https://github.com/dograh-hq/dograh/commit/e2fe1f3cd427450871d10224aa3b255f91881844))
+
+
+### Bug Fixes
+
+* add missing call_id in gathered_context for telnyx ([31e2c13](https://github.com/dograh-hq/dograh/commit/31e2c135b045a4ea7a31c7dd1d585086fa4b0c95))
+* number pool initialization in multi telephony setup ([6d93be3](https://github.com/dograh-hq/dograh/commit/6d93be3ef6ade0e48c26c7dd0c2f8ba0ef3d96f5))
+
 ## [1.27.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.26.0...dograh-v1.27.0) (2026-05-02)
 
 

@@ -1,0 +1,14 @@
+[project]
+name = "dograh"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "api",
+    "sdk/python",
+]
+
+[tool.uv.sources]
+pipecat-ai = { path = "pipecat", editable = true }

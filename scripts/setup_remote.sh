@@ -414,8 +414,18 @@ echo "  - .env"
 echo ""
 echo -e "${YELLOW}To start Dograh, run:${NC}"
 echo ""
+# The script's own cd into dograh/ doesn't persist to the user's shell, so
+# remind them to cd themselves — except when they're already there (build mode
+# with REPO_SOURCE=existing, which writes into cwd).
+if [[ "$DEPLOY_MODE" != "build" || "$REPO_SOURCE" != "existing" ]]; then
+    echo -e "  ${BLUE}cd $(pwd)${NC}"
+fi
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     echo -e "  ${BLUE}sudo docker compose --profile remote up -d --build${NC}"
+    echo ""
+    echo -e "${YELLOW}The first build can take several minutes${NC}"
+    echo -e "${YELLOW}(downloading base images, installing dependencies).${NC}"
+    echo -e "${YELLOW}If you know how to speed this up, we would love a pull request.${NC}"
     echo ""
     echo -e "${YELLOW}To rebuild after editing api/ or ui/ code:${NC}"
     echo ""

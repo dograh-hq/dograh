@@ -1,10 +1,12 @@
 import base64
 import json
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import nacl.signing
 import pytest
+from fastapi import HTTPException
 from starlette.requests import Request
 
 from api.services.telephony.providers.telnyx.provider import TelnyxProvider
@@ -41,7 +43,9 @@ def _provider(public_key: str = "") -> TelnyxProvider:
     )
 
 
-def _signed_headers(body: str, timestamp: str = "1710000000"):
+def _signed_headers(body: str, timestamp: str | None = None):
+    if timestamp is None:
+        timestamp = str(int(time.time()))
     signing_key = nacl.signing.SigningKey.generate()
     public_key = base64.b64encode(bytes(signing_key.verify_key)).decode("ascii")
     signed_payload = f"{timestamp}|{body}".encode("utf-8")
@@ -184,20 +188,18 @@ async def test_telnyx_events_route_verifies_signature_before_status_update():
     public_key, headers = _signed_headers(body)
     provider = _provider(public_key)
 
-    with patch(
-        "api.services.telephony.providers.telnyx.routes.db_client"
-    ) as db_client, patch(
-        "api.services.telephony.providers.telnyx.routes.get_telephony_provider_for_run",
-        new_callable=AsyncMock,
-        return_value=provider,
-    ), patch(
-        "api.services.telephony.providers.telnyx.routes.get_backend_endpoints",
-        new_callable=AsyncMock,
-        return_value=("https://example.test", "wss://example.test"),
-    ), patch(
-        "api.services.telephony.providers.telnyx.routes._process_status_update",
-        new_callable=AsyncMock,
-    ) as process_status:
+    with (
+        patch("api.services.telephony.providers.telnyx.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.telnyx.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.telnyx.routes._process_status_update",
+            new_callable=AsyncMock,
+        ) as process_status,
+    ):
         db_client.get_workflow_run_by_id = AsyncMock(
             return_value=SimpleNamespace(workflow_id=7)
         )
@@ -211,3 +213,151 @@ async def test_telnyx_events_route_verifies_signature_before_status_update():
 
     assert result == {"status": "success"}
     process_status.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_rejects_stale_timestamp():
+    body = _body()
+    stale_ts = str(int(time.time()) - 600)
+    public_key, headers = _signed_headers(body, timestamp=stale_ts)
+    provider = _provider(public_key)
+
+    result = await provider.verify_inbound_signature(
+        "https://example.test/api/v1/telephony/inbound/run",
+        json.loads(body),
+        headers,
+        body,
+    )
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_rejects_future_timestamp():
+    body = _body()
+    future_ts = str(int(time.time()) + 600)
+    public_key, headers = _signed_headers(body, timestamp=future_ts)
+    provider = _provider(public_key)
+
+    result = await provider.verify_inbound_signature(
+        "https://example.test/api/v1/telephony/inbound/run",
+        json.loads(body),
+        headers,
+        body,
+    )
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_rejects_non_integer_timestamp():
+    body = _body()
+    public_key, headers = _signed_headers(body)
+    headers["telnyx-timestamp"] = "not-a-number"
+    provider = _provider(public_key)
+
+    result = await provider.verify_inbound_signature(
+        "https://example.test/api/v1/telephony/inbound/run",
+        json.loads(body),
+        headers,
+        body,
+    )
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_rejects_wrong_length_public_key():
+    body = _body()
+    _, headers = _signed_headers(body)
+    short_key = base64.b64encode(b"x" * 16).decode("ascii")
+    provider = _provider(short_key)
+
+    result = await provider.verify_inbound_signature(
+        "https://example.test/api/v1/telephony/inbound/run",
+        json.loads(body),
+        headers,
+        body,
+    )
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_rejects_wrong_length_signature():
+    body = _body()
+    public_key, headers = _signed_headers(body)
+    headers["telnyx-signature-ed25519"] = base64.b64encode(b"x" * 32).decode("ascii")
+    provider = _provider(public_key)
+
+    result = await provider.verify_inbound_signature(
+        "https://example.test/api/v1/telephony/inbound/run",
+        json.loads(body),
+        headers,
+        body,
+    )
+
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_telnyx_events_route_rejects_invalid_signature_with_401():
+    body = _body()
+    public_key, headers = _signed_headers(body)
+    provider = _provider(public_key)
+
+    with (
+        patch("api.services.telephony.providers.telnyx.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.telnyx.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.telnyx.routes._process_status_update",
+            new_callable=AsyncMock,
+        ) as process_status,
+        patch.object(
+            provider,
+            "verify_inbound_signature",
+            new_callable=AsyncMock,
+            return_value=False,
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await handle_telnyx_events(_request(body, headers), workflow_run_id=123)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid webhook signature"
+    process_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_telnyx_events_route_rejects_invalid_utf8_body_with_400():
+    invalid_body = b"\xff\xfe\xfd"
+
+    async def receive():
+        return {"type": "http.request", "body": invalid_body, "more_body": False}
+
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/telephony/telnyx/events/123",
+            "headers": [],
+        },
+        receive,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await handle_telnyx_events(request, workflow_run_id=123)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Webhook body is not valid UTF-8"

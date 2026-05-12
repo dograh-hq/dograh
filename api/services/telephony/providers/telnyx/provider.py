@@ -8,6 +8,7 @@ import base64
 import binascii
 import json
 import random
+import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import aiohttp
@@ -15,6 +16,14 @@ import nacl.exceptions
 import nacl.signing
 from fastapi import HTTPException, WebSocketDisconnect
 from loguru import logger
+
+# 5-min replay window — matches Telnyx SDKs (Python/Node/Go/Ruby/PHP);
+# Source: github.com/team-telnyx/telnyx-python src/telnyx/lib/webhook_verification.py
+TELNYX_TIMESTAMP_TOLERANCE_SECONDS = 300
+
+# Ed25519 sizes per RFC 8032; Telnyx SDKs check these for clearer errors than PyNaCl.
+TELNYX_PUBLIC_KEY_BYTES = 32
+TELNYX_SIGNATURE_BYTES = 64
 
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
@@ -183,7 +192,9 @@ class TelnyxProvider(TelephonyProvider):
 
         Telnyx signs ``{timestamp}|{json_payload}`` and sends the signature in
         ``telnyx-signature-ed25519``. The public key is read from provider
-        configuration, not from the request.
+        configuration, not from the request. ``url`` is unused — Telnyx does
+        not sign the request URL; the parameter exists to satisfy the base
+        class interface.
 
         Docs:
         https://developers.telnyx.com/development/api-fundamentals/webhooks/receiving-webhooks
@@ -191,31 +202,68 @@ class TelnyxProvider(TelephonyProvider):
         timestamp = params.get("telnyx_timestamp") or params.get("timestamp")
         raw_body = params.get("_raw_body", "")
 
-        if not signature or not timestamp:
-            logger.warning("Missing Telnyx webhook signature or timestamp")
+        if not signature:
+            logger.warning("Telnyx webhook missing telnyx-signature-ed25519 header")
+            return False
+        if not timestamp:
+            logger.warning("Telnyx webhook missing telnyx-timestamp header")
             return False
 
         if not self.webhook_public_key:
-            logger.warning("Missing Telnyx webhook_public_key configuration")
+            logger.error("Missing Telnyx webhook_public_key configuration")
+            return False
+
+        try:
+            ts_int = int(timestamp)
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid Telnyx webhook timestamp format: {timestamp!r}")
+            return False
+
+        if abs(time.time() - ts_int) > TELNYX_TIMESTAMP_TOLERANCE_SECONDS:
+            logger.warning(
+                f"Telnyx webhook timestamp outside "
+                f"{TELNYX_TIMESTAMP_TOLERANCE_SECONDS}s tolerance: "
+                f"timestamp={ts_int}, now={int(time.time())}"
+            )
             return False
 
         if isinstance(raw_body, bytes):
-            raw_body = raw_body.decode("utf-8", errors="replace")
+            raw_body = raw_body.decode("utf-8")
 
         try:
             signature_bytes = base64.b64decode(signature, validate=True)
+        except (binascii.Error, ValueError) as e:
+            logger.warning(f"Telnyx webhook signature not valid base64: {e}")
+            return False
+
+        try:
             public_key_bytes = base64.b64decode(
                 self.webhook_public_key.strip(), validate=True
             )
+        except (binascii.Error, ValueError) as e:
+            logger.error(f"Telnyx webhook_public_key not valid base64: {e}")
+            return False
+
+        if len(public_key_bytes) != TELNYX_PUBLIC_KEY_BYTES:
+            logger.error(
+                f"Telnyx webhook_public_key wrong length: expected "
+                f"{TELNYX_PUBLIC_KEY_BYTES}, got {len(public_key_bytes)}"
+            )
+            return False
+
+        if len(signature_bytes) != TELNYX_SIGNATURE_BYTES:
+            logger.warning(
+                f"Telnyx webhook signature wrong length: expected "
+                f"{TELNYX_SIGNATURE_BYTES}, got {len(signature_bytes)}"
+            )
+            return False
+
+        try:
             verify_key = nacl.signing.VerifyKey(public_key_bytes)
             signed_payload = f"{timestamp}|{raw_body}".encode("utf-8")
             verify_key.verify(signed_payload, signature_bytes)
             return True
-        except (binascii.Error, ValueError) as e:
-            logger.warning(f"Invalid Telnyx webhook signature material: {e}")
-            return False
         except nacl.exceptions.BadSignatureError:
-            logger.warning("Telnyx webhook signature verification failed")
             return False
 
     async def get_webhook_response(

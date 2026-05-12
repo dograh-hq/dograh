@@ -6,7 +6,7 @@ provider registry — see ProviderSpec.router.
 
 import json
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 
@@ -27,8 +27,6 @@ from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
     TransferEventType,
 )
-
-from api.utils.common import get_backend_endpoints
 
 router = APIRouter()
 
@@ -58,11 +56,15 @@ async def handle_telnyx_events(
     """
     set_current_run_id(workflow_run_id)
 
-    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    try:
+        raw_body = (await request.body()).decode("utf-8")
+    except UnicodeDecodeError:
+        logger.warning(
+            f"[run {workflow_run_id}] Telnyx webhook body is not valid UTF-8"
+        )
+        raise HTTPException(status_code=400, detail="Webhook body is not valid UTF-8")
+
     event_data = json.loads(raw_body)
-    logger.info(
-        f"[run {workflow_run_id}] Received Telnyx event: {json.dumps(event_data)}"
-    )
 
     # Extract event type from Telnyx envelope. Telnyx sometimes delivers the
     # type with underscores (``streaming_started``) instead of dots
@@ -70,29 +72,42 @@ async def handle_telnyx_events(
     data = event_data.get("data", {})
     event_type = normalize_event_type(data.get("event_type", ""))
 
+    logger.info(
+        f"[run {workflow_run_id}] Received Telnyx event: event_type={event_type}"
+    )
+    logger.debug(f"[run {workflow_run_id}] Telnyx event body: {json.dumps(event_data)}")
+
     # Get workflow run and provider
     workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
     if not workflow_run:
         logger.warning(f"Workflow run {workflow_run_id} not found for Telnyx event")
-        return {"status": "ignored", "reason": "workflow_run_not_found"}
+        raise HTTPException(status_code=404, detail="Workflow run not found")
 
     workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
     if not workflow:
         logger.warning(f"Workflow {workflow_run.workflow_id} not found")
-        return {"status": "ignored", "reason": "workflow_not_found"}
+        raise HTTPException(status_code=404, detail="Workflow not found")
 
     provider = await get_telephony_provider_for_run(
         workflow_run, workflow.organization_id
     )
 
-    backend_endpoint, _ = await get_backend_endpoints()
-    webhook_url = f"{backend_endpoint}/api/v1/telephony/telnyx/events/{workflow_run_id}"
     signature_valid = await provider.verify_inbound_signature(
-        webhook_url, event_data, dict(request.headers), raw_body
+        "", event_data, dict(request.headers), raw_body
     )
     if not signature_valid:
-        logger.warning(f"[run {workflow_run_id}] Invalid Telnyx webhook signature")
-        return {"status": "error", "reason": "invalid_signature"}
+        logger.warning(
+            f"[run {workflow_run_id}] Invalid Telnyx webhook signature "
+            f"(event_type={event_type}, "
+            f"timestamp={request.headers.get('telnyx-timestamp')}, "
+            f"body_len={len(raw_body)})"
+        )
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    logger.debug(
+        f"[run {workflow_run_id}] Telnyx webhook signature verified "
+        f"(event_type={event_type})"
+    )
 
     # Skip streaming events. They are informational only, but still verified.
     if event_type in ("streaming.started", "streaming.stopped"):

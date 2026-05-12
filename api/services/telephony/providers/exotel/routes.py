@@ -43,30 +43,41 @@ async def exotel_stream(websocket: WebSocket):
     """
     await websocket.accept()
 
-    # ------------------------------------------------------------------
-    # 1. Read the start event
-    # ------------------------------------------------------------------
-    try:
-        raw = await websocket.receive_text()
-    except WebSocketDisconnect:
-        logger.warning("[Exotel stream] WebSocket disconnected before start event")
-        return
+    # Exotel sends 'connected' first, then 'start' — same as Twilio.
+    # Loop until we get the 'start' event (skip 'connected' and any other preamble).
+    start_msg = None
+    for _ in range(5):  # safety limit
+        try:
+            raw = await websocket.receive_text()
+        except WebSocketDisconnect:
+            logger.warning("[Exotel stream] WebSocket disconnected before start event")
+            return
 
-    logger.info(f"[Exotel stream] Start message raw: {raw}")
+        logger.info(f"[Exotel stream] Received message raw: {raw}")
 
-    try:
-        start_msg = json.loads(raw)
-    except json.JSONDecodeError:
-        logger.error(f"[Exotel stream] Non-JSON start message: {raw}")
-        await websocket.close(code=4400, reason="Expected JSON start event")
-        return
+        try:
+            msg = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.error(f"[Exotel stream] Non-JSON message: {raw}")
+            await websocket.close(code=4400, reason="Expected JSON")
+            return
 
-    event_type = (start_msg.get("event") or start_msg.get("Event") or "").lower()
-    if event_type != "start":
-        logger.error(
-            f"[Exotel stream] Expected 'start' event, got: {event_type!r}. "
-            f"Full message: {start_msg}"
+        event_type = (msg.get("event") or msg.get("Event") or "").lower()
+
+        if event_type == "connected":
+            logger.info("[Exotel stream] Got 'connected' event, waiting for 'start'...")
+            continue
+
+        if event_type == "start":
+            start_msg = msg
+            break
+
+        logger.warning(
+            f"[Exotel stream] Unexpected event {event_type!r} before start, skipping."
         )
+
+    if start_msg is None:
+        logger.error("[Exotel stream] Never received 'start' event from Exotel")
         await websocket.close(code=4400, reason="Expected start event")
         return
 

@@ -120,14 +120,20 @@ class ExotelProvider(TelephonyProvider):
         data.update(kwargs)
 
         endpoint = f"{self._calls_url()}/connect.json"
+        log_data = {k: v for k, v in data.items()}  # shallow copy for logging
         logger.info(
-            f"[Exotel] Initiating outbound call to {to_number} "
-            f"via CallerID={caller_id}, workflow_run_id={workflow_run_id}"
+            f"[Exotel] POST {endpoint}\n"
+            f"  From={log_data.get('From')} CallerId={log_data.get('CallerId')}\n"
+            f"  Url={log_data.get('Url')}\n"
+            f"  StatusCallback={log_data.get('StatusCallback')}"
         )
 
         async with aiohttp.ClientSession() as session:
             async with session.post(endpoint, data=data) as response:
                 response_text = await response.text()
+                logger.info(
+                    f"[Exotel] Response HTTP {response.status}: {response_text[:500]}"
+                )
                 if response.status not in (200, 201, 202):
                     logger.error(
                         f"[Exotel] Calls/connect failed: "

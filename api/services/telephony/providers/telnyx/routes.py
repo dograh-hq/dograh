@@ -154,9 +154,7 @@ async def handle_telnyx_transfer_result(transfer_id: str, request: Request):
         # from the webhook payload. The strategy at pipeline-end then only has
         # to join the caller into this conference. Idempotent on duplicate
         # webhooks: if conference_id is already stamped on the context, skip.
-        conference_id = (
-            transfer_context.conference_id if transfer_context else None
-        )
+        conference_id = transfer_context.conference_id if transfer_context else None
         if transfer_context and not conference_id:
             conference_id = await _seed_destination_conference(
                 transfer_context=transfer_context,

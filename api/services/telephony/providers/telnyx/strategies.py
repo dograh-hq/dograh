@@ -74,7 +74,9 @@ class TelnyxConferenceStrategy(TransferStrategy):
                 return joined
 
         except Exception as e:
-            logger.error(f"[Telnyx Transfer] Failed to join caller into conference: {e}")
+            logger.error(
+                f"[Telnyx Transfer] Failed to join caller into conference: {e}"
+            )
             await self._cleanup_transfer_context(transfer_context.transfer_id)
             return False
 
@@ -166,9 +168,7 @@ class TelnyxHangupStrategy(HangupStrategy):
             )
             return False
 
-        endpoint = (
-            f"{TELNYX_API_BASE}/calls/{call_control_id}/actions/hangup"
-        )
+        endpoint = f"{TELNYX_API_BASE}/calls/{call_control_id}/actions/hangup"
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}",

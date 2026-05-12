@@ -92,7 +92,9 @@ def audit_definition(nodes, edges) -> list[dict]:
                     "source_type": src_type,
                     "target_id": tgt,
                     "target_type": tgt_type,
-                    "edge_label": (e.get("data") or {}).get("label") if isinstance(e.get("data"), dict) else None,
+                    "edge_label": (e.get("data") or {}).get("label")
+                    if isinstance(e.get("data"), dict)
+                    else None,
                     "reason": r,
                 }
             )

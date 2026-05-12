@@ -74,10 +74,16 @@ export const WorkflowEditorHeader = ({
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
     const [publishing, setPublishing] = useState(false);
-    const [isEditingName, setIsEditingName] = useState(false);
-    const [nameDraft, setNameDraft] = useState('');
-    const [nameError, setNameError] = useState<string | null>(null);
-    const [isRenaming, setIsRenaming] = useState(false);
+    // One discriminated-union state instead of (isEditingName, nameDraft,
+    // nameError, isRenaming): they're not independent — error and saving are
+    // mutually exclusive, and both are meaningless in the display state. The
+    // union makes the bad combinations unrepresentable and structurally
+    // prevents the Enter→disable-input→blur→re-fire race.
+    type RenameState =
+        | { kind: "display" }
+        | { kind: "editing"; draft: string; error: string | null }
+        | { kind: "saving"; draft: string };
+    const [rename, setRename] = useState<RenameState>({ kind: "display" });
     const nameInputRef = useRef<HTMLInputElement>(null);
     const renameButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -168,24 +174,23 @@ export const WorkflowEditorHeader = ({
     };
 
     const enterEditMode = () => {
-        setNameDraft(workflowName);
-        setNameError(null);
-        setIsEditingName(true);
+        setRename({ kind: "editing", draft: workflowName, error: null });
     };
 
     const exitEditMode = () => {
-        setIsEditingName(false);
-        setNameError(null);
+        setRename({ kind: "display" });
         // Return focus to the pencil button so keyboard users aren't stranded.
         // Defer to next tick so React commits the input unmount first.
         setTimeout(() => renameButtonRef.current?.focus(), 0);
     };
 
     const attemptSave = async () => {
-        if (isRenaming) return;
-        const trimmed = nameDraft.trim();
+        // Only "editing" can initiate a save. This also guards against the
+        // blur fired when disabling the input transitions us to "saving".
+        if (rename.kind !== "editing") return;
+        const trimmed = rename.draft.trim();
         if (trimmed.length === 0) {
-            setNameError("Name cannot be empty");
+            setRename({ ...rename, error: "Name cannot be empty" });
             return;
         }
         if (trimmed === workflowName) {
@@ -193,18 +198,16 @@ export const WorkflowEditorHeader = ({
             exitEditMode();
             return;
         }
-        setIsRenaming(true);
-        setNameError(null);
+        setRename({ kind: "saving", draft: rename.draft });
         try {
             await renameWorkflow(trimmed);
             // Success: store update already propagated workflowName. Exit edit mode.
-            setIsRenaming(false);
             exitEditMode();
         } catch {
             // Roll back: keep user's typed value, reopen the input, focus it,
             // surface a sonner toast (matches existing duplicate/publish failure pattern).
-            setIsRenaming(false);
             toast.error("Failed to rename workflow");
+            setRename({ kind: "editing", draft: trimmed, error: null });
             setTimeout(() => nameInputRef.current?.focus(), 0);
         }
     };
@@ -220,9 +223,10 @@ export const WorkflowEditorHeader = ({
     };
 
     const handleRenameBlur = () => {
+        // Ignore the blur fired when the input is disabled during save.
+        if (rename.kind !== "editing") return;
         // On blur with empty/whitespace, revert silently to display mode so the user is never trapped.
-        const trimmed = nameDraft.trim();
-        if (trimmed.length === 0) {
+        if (rename.draft.trim().length === 0) {
             exitEditMode();
             return;
         }
@@ -248,26 +252,29 @@ export const WorkflowEditorHeader = ({
                 </button>
 
                 <div className="flex items-center gap-2">
-                    {isEditingName ? (
+                    {rename.kind !== "display" ? (
                         <div className="flex flex-col gap-1">
                             <Input
                                 ref={nameInputRef}
-                                value={nameDraft}
+                                value={rename.draft}
                                 onChange={(e) => {
-                                    setNameDraft(e.target.value);
-                                    if (nameError) setNameError(null);
+                                    // onChange can't fire while disabled (kind === "saving"),
+                                    // but the type guard is needed for the discriminated union.
+                                    if (rename.kind === "editing") {
+                                        setRename({ ...rename, draft: e.target.value, error: null });
+                                    }
                                 }}
                                 onKeyDown={handleRenameKeyDown}
                                 onBlur={handleRenameBlur}
-                                disabled={isRenaming}
+                                disabled={rename.kind === "saving"}
                                 autoFocus
                                 onFocus={(e) => e.currentTarget.select()}
                                 aria-label="Workflow name"
-                                aria-invalid={nameError !== null}
+                                aria-invalid={rename.kind === "editing" && rename.error !== null}
                                 className="h-8 max-w-xs bg-[#2a2a2a] border-[#3a3a3a] text-white text-base font-medium"
                             />
-                            {nameError && (
-                                <span className="text-xs text-red-500" role="alert">{nameError}</span>
+                            {rename.kind === "editing" && rename.error && (
+                                <span className="text-xs text-red-500" role="alert">{rename.error}</span>
                             )}
                         </div>
                     ) : (

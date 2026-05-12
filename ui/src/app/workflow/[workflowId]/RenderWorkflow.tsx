@@ -15,7 +15,7 @@ import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } fr
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from '@/types/workflow-configurations';
+import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
 import AddNodePanel from "../../../components/flow/AddNodePanel";
 import CustomEdge from "../../../components/flow/edges/CustomEdge";
@@ -315,10 +315,14 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
     }, [saveWorkflow, isViewingHistoricalVersion, fetchVersions]);
 
     const renameWorkflow = useCallback(async (newName: string) => {
-        await saveWorkflowConfigurations(
-            workflowConfigurations ?? DEFAULT_WORKFLOW_CONFIGURATIONS,
-            newName,
-        );
+        // The header doesn't render the pencil until the page has mounted with
+        // initial data, so workflowConfigurations is non-null by the time this
+        // runs. Throw rather than silently sending DEFAULT_WORKFLOW_CONFIGURATIONS,
+        // which would overwrite the saved server-side config.
+        if (!workflowConfigurations) {
+            throw new Error("Workflow configurations not loaded");
+        }
+        await saveWorkflowConfigurations(workflowConfigurations, newName);
     }, [saveWorkflowConfigurations, workflowConfigurations]);
 
     // Memoize the context value to prevent unnecessary re-renders

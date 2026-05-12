@@ -153,14 +153,43 @@ async def test_verify_inbound_signature_rejects_missing_config_public_key():
     _, headers = _signed_headers(body)
     provider = _provider()
 
-    result = await provider.verify_inbound_signature(
-        "https://example.test/api/v1/telephony/inbound/run",
-        json.loads(body),
-        headers,
-        body,
-    )
+    # REMOVE-AFTER 2026-05-15: drop the patch wrapper once
+    # TELNYX_WEBHOOK_VERIFICATION_OPTIONAL is removed; the bare call below
+    # will then assert the only path.
+    with patch(
+        "api.services.telephony.providers.telnyx.provider.TELNYX_WEBHOOK_VERIFICATION_OPTIONAL",
+        False,
+    ):
+        result = await provider.verify_inbound_signature(
+            "https://example.test/api/v1/telephony/inbound/run",
+            json.loads(body),
+            headers,
+            body,
+        )
 
     assert result is False
+
+
+# REMOVE-AFTER 2026-05-15: delete this whole test along with the
+# TELNYX_WEBHOOK_VERIFICATION_OPTIONAL flag.
+@pytest.mark.asyncio
+async def test_verify_inbound_signature_allows_missing_key_when_optional_flag_set():
+    body = _body()
+    _, headers = _signed_headers(body)
+    provider = _provider()
+
+    with patch(
+        "api.services.telephony.providers.telnyx.provider.TELNYX_WEBHOOK_VERIFICATION_OPTIONAL",
+        True,
+    ):
+        result = await provider.verify_inbound_signature(
+            "https://example.test/api/v1/telephony/inbound/run",
+            json.loads(body),
+            headers,
+            body,
+        )
+
+    assert result is True
 
 
 @pytest.mark.asyncio

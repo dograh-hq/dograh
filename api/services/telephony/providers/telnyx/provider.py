@@ -25,6 +25,7 @@ TELNYX_TIMESTAMP_TOLERANCE_SECONDS = 300
 TELNYX_PUBLIC_KEY_BYTES = 32
 TELNYX_SIGNATURE_BYTES = 64
 
+from api.constants import TELNYX_WEBHOOK_VERIFICATION_OPTIONAL
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
@@ -210,6 +211,12 @@ class TelnyxProvider(TelephonyProvider):
             return False
 
         if not self.webhook_public_key:
+            # REMOVE-AFTER 2026-05-15: transition window. Allow webhooks
+            # through for configs that haven't added the key yet. Remove this
+            # branch along with TELNYX_WEBHOOK_VERIFICATION_OPTIONAL after
+            # the cutoff.
+            if TELNYX_WEBHOOK_VERIFICATION_OPTIONAL:
+                return True
             logger.error("Missing Telnyx webhook_public_key configuration")
             return False
 

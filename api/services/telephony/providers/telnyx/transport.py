@@ -11,6 +11,7 @@ from api.services.pipecat.audio_mixer import build_audio_out_mixer
 from api.services.telephony.factory import load_credentials_for_transport
 
 from .serializers import TelnyxFrameSerializer
+from .strategies import TelnyxConferenceStrategy, TelnyxHangupStrategy
 
 
 async def create_transport(
@@ -46,6 +47,8 @@ async def create_transport(
         api_key=api_key,
         inbound_encoding="PCMU",  # Dograh → Telnyx; matches stream_bidirectional_codec
         outbound_encoding=encoding,  # Telnyx → Dograh; from media_format.encoding
+        transfer_strategy=TelnyxConferenceStrategy(),
+        hangup_strategy=TelnyxHangupStrategy(),
     )
 
     mixer = await build_audio_out_mixer(

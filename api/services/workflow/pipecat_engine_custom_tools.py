@@ -25,7 +25,7 @@ from api.db import db_client
 from api.enums import ToolCategory, WorkflowRunMode
 from api.services.pipecat.audio_playback import play_audio, play_audio_loop
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import get_telephony_provider_for_run
 from api.services.telephony.transfer_event_protocol import TransferContext
 from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
 from api.services.workflow.tools.custom_tool import (
@@ -511,7 +511,9 @@ class CustomToolManager:
                     )
                     return
 
-                provider = await get_telephony_provider(organization_id)
+                provider = await get_telephony_provider_for_run(
+                    workflow_run, organization_id
+                )
                 if not provider.supports_transfers() or not provider.validate_config():
                     validation_error_result = {
                         "status": "failed",
@@ -542,6 +544,7 @@ class CustomToolManager:
                     original_call_sid=original_call_sid,
                     conference_name=conference_name,
                     initiated_at=time.time(),
+                    workflow_run_id=self._engine._workflow_run_id,
                 )
                 await call_transfer_manager.store_transfer_context(transfer_context)
 

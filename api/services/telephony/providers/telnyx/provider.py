@@ -620,8 +620,127 @@ class TelnyxProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """Telnyx call transfer is not yet implemented."""
-        raise NotImplementedError("Call transfer not yet supported for Telnyx")
+        """Dial the destination as a plain call; conference is seeded later.
+
+        Webhook (``call.answered``) seeds the conference with this leg;
+        ``TelnyxConferenceStrategy`` joins the caller on pipeline teardown.
+        https://developers.telnyx.com/api-reference/call-commands/dial
+        """
+        if not self.validate_config():
+            raise ValueError("Telnyx provider not properly configured")
+
+        from_number = random.choice(self.from_numbers)
+        logger.info(f"Selected phone number {from_number} for Telnyx transfer call")
+
+        backend_endpoint, _ = await get_backend_endpoints()
+        webhook_url = (
+            f"{backend_endpoint}/api/v1/telephony/telnyx/transfer-result/{transfer_id}"
+        )
+
+        payload = {
+            "connection_id": self.connection_id,
+            "to": destination,
+            "from": from_number,
+            "timeout_secs": timeout,
+            "webhook_url": webhook_url,
+            "webhook_url_method": "POST",
+        }
+        payload.update(kwargs)
+
+        endpoint = f"{self.TELNYX_API_BASE}/calls"
+
+        logger.debug(
+            f"Telnyx transfer dial payload: "
+            f"{json.dumps({k: v for k, v in payload.items() if k != 'connection_id'})}"
+        )
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint, json=payload, headers=self._headers()
+                ) as response:
+                    response_text = await response.text()
+                    if response.status != 200:
+                        logger.error(
+                            f"Telnyx transfer dial failed: "
+                            f"status={response.status} body={response_text}"
+                        )
+                        raise Exception(
+                            f"Telnyx transfer dial failed: "
+                            f"status={response.status} body={response_text}"
+                        )
+
+                    response_data = json.loads(response_text)
+                    data = response_data.get("data", {})
+                    call_control_id = data.get("call_control_id", "")
+
+                    logger.info(
+                        f"Telnyx transfer dial initiated: "
+                        f"call_control_id={call_control_id}, "
+                        f"to={destination}, conference_name={conference_name}"
+                    )
+
+                    return {
+                        "call_sid": call_control_id,
+                        "status": "initiated",
+                        "provider": self.PROVIDER_NAME,
+                        "from_number": from_number,
+                        "to_number": destination,
+                        "raw_response": response_data,
+                    }
+        except Exception as e:
+            logger.error(f"Exception during Telnyx transfer dial: {e}")
+            raise
 
     def supports_transfers(self) -> bool:
-        return False
+        return True
+
+    async def create_conference(
+        self, seed_call_control_id: str, name: str
+    ) -> Optional[str]:
+        """Seed a Telnyx conference with an existing call leg.
+
+        Used by the transfer flow on ``call.answered`` to put the destination
+        leg into a conference immediately. The returned ``conference_id`` is stored
+        on the ``TransferContext`` so the strategy can later join the caller.
+
+        https://developers.telnyx.com/api-reference/conference-commands/create-conference
+        """
+        if not self.api_key:
+            logger.error("Cannot create Telnyx conference: api_key missing")
+            return None
+
+        endpoint = f"{self.TELNYX_API_BASE}/conferences"
+        payload = {
+            "call_control_id": seed_call_control_id,
+            "name": name,
+            "start_conference_on_create": True,
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    endpoint, json=payload, headers=self._headers()
+                ) as response:
+                    body = await response.text()
+                    if response.status != 200:
+                        logger.error(
+                            f"Telnyx create_conference failed: "
+                            f"status={response.status} body={body}"
+                        )
+                        return None
+                    data = json.loads(body).get("data", {})
+                    conference_id = data.get("id")
+                    if not conference_id:
+                        logger.error(
+                            f"Telnyx create_conference response missing id: {body}"
+                        )
+                        return None
+                    logger.info(
+                        f"Telnyx conference {conference_id} created (name={name}, "
+                        f"seeded with {seed_call_control_id})"
+                    )
+                    return conference_id
+        except Exception as e:
+            logger.error(f"Exception during Telnyx create_conference: {e}")
+            return None

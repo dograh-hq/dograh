@@ -423,6 +423,10 @@ fi
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     echo -e "  ${BLUE}sudo docker compose --profile remote up -d --build${NC}"
     echo ""
+    echo -e "${YELLOW}A docker-compose.override.yaml has been created alongside${NC}"
+    echo -e "${YELLOW}docker-compose.yaml. Compose auto-loads it, so no -f flag is${NC}"
+    echo -e "${YELLOW}needed — it swaps the prebuilt images for local builds.${NC}"
+    echo ""
     echo -e "${YELLOW}The first build can take several minutes${NC}"
     echo -e "${YELLOW}(downloading base images, installing dependencies).${NC}"
     echo -e "${YELLOW}If you know how to speed this up, we would love a pull request.${NC}"

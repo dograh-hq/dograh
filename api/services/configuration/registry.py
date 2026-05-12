@@ -443,6 +443,14 @@ class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
         default="eleven_flash_v2_5",
         json_schema_extra={"examples": ELEVENLABS_TTS_MODELS},
     )
+    base_url: str = Field(
+        default="https://api.elevenlabs.io",
+        description=(
+            "ElevenLabs API base URL. Override to use a Data Residency endpoint "
+            "(e.g. https://api.eu.residency.elevenlabs.io) for GDPR / HIPAA / "
+            "regional compliance."
+        ),
+    )
 
 
 OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]

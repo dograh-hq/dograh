@@ -247,9 +247,16 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             voice_id = user_config.tts.voice.split(" - ")[1]
         except IndexError:
             voice_id = user_config.tts.voice
+        # ElevenLabs TTS uses WebSocket. Users configure base_url with an HTTP
+        # scheme (matching ElevenLabs documentation, e.g.
+        # https://api.eu.residency.elevenlabs.io); rewrite it to the WS scheme.
+        elevenlabs_url = user_config.tts.base_url.replace(
+            "https://", "wss://"
+        ).replace("http://", "ws://")
         return ElevenLabsTTSService(
             reconnect_on_error=False,
             api_key=user_config.tts.api_key,
+            url=elevenlabs_url,
             settings=ElevenLabsTTSSettings(
                 voice=voice_id,
                 model=user_config.tts.model,

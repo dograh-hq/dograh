@@ -44,33 +44,46 @@ if [[ -z "$TURN_SECRET" ]]; then
     echo -e "${BLUE}Generated random TURN secret${NC}"
 fi
 
-# Deployment mode (skip prompt if DEPLOY_MODE is already set)
+# Deployment mode. Skip prompt if DEPLOY_MODE is already set. Non-interactive
+# callers (cloud-init, CI, terraform) without a TTY default to "prebuilt" so
+# existing automation keeps working without changes - explicitly set
+# DEPLOY_MODE=build to opt into source builds from a non-interactive context.
 if [[ -z "$DEPLOY_MODE" ]]; then
-    echo ""
-    echo -e "${YELLOW}Deployment mode:${NC}"
-    echo "  1) prebuilt - pull official dograh images (recommended, fastest)"
-    echo "  2) build    - build images from source (for forks or local customizations)"
-    read -p "Choose [1]: " mode_choice
-    mode_choice="${mode_choice:-1}"
-    case "$mode_choice" in
-        1|prebuilt) DEPLOY_MODE="prebuilt" ;;
-        2|build)    DEPLOY_MODE="build" ;;
-        *) echo -e "${RED}Error: invalid choice '$mode_choice'${NC}"; exit 1 ;;
-    esac
+    if [[ -t 0 ]]; then
+        echo ""
+        echo -e "${YELLOW}Deployment mode:${NC}"
+        echo "  1) prebuilt - pull official dograh images (recommended, fastest)"
+        echo "  2) build    - build images from source (for forks or local customizations)"
+        read -p "Choose [1]: " mode_choice
+        mode_choice="${mode_choice:-1}"
+        case "$mode_choice" in
+            1|prebuilt) DEPLOY_MODE="prebuilt" ;;
+            2|build)    DEPLOY_MODE="build" ;;
+            *) echo -e "${RED}Error: invalid choice '$mode_choice'${NC}"; exit 1 ;;
+        esac
+    else
+        DEPLOY_MODE="prebuilt"
+    fi
 fi
 
-# Build mode needs source code - either use existing repo or clone fresh
+# Build mode needs source code - either use existing repo or clone fresh.
+# Same TTY rule: prompt interactively, otherwise pick sensible defaults so
+# automation that sets DEPLOY_MODE=build doesn't need to spell everything out.
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     if [[ -z "$REPO_SOURCE" ]]; then
         if [[ -d ".git" ]] && [[ -f "docker-compose.yaml" ]]; then
-            echo ""
-            echo -e "${YELLOW}Detected a git repo with docker-compose.yaml in $(pwd).${NC}"
-            read -p "Build from this repo? [Y/n]: " use_existing
-            use_existing="${use_existing:-Y}"
-            if [[ "$use_existing" =~ ^[Yy] ]]; then
-                REPO_SOURCE="existing"
+            if [[ -t 0 ]]; then
+                echo ""
+                echo -e "${YELLOW}Detected a git repo with docker-compose.yaml in $(pwd).${NC}"
+                read -p "Build from this repo? [Y/n]: " use_existing
+                use_existing="${use_existing:-Y}"
+                if [[ "$use_existing" =~ ^[Yy] ]]; then
+                    REPO_SOURCE="existing"
+                else
+                    REPO_SOURCE="clone"
+                fi
             else
-                REPO_SOURCE="clone"
+                REPO_SOURCE="existing"
             fi
         else
             REPO_SOURCE="clone"
@@ -79,15 +92,23 @@ if [[ "$DEPLOY_MODE" == "build" ]]; then
 
     if [[ "$REPO_SOURCE" == "clone" ]]; then
         if [[ -z "$FORK_REPO" ]]; then
-            echo ""
-            echo -e "${YELLOW}GitHub repo to clone (format: owner/name):${NC}"
-            read -p "[dograh-hq/dograh]: " FORK_REPO
-            FORK_REPO="${FORK_REPO:-dograh-hq/dograh}"
+            if [[ -t 0 ]]; then
+                echo ""
+                echo -e "${YELLOW}GitHub repo to clone (format: owner/name):${NC}"
+                read -p "[dograh-hq/dograh]: " FORK_REPO
+                FORK_REPO="${FORK_REPO:-dograh-hq/dograh}"
+            else
+                FORK_REPO="dograh-hq/dograh"
+            fi
         fi
         if [[ -z "$BRANCH" ]]; then
-            echo -e "${YELLOW}Branch:${NC}"
-            read -p "[main]: " BRANCH
-            BRANCH="${BRANCH:-main}"
+            if [[ -t 0 ]]; then
+                echo -e "${YELLOW}Branch:${NC}"
+                read -p "[main]: " BRANCH
+                BRANCH="${BRANCH:-main}"
+            else
+                BRANCH="main"
+            fi
         fi
     fi
 fi

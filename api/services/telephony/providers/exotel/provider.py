@@ -169,7 +169,7 @@ class ExotelProvider(TelephonyProvider):
                     call_id=call_sid,
                     status=call_obj.get("Status", "queued"),
                     caller_number=caller_id,
-                    provider_metadata={"call_sid": call_sid},
+                    provider_metadata={"call_id": call_sid},  # must be 'call_id' — matched by get_workflow_run_by_call_id
                     raw_response=response_data,
                 )
 

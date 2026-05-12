@@ -90,15 +90,24 @@ class ExotelProvider(TelephonyProvider):
         ``CallerId`` — the ExoPhone (Exotel virtual number) shown as caller ID.
         ``Url``      — Exotel app/flow URL; we point it at our answer webhook.
         """
-        if not self.validate_config():
-            raise ValueError("Exotel provider not properly configured")
+        if not self.app_id:
+            raise ValueError(
+                "Exotel app_id is required. Set it to the App Bazaar App ID "
+                "(App Bazaar → My Apps → App ID column)."
+            )
 
         caller_id = from_number or random.choice(self.from_numbers)
+
+        # Build the App Bazaar flow URL — this is what Exotel calls when the
+        # call is answered. The flow has the WebSocket URL pre-configured.
+        app_bazaar_url = (
+            f"http://my.exotel.com/{self.account_sid}/exoml/start_voice/{self.app_id}"
+        )
 
         data: Dict[str, Any] = {
             "From": to_number,
             "CallerId": caller_id,
-            "Url": webhook_url,
+            "Url": app_bazaar_url,
             "CallType": "trans",  # transactional — no recording by default
         }
 
@@ -207,6 +216,7 @@ class ExotelProvider(TelephonyProvider):
             and self.api_token
             and self.account_sid
             and self.from_numbers
+            and self.app_id
         )
 
     # -------------------------------------------------------------------------

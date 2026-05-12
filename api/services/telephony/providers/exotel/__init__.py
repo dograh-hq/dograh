@@ -76,13 +76,14 @@ _UI_METADATA = ProviderUIMetadata(
         ),
         ProviderUIField(
             name="app_id",
-            label="App ID (optional)",
+            label="App Bazaar App ID",
             type="text",
             sensitive=False,
-            required=False,
+            required=True,
             description=(
-                "Exotel App Bazaar flow ID for inbound call routing. "
-                "Leave blank if you are configuring the answer URL manually."
+                "App ID from Exotel App Bazaar (My Apps → App ID column). "
+                "In that app's flow, set the WebSocket URL to: "
+                "wss://{your-backend-domain}/api/v1/telephony/exotel/stream"
             ),
         ),
     ],

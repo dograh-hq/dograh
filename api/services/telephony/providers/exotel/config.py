@@ -1,6 +1,6 @@
 """Exotel telephony configuration schemas."""
 
-from typing import List, Literal, Optional
+from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,12 +23,12 @@ class ExotelConfigurationRequest(BaseModel):
         default_factory=list,
         description="List of Exotel ExoPhone numbers (CallerIds) used for outbound calls",
     )
-    app_id: Optional[str] = Field(
-        default=None,
+    app_id: str = Field(
+        ...,
         description=(
-            "Exotel App ID (from App Bazaar → My Apps). "
-            "When set, used as the Url for inbound call flows. "
-            "Leave blank if managing inbound via the Dograh answer URL."
+            "Exotel App ID (from App Bazaar → My Apps → App ID column). "
+            "Used to build the Url for outbound calls: "
+            "http://my.exotel.com/{account_sid}/exoml/start_voice/{app_id}"
         ),
     )
 

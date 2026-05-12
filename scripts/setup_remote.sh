@@ -44,29 +44,110 @@ if [[ -z "$TURN_SECRET" ]]; then
     echo -e "${BLUE}Generated random TURN secret${NC}"
 fi
 
+# Deployment mode (skip prompt if DEPLOY_MODE is already set)
+if [[ -z "$DEPLOY_MODE" ]]; then
+    echo ""
+    echo -e "${YELLOW}Deployment mode:${NC}"
+    echo "  1) prebuilt — pull official dograh images (recommended, fastest)"
+    echo "  2) build    — build images from source (for forks or local customizations)"
+    read -p "Choose [1]: " mode_choice
+    mode_choice="${mode_choice:-1}"
+    case "$mode_choice" in
+        1|prebuilt) DEPLOY_MODE="prebuilt" ;;
+        2|build)    DEPLOY_MODE="build" ;;
+        *) echo -e "${RED}Error: invalid choice '$mode_choice'${NC}"; exit 1 ;;
+    esac
+fi
+
+# Build mode needs source code — either use existing repo or clone fresh
+if [[ "$DEPLOY_MODE" == "build" ]]; then
+    if [[ -z "$REPO_SOURCE" ]]; then
+        if [[ -d ".git" ]] && [[ -f "docker-compose.yaml" ]]; then
+            echo ""
+            echo -e "${YELLOW}Detected a git repo with docker-compose.yaml in $(pwd).${NC}"
+            read -p "Build from this repo? [Y/n]: " use_existing
+            use_existing="${use_existing:-Y}"
+            if [[ "$use_existing" =~ ^[Yy] ]]; then
+                REPO_SOURCE="existing"
+            else
+                REPO_SOURCE="clone"
+            fi
+        else
+            REPO_SOURCE="clone"
+        fi
+    fi
+
+    if [[ "$REPO_SOURCE" == "clone" ]]; then
+        if [[ -z "$FORK_REPO" ]]; then
+            echo ""
+            echo -e "${YELLOW}GitHub repo to clone (format: owner/name):${NC}"
+            read -p "[dograh-hq/dograh]: " FORK_REPO
+            FORK_REPO="${FORK_REPO:-dograh-hq/dograh}"
+        fi
+        if [[ -z "$BRANCH" ]]; then
+            echo -e "${YELLOW}Branch:${NC}"
+            read -p "[main]: " BRANCH
+            BRANCH="${BRANCH:-main}"
+        fi
+    fi
+fi
+
 # Telemetry opt-out (default: true)
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
+
+# Total step count depends on mode (build adds the override-file step)
+if [[ "$DEPLOY_MODE" == "build" ]]; then
+    TOTAL=7
+else
+    TOTAL=6
+fi
 
 echo ""
 echo -e "${GREEN}Configuration:${NC}"
 echo -e "  Server IP:     ${BLUE}$SERVER_IP${NC}"
 echo -e "  TURN Secret:   ${BLUE}********${NC}"
+echo -e "  Deploy mode:   ${BLUE}$DEPLOY_MODE${NC}"
+if [[ "$DEPLOY_MODE" == "build" ]]; then
+    if [[ "$REPO_SOURCE" == "clone" ]]; then
+        echo -e "  Source:        ${BLUE}clone $FORK_REPO@$BRANCH${NC}"
+    else
+        echo -e "  Source:        ${BLUE}existing repo at $(pwd)${NC}"
+    fi
+fi
 echo ""
 
-# Create project directory and download compose file (skip when
-# DOGRAH_SKIP_DOWNLOAD=1 — e.g. e2e tests that already have a cloned repo).
-if [[ "$DOGRAH_SKIP_DOWNLOAD" != "1" ]]; then
-    mkdir -p dograh 2>/dev/null || true
-    cd dograh
-
-    echo -e "${BLUE}[1/5] Downloading docker-compose.yaml...${NC}"
-    curl -sS -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
-    echo -e "${GREEN}✓ docker-compose.yaml downloaded${NC}"
+# Step 1: get the source — either the standalone compose file (prebuilt mode)
+# or the full repo (build mode). Skip the download/clone when
+# DOGRAH_SKIP_DOWNLOAD=1 (e.g. e2e tests that already have everything in place).
+if [[ "$DEPLOY_MODE" == "build" ]]; then
+    if [[ "$DOGRAH_SKIP_DOWNLOAD" == "1" ]]; then
+        echo -e "${BLUE}[1/$TOTAL] Using existing repo in current directory${NC}"
+    elif [[ "$REPO_SOURCE" == "clone" ]]; then
+        if [[ -e "dograh" ]]; then
+            echo -e "${RED}Error: 'dograh' directory already exists. Remove it or re-run with REPO_SOURCE=existing from inside it.${NC}"
+            exit 1
+        fi
+        echo -e "${BLUE}[1/$TOTAL] Cloning $FORK_REPO (branch: $BRANCH)...${NC}"
+        git clone --branch "$BRANCH" --recurse-submodules "https://github.com/$FORK_REPO.git" dograh
+        cd dograh
+        echo -e "${GREEN}✓ Repo cloned${NC}"
+    else
+        echo -e "${BLUE}[1/$TOTAL] Using existing repo at $(pwd)${NC}"
+    fi
 else
-    echo -e "${BLUE}[1/5] Using docker-compose.yaml in current directory${NC}"
+    if [[ "$DOGRAH_SKIP_DOWNLOAD" != "1" ]]; then
+        mkdir -p dograh 2>/dev/null || true
+        cd dograh
+
+        echo -e "${BLUE}[1/$TOTAL] Downloading docker-compose.yaml...${NC}"
+        curl -sS -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
+        echo -e "${GREEN}✓ docker-compose.yaml downloaded${NC}"
+    else
+        echo -e "${BLUE}[1/$TOTAL] Using docker-compose.yaml in current directory${NC}"
+    fi
 fi
 
-echo -e "${BLUE}[2/5] Creating nginx.conf...${NC}"
+echo -e "${BLUE}[2/$TOTAL] Creating nginx.conf...${NC}"
 cat > nginx.conf << 'NGINX_EOF'
 server {
     listen 80;
@@ -150,7 +231,7 @@ NGINX_EOF
 sed -i.bak "s/SERVER_IP_PLACEHOLDER/$SERVER_IP/g" nginx.conf && rm -f nginx.conf.bak
 echo -e "${GREEN}✓ nginx.conf created${NC}"
 
-echo -e "${BLUE}[3/5] Creating SSL certificate generation script...${NC}"
+echo -e "${BLUE}[3/$TOTAL] Creating SSL certificate generation script...${NC}"
 cat > generate_certificate.sh << CERT_EOF
 #!/bin/bash
 mkdir -p certs
@@ -163,11 +244,11 @@ CERT_EOF
 chmod +x generate_certificate.sh
 echo -e "${GREEN}✓ generate_certificate.sh created${NC}"
 
-echo -e "${BLUE}[4/5] Generating SSL certificates...${NC}"
+echo -e "${BLUE}[4/$TOTAL] Generating SSL certificates...${NC}"
 ./generate_certificate.sh
 echo -e "${GREEN}✓ SSL certificates generated${NC}"
 
-echo -e "${BLUE}[5/6] Creating TURN server configuration...${NC}"
+echo -e "${BLUE}[5/$TOTAL] Creating TURN server configuration...${NC}"
 cat > turnserver.conf << TURN_EOF
 # Coturn TURN Server - Docker Configuration
 # Auto-generated by setup_remote.sh
@@ -200,7 +281,7 @@ log-file=stdout
 TURN_EOF
 echo -e "${GREEN}✓ turnserver.conf created${NC}"
 
-echo -e "${BLUE}[6/6] Creating environment file...${NC}"
+echo -e "${BLUE}[6/$TOTAL] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
@@ -225,6 +306,34 @@ ENABLE_TELEMETRY=$ENABLE_TELEMETRY
 ENV_EOF
 echo -e "${GREEN}✓ .env file created${NC}"
 
+# In build mode, write the override file that swaps prebuilt images for
+# local builds. Compose auto-loads docker-compose.override.yaml, so no -f flag
+# is needed at runtime.
+if [[ "$DEPLOY_MODE" == "build" ]]; then
+    echo -e "${BLUE}[7/$TOTAL] Creating docker-compose.override.yaml...${NC}"
+    cat > docker-compose.override.yaml << 'OVERRIDE_EOF'
+# Auto-generated by setup_remote.sh (build mode).
+# Overrides docker-compose.yaml to build api and ui images from local source
+# instead of pulling them from a registry. Remove this file to revert to
+# pulling prebuilt images.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: dograh-local/dograh-api:dev
+    pull_policy: never
+
+  ui:
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+    image: dograh-local/dograh-ui:dev
+    pull_policy: never
+OVERRIDE_EOF
+    echo -e "${GREEN}✓ docker-compose.override.yaml created${NC}"
+fi
+
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${GREEN}║                    Setup Complete!                           ║${NC}"
@@ -232,6 +341,9 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 echo -e "Files created in ${BLUE}$(pwd)${NC}:"
 echo "  - docker-compose.yaml"
+if [[ "$DEPLOY_MODE" == "build" ]]; then
+    echo "  - docker-compose.override.yaml  (build directives)"
+fi
 echo "  - nginx.conf"
 echo "  - turnserver.conf"
 echo "  - generate_certificate.sh"
@@ -241,7 +353,15 @@ echo "  - .env"
 echo ""
 echo -e "${YELLOW}To start Dograh, run:${NC}"
 echo ""
-echo -e "  ${BLUE}sudo docker compose --profile remote up --pull always${NC}"
+if [[ "$DEPLOY_MODE" == "build" ]]; then
+    echo -e "  ${BLUE}sudo docker compose --profile remote up -d --build${NC}"
+    echo ""
+    echo -e "${YELLOW}To rebuild after editing api/ or ui/ code:${NC}"
+    echo ""
+    echo -e "  ${BLUE}sudo docker compose --profile remote build && sudo docker compose --profile remote up -d${NC}"
+else
+    echo -e "  ${BLUE}sudo docker compose --profile remote up --pull always${NC}"
+fi
 echo ""
 echo -e "${YELLOW}Your application will be available at:${NC}"
 echo ""

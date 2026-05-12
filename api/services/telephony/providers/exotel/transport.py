@@ -1,6 +1,7 @@
 """Exotel transport factory."""
 
 from fastapi import WebSocket
+
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -23,6 +24,7 @@ async def create_transport(
     telephony_configuration_id: int | None = None,
     stream_id: str,
     call_id: str,
+    account_sid: str = "",
 ):
     """Create a WebSocket transport for an Exotel call leg."""
     config = await load_credentials_for_transport(
@@ -31,23 +33,22 @@ async def create_transport(
 
     api_key = config.get("api_key")
     api_token = config.get("api_token")
+    cfg_account_sid = account_sid or config.get("account_sid", "")
 
     if not api_key or not api_token:
         raise ValueError(
             f"Incomplete Exotel configuration for organization {organization_id}"
         )
 
-    # ExotelFrameSerializer is PlivoFrameSerializer under the hood —
-    # same μ-law 8 kHz JSON envelope. The auth_id/auth_token params are used
-    # by Plivo's serializer for optional mid-call REST calls; Exotel doesn't
-    # need them but we pass api_key/api_token for future extensibility.
     serializer = ExotelFrameSerializer(
         stream_id=stream_id,
         call_id=call_id,
         auth_id=api_key,
         auth_token=api_token,
+        account_sid=cfg_account_sid,
+        subdomain=config.get("subdomain", "api.exotel.com"),
         params=ExotelFrameSerializer.InputParams(
-            plivo_sample_rate=8000,
+            sample_rate_hz=8000,
             sample_rate=audio_config.pipeline_sample_rate,
         ),
     )

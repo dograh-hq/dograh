@@ -82,23 +82,32 @@ async def exotel_stream(websocket: WebSocket):
         return
 
     # Exotel may nest stream metadata under 'start' or at top level.
+    # Keys are snake_case (stream_sid, call_sid) — Twilio-compatible format.
     start_data = start_msg.get("start") or start_msg
     call_sid = (
-        start_data.get("callSid")
+        start_data.get("call_sid")
+        or start_data.get("callSid")
         or start_data.get("CallSid")
-        or start_data.get("call_sid")
+        or start_msg.get("call_sid")
         or start_msg.get("callSid")
-        or start_msg.get("CallSid")
     )
-    stream_id = (
-        start_data.get("streamId")
-        or start_data.get("StreamId")
-        or start_msg.get("streamId")
+    stream_sid = (
+        start_data.get("stream_sid")
+        or start_data.get("streamSid")
+        or start_data.get("streamId")
+        or start_msg.get("stream_sid")
+        or start_msg.get("streamSid")
+        or ""
+    )
+    account_sid = (
+        start_data.get("account_sid")
+        or start_data.get("accountSid")
+        or start_msg.get("account_sid")
         or ""
     )
 
     logger.info(
-        f"[Exotel stream] callSid={call_sid!r} streamId={stream_id!r}"
+        f"[Exotel stream] callSid={call_sid!r} streamSid={stream_sid!r} accountSid={account_sid!r}"
     )
 
     if not call_sid:
@@ -151,7 +160,11 @@ async def exotel_stream(websocket: WebSocket):
         workflow_run_id=workflow_run_id,
         user_id=user_id,
         call_id=call_sid,
-        transport_kwargs={"stream_id": stream_id, "call_id": call_sid},
+        transport_kwargs={
+            "stream_id": stream_sid,
+            "call_id": call_sid,
+            "account_sid": account_sid,
+        },
     )
 
 

@@ -13,7 +13,7 @@ import json
 
 import aiohttp
 from loguru import logger
-from pipecat.audio.utils import create_stream_resampler, pcm_to_ulaw, ulaw_to_pcm
+from pipecat.audio.utils import create_stream_resampler
 from pipecat.frames.frames import (
     AudioRawFrame,
     CancelFrame,
@@ -34,8 +34,8 @@ class ExotelFrameSerializer(FrameSerializer):
     """Serializer for Exotel's Twilio-compatible WebSocket streaming protocol.
 
     Exotel sends/receives audio using the same JSON envelope as Twilio Media Streams:
-      Incoming: {"event":"media","media":{"payload":"<base64-mulaw>"},"stream_sid":"..."}
-      Outgoing: {"event":"media","streamSid":"...","media":{"payload":"<base64-mulaw>"}}
+      Incoming: {"event":"media","media":{"payload":"<base64-pcm16>"},"stream_sid":"..."}
+      Outgoing: {"event":"media","streamSid":"...","media":{"payload":"<base64-pcm16>"}}
       Clear:    {"event":"clear","streamSid":"..."}
 
     Auto hang-up hits Exotel's REST API (DELETE /v1/Accounts/{sid}/Calls/{call_sid}/).
@@ -87,11 +87,10 @@ class ExotelFrameSerializer(FrameSerializer):
             return json.dumps({"event": "clear", "streamSid": self._stream_sid})
 
         elif isinstance(frame, AudioRawFrame):
-            serialized_data = await pcm_to_ulaw(
+            serialized_data = await self._output_resampler.resample(
                 frame.audio,
                 frame.sample_rate,
-                self._exotel_sample_rate,
-                self._output_resampler,
+                self._exotel_sample_rate
             )
             if not serialized_data:
                 return None
@@ -125,11 +124,10 @@ class ExotelFrameSerializer(FrameSerializer):
                 return None
 
             payload = base64.b64decode(payload_b64)
-            deserialized = await ulaw_to_pcm(
+            deserialized = await self._input_resampler.resample(
                 payload,
                 self._exotel_sample_rate,
-                self._sample_rate,
-                self._input_resampler,
+                self._sample_rate
             )
             if not deserialized:
                 return None

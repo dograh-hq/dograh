@@ -113,12 +113,14 @@ curl -o setup_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/
 The script will prompt you for:
 - Your server's public IP address
 - A password for the TURN server (optional, press Enter for default)
+- Deployment mode — press Enter for **prebuilt** (pulls official images, the recommended default) or pick **build** to compile images from source. Use **build** when you maintain a fork or want to deploy local customizations — see [Building from source](#building-from-source) below.
 
 It will automatically:
-- Download the docker-compose.yaml file
+- Get the source — `docker-compose.yaml` only (prebuilt mode), or clone the full repo (build mode)
 - Create and configure nginx.conf with your IP address
 - Generate SSL certificates
 - Create an environment file with TURN server configuration
+- Write a `docker-compose.override.yaml` with build directives (build mode only)
 
 ### Start the Application
 
@@ -126,12 +128,20 @@ It will automatically:
 Please ensure that Docker Compose is installed on your machine before proceeding further. You can check whether its installed by running `docker compose version` command. If its not installed, please install it by following your server provider documentation.
 </Note>
 
-After the setup script completes, start Dograh:
+After the setup script completes, start Dograh. The script prints the exact command to run at the end — it differs slightly between modes:
 
-```bash
+<CodeGroup>
+```bash Prebuilt mode
 cd dograh
 sudo docker compose --profile remote up --pull always
 ```
+```bash Build mode
+cd dograh
+sudo docker compose --profile remote up -d --build
+```
+</CodeGroup>
+
+First boot in build mode takes several minutes — Docker has to build both the API and UI images before the stack comes up.
 
 ### Access Your Application
 
@@ -162,12 +172,37 @@ The setup script creates the following files in the `dograh/` directory:
 | File | Purpose |
 |------|---------|
 | `docker-compose.yaml` | Main Docker Compose configuration |
+| `docker-compose.override.yaml` | Build directives for `api` and `ui` (**build mode only**) |
 | `turnserver.conf` | Configuration for TURN server |
 | `nginx.conf` | nginx reverse proxy configuration with your IP |
 | `generate_certificate.sh` | Script to regenerate SSL certificates |
 | `certs/local.crt` | Self-signed SSL certificate |
 | `certs/local.key` | SSL private key |
 | `.env` | Environment variables for TURN server |
+
+### Building from source
+
+If you maintain a fork or want to ship local code changes without waiting for an official image release, pick **build** when the setup script prompts for deployment mode.
+
+In this mode the script:
+
+1. Clones the repo into `dograh/` (default: `dograh-hq/dograh@main`; the script will ask for an `owner/name` and `branch` so a fork can point at its own).
+2. If you run the script from inside an existing dograh checkout, offers to use that checkout instead of cloning.
+3. Generates a `docker-compose.override.yaml` next to `docker-compose.yaml` that swaps the `image:` directives for local `build:` directives. Docker Compose auto-loads the override file — you don't need to pass any `-f` flags.
+
+After editing `api/` or `ui/` code, rebuild and restart the affected service:
+
+```bash
+cd dograh
+sudo docker compose --profile remote build api    # or ui
+sudo docker compose --profile remote up -d
+```
+
+To revert to pulling official images, delete `docker-compose.override.yaml` and start the stack with `--pull always` as in the [prebuilt flow](#start-the-application).
+
+<Note>
+Build mode is for **fork maintainers and self-hosters who want to deploy customized images** — not for active development on the code itself. For day-to-day contributor work (fast reload, IDE/LSP integration), use the [contributor setup](/contribution/setup) instead.
+</Note>
 
 ### Next Steps
 Now that you are able to create and test a voice agent, you can setup a custom domain and setup SSL using letsencrypt. Checkout [Custom Domain](custom-domain) for instructions on how to do that.

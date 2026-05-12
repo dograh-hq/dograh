@@ -5,6 +5,10 @@ description: "Update your self-hosted Dograh stack to a newer image version"
 
 This guide covers updating a Dograh stack you've already deployed with [Docker](/deployment/docker) or a [custom domain](/deployment/custom-domain). You run commands from the same directory that contains your `docker-compose.yaml` (this is the `dograh/` directory if you used `setup_remote.sh`).
 
+<Note>
+This guide assumes you deployed in **prebuilt mode** — i.e. your stack pulls official `dograh-api` / `dograh-ui` images from a registry. If you deployed in **build mode** (a `docker-compose.override.yaml` exists in your `dograh/` directory), the update flow is different — see [Updating a source build](#updating-a-source-build) at the bottom.
+</Note>
+
 ## Find an image version
 
 Dograh publishes two images — `dograh-api` and `dograh-ui` — to both container registries:
@@ -111,3 +115,24 @@ If something breaks, roll back by pinning the previous tag using the same proces
 <Warning>
 Rolling back across a database migration is not always safe — if the newer release ran a schema migration, downgrading may leave the DB in a state the older API doesn't understand. If in doubt, [open an issue](https://github.com/dograh-hq/dograh/issues) before rolling back.
 </Warning>
+
+## Updating a source build
+
+If you deployed in **build mode** (you'll have a `docker-compose.override.yaml` in your `dograh/` directory), there are no image tags to pull — you update by pulling new source and rebuilding:
+
+```bash
+cd dograh
+git pull
+sudo docker compose --profile remote build
+sudo docker compose --profile remote up -d
+```
+
+To roll back, check out an earlier commit or tag and rebuild:
+
+```bash
+git checkout <previous-tag-or-sha>
+sudo docker compose --profile remote build
+sudo docker compose --profile remote up -d
+```
+
+The same migration warning above applies: rolling back across a schema change can leave the DB in a state the older API can't read.

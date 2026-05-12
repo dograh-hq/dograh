@@ -48,8 +48,8 @@ fi
 if [[ -z "$DEPLOY_MODE" ]]; then
     echo ""
     echo -e "${YELLOW}Deployment mode:${NC}"
-    echo "  1) prebuilt — pull official dograh images (recommended, fastest)"
-    echo "  2) build    — build images from source (for forks or local customizations)"
+    echo "  1) prebuilt - pull official dograh images (recommended, fastest)"
+    echo "  2) build    - build images from source (for forks or local customizations)"
     read -p "Choose [1]: " mode_choice
     mode_choice="${mode_choice:-1}"
     case "$mode_choice" in
@@ -59,7 +59,7 @@ if [[ -z "$DEPLOY_MODE" ]]; then
     esac
 fi
 
-# Build mode needs source code — either use existing repo or clone fresh
+# Build mode needs source code - either use existing repo or clone fresh
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     if [[ -z "$REPO_SOURCE" ]]; then
         if [[ -d ".git" ]] && [[ -f "docker-compose.yaml" ]]; then
@@ -95,6 +95,46 @@ fi
 # Telemetry opt-out (default: true)
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
 
+# Where setup artifacts (.env, certs, nginx.conf, etc.) will land. Build mode
+# with an existing repo writes them next to docker-compose.yaml in cwd;
+# everything else writes into a fresh dograh/ subdirectory.
+if [[ "$DEPLOY_MODE" == "build" && "$REPO_SOURCE" == "existing" ]]; then
+    TARGET_DIR="."
+else
+    TARGET_DIR="dograh"
+fi
+
+# Refuse to overwrite an existing install - re-running this script would
+# regenerate OSS_JWT_SECRET (invalidating logged-in sessions), reset the
+# TURN secret (breaking WebRTC auth), and overwrite nginx.conf customizations.
+# Set DOGRAH_FORCE_OVERWRITE=1 to bypass; DOGRAH_SKIP_DOWNLOAD=1 (used by e2e)
+# also bypasses since those flows manage state themselves.
+if [[ "$DOGRAH_FORCE_OVERWRITE" != "1" && "$DOGRAH_SKIP_DOWNLOAD" != "1" ]]; then
+    if [[ -f "$TARGET_DIR/.env" ]]; then
+        if [[ "$TARGET_DIR" == "." ]]; then
+            existing_path="$(pwd)/.env"
+        else
+            existing_path="$(pwd)/$TARGET_DIR/.env"
+        fi
+        echo ""
+        echo -e "${YELLOW}Detected an existing Dograh install:${NC}"
+        echo -e "  ${YELLOW}$existing_path${NC}"
+        echo ""
+        echo -e "${RED}Refusing to continue - re-running setup would:${NC}"
+        echo -e "${RED}  - overwrite .env (invalidates sessions, breaks TURN auth)${NC}"
+        echo -e "${RED}  - regenerate SSL certificates${NC}"
+        echo -e "${RED}  - reset nginx.conf and turnserver.conf customizations${NC}"
+        echo ""
+        echo -e "${BLUE}To upgrade an existing install, follow:${NC}"
+        echo -e "  ${BLUE}https://docs.dograh.com/deployment/update${NC}"
+        echo ""
+        echo -e "${BLUE}To wipe state and reinstall from scratch, re-run with:${NC}"
+        echo -e "  ${BLUE}DOGRAH_FORCE_OVERWRITE=1 <same command>${NC}"
+        echo ""
+        exit 1
+    fi
+fi
+
 # Total step count depends on mode (build adds the override-file step)
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     TOTAL=7
@@ -116,7 +156,7 @@ if [[ "$DEPLOY_MODE" == "build" ]]; then
 fi
 echo ""
 
-# Step 1: get the source — either the standalone compose file (prebuilt mode)
+# Step 1: get the source - either the standalone compose file (prebuilt mode)
 # or the full repo (build mode). Skip the download/clone when
 # DOGRAH_SKIP_DOWNLOAD=1 (e.g. e2e tests that already have everything in place).
 if [[ "$DEPLOY_MODE" == "build" ]]; then
@@ -168,7 +208,7 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_prefer_server_ciphers on;
 
-    # Backend API and WebSockets — bypass the UI, go straight to api:8000
+    # Backend API and WebSockets - bypass the UI, go straight to api:8000
     location /api/v1/ {
         proxy_pass http://api:8000;
         proxy_http_version 1.1;

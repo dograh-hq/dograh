@@ -7,18 +7,17 @@ Architecture (App Bazaar flow):
        wss://{BACKEND}/api/v1/telephony/exotel/stream
   2. When initiating an outbound call, we pass the App Bazaar URL as `Url`.
   3. Exotel calls the number, answers, then connects to our fixed WebSocket.
-  4. We identify the call by CallSid (stored on workflow_run at initiation).
+  4. We identify the call by CallSid (stored on workflow_run at initiation via
+     cost_info["call_id"] by run_pipeline_telephony, or gathered_context).
 """
 
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
-from sqlalchemy import select, text
 
 from api.db import db_client
-from api.db.models import WorkflowRun
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -99,9 +98,9 @@ async def exotel_stream(websocket: WebSocket):
         return
 
     # ------------------------------------------------------------------
-    # 2. Look up the workflow_run by callSid stored in gathered_context
+    # 2. Look up the workflow_run by callSid
     # ------------------------------------------------------------------
-    workflow_run = await _find_workflow_run_by_call_sid(call_sid)
+    workflow_run = await db_client.get_workflow_run_by_call_id(call_sid)
 
     if not workflow_run:
         logger.error(
@@ -123,7 +122,6 @@ async def exotel_stream(websocket: WebSocket):
         return
 
     user_id = workflow.user_id
-    organization_id = workflow.organization_id
 
     logger.info(
         f"[Exotel stream] Matched callSid={call_sid} → "
@@ -131,7 +129,7 @@ async def exotel_stream(websocket: WebSocket):
     )
 
     # ------------------------------------------------------------------
-    # 3. Run the pipeline — same as other telephony providers
+    # 3. Run the pipeline
     # ------------------------------------------------------------------
     from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
@@ -146,29 +144,6 @@ async def exotel_stream(websocket: WebSocket):
     )
 
 
-async def _find_workflow_run_by_call_sid(call_sid: str):
-    """
-    Find the most recent workflow_run whose gathered_context contains
-    {'call_id': call_sid}.  Uses a JSONB containment query (PostgreSQL).
-    """
-    try:
-        async with db_client.get_session() as session:
-            result = await session.execute(
-                select(WorkflowRun)
-                .where(
-                    WorkflowRun.gathered_context.op("@>")(
-                        text(f"'{{\"call_id\": \"{call_sid}\"}}'::jsonb")
-                    )
-                )
-                .order_by(WorkflowRun.created_at.desc())
-                .limit(1)
-            )
-            return result.scalar_one_or_none()
-    except Exception as exc:
-        logger.error(f"[Exotel stream] DB lookup failed for callSid={call_sid}: {exc}")
-        return None
-
-
 # ---------------------------------------------------------------------------
 # Status callback — called by Exotel on call completion / state changes.
 # ---------------------------------------------------------------------------
@@ -177,12 +152,9 @@ async def _find_workflow_run_by_call_sid(call_sid: str):
 @router.post("/exotel/status-callback/{workflow_run_id}")
 async def handle_exotel_status_callback(
     workflow_run_id: int,
-    request,
+    request: Request,
 ):
     """Handle Exotel StatusCallback POST."""
-    from fastapi import Request
-
-    request: Request
     set_current_run_id(workflow_run_id)
 
     form_data = await request.form()

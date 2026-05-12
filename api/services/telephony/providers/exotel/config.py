@@ -1,6 +1,6 @@
 """Exotel telephony configuration schemas."""
 
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,4 +42,4 @@ class ExotelConfigurationResponse(BaseModel):
     account_sid: str
     subdomain: str
     from_numbers: List[str]
-    app_id: Optional[str] = None
+    app_id: str = ""

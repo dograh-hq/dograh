@@ -110,7 +110,7 @@ class ExotelProvider(TelephonyProvider):
 
         data.update(kwargs)
 
-        endpoint = f"{self._calls_url()}/connect"
+        endpoint = f"{self._calls_url()}/connect.json"
         logger.info(
             f"[Exotel] Initiating outbound call to {to_number} "
             f"via CallerID={caller_id}, workflow_run_id={workflow_run_id}"
@@ -274,26 +274,45 @@ class ExotelProvider(TelephonyProvider):
     ) -> None:
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
-        # Exotel sends a JSON "start" event first (same pattern as Plivo/Twilio)
+        # Exotel sends a JSON "start" event first (same pattern as Plivo/Twilio).
+        # Log the raw message so we can see the exact wire format if it differs.
         first_msg = await websocket.receive_text()
-        start_msg = json.loads(first_msg)
+        logger.info(f"[Exotel] First WebSocket message raw: {first_msg}")
 
-        if start_msg.get("event") != "start":
+        try:
+            start_msg = json.loads(first_msg)
+        except json.JSONDecodeError:
+            logger.error(f"[Exotel] First WS message is not JSON: {first_msg}")
+            await websocket.close(code=4400, reason="Expected JSON start event")
+            return
+
+        event_type = start_msg.get("event") or start_msg.get("Event", "")
+        if event_type.lower() != "start":
             logger.error(
-                f"[Exotel] Expected 'start' event, got: {start_msg.get('event')}"
+                f"[Exotel] Expected 'start' event, got: {event_type!r}. "
+                f"Full message: {start_msg}"
             )
             await websocket.close(code=4400, reason="Expected start event")
             return
 
-        start_data = start_msg.get("start", {})
-        stream_id = start_data.get("streamId") or start_msg.get("streamId", "")
+        # Exotel may nest stream metadata under 'start' or at top level.
+        start_data = start_msg.get("start") or start_msg
+        stream_id = (
+            start_data.get("streamId")
+            or start_data.get("StreamId")
+            or start_data.get("stream_id")
+            or start_msg.get("streamId")
+            or ""
+        )
 
         if not stream_id:
-            logger.error(f"[Exotel] Missing streamId in start event: {start_msg}")
-            await websocket.close(code=4400, reason="Missing streamId")
-            return
+            logger.warning(
+                f"[Exotel] Missing streamId in start event — using empty string. "
+                f"Full message: {start_msg}"
+            )
+            # Don't close — proceed with empty stream_id; Plivo serializer tolerates it.
 
-        # Prefer call_id stored on the workflow run (populated by the answer webhook)
+        # Prefer call_id stored on the workflow run (populated by the answer webhook).
         workflow_run = await db_client.get_workflow_run(workflow_run_id)
         call_id = None
         if workflow_run and workflow_run.gathered_context:
@@ -304,11 +323,15 @@ class ExotelProvider(TelephonyProvider):
                 start_data.get("callId")
                 or start_data.get("callSid")
                 or start_data.get("CallSid")
+                or start_data.get("call_sid")
+                or start_msg.get("callSid")
+                or start_msg.get("CallSid")
             )
 
         if not call_id:
             logger.error(
-                f"[Exotel] Missing call ID for workflow run {workflow_run_id}"
+                f"[Exotel] Missing call ID for workflow run {workflow_run_id}. "
+                f"Full start message: {start_msg}"
             )
             await websocket.close(code=4400, reason="Missing call ID")
             return

@@ -114,6 +114,7 @@ The script will prompt you for:
 - Your server's public IP address
 - A password for the TURN server (optional, press Enter for default)
 - Deployment mode — press Enter for **prebuilt** (pulls official images, the recommended default) or pick **build** to compile images from source. Use **build** when you maintain a fork or want to deploy local customizations — see [Building from source](#building-from-source) below.
+- Number of FastAPI workers (uvicorn processes nginx will load-balance) — press Enter for the default of `4`, or pick a value that suits your server's CPU count. See [Scaling](/deployment/scaling) for sizing guidance and how to change this on a running stack.
 
 It will automatically:
 - Get the source — `docker-compose.yaml` only (prebuilt mode), or clone the full repo (build mode)
@@ -178,7 +179,7 @@ The setup script creates the following files in the `dograh/` directory:
 | `generate_certificate.sh` | Script to regenerate SSL certificates |
 | `certs/local.crt` | Self-signed SSL certificate |
 | `certs/local.key` | SSL private key |
-| `.env` | Environment variables for TURN server |
+| `.env` | Environment variables (TURN secret, JWT secret, FastAPI worker count) |
 
 ### Building from source
 

@@ -145,6 +145,7 @@
               "deployment/introduction",
               "deployment/docker",
               "deployment/custom-domain",
+              "deployment/scaling",
               "deployment/update",
               "deployment/heroku"
             ]

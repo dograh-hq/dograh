@@ -18,13 +18,14 @@ Dograh publishes two images — `dograh-api` and `dograh-ui` — to both contain
 - **GitHub Container Registry** — [github.com/orgs/dograh-hq/packages](https://github.com/orgs/dograh-hq/packages)
 - **Docker Hub** — [hub.docker.com/u/dograhai](https://hub.docker.com/u/dograhai)
 
-Each release is published under two kinds of tags:
+Each release is published under two kinds of tags. Note the formats differ between GitHub releases and the Docker image tags — `update_remote.sh` understands both and normalizes for you.
 
-| Tag style | Example | When to use |
-|-----------|---------|-------------|
-| **Release tag** | `v1.29.0` | Stable, recommended for production |
-| **Git commit SHA** | `a1b2c3d` | Bleeding edge — any commit merged to `main` |
-| `latest` | `latest` | Tracks the most recent release tag |
+| Where | Tag format | Example | When to use |
+|-------|-----------|---------|-------------|
+| GitHub release tag | `dograh-vX.Y.Z` | `dograh-v1.28.0` | What you see at [github.com/dograh-hq/dograh/releases](https://github.com/dograh-hq/dograh/releases) |
+| Docker image tag (semver) | `X.Y.Z` | `1.28.0` | Stable, recommended for production |
+| Docker image tag (SHA)    | short SHA | `a1b2c3d` | Bleeding edge — any commit merged to `main` |
+| Docker image tag (`latest`) | `latest` | `latest` | Tracks the most recent release tag |
 
 <Warning>
 Always update **`dograh-api`** and **`dograh-ui`** to the **same tag**. The two images are built from the same commit and the UI expects API responses in a matching shape — mixing versions will break the app. `update_remote.sh` handles this for you automatically.
@@ -48,10 +49,10 @@ curl -o update_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main
 bash update_remote.sh
 ```
 
-You'll be prompted for the target version. Non-interactive callers can set it via environment variable and skip the confirmation prompt:
+You'll be prompted for the target version, defaulting to the most recent release. Accepted forms: bare semver (`1.28.0`), v-prefixed (`v1.28.0`), the full GitHub tag (`dograh-v1.28.0`), or `main` for bleeding edge — the script normalizes them. Non-interactive callers can set it via environment variable and skip the confirmation prompt:
 
 ```bash
-TARGET_VERSION=v1.29.0 DOGRAH_UPDATE_YES=1 bash update_remote.sh
+TARGET_VERSION=1.28.0 DOGRAH_UPDATE_YES=1 bash update_remote.sh
 ```
 
 After the script finishes, apply the update by recreating the stack:
@@ -74,7 +75,7 @@ docker compose down
 docker compose up --pull always
 ```
 
-To pin a specific version instead of `latest`, edit `docker-compose.yaml` and change both `image:` lines for `api` and `ui` to the same tag (e.g. `:v1.29.0`), then run the commands above.
+To pin a specific version instead of `latest`, edit `docker-compose.yaml` and change both `image:` lines for `api` and `ui` to the same tag (e.g. `:1.28.0` — Docker image tags use bare semver, no `v` prefix), then run the commands above.
 
 ## Verify the update
 
@@ -122,8 +123,8 @@ git fetch
 
 # Track latest main:
 git pull
-# Or pin to a specific release:
-git checkout v1.29.0
+# Or pin to a specific release (git tag format is dograh-vX.Y.Z):
+git checkout dograh-v1.28.0
 
 # Pick up pipecat and other submodule bumps
 git submodule update --init --recursive

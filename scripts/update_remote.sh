@@ -104,7 +104,8 @@ if [[ -z "$TARGET_VERSION" ]]; then
 
     if [[ -t 0 ]]; then
         echo ""
-        echo -e "${YELLOW}Target version (release tag like v1.29.0, or 'main' for bleeding edge):${NC}"
+        echo -e "${YELLOW}Target version. Accepted forms: bare semver (1.28.0), v-prefixed (v1.28.0),${NC}"
+        echo -e "${YELLOW}full git tag (dograh-v1.28.0), or 'main' for bleeding edge.${NC}"
         read -p "[$LATEST_TAG]: " TARGET_VERSION
         TARGET_VERSION="${TARGET_VERSION:-$LATEST_TAG}"
     else
@@ -123,15 +124,67 @@ if [[ "$TARGET_VERSION" == "latest" ]]; then
     fi
 fi
 
-# Validate the tag/branch actually exists by HEAD-ing the compose file at that ref.
-RAW_BASE="https://raw.githubusercontent.com/$REPO/$TARGET_VERSION"
+
+# GitHub release tags use a 'dograh-v' prefix (e.g. dograh-v1.28.0); Docker
+# image tags on Docker Hub drop both the prefix and the 'v' (e.g. ':1.28.0').
+# Users commonly type shortcuts like '1.28.0' or 'v1.28.0' — try all reasonable
+# variants so the script accepts any of those forms.
+TRY_TAGS=("$TARGET_VERSION")
+case "$TARGET_VERSION" in
+    main|HEAD)
+        ;;  # branch refs — leave as-is
+    dograh-*)
+        ;;  # already in the full tag form
+    v*)
+        TRY_TAGS+=("dograh-$TARGET_VERSION")
+        ;;
+    *)
+        TRY_TAGS+=("dograh-v$TARGET_VERSION" "v$TARGET_VERSION" "dograh-$TARGET_VERSION")
+        ;;
+esac
+
 echo -e "${BLUE}Validating target version: $TARGET_VERSION...${NC}"
-if ! curl -fsI "$RAW_BASE/docker-compose.yaml" >/dev/null 2>&1; then
-    echo -e "${RED}Error: docker-compose.yaml not found at $TARGET_VERSION${NC}"
-    echo -e "${RED}Check the tag exists at: https://github.com/$REPO/releases${NC}"
+RESOLVED_TAG=""
+for tag in "${TRY_TAGS[@]}"; do
+    if curl -fsI "https://raw.githubusercontent.com/$REPO/$tag/docker-compose.yaml" >/dev/null 2>&1; then
+        RESOLVED_TAG="$tag"
+        break
+    fi
+done
+
+if [[ -z "$RESOLVED_TAG" ]]; then
+    echo -e "${RED}Error: could not find a git tag matching '$TARGET_VERSION'${NC}"
+    echo -e "${RED}Tried: ${TRY_TAGS[*]}${NC}"
+    echo -e "${RED}See available releases at: https://github.com/$REPO/releases${NC}"
     exit 1
 fi
-echo -e "${GREEN}✓ Target version is valid${NC}"
+
+if [[ "$RESOLVED_TAG" != "$TARGET_VERSION" ]]; then
+    echo -e "${GREEN}✓ Resolved '$TARGET_VERSION' to git tag '$RESOLVED_TAG'${NC}"
+fi
+TARGET_VERSION="$RESOLVED_TAG"
+RAW_BASE="https://raw.githubusercontent.com/$REPO/$TARGET_VERSION"
+
+# Derive the Docker image tag from the git tag. Tags on Docker Hub use bare
+# semver — strip the 'dograh-' prefix and the leading 'v'.
+IMAGE_TAG=""
+case "$TARGET_VERSION" in
+    dograh-v*) IMAGE_TAG="${TARGET_VERSION#dograh-v}" ;;
+    v*)        IMAGE_TAG="${TARGET_VERSION#v}" ;;
+    main|HEAD) IMAGE_TAG="" ;;
+    *)         [[ "$TARGET_VERSION" =~ ^[0-9] ]] && IMAGE_TAG="$TARGET_VERSION" ;;
+esac
+
+# Verify the image tag actually exists on Docker Hub. If not (e.g. CI hasn't
+# published yet), fall back to ':latest' rather than pinning to a missing tag.
+if [[ -n "$IMAGE_TAG" ]]; then
+    if curl -fsI "https://hub.docker.com/v2/repositories/dograhai/dograh-api/tags/$IMAGE_TAG/" >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Image tag :$IMAGE_TAG found on Docker Hub${NC}"
+    else
+        echo -e "${YELLOW}Warning: image tag :$IMAGE_TAG not found on Docker Hub — leaving images at :latest${NC}"
+        IMAGE_TAG=""
+    fi
+fi
 
 ###############################################################################
 ### Reconcile required keys that may be missing on older installs
@@ -201,12 +254,13 @@ done
 echo -e "${BLUE}[2/5] Downloading docker-compose.yaml at $TARGET_VERSION...${NC}"
 curl -fsSL -o docker-compose.yaml "$RAW_BASE/docker-compose.yaml"
 
-# Pin api/ui image tags for release tags (v*). Leave :latest alone if we're
-# tracking a branch like 'main' so up --pull always still grabs the newest build.
-if [[ "$TARGET_VERSION" =~ ^v ]]; then
-    sed -i.tmp -E "s#(dograh-(api|ui)):latest#\1:$TARGET_VERSION#g" docker-compose.yaml
+# Pin api/ui image tags when we resolved one. For branch refs (main) IMAGE_TAG
+# is empty, so the images stay at ':latest' and `up --pull always` grabs the
+# newest build of that branch.
+if [[ -n "$IMAGE_TAG" ]]; then
+    sed -i.tmp -E "s#(dograh-(api|ui)):latest#\1:$IMAGE_TAG#g" docker-compose.yaml
     rm -f docker-compose.yaml.tmp
-    echo -e "${GREEN}✓ docker-compose.yaml updated; images pinned to $TARGET_VERSION${NC}"
+    echo -e "${GREEN}✓ docker-compose.yaml updated; images pinned to :$IMAGE_TAG${NC}"
 else
     echo -e "${GREEN}✓ docker-compose.yaml updated (image tags left at :latest)${NC}"
 fi

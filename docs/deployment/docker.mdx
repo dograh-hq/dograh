@@ -6,7 +6,7 @@ description: "Deploy Dograh AI using Docker for local development and remote ser
 Dograh AI can be deployed using Docker in two main configurations. Choose the option that best fits your needs:
 
 - **Option 1**: For local development and testing on your own machine
-- **Option 2**: For remote server deployment with HTTPS (using IP address)
+- **Option 2**: For remote server deployment with HTTPS (using IP address). If you also have a custom domain, you can first deploy Dograh stack on your server using steps in this document and then proceed to the [Custom Domain](deployment/custom-domain) section.
 
 ## Option 1: Local Docker Deployment
 
@@ -52,7 +52,7 @@ The Quick Start above relies on direct peer-to-peer WebRTC between your browser 
 
 - The call connects but no audio flows in either direction
 - The browser console reports `iceConnectionState: failed`
-- You are testing from a phone or another device on your LAN against the laptop running Docker
+- You are testing from a browser on your smartphone or another device on your LAN against the laptop running Docker
 - A VPN, corporate firewall, or strict NAT sits between the browser and Docker
 
 For these cases, use the alternate local setup script which configures a coturn TURN server alongside the rest of the stack:
@@ -90,17 +90,17 @@ Watch the video tutorial below for a step-by-step walkthrough of deploying Dogra
   allowFullScreen
 ></iframe>
 
-Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates. We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS.
+Deploy Dograh AI on a remote server to make it accessible from anywhere using your server's IP address. This setup includes HTTPS support via nginx reverse proxy with self-signed certificates. **We need to serve the application over HTTPS, since modern browsers only allow microphone permissions for websites being served over HTTPS**.
 
-**We highly recommend you set up the platform on a fresh server, so that there are less chances of confliciting dependencies, and ports from other applications.**
+<Warning>We highly recommend you set up the platform on a fresh server, so that there are less chances of confliciting dependencies, and ports from other applications.</Warning>
 
 ### Prerequisites
 
 - A server with Docker and Docker Compose installed. It should have minimum of 8 GB RAM and 4 vCPUs.
-- Public IP address for your server
+- Public IP address for your server. You can also access the server using a local IP address in your VPC as long as its reachable from your browser.
 - TCP Ports 80, 443, 3478, 5349 and UDP Ports 3478, 5349 and 49152:49200 reachable from Internet (Port 80 and 443 to access the UI and rest of the ports for WebRTC Signaling)
 
-<Note>Please refer to your server hosting provider's documentaion on how you can open these ports in the firewall of the server.</Note>
+<Note>IMPORTANT: Please double check the ports on your firewall. Please refer to your server hosting provider's documentaion on how you can open these ports in the firewall of the server.</Note>
 
 ### Quick Setup
 
@@ -141,7 +141,7 @@ sudo docker compose --profile remote up -d --build
 ```
 </CodeGroup>
 
-First boot in build mode takes several minutes — Docker has to build both the API and UI images before the stack comes up.
+First boot in build mode takes several minutes — Docker has to build both the API and UI images before the stack comes up. 
 
 ### Access Your Application
 
@@ -190,12 +190,55 @@ In this mode the script:
 2. If you run the script from inside an existing dograh checkout, offers to use that checkout instead of cloning.
 3. Generates a `docker-compose.override.yaml` next to `docker-compose.yaml` that swaps the `image:` directives for local `build:` directives. Docker Compose auto-loads the override file — you don't need to pass any `-f` flags.
 
-After editing `api/` or `ui/` code, rebuild and restart the affected service:
+#### Updating after a code change
+
+Whenever the codebase changes — a `git pull`, a local edit, or a submodule bump — rebuild the `api` and `ui` images and recreate the running containers so they pick up the new code.
+
+**TL;DR (rebuilds both services and restarts in one shot):**
 
 ```bash
 cd dograh
-sudo docker compose --profile remote build api    # or ui
+sudo docker compose --profile remote up -d --build
+```
+
+`--build` rebuilds any service whose `build:` context has changed (both `api` and `ui` are wired through the `docker-compose.override.yaml` written by `setup_remote.sh`), and `up -d` recreates the affected containers so they run off the new image.
+
+**Step-by-step** — use this when you're pulling fresh code from a remote, or want to be explicit:
+
+```bash
+cd dograh
+
+# 1. Pull the latest source.
+git pull
+git submodule update --init --recursive   # picks up pipecat submodule bumps
+
+# 2. Rebuild both images.
+sudo docker compose --profile remote build api ui
+
+# 3. Recreate the running containers so they use the new images.
 sudo docker compose --profile remote up -d
+```
+
+<Warning>If you update `pipecat` submodule, you must do `git submodule update --init --recursive`, or the Docker build step will not pick up `pipecat` changes</Warning>
+
+**Rebuild a single service** — faster when you only changed one side:
+
+```bash
+sudo docker compose --profile remote build api      # or: build ui
+sudo docker compose --profile remote up -d api      # or: up -d ui
+```
+
+**Force a clean rebuild** — needed when a base image changed, a `pip install` was added, or you suspect a stale layer:
+
+```bash
+sudo docker compose --profile remote build --no-cache api ui
+sudo docker compose --profile remote up -d
+```
+
+**Verify the containers were actually recreated** — check the `CREATED` column shows a recent timestamp, not minutes/hours ago:
+
+```bash
+sudo docker compose --profile remote ps
 ```
 
 To revert to pulling official images, delete `docker-compose.override.yaml` and start the stack with `--pull always` as in the [prebuilt flow](#start-the-application).

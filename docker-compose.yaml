@@ -107,8 +107,10 @@ services:
       MINIO_BUCKET: "voice-audio"
       MINIO_SECURE: "false"
 
-      # FastAPI workers count
-      FASTAPI_WORKERS: 1
+      # Number of uvicorn worker processes (each is its own process bound to a
+      # distinct port starting at 8000). nginx load-balances across them with
+      # least_conn — see setup_remote.sh.
+      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
 
       # Langfuse — credentials can be set here or per-organization via the UI
       # at /settings. Tracing is automatically active when credentials are

@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.29.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.28.0...dograh-v1.29.0) (2026-05-13)
+
+
+### Features
+
+* an option to setup remote server with docker compose build ([#280](https://github.com/dograh-hq/dograh/issues/280)) ([59619e9](https://github.com/dograh-hq/dograh/commit/59619e9eaad4313b76e4daa436ecdbb6088b33c1))
+* configurable ElevenLabs base URL for Data Residency ([#278](https://github.com/dograh-hq/dograh/issues/278)) ([7f0dac1](https://github.com/dograh-hq/dograh/commit/7f0dac1ad5f3a095dc67bd1476d2b11e6a9b1039))
+* inline rename of workflow on the editor page ([#273](https://github.com/dograh-hq/dograh/issues/273)) ([f2cb649](https://github.com/dograh-hq/dograh/commit/f2cb6499e1f4304814b331ee573dc4a0a565533a))
+* **telephony/telnyx:** add call transfer via conference bridge ([#274](https://github.com/dograh-hq/dograh/issues/274)) ([4a6752e](https://github.com/dograh-hq/dograh/commit/4a6752e62bf896c5815ccfc70897b3ebcd5733f1))
+* verify telnyx webhook signature optionally ([#279](https://github.com/dograh-hq/dograh/issues/279)) ([b670004](https://github.com/dograh-hq/dograh/commit/b670004725c839408e8a2c89d497e69182d7f079))
+
+
+### Bug Fixes
+
+* **ari:** pre-register ext channel id and defer bridge to its StasisS… ([#284](https://github.com/dograh-hq/dograh/issues/284)) ([ebeffdb](https://github.com/dograh-hq/dograh/commit/ebeffdbc40fb95c56ebf4446142fc0d4fc558f24))
+* prior pre-pr drift check failures ([#276](https://github.com/dograh-hq/dograh/issues/276)) ([a190282](https://github.com/dograh-hq/dograh/commit/a1902829dbbbe315a217245a6e615ce1d3901f03))
+
 ## [1.28.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.27.0...dograh-v1.28.0) (2026-05-11)
 
 

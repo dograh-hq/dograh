@@ -5,9 +5,11 @@ description: "Update your self-hosted Dograh stack to a newer image version"
 
 This guide covers updating a Dograh stack you've already deployed with [Docker](/deployment/docker) or a [custom domain](/deployment/custom-domain). You run commands from the same directory that contains your `docker-compose.yaml` (this is the `dograh/` directory if you used `setup_remote.sh`).
 
-<Note>
-This guide assumes you deployed in **prebuilt mode** — i.e. your stack pulls official `dograh-api` / `dograh-ui` images from a registry. If you deployed in **build mode** (a `docker-compose.override.yaml` exists in your `dograh/` directory), the update flow is different — see [Updating a source build](#updating-a-source-build) at the bottom.
-</Note>
+There are three update flows depending on how you deployed:
+
+- **Remote, prebuilt mode** (most users) — use [`update_remote.sh`](#remote-prebuilt-mode-recommended) below.
+- **Local Docker** — pull images and restart; see [Local deployment](#local-deployment).
+- **Remote, build mode** (you have a `docker-compose.override.yaml`) — update via git; see [Updating a source build](#updating-a-source-build).
 
 ## Find an image version
 
@@ -20,77 +22,59 @@ Each release is published under two kinds of tags:
 
 | Tag style | Example | When to use |
 |-----------|---------|-------------|
-| **Release tag** | `v0.8.2` | Stable, recommended for production |
+| **Release tag** | `v1.29.0` | Stable, recommended for production |
 | **Git commit SHA** | `a1b2c3d` | Bleeding edge — any commit merged to `main` |
 | `latest` | `latest` | Tracks the most recent release tag |
 
 <Warning>
-Always update **`dograh-api`** and **`dograh-ui`** to the **same tag**. The two images are built from the same commit and the UI expects API responses in a matching shape — mixing versions will break the app.
+Always update **`dograh-api`** and **`dograh-ui`** to the **same tag**. The two images are built from the same commit and the UI expects API responses in a matching shape — mixing versions will break the app. `update_remote.sh` handles this for you automatically.
 </Warning>
 
-## Option A: Update to the latest release
+## Remote, prebuilt mode (recommended)
 
-If your `docker-compose.yaml` uses `:latest` (the default), just pull and restart:
+`update_remote.sh` is the supported path for updating a stack created with `setup_remote.sh`. In one shot it:
 
-<CodeGroup>
-```bash Local deployment
-docker compose down
-docker compose up --pull always
-```
-```bash Remote deployment
-cd dograh
-sudo docker compose --profile remote down
-sudo docker compose --profile remote up --pull always
-```
-</CodeGroup>
+- Asks for a target version (defaults to the latest release tag on GitHub).
+- Pulls `docker-compose.yaml` at that version and pins both `api` and `ui` images to it.
+- Regenerates `nginx.conf` and `turnserver.conf` from the upstream templates, so newer features (like [multi-worker scaling](/deployment/scaling)) are wired up correctly without manual editing.
+- Reads your existing `.env` and appends any new required keys with safe defaults — your `OSS_JWT_SECRET`, `TURN_SECRET`, and other values are never touched.
+- Backs up every file it changes with a `.bak.<timestamp>` suffix.
 
-`--pull always` forces Docker to fetch the latest `:latest` from the registry instead of reusing your cached image.
-
-## Option B: Pin a specific tag
-
-To update (or roll back) to a specific release or commit, edit `docker-compose.yaml` and change the `image:` lines for both `api` and `ui` services to the same tag.
-
-Open the file:
+From your install directory:
 
 ```bash
-nano docker-compose.yaml
+cd dograh
+curl -o update_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/update_remote.sh
+bash update_remote.sh
 ```
 
-Find these two lines:
+You'll be prompted for the target version. Non-interactive callers can set it via environment variable and skip the confirmation prompt:
 
-```yaml
-  api:
-    image: ${REGISTRY:-dograhai}/dograh-api:latest
-  ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:latest
+```bash
+TARGET_VERSION=v1.29.0 DOGRAH_UPDATE_YES=1 bash update_remote.sh
 ```
 
-Replace `:latest` with your chosen tag on **both** services — for example:
+After the script finishes, apply the update by recreating the stack:
 
-```yaml
-  api:
-    image: ${REGISTRY:-dograhai}/dograh-api:v0.8.2
-  ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:v0.8.2
+```bash
+sudo docker compose --profile remote down
+sudo docker compose --profile remote up -d --pull always
 ```
 
 <Note>
-You can use either registry. Leave `REGISTRY` unset for Docker Hub (`dograhai`), or export `REGISTRY=ghcr.io/dograh-hq` to pull from GitHub Container Registry.
+The script overwrites `docker-compose.yaml`, `nginx.conf`, and `turnserver.conf` from upstream templates. If you've made local edits to any of these (extra environment variables, custom ports, modified nginx routes), check the `.bak.<timestamp>` files after the update and re-apply your edits.
 </Note>
 
-Then bring the stack down and back up:
+## Local deployment
 
-<CodeGroup>
-```bash Local deployment
+For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh`), there are no host-side config files to refresh — pull new images and restart:
+
+```bash
 docker compose down
 docker compose up --pull always
 ```
-```bash Remote deployment
-cd dograh
-sudo docker compose --profile remote down
-sudo docker compose --profile remote up --pull always
-```
-</CodeGroup>
+
+To pin a specific version instead of `latest`, edit `docker-compose.yaml` and change both `image:` lines for `api` and `ui` to the same tag (e.g. `:v1.29.0`), then run the commands above.
 
 ## Verify the update
 
@@ -105,12 +89,24 @@ You should see the API and UI both running the tag you pinned.
 Hit the health endpoint to confirm the API is responding:
 
 ```bash
-curl http://localhost:8000/api/v1/health
+curl -k https://YOUR_SERVER_IP/api/v1/health      # remote
+curl http://localhost:8000/api/v1/health           # local
 ```
 
 ## Roll back
 
-If something breaks, roll back by pinning the previous tag using the same process in **Option B** and restarting. Your Postgres data volume persists across `down`/`up` cycles, so agents and call history are preserved.
+`update_remote.sh` saves backups of every file it touched. To roll back, restore them and recreate the stack — the exact commands (including the timestamp it used) are printed at the end of the script's output. The generic form:
+
+```bash
+cd dograh
+for f in docker-compose.yaml nginx.conf turnserver.conf .env; do
+    [[ -f "$f.bak.<timestamp>" ]] && cp "$f.bak.<timestamp>" "$f"
+done
+sudo docker compose --profile remote down
+sudo docker compose --profile remote up -d
+```
+
+Your Postgres data volume persists across `down`/`up` cycles, so agents and call history are preserved.
 
 <Warning>
 Rolling back across a database migration is not always safe — if the newer release ran a schema migration, downgrading may leave the DB in a state the older API doesn't understand. If in doubt, [open an issue](https://github.com/dograh-hq/dograh/issues) before rolling back.
@@ -118,21 +114,29 @@ Rolling back across a database migration is not always safe — if the newer rel
 
 ## Updating a source build
 
-If you deployed in **build mode** (you'll have a `docker-compose.override.yaml` in your `dograh/` directory), there are no image tags to pull — you update by pulling new source and rebuilding:
+If you deployed in **build mode** (you'll have a `docker-compose.override.yaml` in your install directory), `update_remote.sh` deliberately refuses to run — you already have the full repo locally and update via git:
 
 ```bash
 cd dograh
+git fetch
+
+# Track latest main:
 git pull
+# Or pin to a specific release:
+git checkout v1.29.0
+
+# Pick up pipecat and other submodule bumps
+git submodule update --init --recursive
+
+# Rebuild and restart
 sudo docker compose --profile remote build
 sudo docker compose --profile remote up -d
 ```
 
-To roll back, check out an earlier commit or tag and rebuild:
+<Warning>
+If you update the `pipecat` submodule, you **must** run `git submodule update --init --recursive` before rebuilding, or the Docker build will not pick up `pipecat` changes.
+</Warning>
 
-```bash
-git checkout <previous-tag-or-sha>
-sudo docker compose --profile remote build
-sudo docker compose --profile remote up -d
-```
+If you maintain a fork with local customizations on top of upstream, merging conflicts in `docker-compose.yaml`, `nginx.conf`, `turnserver.conf`, or `setup_remote.sh` is up to you — resolve them as you would any other git merge. Leave `OSS_JWT_SECRET` and `TURN_SECRET` in `.env` unchanged across updates to preserve sessions and WebRTC auth.
 
 The same migration warning above applies: rolling back across a schema change can leave the DB in a state the older API can't read.

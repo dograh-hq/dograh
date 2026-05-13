@@ -7,6 +7,10 @@ By default, the Dograh API container runs a single uvicorn worker. For productio
 
 This page covers how the multi-worker setup works, how to choose a worker count at install time, and how to change it on a running stack.
 
+<Warning>
+Multi-worker support requires **Dograh v1.29.0 or newer**. Earlier releases used `uvicorn --workers` and ship a different `setup_remote.sh` / `start_services_docker.sh` / `nginx.conf` layout — the steps below will not work on them. If your stack is older, [update first](/deployment/update) and then come back to this page.
+</Warning>
+
 ## How it works
 
 The API container starts `FASTAPI_WORKERS` separate uvicorn processes, each bound to its own port (`8000`, `8001`, `8002`, …). nginx exposes a single upstream `dograh_api` that includes all worker ports and routes new requests to whichever worker currently has the **fewest active connections**.

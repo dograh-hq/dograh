@@ -35,6 +35,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.tests import MockLLMService, MockTTSService
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.turns.user_mute import (
@@ -49,7 +50,6 @@ from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
 from api.services.workflow.workflow_graph import WorkflowGraph
-from pipecat.tests import MockLLMService, MockTTSService
 
 
 class BotSpeakingObserverProcessor(FrameProcessor):

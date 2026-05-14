@@ -590,9 +590,7 @@ class CloudonixProvider(TelephonyProvider):
         with the supplied bearer token. A 200 response means both the
         token is valid and the session exists.
         """
-        endpoint = (
-            f"{self.base_url}/customers/self/domains/{domain_id}/sessions/{call_session}"
-        )
+        endpoint = f"{self.base_url}/customers/self/domains/{domain_id}/sessions/{call_session}"
         headers = {
             "Authorization": f"Bearer {bearer_token}",
             "Content-Type": "application/json",
@@ -953,10 +951,24 @@ class CloudonixProvider(TelephonyProvider):
         **kwargs: Any,
     ) -> Dict[str, Any]:
         """
-        Cloudonix provider does not support call transfers.
+        Initiate a call transfer via Cloudonix.
+
+        Uses inline CXML to put the destination into a conference when they answer,
+        and a status callback to track the transfer outcome.
+
+        Args:
+            destination: The destination phone number (E.164 format)
+            transfer_id: Unique identifier for tracking this transfer
+            conference_name: Name of the conference to join the destination into
+            timeout: Transfer timeout in seconds
+            **kwargs: Additional Twilio-specific parameters
+
+        Returns:
+            Dict containing transfer result information
 
         Raises:
-            NotImplementedError: Cloudonix call transfers are yet to be implemented
+            ValueError: If provider configuration is invalid
+            Exception: If Twilio API call fails
         """
         raise NotImplementedError("Cloudonix provider does not support call transfers")
 

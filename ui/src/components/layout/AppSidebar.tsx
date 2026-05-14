@@ -14,6 +14,7 @@ import {
   Home,
   Key,
   LogOut,
+  type LucideIcon,
   Megaphone,
   Phone,
   Settings,
@@ -49,18 +50,101 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+
+type SidebarNavItem = {
+  title: string;
+  url: string;
+  icon: LucideIcon;
+  showsTelephonyWarning?: boolean;
+};
+
+type SidebarNavSection = {
+  label?: string;
+  items: SidebarNavItem[];
+};
+
+const TELEPHONY_WARNING_DEADLINE = "15 May 2026";
+const TELEPHONY_WARNING_COPY = `Action required before ${TELEPHONY_WARNING_DEADLINE}`;
+
+const NAV_SECTIONS: SidebarNavSection[] = [
+  {
+    items: [
+      {
+        title: "Overview",
+        url: "/overview",
+        icon: Home,
+      },
+    ],
+  },
+  {
+    label: "BUILD",
+    items: [
+      {
+        title: "Voice Agents",
+        url: "/workflow",
+        icon: Workflow,
+      },
+      {
+        title: "Campaigns",
+        url: "/campaigns",
+        icon: Megaphone,
+      },
+      {
+        title: "Models",
+        url: "/model-configurations",
+        icon: Brain,
+      },
+      {
+        title: "Telephony",
+        url: "/telephony-configurations",
+        icon: Phone,
+        showsTelephonyWarning: true,
+      },
+      {
+        title: "Tools",
+        url: "/tools",
+        icon: Wrench,
+      },
+      {
+        title: "Files",
+        url: "/files",
+        icon: Database,
+      },
+      {
+        title: "Recordings",
+        url: "/recordings",
+        icon: AudioLines,
+      },
+      {
+        title: "Developers",
+        url: "/api-keys",
+        icon: Key,
+      },
+    ],
+  },
+  {
+    label: "OBSERVE",
+    items: [
+      {
+        title: "Agent Runs",
+        url: "/usage",
+        icon: TrendingUp,
+      },
+      {
+        title: "Reports",
+        url: "/reports",
+        icon: FileText,
+      },
+    ],
+  },
+];
 
 // Lazy load SelectedTeamSwitcher - we'll pass selectedTeam from our context
 const StackTeamSwitcher = React.lazy(() =>
@@ -77,10 +161,7 @@ export function AppSidebar() {
   const { config } = useAppConfig();
   const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
   const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
-
-  // On mobile the sidebar renders as a full-width sheet overlay, so treat it
-  // as always "expanded" regardless of the desktop collapsed/expanded state.
-  const effectiveState = isMobile ? "expanded" : state;
+  const isCollapsed = !isMobile && state === "collapsed";
 
   // Get selected team for Stack auth (cast to Team type from Stack)
   // Stabilize the reference so SelectedTeamSwitcher only sees a change when the team ID changes,
@@ -101,90 +182,7 @@ export function AppSidebar() {
     { enabled: config?.deploymentMode === "oss" },
   );
 
-  const isActive = (path: string) => {
-    return pathname.startsWith(path);
-  };
-
-
-  // Organize navigation into sections
-  const overviewSection = [
-    {
-      title: "Overview",
-      url: "/overview",
-      icon: Home,
-    },
-  ];
-
-  const buildSection = [
-        {
-          title: "Voice Agents",
-          url: "/workflow",
-          icon: Workflow,
-        },
-        {
-          title: "Campaigns",
-          url: "/campaigns",
-          icon: Megaphone,
-        },
-        // {
-        //   title: "Automation",
-        //   url: "/automation",
-        //   icon: Zap,
-        // },
-        {
-          title: "Models",
-          url: "/model-configurations",
-          icon: Brain,
-        },
-        {
-          title: "Telephony",
-          url: "/telephony-configurations",
-          icon: Phone,
-        },
-        {
-          title: "Tools",
-          url: "/tools",
-          icon: Wrench,
-        },
-        {
-          title: "Files",
-          url: "/files",
-          icon: Database,
-        },
-        {
-          title: "Recordings",
-          url: "/recordings",
-          icon: AudioLines,
-        },
-        // {
-        //   title: "Integrations",
-        //   url: "/integrations",
-        //   icon: Plug,
-        // },
-        {
-          title: "Developers",
-          url: "/api-keys",
-          icon: Key,
-        },
-      ];
-
-  const observeSection = [
-    {
-      title: "Agent Runs",
-      url: "/usage",
-      icon: TrendingUp,
-    },
-    {
-      title: "Reports",
-      url: "/reports",
-      icon: FileText,
-    },
-    // {
-    //   title: "LoopTalk",
-    //   url: "/looptalk",
-    //   icon: MessageSquare,
-    // },
-  ];
+  const isActive = (path: string) => pathname.startsWith(path);
 
   const handleMobileNavClick = () => {
     if (isMobile) {
@@ -192,79 +190,65 @@ export function AppSidebar() {
     }
   };
 
-  const SidebarLink = ({ item }: { item: typeof overviewSection[0] }) => {
+  const SidebarLink = ({ item }: { item: SidebarNavItem }) => {
     const isItemActive = isActive(item.url);
     const Icon = item.icon;
-    const showWarningDot =
-      item.url === "/telephony-configurations" && hasTelephonyWarning;
-
-    if (effectiveState === "collapsed") {
-      return (
-        <TooltipProvider delayDuration={0}>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <SidebarMenuButton
-                asChild
-                className={cn(
-                  "hover:bg-accent hover:text-accent-foreground",
-                  isItemActive && "bg-accent text-accent-foreground"
-                )}
-              >
-                <Link href={item.url} onClick={handleMobileNavClick} className="relative">
-                  <Icon className="h-4 w-4" />
-                  {showWarningDot && (
-                    <AlertTriangle
-                      aria-hidden
-                      className="absolute -right-0.5 -top-0.5 h-3 w-3 text-amber-500"
-                    />
-                  )}
-                  <span className="sr-only">
-                    {item.title}
-                    {showWarningDot && " — action required before 15 May 2026"}
-                  </span>
-                </Link>
-              </SidebarMenuButton>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              <p>
-                {item.title}
-                {showWarningDot && (
-                  <span className="block text-amber-600 dark:text-amber-400">
-                    Action required before 15 May 2026
-                  </span>
-                )}
-              </p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      );
-    }
+    const showWarningDot = item.showsTelephonyWarning && hasTelephonyWarning;
+    const tooltip = {
+      children: (
+        <div className="notranslate" translate="no">
+          <p>{item.title}</p>
+          {showWarningDot && (
+            <p className="text-amber-600 dark:text-amber-400">{TELEPHONY_WARNING_COPY}</p>
+          )}
+        </div>
+      ),
+    };
+    const warningIndicator = (
+      <AlertTriangle
+        aria-label={`Action required on a telephony configuration before ${TELEPHONY_WARNING_DEADLINE}`}
+        className={cn(
+          "text-amber-500",
+          isCollapsed ? "absolute -right-0.5 -top-0.5 h-3 w-3" : "ml-auto h-3.5 w-3.5"
+        )}
+      />
+    );
 
     return (
       <SidebarMenuButton
         asChild
+        tooltip={tooltip}
         className={cn(
           "hover:bg-accent hover:text-accent-foreground",
           isItemActive && "bg-accent text-accent-foreground"
         )}
       >
-        <Link href={item.url} onClick={handleMobileNavClick}>
-          <Icon className="h-4 w-4" />
-          <span>{item.title}</span>
+        <Link
+          href={item.url}
+          onClick={handleMobileNavClick}
+          className={cn("relative", isCollapsed && "justify-center")}
+          translate="no"
+        >
+          <Icon className="h-4 w-4 shrink-0" />
+          <span
+            className={cn("notranslate min-w-0 flex-1 truncate", isCollapsed && "sr-only")}
+            translate="no"
+          >
+            {item.title}
+          </span>
           {showWarningDot && (
-            <TooltipProvider delayDuration={0}>
+            isCollapsed ? (
+              warningIndicator
+            ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <AlertTriangle
-                    aria-label="Action required on a telephony configuration before 15 May 2026"
-                    className="ml-auto h-3.5 w-3.5 text-amber-500"
-                  />
+                  {warningIndicator}
                 </TooltipTrigger>
                 <TooltipContent side="right">
-                  <p>Action required before 15 May 2026</p>
+                  <p>{TELEPHONY_WARNING_COPY}</p>
                 </TooltipContent>
               </Tooltip>
-            </TooltipProvider>
+            )
           )}
         </Link>
       </SidebarMenuButton>
@@ -273,77 +257,70 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon" className="border-r">
-      <SidebarHeader className="border-b px-2 py-3">
+      <SidebarHeader className="border-b px-2 py-3 notranslate" translate="no">
         <div className="flex items-center justify-between">
-          {/* Logo - only show when expanded */}
-          {effectiveState === "expanded" && (
-            <div className="flex items-center gap-2">
-              <Link
-                href="/"
-                className="flex items-center gap-2 px-2 text-xl font-bold"
-              >
-                Dograh
-                {versionInfo && (
-                  <span className="text-xs font-normal text-muted-foreground">
-                    v{versionInfo.ui}
+          <div className={cn("flex items-center gap-2", isCollapsed && "hidden")}>
+            <Link
+              href="/"
+              className="notranslate flex items-center gap-2 px-2 text-xl font-bold"
+              translate="no"
+            >
+              Dograh
+              {versionInfo && (
+                <span
+                  className="notranslate text-xs font-normal text-muted-foreground"
+                  translate="no"
+                >
+                  v{versionInfo.ui}
+                </span>
+              )}
+            </Link>
+            {isBehind && latestRelease && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <a
+                    href="https://docs.dograh.com/deployment/update"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-md border bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-900 transition-opacity hover:opacity-80 dark:bg-amber-950 dark:text-amber-200"
+                  >
+                    <ArrowUpCircle className="h-3 w-3" />
+                    Update
+                  </a>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>Latest: {latestRelease} — click to see the update guide</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {isLatest && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex items-center rounded-md border bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+                    Latest
                   </span>
-                )}
-              </Link>
-              {isBehind && latestRelease && (
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <a
-                        href="https://docs.dograh.com/deployment/update"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 rounded-md border bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-900 transition-opacity hover:opacity-80 dark:bg-amber-950 dark:text-amber-200"
-                      >
-                        <ArrowUpCircle className="h-3 w-3" />
-                        Update
-                      </a>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      <p>Latest: {latestRelease} — click to see the update guide</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-              {isLatest && (
-                <TooltipProvider delayDuration={0}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex items-center rounded-md border bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-                        Latest
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      <p>You&apos;re running the latest release</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              )}
-            </div>
-          )}
-          {/* Toggle button - center it when collapsed */}
-          <SidebarTrigger className={cn(
-            "hover:bg-accent",
-            effectiveState === "collapsed" && "mx-auto"
-          )}>
-            {effectiveState === "expanded" ? (
-              <ChevronLeft className="h-4 w-4" />
-            ) : (
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  <p>You&apos;re running the latest release</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+
+          <SidebarTrigger className={cn("hover:bg-accent", isCollapsed && "mx-auto")}>
+            {isCollapsed ? (
               <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
             )}
           </SidebarTrigger>
         </div>
 
-        {/* Team Switcher for Stack Auth - at the top */}
-        {provider === "stack" && effectiveState === "expanded" && (
-          <div className="mt-3">
+        {provider === "stack" && (
+          <div className={cn("mt-3 notranslate", isCollapsed && "hidden")} translate="no">
             <React.Suspense
               fallback={
-                <div className="h-9 w-full animate-pulse bg-muted rounded" />
+                <div className="h-9 w-full animate-pulse rounded bg-muted" />
               }
             >
               <StackTeamSwitcher
@@ -355,73 +332,46 @@ export function AppSidebar() {
             </React.Suspense>
           </div>
         )}
-
       </SidebarHeader>
 
-      <SidebarContent className={cn(
-        effectiveState === "collapsed" && "px-0"
-      )}>
-        {/* Overview Section */}
-        <SidebarGroup className="mt-2">
-          <SidebarMenu>
-            {overviewSection.map((item) => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarLink item={item} />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
-
-        {/* BUILD Section */}
-        {buildSection.length > 0 && (
-          <SidebarGroup className="mt-6">
-            {effectiveState === "expanded" && (
-              <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                BUILD
+      <SidebarContent className={cn("notranslate", isCollapsed && "px-0")} translate="no">
+        {NAV_SECTIONS.map((section, index) => (
+          <SidebarGroup
+            key={section.label ?? "overview"}
+            className={index === 0 ? "mt-2" : "mt-6"}
+          >
+            {section.label && (
+              <SidebarGroupLabel
+                className={cn(
+                  "notranslate text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                  isCollapsed && "hidden"
+                )}
+                translate="no"
+              >
+                {section.label}
               </SidebarGroupLabel>
             )}
             <SidebarMenu>
-              {buildSection.map((item) => (
+              {section.items.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarLink item={item} />
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
           </SidebarGroup>
-        )}
-
-        {/* OBSERVE Section */}
-        <SidebarGroup className="mt-6">
-          {effectiveState === "expanded" && (
-            <SidebarGroupLabel className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-              OBSERVE
-            </SidebarGroupLabel>
-          )}
-          <SidebarMenu>
-            {observeSection.map((item) => (
-              <SidebarMenuItem key={item.title}>
-                <SidebarLink item={item} />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        ))}
       </SidebarContent>
 
-      <SidebarFooter className={cn(
-        "border-t p-4",
-        effectiveState === "collapsed" && "p-2"
-      )}>
-        {/* Bottom Actions */}
+      <SidebarFooter
+        className={cn("border-t p-4 notranslate", isCollapsed && "p-2")}
+        translate="no"
+      >
         <div className="space-y-2">
-          {/* User Button - for local/OSS mode */}
           {provider !== "stack" && (
-            <div className={cn(
-              "flex",
-              effectiveState === "collapsed" ? "justify-center" : "justify-start"
-            )}>
+            <div className={cn("flex", isCollapsed ? "justify-center" : "justify-start")}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 cursor-pointer">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
                     <span className="text-xs font-medium">
                       {(user?.displayName || (user as LocalUser | undefined)?.email || "")
                         .split(/[\s@]/)
@@ -455,15 +405,11 @@ export function AppSidebar() {
             </div>
           )}
 
-          {/* User Button - for Stack auth */}
           {provider === "stack" && (
-            <div className={cn(
-              "flex",
-              effectiveState === "collapsed" ? "justify-center" : "justify-start"
-            )}>
+            <div className={cn("flex", isCollapsed ? "justify-center" : "justify-start")}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="rounded-full h-8 w-8 cursor-pointer">
+                  <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
                     <span className="text-xs font-medium">
                       {(user?.displayName || (user as { primaryEmail?: string })?.primaryEmail || "")
                         .split(/[\s@]/)
@@ -508,35 +454,30 @@ export function AppSidebar() {
             </div>
           )}
 
-          {/* Theme Toggle - at the very bottom */}
-          <div className={cn(
-            "mt-2 pt-2 border-t",
-            effectiveState === "collapsed" ? "flex justify-center" : ""
-          )}>
-            {effectiveState === "collapsed" ? (
-              <TooltipProvider delayDuration={0}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div>
-                      <ThemeToggle
-                        showLabel={false}
-                        className="hover:bg-accent hover:text-accent-foreground"
-                      />
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>Toggle theme</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+          <div className={cn("mt-2 border-t pt-2", isCollapsed && "flex justify-center")}>
+            {isCollapsed ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="notranslate" translate="no">
+                    <ThemeToggle
+                      showLabel={false}
+                      className="hover:bg-accent hover:text-accent-foreground"
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right">
+                  <p>Toggle theme</p>
+                </TooltipContent>
+              </Tooltip>
             ) : (
-              <ThemeToggle
-                showLabel={true}
-                className="hover:bg-accent hover:text-accent-foreground"
-              />
+              <div className="notranslate" translate="no">
+                <ThemeToggle
+                  showLabel={true}
+                  className="hover:bg-accent hover:text-accent-foreground"
+                />
+              </div>
             )}
           </div>
-
         </div>
       </SidebarFooter>
       <SidebarRail />

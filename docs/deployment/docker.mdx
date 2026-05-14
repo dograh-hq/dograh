@@ -118,9 +118,10 @@ The script will prompt you for:
 
 It will automatically:
 - Get the source — `docker-compose.yaml` only (prebuilt mode), or clone the full repo (build mode)
-- Create and configure nginx.conf with your IP address
+- Download the validated remote deployment helper bundle
 - Generate SSL certificates
 - Create an environment file with TURN server configuration
+- Render `nginx.conf` and `turnserver.conf` from shared templates
 - Write a `docker-compose.override.yaml` with build directives (build mode only)
 
 ### Start the Application
@@ -134,11 +135,11 @@ After the setup script completes, start Dograh. The script prints the exact comm
 <CodeGroup>
 ```bash Prebuilt mode
 cd dograh
-sudo docker compose --profile remote up --pull always
+./remote_up.sh
 ```
 ```bash Build mode
 cd dograh
-sudo docker compose --profile remote up -d --build
+./remote_up.sh --build
 ```
 </CodeGroup>
 

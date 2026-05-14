@@ -37,8 +37,8 @@ Always update **`dograh-api`** and **`dograh-ui`** to the **same tag**. The two 
 
 - Asks for a target version (defaults to the latest release tag on GitHub).
 - Pulls `docker-compose.yaml` at that version and pins both `api` and `ui` images to it.
-- Regenerates `nginx.conf` and `turnserver.conf` from the upstream templates, so newer features (like [multi-worker scaling](/deployment/scaling)) are wired up correctly without manual editing.
-- Reads your existing `.env` and appends any new required keys with safe defaults — your `OSS_JWT_SECRET`, `TURN_SECRET`, and other values are never touched.
+- Refreshes the remote helper bundle (`remote_up.sh` plus shared templates/helpers).
+- Synchronizes the canonical remote keys in `.env` and re-renders `nginx.conf` and `turnserver.conf` from the shared templates.
 - Backs up every file it changes with a `.bak.<timestamp>` suffix.
 
 From your install directory:
@@ -55,15 +55,14 @@ You'll be prompted for the target version, defaulting to the most recent release
 TARGET_VERSION=1.28.0 DOGRAH_UPDATE_YES=1 bash update_remote.sh
 ```
 
-After the script finishes, apply the update by recreating the stack:
+After the script finishes, apply the update through the validated startup wrapper:
 
 ```bash
-sudo docker compose --profile remote down
-sudo docker compose --profile remote up -d --pull always
+./remote_up.sh
 ```
 
 <Note>
-The script overwrites `docker-compose.yaml`, `nginx.conf`, and `turnserver.conf` from upstream templates. If you've made local edits to any of these (extra environment variables, custom ports, modified nginx routes), check the `.bak.<timestamp>` files after the update and re-apply your edits.
+The script overwrites `docker-compose.yaml`, `remote_up.sh`, `nginx.conf`, and `turnserver.conf` from the shared upstream deployment bundle. If you've made local edits to any of these, check the `.bak.<timestamp>` files after the update and re-apply your edits.
 </Note>
 
 ## Local deployment

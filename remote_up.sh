@@ -53,7 +53,7 @@ cd "$SCRIPT_DIR"
 dograh_info "Running Dograh remote preflight..."
 dograh_prepare_remote_install "$SCRIPT_DIR"
 docker compose config -q
-dograh_success "✓ Remote config validated"
+dograh_success "✓ dograh-init preflight validated"
 
 if [[ "$VALIDATE_ONLY" == "1" ]]; then
     exit 0

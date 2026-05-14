@@ -38,7 +38,7 @@ Always update **`dograh-api`** and **`dograh-ui`** to the **same tag**. The two 
 - Asks for a target version (defaults to the latest release tag on GitHub).
 - Pulls `docker-compose.yaml` at that version and pins both `api` and `ui` images to it.
 - Refreshes the remote helper bundle (`remote_up.sh` plus shared templates/helpers).
-- Synchronizes the canonical remote keys in `.env` and re-renders `nginx.conf` and `turnserver.conf` from the shared templates.
+- Synchronizes the canonical remote keys in `.env` and validates the runtime config that `dograh-init` will render from it.
 - Backs up every file it changes with a `.bak.<timestamp>` suffix.
 
 From your install directory:
@@ -62,7 +62,7 @@ After the script finishes, apply the update through the validated startup wrappe
 ```
 
 <Note>
-The script overwrites `docker-compose.yaml`, `remote_up.sh`, `nginx.conf`, and `turnserver.conf` from the shared upstream deployment bundle. If you've made local edits to any of these, check the `.bak.<timestamp>` files after the update and re-apply your edits.
+The script overwrites `docker-compose.yaml` and the remote helper bundle (`remote_up.sh`, `scripts/run_dograh_init.sh`, `scripts/lib/remote_common.sh`, and `deploy/templates/*`) from the shared upstream deployment bundle. If you've made local edits to any of these, check the `.bak.<timestamp>` files after the update and re-apply your edits.
 </Note>
 
 ## Local deployment
@@ -99,11 +99,10 @@ curl http://localhost:8000/api/v1/health           # local
 
 ```bash
 cd dograh
-for f in docker-compose.yaml nginx.conf turnserver.conf .env; do
+for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh scripts/run_dograh_init.sh scripts/lib/remote_common.sh deploy/templates/nginx.remote.conf.template deploy/templates/turnserver.remote.conf.template; do
     [[ -f "$f.bak.<timestamp>" ]] && cp "$f.bak.<timestamp>" "$f"
 done
-sudo docker compose --profile remote down
-sudo docker compose --profile remote up -d
+./remote_up.sh
 ```
 
 Your Postgres data volume persists across `down`/`up` cycles, so agents and call history are preserved.
@@ -137,6 +136,6 @@ sudo docker compose --profile remote up -d
 If you update the `pipecat` submodule, you **must** run `git submodule update --init --recursive` before rebuilding, or the Docker build will not pick up `pipecat` changes.
 </Warning>
 
-If you maintain a fork with local customizations on top of upstream, merging conflicts in `docker-compose.yaml`, `nginx.conf`, `turnserver.conf`, or `setup_remote.sh` is up to you — resolve them as you would any other git merge. Leave `OSS_JWT_SECRET` and `TURN_SECRET` in `.env` unchanged across updates to preserve sessions and WebRTC auth.
+If you maintain a fork with local customizations on top of upstream, merging conflicts in `docker-compose.yaml`, `remote_up.sh`, `scripts/run_dograh_init.sh`, `deploy/templates/*`, or `setup_remote.sh` is up to you — resolve them as you would any other git merge. Leave `OSS_JWT_SECRET` and `TURN_SECRET` in `.env` unchanged across updates to preserve sessions and WebRTC auth.
 
 The same migration warning above applies: rolling back across a schema change can leave the DB in a state the older API can't read.

@@ -66,7 +66,7 @@ The script will prompt you for:
 - The host browsers should use to reach TURN (press Enter for `127.0.0.1`; use your LAN IP if testing from another device on the same network)
 - A shared secret for the TURN server (press Enter to generate a random one)
 
-It creates `docker-compose.yaml`, `turnserver.conf`, and a `.env` file with TURN credentials. Start the stack with the `local-turn` profile so coturn comes up alongside the other services:
+It creates `docker-compose.yaml`, a `.env` file with TURN credentials, and the small helper bundle that `dograh-init` uses to render coturn config at startup. Start the stack with the `local-turn` profile so coturn comes up alongside the other services:
 
 ```bash
 docker compose --profile local-turn up --pull always
@@ -121,7 +121,7 @@ It will automatically:
 - Download the validated remote deployment helper bundle
 - Generate SSL certificates
 - Create an environment file with TURN server configuration
-- Render `nginx.conf` and `turnserver.conf` from shared templates
+- Validate the runtime config that `dograh-init` will render from `.env`
 - Write a `docker-compose.override.yaml` with build directives (build mode only)
 
 ### Start the Application
@@ -175,12 +175,14 @@ The setup script creates the following files in the `dograh/` directory:
 |------|---------|
 | `docker-compose.yaml` | Main Docker Compose configuration |
 | `docker-compose.override.yaml` | Build directives for `api` and `ui` (**build mode only**) |
-| `turnserver.conf` | Configuration for TURN server |
-| `nginx.conf` | nginx reverse proxy configuration with your IP |
+| `remote_up.sh` | Validated startup wrapper for the remote stack |
+| `scripts/run_dograh_init.sh` | One-shot init renderer/validator used by Docker Compose |
+| `scripts/lib/remote_common.sh` | Shared deployment helper library |
+| `deploy/templates/` | nginx and coturn runtime config templates |
 | `generate_certificate.sh` | Script to regenerate SSL certificates |
 | `certs/local.crt` | Self-signed SSL certificate |
 | `certs/local.key` | SSL private key |
-| `.env` | Environment variables (TURN secret, JWT secret, FastAPI worker count) |
+| `.env` | Single source of truth for deployment settings (TURN secret, JWT secret, FastAPI worker count, public host/base URL) |
 
 ### Building from source
 

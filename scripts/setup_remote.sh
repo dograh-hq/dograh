@@ -162,7 +162,7 @@ if [[ "${DOGRAH_FORCE_OVERWRITE:-}" != "1" && "${DOGRAH_SKIP_DOWNLOAD:-}" != "1"
         echo -e "${RED}Refusing to continue - re-running setup would:${NC}"
         echo -e "${RED}  - overwrite .env (invalidates sessions, breaks TURN auth)${NC}"
         echo -e "${RED}  - regenerate SSL certificates${NC}"
-        echo -e "${RED}  - replace generated nginx.conf and turnserver.conf${NC}"
+        echo -e "${RED}  - replace the validated remote deployment bundle${NC}"
         echo ""
         echo -e "${BLUE}To upgrade an existing install, follow:${NC}"
         echo -e "  ${BLUE}https://docs.dograh.com/deployment/update${NC}"
@@ -279,9 +279,9 @@ FASTAPI_WORKERS=$FASTAPI_WORKERS
 ENV_EOF
 echo -e "${GREEN}✓ .env file created${NC}"
 
-echo -e "${BLUE}[5/$TOTAL] Rendering and validating remote config...${NC}"
+echo -e "${BLUE}[5/$TOTAL] Validating remote init configuration...${NC}"
 dograh_prepare_remote_install "$(pwd)"
-echo -e "${GREEN}✓ Remote config rendered and validated${NC}"
+echo -e "${GREEN}✓ Remote init configuration validated${NC}"
 
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     echo -e "${BLUE}[6/$TOTAL] Creating docker-compose.override.yaml...${NC}"
@@ -319,8 +319,8 @@ if [[ "$DEPLOY_MODE" == "build" ]]; then
     echo "  - docker-compose.override.yaml  (build directives)"
 fi
 echo "  - remote_up.sh"
-echo "  - nginx.conf"
-echo "  - turnserver.conf"
+echo "  - scripts/run_dograh_init.sh"
+echo "  - deploy/templates/"
 echo "  - generate_certificate.sh"
 echo "  - certs/local.crt"
 echo "  - certs/local.key"

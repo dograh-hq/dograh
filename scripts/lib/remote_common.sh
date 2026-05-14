@@ -56,6 +56,25 @@ dograh_template_path() {
     dograh_fail "Template '$template_name' not found"
 }
 
+dograh_init_script_path() {
+    local candidate=""
+    local project_dir
+
+    project_dir="$(dograh_project_dir)"
+
+    for candidate in \
+        "$project_dir/scripts/run_dograh_init.sh" \
+        "$DOGRAH_REMOTE_REPO_ROOT/scripts/run_dograh_init.sh"
+    do
+        if [[ -f "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+
+    dograh_fail "run_dograh_init.sh not found"
+}
+
 dograh_load_env_file() {
     local env_file=${1:-.env}
 
@@ -233,6 +252,24 @@ dograh_validate_remote_runtime_env() {
     [[ "${TURN_HOST}" == "${PUBLIC_HOST}" ]] || dograh_fail "TURN_HOST must match PUBLIC_HOST"
 }
 
+dograh_uses_init_compose_layout() {
+    local project_dir=${1:-$(dograh_project_dir)}
+    local compose_file="$project_dir/docker-compose.yaml"
+
+    [[ -f "$compose_file" ]] || return 1
+    grep -q "dograh-init:" "$compose_file" \
+        && grep -q "nginx-generated:/etc/nginx/conf.d:ro" "$compose_file" \
+        && grep -q "coturn-generated:/etc/coturn:ro" "$compose_file"
+}
+
+dograh_require_init_compose_layout() {
+    local project_dir=${1:-$(dograh_project_dir)}
+
+    if ! dograh_uses_init_compose_layout "$project_dir"; then
+        dograh_fail "This install uses the legacy remote compose layout. Run ./update_remote.sh first so Docker uses dograh-init generated config."
+    fi
+}
+
 dograh_render_remote_nginx_conf() {
     local project_dir=${1:-$(dograh_project_dir)}
     local destination=${2:-"$project_dir/nginx.conf"}
@@ -295,40 +332,39 @@ dograh_render_remote_turn_conf() {
     ' "$template" > "$destination"
 }
 
-dograh_render_remote_configs() {
-    local project_dir=${1:-$(dograh_project_dir)}
-
-    dograh_render_remote_nginx_conf "$project_dir"
-    dograh_render_remote_turn_conf "$project_dir"
-}
-
-dograh_validate_remote_install() {
+dograh_preflight_remote_init_render() {
     local project_dir=${1:-$(dograh_project_dir)}
     local env_file="$project_dir/.env"
-    local nginx_conf="$project_dir/nginx.conf"
-    local turn_conf="$project_dir/turnserver.conf"
     local cert_dir="$project_dir/certs"
+    local init_script=""
+    local tmp_root=""
+    local nginx_conf=""
+    local turn_conf=""
     local nginx_workers=0
     local rendered_secret=""
     local rendered_ip=""
     local rendered_server_name=""
 
     dograh_load_env_file "$env_file"
-
-    [[ -n "${TURN_SECRET:-}" ]] || dograh_fail "TURN_SECRET is missing from .env"
-    [[ "${FASTAPI_WORKERS:-}" =~ ^[1-9][0-9]*$ ]] || dograh_fail "FASTAPI_WORKERS must be a positive integer"
-    [[ -n "${PUBLIC_HOST:-}" ]] || dograh_fail "PUBLIC_HOST is missing from .env"
-    [[ -n "${PUBLIC_BASE_URL:-}" ]] || dograh_fail "PUBLIC_BASE_URL is missing from .env"
-    dograh_is_ipv4 "${SERVER_IP:-}" || dograh_fail "SERVER_IP must be a valid IPv4 address"
-
-    [[ "${BACKEND_API_ENDPOINT:-}" == "$PUBLIC_BASE_URL" ]] || dograh_fail "BACKEND_API_ENDPOINT must match PUBLIC_BASE_URL"
-    [[ "${MINIO_PUBLIC_ENDPOINT:-}" == "$PUBLIC_BASE_URL" ]] || dograh_fail "MINIO_PUBLIC_ENDPOINT must match PUBLIC_BASE_URL"
-    [[ "${TURN_HOST:-}" == "$PUBLIC_HOST" ]] || dograh_fail "TURN_HOST must match PUBLIC_HOST"
-
-    [[ -f "$nginx_conf" ]] || dograh_fail "nginx.conf not found"
-    [[ -f "$turn_conf" ]] || dograh_fail "turnserver.conf not found"
+    dograh_validate_remote_runtime_env
     [[ -f "$cert_dir/local.crt" ]] || dograh_fail "certs/local.crt not found"
     [[ -f "$cert_dir/local.key" ]] || dograh_fail "certs/local.key not found"
+
+    init_script="$(dograh_init_script_path)"
+    tmp_root="$(mktemp -d)"
+    nginx_conf="$tmp_root/nginx/default.conf"
+    turn_conf="$tmp_root/coturn/turnserver.conf"
+
+    (
+        export ENVIRONMENT SERVER_IP PUBLIC_HOST PUBLIC_BASE_URL BACKEND_API_ENDPOINT MINIO_PUBLIC_ENDPOINT TURN_HOST TURN_SECRET FASTAPI_WORKERS
+        export DOGRAH_INIT_WORKSPACE_DIR="$project_dir"
+        export DOGRAH_INIT_OUTPUT_ROOT="$tmp_root"
+        export DOGRAH_INIT_CERTS_DIR="$cert_dir"
+        bash "$init_script" >/dev/null
+    )
+
+    [[ -f "$nginx_conf" ]] || dograh_fail "dograh-init did not render nginx config"
+    [[ -f "$turn_conf" ]] || dograh_fail "dograh-init did not render coturn config"
 
     nginx_workers=$(awk '/^[[:space:]]*server api:[0-9]+/ { count += 1 } END { print count + 0 }' "$nginx_conf")
     [[ "$nginx_workers" -eq "$FASTAPI_WORKERS" ]] || dograh_fail "FASTAPI_WORKERS=$FASTAPI_WORKERS but nginx.conf has $nginx_workers upstream servers"
@@ -341,6 +377,8 @@ dograh_validate_remote_install() {
 
     rendered_ip="$(sed -n 's/^external-ip=//p' "$turn_conf" | head -1)"
     [[ "$rendered_ip" == "$SERVER_IP" ]] || dograh_fail "SERVER_IP in .env does not match turnserver.conf"
+
+    rm -rf "$tmp_root"
 }
 
 dograh_prepare_remote_install() {
@@ -348,36 +386,42 @@ dograh_prepare_remote_install() {
     local env_file="$project_dir/.env"
 
     dograh_sync_remote_env_file "$env_file"
-    dograh_load_env_file "$env_file"
-    dograh_render_remote_configs "$project_dir"
-    dograh_validate_remote_install "$project_dir"
+    dograh_require_init_compose_layout "$project_dir"
+    dograh_preflight_remote_init_render "$project_dir"
+}
+
+dograh_download_bundle_file_for_ref() {
+    local destination=$1
+    local remote_path=$2
+    local ref=${3:-main}
+    local raw_base="https://raw.githubusercontent.com/dograh-hq/dograh/$ref"
+    local fallback_base="https://raw.githubusercontent.com/dograh-hq/dograh/main"
+
+    if ! curl -fsSL -o "$destination" "$raw_base/$remote_path"; then
+        dograh_warn "Warning: '$remote_path' not found at '$ref' - falling back to main"
+        curl -fsSL -o "$destination" "$fallback_base/$remote_path"
+    fi
+}
+
+dograh_download_init_support_bundle() {
+    local project_dir=$1
+    local ref=${2:-main}
+
+    mkdir -p "$project_dir/scripts/lib" "$project_dir/deploy/templates"
+
+    mkdir -p "$project_dir/scripts"
+    dograh_download_bundle_file_for_ref "$project_dir/scripts/lib/remote_common.sh" "scripts/lib/remote_common.sh" "$ref"
+    dograh_download_bundle_file_for_ref "$project_dir/scripts/run_dograh_init.sh" "scripts/run_dograh_init.sh" "$ref"
+    chmod +x "$project_dir/scripts/run_dograh_init.sh"
+    dograh_download_bundle_file_for_ref "$project_dir/deploy/templates/nginx.remote.conf.template" "deploy/templates/nginx.remote.conf.template" "$ref"
+    dograh_download_bundle_file_for_ref "$project_dir/deploy/templates/turnserver.remote.conf.template" "deploy/templates/turnserver.remote.conf.template" "$ref"
 }
 
 dograh_download_remote_support_bundle() {
     local project_dir=$1
     local ref=${2:-main}
-    local raw_base="https://raw.githubusercontent.com/dograh-hq/dograh/$ref"
-    local fallback_base="https://raw.githubusercontent.com/dograh-hq/dograh/main"
 
-    dograh_download_bundle_file() {
-        local destination=$1
-        local remote_path=$2
-
-        if ! curl -fsSL -o "$destination" "$raw_base/$remote_path"; then
-            dograh_warn "Warning: '$remote_path' not found at '$ref' - falling back to main"
-            curl -fsSL -o "$destination" "$fallback_base/$remote_path"
-        fi
-    }
-
-    mkdir -p "$project_dir/scripts/lib" "$project_dir/deploy/templates"
-
-    dograh_download_bundle_file "$project_dir/remote_up.sh" "remote_up.sh"
+    dograh_download_bundle_file_for_ref "$project_dir/remote_up.sh" "remote_up.sh" "$ref"
     chmod +x "$project_dir/remote_up.sh"
-
-    mkdir -p "$project_dir/scripts"
-    dograh_download_bundle_file "$project_dir/scripts/lib/remote_common.sh" "scripts/lib/remote_common.sh"
-    dograh_download_bundle_file "$project_dir/scripts/run_dograh_init.sh" "scripts/run_dograh_init.sh"
-    chmod +x "$project_dir/scripts/run_dograh_init.sh"
-    dograh_download_bundle_file "$project_dir/deploy/templates/nginx.remote.conf.template" "deploy/templates/nginx.remote.conf.template"
-    dograh_download_bundle_file "$project_dir/deploy/templates/turnserver.remote.conf.template" "deploy/templates/turnserver.remote.conf.template"
+    dograh_download_init_support_bundle "$project_dir" "$ref"
 }

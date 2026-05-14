@@ -76,7 +76,7 @@ It will automatically:
 - Install Certbot
 - Generate Let's Encrypt SSL certificates
 - Update the canonical public host/base URL settings in `.env`
-- Re-render `nginx.conf` and `turnserver.conf` from the shared templates
+- Validate the runtime config that `dograh-init` will render from `.env`
 - Configure automatic certificate renewal
 - Restart Dograh services through the validated startup wrapper
 
@@ -163,7 +163,7 @@ PUBLIC_BASE_URL=https://voice.yourcompany.com
 
 ### Start Dograh Services
 
-Start Dograh through the validated startup wrapper so the generated nginx and coturn configs are refreshed before Docker starts:
+Start Dograh through the validated startup wrapper so `dograh-init` regenerates nginx and coturn runtime config before Docker starts:
 
 ```bash
 cd dograh
@@ -231,7 +231,7 @@ If Certbot fails to generate certificates:
 If you see SSL errors after setup:
 
 1. Verify the certificates were copied correctly: `ls -la dograh/certs/`
-2. Run `./remote_up.sh --preflight-only` in `dograh/` to verify the regenerated remote config matches `.env`
+2. Run `./remote_up.sh --preflight-only` in `dograh/` to verify the `dograh-init` runtime render matches `.env`
 3. Restart the nginx container: `sudo docker compose --profile remote restart nginx`
 
 ### WebRTC Connection Issues

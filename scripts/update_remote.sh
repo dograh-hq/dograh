@@ -34,7 +34,7 @@ TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                  Dograh Remote Update                        ║"
-echo "║    Refresh deployment files and re-render remote config      ║"
+echo "║  Refresh deployment files and validate runtime config        ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -169,9 +169,11 @@ echo ""
 echo -e "${YELLOW}Files that will be replaced (backups saved with suffix .bak.$TIMESTAMP):${NC}"
 echo "  - docker-compose.yaml   (pulled from GitHub at $TARGET_VERSION)"
 echo "  - remote_up.sh          (startup wrapper / preflight)"
-echo "  - nginx.conf            (re-rendered from shared templates)"
-echo "  - turnserver.conf       (re-rendered from shared templates)"
+echo "  - scripts/run_dograh_init.sh"
+echo "  - scripts/lib/remote_common.sh"
+echo "  - deploy/templates/*.template"
 echo "  - .env                  (canonical remote keys synchronized)"
+echo "  - legacy nginx.conf / turnserver.conf backups will be kept if those files still exist"
 echo ""
 
 if [[ -t 0 && "${DOGRAH_UPDATE_YES:-}" != "1" ]]; then
@@ -184,8 +186,19 @@ fi
 
 echo ""
 echo -e "${BLUE}[1/3] Backing up existing files...${NC}"
-for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh; do
+for f in \
+    docker-compose.yaml \
+    nginx.conf \
+    turnserver.conf \
+    .env \
+    remote_up.sh \
+    scripts/run_dograh_init.sh \
+    scripts/lib/remote_common.sh \
+    deploy/templates/nginx.remote.conf.template \
+    deploy/templates/turnserver.remote.conf.template
+do
     if [[ -f "$f" ]]; then
+        mkdir -p "$(dirname "$f")"
         cp -p "$f" "$f.bak.$TIMESTAMP"
         echo -e "  ${GREEN}✓ $f → $f.bak.$TIMESTAMP${NC}"
     fi
@@ -194,6 +207,7 @@ done
 echo -e "${BLUE}[2/3] Downloading deployment bundle at $TARGET_VERSION...${NC}"
 curl -fsSL -o docker-compose.yaml "$RAW_BASE/docker-compose.yaml"
 dograh_download_remote_support_bundle "$(pwd)" "$TARGET_VERSION"
+rm -f nginx.conf turnserver.conf
 
 if [[ -n "$IMAGE_TAG" ]]; then
     sed -i.tmp -E "s#(dograh-(api|ui)):latest#\1:$IMAGE_TAG#g" docker-compose.yaml
@@ -203,11 +217,11 @@ else
     dograh_success "✓ docker-compose.yaml updated (image tags left at :latest)"
 fi
 
-echo -e "${BLUE}[3/3] Synchronizing environment and regenerating remote config...${NC}"
+echo -e "${BLUE}[3/3] Synchronizing environment and validating init-based remote config...${NC}"
 dograh_set_env_key .env FASTAPI_WORKERS "$FASTAPI_WORKERS"
 dograh_prepare_remote_install "$(pwd)"
 docker compose config -q
-dograh_success "✓ Remote config rendered and validated"
+dograh_success "✓ Remote init configuration validated"
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
@@ -222,7 +236,7 @@ echo -e "  ${BLUE}./remote_up.sh${NC}"
 echo ""
 echo -e "${YELLOW}To roll back, restore the backups and re-run the wrapper:${NC}"
 echo ""
-echo -e "  ${BLUE}for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh; do${NC}"
+echo -e "  ${BLUE}for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh scripts/run_dograh_init.sh scripts/lib/remote_common.sh deploy/templates/nginx.remote.conf.template deploy/templates/turnserver.remote.conf.template; do${NC}"
 echo -e "  ${BLUE}  [[ -f \"\$f.bak.$TIMESTAMP\" ]] && cp \"\$f.bak.$TIMESTAMP\" \"\$f\"${NC}"
 echo -e "  ${BLUE}done${NC}"
 echo -e "  ${BLUE}./remote_up.sh${NC}"

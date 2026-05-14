@@ -105,6 +105,8 @@ if [[ ! -f remote_up.sh || ! -f scripts/lib/remote_common.sh ]]; then
     dograh_download_remote_support_bundle "$(pwd)" "main"
 fi
 
+dograh_require_init_compose_layout "$(pwd)"
+
 if docker compose --profile remote ps --quiet 2>/dev/null | grep -q .; then
     docker compose --profile remote down
     echo -e "${GREEN}✓ Dograh services stopped${NC}"
@@ -172,7 +174,7 @@ chmod 644 certs/local.crt certs/local.key
 echo -e "${GREEN}✓${NC} Certificates copied to certs/ directory"
 echo ""
 
-echo -e "${BLUE}[5/7] Updating canonical remote settings and regenerating config...${NC}"
+echo -e "${BLUE}[5/7] Updating canonical remote settings and validating init-based config...${NC}"
 dograh_load_env_file .env
 
 if [[ -z "${SERVER_IP:-}" ]]; then
@@ -186,7 +188,7 @@ dograh_set_env_key .env PUBLIC_HOST "$DOMAIN_NAME"
 dograh_set_env_key .env PUBLIC_BASE_URL "https://$DOMAIN_NAME"
 dograh_delete_env_key .env BACKEND_URL
 dograh_prepare_remote_install "$(pwd)"
-echo -e "${GREEN}✓ .env synchronized and remote config regenerated${NC}"
+echo -e "${GREEN}✓ .env synchronized and init-based config validated${NC}"
 
 echo -e "${BLUE}[6/7] Setting up automatic certificate renewal...${NC}"
 DOGRAH_PATH="$(pwd)"
@@ -228,8 +230,6 @@ echo -e "  Auto-renewal: Enabled (certificates renew automatically)"
 echo ""
 echo -e "${YELLOW}Files modified:${NC}"
 echo "  - dograh/.env (canonical public host/base URL updated)"
-echo "  - dograh/nginx.conf (re-rendered from shared template)"
-echo "  - dograh/turnserver.conf (re-rendered from shared template)"
 echo "  - dograh/certs/local.crt (SSL certificate)"
 echo "  - dograh/certs/local.key (SSL private key)"
 echo "  - /etc/letsencrypt/renewal-hooks/deploy/dograh-reload.sh (renewal hook)"

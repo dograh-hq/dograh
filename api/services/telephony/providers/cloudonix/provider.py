@@ -544,12 +544,13 @@ class CloudonixProvider(TelephonyProvider):
             try:
                 stream_sid = start_msg["start"]["streamSid"]
                 call_sid = start_msg["start"]["callSid"]
+                call_session = start_msg["start"]["session"]
             except KeyError:
-                logger.error("Missing streamSid or callSid in start message")
+                logger.error("Missing streamSid or callSid or session in start message")
                 await websocket.close(code=4400, reason="Missing stream identifiers")
                 return
 
-            if not await self._validate_session(domain_id, call_sid, bearer_token):
+            if not await self._validate_session(domain_id, call_session, bearer_token):
                 await websocket.close(
                     code=4400, reason="Cloudonix session validation failed"
                 )
@@ -557,7 +558,7 @@ class CloudonixProvider(TelephonyProvider):
 
             logger.info(
                 f"Cloudonix agent-stream connected for workflow_run "
-                f"{workflow_run_id} stream_sid={stream_sid} call_sid={call_sid} "
+                f"{workflow_run_id} stream_sid={stream_sid} call_sid={call_sid} session={call_session}"
                 f"telephony_configuration_id={config.id}"
             )
 
@@ -567,9 +568,9 @@ class CloudonixProvider(TelephonyProvider):
                 workflow_id=workflow_id,
                 workflow_run_id=workflow_run_id,
                 user_id=user_id,
-                call_id=call_sid,
+                call_id=call_session,
                 transport_kwargs={
-                    "call_id": call_sid,
+                    "call_id": call_session,
                     "stream_sid": stream_sid,
                     "bearer_token": bearer_token,
                     "domain_id": domain_id,
@@ -581,16 +582,16 @@ class CloudonixProvider(TelephonyProvider):
             raise
 
     async def _validate_session(
-        self, domain_id: str, call_id: str, bearer_token: str
+        self, domain_id: str, call_session: str, bearer_token: str
     ) -> bool:
         """Confirm the session is live with Cloudonix.
 
-        Hits ``GET /customers/self/domains/{domain_id}/sessions/{call_id}``
+        Hits ``GET /customers/self/domains/{domain_id}/sessions/{call_session}``
         with the supplied bearer token. A 200 response means both the
         token is valid and the session exists.
         """
         endpoint = (
-            f"{self.base_url}/customers/self/domains/{domain_id}/sessions/{call_id}"
+            f"{self.base_url}/customers/self/domains/{domain_id}/sessions/{call_session}"
         )
         headers = {
             "Authorization": f"Bearer {bearer_token}",
@@ -605,13 +606,13 @@ class CloudonixProvider(TelephonyProvider):
                     logger.error(
                         f"Cloudonix session validation failed: "
                         f"HTTP {response.status} domain_id={domain_id} "
-                        f"call_id={call_id} body={body}"
+                        f"call_id={call_session} body={body}"
                     )
                     return False
         except Exception as e:
             logger.error(
                 f"Cloudonix session validation error for domain_id={domain_id} "
-                f"call_id={call_id}: {e}"
+                f"call_id={call_session}: {e}"
             )
             return False
 

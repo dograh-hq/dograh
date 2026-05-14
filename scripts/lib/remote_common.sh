@@ -218,6 +218,21 @@ dograh_sync_remote_env_file() {
     dograh_set_env_key "$env_file" TURN_HOST "$public_host"
 }
 
+dograh_validate_remote_runtime_env() {
+    [[ "${FASTAPI_WORKERS:-}" =~ ^[1-9][0-9]*$ ]] || dograh_fail "FASTAPI_WORKERS must be a positive integer"
+    [[ -n "${TURN_SECRET:-}" ]] || dograh_fail "TURN_SECRET is missing"
+    [[ -n "${PUBLIC_HOST:-}" ]] || dograh_fail "PUBLIC_HOST is missing"
+    [[ -n "${PUBLIC_BASE_URL:-}" ]] || dograh_fail "PUBLIC_BASE_URL is missing"
+    [[ -n "${BACKEND_API_ENDPOINT:-}" ]] || dograh_fail "BACKEND_API_ENDPOINT is missing"
+    [[ -n "${MINIO_PUBLIC_ENDPOINT:-}" ]] || dograh_fail "MINIO_PUBLIC_ENDPOINT is missing"
+    [[ -n "${TURN_HOST:-}" ]] || dograh_fail "TURN_HOST is missing"
+    dograh_is_ipv4 "${SERVER_IP:-}" || dograh_fail "SERVER_IP must be a valid IPv4 address"
+    [[ "${PUBLIC_BASE_URL}" =~ ^https?:// ]] || dograh_fail "PUBLIC_BASE_URL must include http:// or https://"
+    [[ "${BACKEND_API_ENDPOINT}" == "${PUBLIC_BASE_URL}" ]] || dograh_fail "BACKEND_API_ENDPOINT must match PUBLIC_BASE_URL"
+    [[ "${MINIO_PUBLIC_ENDPOINT}" == "${PUBLIC_BASE_URL}" ]] || dograh_fail "MINIO_PUBLIC_ENDPOINT must match PUBLIC_BASE_URL"
+    [[ "${TURN_HOST}" == "${PUBLIC_HOST}" ]] || dograh_fail "TURN_HOST must match PUBLIC_HOST"
+}
+
 dograh_render_remote_nginx_conf() {
     local project_dir=${1:-$(dograh_project_dir)}
     local destination=${2:-"$project_dir/nginx.conf"}
@@ -263,15 +278,17 @@ dograh_render_remote_turn_conf() {
     local project_dir=${1:-$(dograh_project_dir)}
     local destination=${2:-"$project_dir/turnserver.conf"}
     local template=""
+    local external_ip="${TURN_EXTERNAL_IP:-${SERVER_IP:-}}"
 
     template="$(dograh_template_path "turnserver.remote.conf.template")"
+    [[ -n "$external_ip" ]] || dograh_fail "TURN external IP/host is missing"
 
     awk \
-        -v server_ip="$SERVER_IP" \
+        -v external_ip="$external_ip" \
         -v turn_secret="$TURN_SECRET" \
         '
         {
-            gsub(/__DOGRAH_SERVER_IP__/, server_ip)
+            gsub(/__DOGRAH_TURN_EXTERNAL_IP__/, external_ip)
             gsub(/__DOGRAH_TURN_SECRET__/, turn_secret)
             print
         }
@@ -357,7 +374,10 @@ dograh_download_remote_support_bundle() {
     dograh_download_bundle_file "$project_dir/remote_up.sh" "remote_up.sh"
     chmod +x "$project_dir/remote_up.sh"
 
+    mkdir -p "$project_dir/scripts"
     dograh_download_bundle_file "$project_dir/scripts/lib/remote_common.sh" "scripts/lib/remote_common.sh"
+    dograh_download_bundle_file "$project_dir/scripts/run_dograh_init.sh" "scripts/run_dograh_init.sh"
+    chmod +x "$project_dir/scripts/run_dograh_init.sh"
     dograh_download_bundle_file "$project_dir/deploy/templates/nginx.remote.conf.template" "deploy/templates/nginx.remote.conf.template"
     dograh_download_bundle_file "$project_dir/deploy/templates/turnserver.remote.conf.template" "deploy/templates/turnserver.remote.conf.template"
 }

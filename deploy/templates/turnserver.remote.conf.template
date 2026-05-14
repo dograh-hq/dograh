@@ -9,8 +9,8 @@ tls-listening-port=5349
 min-port=49152
 max-port=49200
 
-# Network - external IP for NAT traversal
-external-ip=__DOGRAH_SERVER_IP__
+# Network - external IP / host for NAT traversal
+external-ip=__DOGRAH_TURN_EXTERNAL_IP__
 
 # Realm
 realm=dograh.com

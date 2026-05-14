@@ -9,12 +9,12 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_PATH="$SCRIPT_DIR/lib/remote_common.sh"
+LIB_PATH="$SCRIPT_DIR/lib/setup_common.sh"
 BOOTSTRAP_LIB=""
 
 if [[ ! -f "$LIB_PATH" ]]; then
     BOOTSTRAP_LIB="$(mktemp)"
-    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/remote_common.sh"
+    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/setup_common.sh"
     LIB_PATH="$BOOTSTRAP_LIB"
 fi
 
@@ -58,7 +58,7 @@ fi
 _caller_FASTAPI_WORKERS="${FASTAPI_WORKERS:-}"
 _caller_TARGET_VERSION="${TARGET_VERSION:-}"
 
-DOGRAH_REMOTE_PROJECT_DIR="$(pwd)"
+DOGRAH_DEPLOY_PROJECT_DIR="$(pwd)"
 dograh_load_env_file .env
 
 [[ -n "${TURN_SECRET:-}" ]] || dograh_fail "TURN_SECRET not found in .env"
@@ -170,7 +170,7 @@ echo -e "${YELLOW}Files that will be replaced (backups saved with suffix .bak.$T
 echo "  - docker-compose.yaml   (pulled from GitHub at $TARGET_VERSION)"
 echo "  - remote_up.sh          (startup wrapper / preflight)"
 echo "  - scripts/run_dograh_init.sh"
-echo "  - scripts/lib/remote_common.sh"
+echo "  - scripts/lib/setup_common.sh"
 echo "  - deploy/templates/*.template"
 echo "  - .env                  (canonical remote keys synchronized)"
 echo "  - legacy nginx.conf / turnserver.conf backups will be kept if those files still exist"
@@ -193,7 +193,7 @@ for f in \
     .env \
     remote_up.sh \
     scripts/run_dograh_init.sh \
-    scripts/lib/remote_common.sh \
+    scripts/lib/setup_common.sh \
     deploy/templates/nginx.remote.conf.template \
     deploy/templates/turnserver.remote.conf.template
 do
@@ -236,7 +236,7 @@ echo -e "  ${BLUE}./remote_up.sh${NC}"
 echo ""
 echo -e "${YELLOW}To roll back, restore the backups and re-run the wrapper:${NC}"
 echo ""
-echo -e "  ${BLUE}for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh scripts/run_dograh_init.sh scripts/lib/remote_common.sh deploy/templates/nginx.remote.conf.template deploy/templates/turnserver.remote.conf.template; do${NC}"
+echo -e "  ${BLUE}for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh scripts/run_dograh_init.sh scripts/lib/setup_common.sh deploy/templates/nginx.remote.conf.template deploy/templates/turnserver.remote.conf.template; do${NC}"
 echo -e "  ${BLUE}  [[ -f \"\$f.bak.$TIMESTAMP\" ]] && cp \"\$f.bak.$TIMESTAMP\" \"\$f\"${NC}"
 echo -e "  ${BLUE}done${NC}"
 echo -e "  ${BLUE}./remote_up.sh${NC}"

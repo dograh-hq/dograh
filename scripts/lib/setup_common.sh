@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
-
-DOGRAH_REMOTE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOGRAH_REMOTE_REPO_ROOT="$(cd "$DOGRAH_REMOTE_LIB_DIR/../.." 2>/dev/null && pwd || true)"
+DOGRAH_DEPLOY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DOGRAH_DEPLOY_REPO_ROOT="$(cd "$DOGRAH_DEPLOY_LIB_DIR/../.." 2>/dev/null && pwd || true)"
 
 : "${RED:=\033[0;31m}"
 : "${GREEN:=\033[0;32m}"
@@ -29,8 +27,8 @@ dograh_fail() {
 }
 
 dograh_project_dir() {
-    if [[ -n "${DOGRAH_REMOTE_PROJECT_DIR:-}" ]]; then
-        printf '%s\n' "$DOGRAH_REMOTE_PROJECT_DIR"
+    if [[ -n "${DOGRAH_DEPLOY_PROJECT_DIR:-}" ]]; then
+        printf '%s\n' "$DOGRAH_DEPLOY_PROJECT_DIR"
     else
         pwd
     fi
@@ -45,7 +43,7 @@ dograh_template_path() {
 
     for candidate in \
         "$project_dir/deploy/templates/$template_name" \
-        "$DOGRAH_REMOTE_REPO_ROOT/deploy/templates/$template_name"
+        "$DOGRAH_DEPLOY_REPO_ROOT/deploy/templates/$template_name"
     do
         if [[ -f "$candidate" ]]; then
             printf '%s\n' "$candidate"
@@ -64,7 +62,7 @@ dograh_init_script_path() {
 
     for candidate in \
         "$project_dir/scripts/run_dograh_init.sh" \
-        "$DOGRAH_REMOTE_REPO_ROOT/scripts/run_dograh_init.sh"
+        "$DOGRAH_DEPLOY_REPO_ROOT/scripts/run_dograh_init.sh"
     do
         if [[ -f "$candidate" ]]; then
             printf '%s\n' "$candidate"
@@ -410,7 +408,7 @@ dograh_download_init_support_bundle() {
     mkdir -p "$project_dir/scripts/lib" "$project_dir/deploy/templates"
 
     mkdir -p "$project_dir/scripts"
-    dograh_download_bundle_file_for_ref "$project_dir/scripts/lib/remote_common.sh" "scripts/lib/remote_common.sh" "$ref"
+    dograh_download_bundle_file_for_ref "$project_dir/scripts/lib/setup_common.sh" "scripts/lib/setup_common.sh" "$ref"
     dograh_download_bundle_file_for_ref "$project_dir/scripts/run_dograh_init.sh" "scripts/run_dograh_init.sh" "$ref"
     chmod +x "$project_dir/scripts/run_dograh_init.sh"
     dograh_download_bundle_file_for_ref "$project_dir/deploy/templates/nginx.remote.conf.template" "deploy/templates/nginx.remote.conf.template" "$ref"

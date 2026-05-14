@@ -3,12 +3,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_PATH="$SCRIPT_DIR/scripts/lib/remote_common.sh"
+LIB_PATH="$SCRIPT_DIR/scripts/lib/setup_common.sh"
 BOOTSTRAP_LIB=""
 
 if [[ ! -f "$LIB_PATH" ]]; then
     BOOTSTRAP_LIB="$(mktemp)"
-    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/remote_common.sh"
+    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/setup_common.sh"
     LIB_PATH="$BOOTSTRAP_LIB"
 fi
 
@@ -22,7 +22,7 @@ trap cleanup EXIT
 # shellcheck disable=SC1090
 . "$LIB_PATH"
 
-DOGRAH_REMOTE_PROJECT_DIR="$SCRIPT_DIR"
+DOGRAH_DEPLOY_PROJECT_DIR="$SCRIPT_DIR"
 
 VALIDATE_ONLY=0
 MODE="pull"

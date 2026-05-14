@@ -62,7 +62,7 @@ After the script finishes, apply the update through the validated startup wrappe
 ```
 
 <Note>
-The script overwrites `docker-compose.yaml` and the remote helper bundle (`remote_up.sh`, `scripts/run_dograh_init.sh`, `scripts/lib/remote_common.sh`, and `deploy/templates/*`) from the shared upstream deployment bundle. If you've made local edits to any of these, check the `.bak.<timestamp>` files after the update and re-apply your edits.
+The script overwrites `docker-compose.yaml` and the remote helper bundle (`remote_up.sh`, `scripts/run_dograh_init.sh`, `scripts/lib/setup_common.sh`, and `deploy/templates/*`) from the shared upstream deployment bundle. If you've made local edits to any of these, check the `.bak.<timestamp>` files after the update and re-apply your edits.
 </Note>
 
 ## Local deployment
@@ -99,7 +99,7 @@ curl http://localhost:8000/api/v1/health           # local
 
 ```bash
 cd dograh
-for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh scripts/run_dograh_init.sh scripts/lib/remote_common.sh deploy/templates/nginx.remote.conf.template deploy/templates/turnserver.remote.conf.template; do
+for f in docker-compose.yaml nginx.conf turnserver.conf .env remote_up.sh scripts/run_dograh_init.sh scripts/lib/setup_common.sh deploy/templates/nginx.remote.conf.template deploy/templates/turnserver.remote.conf.template; do
     [[ -f "$f.bak.<timestamp>" ]] && cp "$f.bak.<timestamp>" "$f"
 done
 ./remote_up.sh

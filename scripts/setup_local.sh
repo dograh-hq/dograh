@@ -9,12 +9,12 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LIB_PATH="$SCRIPT_DIR/lib/remote_common.sh"
+LIB_PATH="$SCRIPT_DIR/lib/setup_common.sh"
 BOOTSTRAP_LIB=""
 
 if [[ ! -f "$LIB_PATH" ]]; then
     BOOTSTRAP_LIB="$(mktemp)"
-    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/remote_common.sh"
+    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/setup_common.sh"
     LIB_PATH="$BOOTSTRAP_LIB"
 fi
 
@@ -36,7 +36,7 @@ echo "╚═══════════════════════�
 echo -e "${NC}"
 
 # Ask whether to enable coturn (skip prompt if ENABLE_COTURN is already set)
-if [[ -z "$ENABLE_COTURN" ]]; then
+if [[ -z "${ENABLE_COTURN:-}" ]]; then
     echo -e "${YELLOW}Enable coturn (TURN server) for WebRTC NAT traversal? [y/N]:${NC}"
     read -p "> " ENABLE_COTURN_INPUT
     if [[ "$ENABLE_COTURN_INPUT" =~ ^[Yy] ]]; then
@@ -46,7 +46,7 @@ if [[ -z "$ENABLE_COTURN" ]]; then
     fi
 fi
 
-if [[ "$ENABLE_COTURN" == "true" ]]; then
+if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     # Pick a TURN_HOST that's reachable from BOTH the browser (running on the
     # host) and the API container (running in docker). 127.0.0.1 is tempting
     # but doesn't work for the api container — its own loopback isn't where
@@ -74,7 +74,7 @@ if [[ "$ENABLE_COTURN" == "true" ]]; then
     DEFAULT_TURN_HOST="${DEFAULT_TURN_HOST:-127.0.0.1}"
 
     # Get the host browsers/peers will use to reach the TURN server
-    if [[ -z "$TURN_HOST" ]]; then
+    if [[ -z "${TURN_HOST:-}" ]]; then
         echo -e "${YELLOW}Enter the host browsers AND the API container will use to reach TURN${NC}"
         echo -e "${YELLOW}(press Enter for ${DEFAULT_TURN_HOST}):${NC}"
         read -p "> " TURN_HOST
@@ -88,13 +88,13 @@ if [[ "$ENABLE_COTURN" == "true" ]]; then
     fi
 
     # Get the TURN secret (skip prompt if TURN_SECRET is already set)
-    if [[ -z "$TURN_SECRET" ]]; then
+    if [[ -z "${TURN_SECRET:-}" ]]; then
         echo -e "${YELLOW}Enter a shared secret for the TURN server (press Enter to generate a random one):${NC}"
         read -sp "> " TURN_SECRET
         echo ""
     fi
 
-    if [[ -z "$TURN_SECRET" ]]; then
+    if [[ -z "${TURN_SECRET:-}" ]]; then
         TURN_SECRET=$(openssl rand -hex 32)
         echo -e "${BLUE}Generated random TURN secret${NC}"
     fi
@@ -108,8 +108,8 @@ REGISTRY="${REGISTRY:-ghcr.io/dograh-hq}"
 
 echo ""
 echo -e "${GREEN}Configuration:${NC}"
-echo -e "  Coturn:        ${BLUE}$ENABLE_COTURN${NC}"
-if [[ "$ENABLE_COTURN" == "true" ]]; then
+echo -e "  Coturn:        ${BLUE}${ENABLE_COTURN:-false}${NC}"
+if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     echo -e "  TURN Host:     ${BLUE}$TURN_HOST${NC}"
     echo -e "  TURN Secret:   ${BLUE}********${NC}"
 fi
@@ -120,14 +120,14 @@ echo ""
 # Download compose file (skip when DOGRAH_SKIP_DOWNLOAD=1 — e.g. local repo testing).
 TOTAL_STEPS=2
 
-if [[ "$DOGRAH_SKIP_DOWNLOAD" != "1" ]]; then
-    if [[ "$ENABLE_COTURN" == "true" ]]; then
+if [[ "${DOGRAH_SKIP_DOWNLOAD:-}" != "1" ]]; then
+    if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
         echo -e "${BLUE}[1/$TOTAL_STEPS] Downloading docker-compose.yaml and TURN helper bundle...${NC}"
     else
         echo -e "${BLUE}[1/$TOTAL_STEPS] Downloading docker-compose.yaml...${NC}"
     fi
     curl -sS -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
-    if [[ "$ENABLE_COTURN" == "true" ]]; then
+    if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
         dograh_download_init_support_bundle "$(pwd)" "main"
     fi
     echo -e "${GREEN}✓ Deployment files downloaded${NC}"
@@ -135,9 +135,9 @@ else
     echo -e "${BLUE}[1/$TOTAL_STEPS] Using docker-compose.yaml in current directory${NC}"
 fi
 
-if [[ "$ENABLE_COTURN" == "true" ]]; then
+if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     [[ -f scripts/run_dograh_init.sh ]] || dograh_fail "scripts/run_dograh_init.sh not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
-    [[ -f scripts/lib/remote_common.sh ]] || dograh_fail "scripts/lib/remote_common.sh not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
+    [[ -f scripts/lib/setup_common.sh ]] || dograh_fail "scripts/lib/setup_common.sh not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
     [[ -f deploy/templates/turnserver.remote.conf.template ]] || dograh_fail "deploy/templates/turnserver.remote.conf.template not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
 fi
 
@@ -157,7 +157,7 @@ OSS_JWT_SECRET=$OSS_JWT_SECRET
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY
 ENV_EOF
 
-if [[ "$ENABLE_COTURN" == "true" ]]; then
+if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     cat >> .env << ENV_EOF
 
 # TURN Server Configuration (time-limited credentials via TURN REST API)
@@ -175,13 +175,13 @@ echo ""
 echo -e "Files created in ${BLUE}$(pwd)${NC}:"
 echo "  - docker-compose.yaml"
 echo "  - .env"
-if [[ "$ENABLE_COTURN" == "true" ]]; then
+if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     echo "  - scripts/run_dograh_init.sh"
-    echo "  - scripts/lib/remote_common.sh"
+    echo "  - scripts/lib/setup_common.sh"
     echo "  - deploy/templates/"
 fi
 echo ""
-if [[ "$ENABLE_COTURN" == "true" ]]; then
+if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     echo -e "${YELLOW}To start Dograh with TURN, run:${NC}"
     echo ""
     echo -e "  ${BLUE}docker compose --profile local-turn up --pull always${NC}"

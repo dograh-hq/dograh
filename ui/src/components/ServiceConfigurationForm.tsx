@@ -200,7 +200,10 @@ export function ServiceConfigurationForm({
             };
 
             const realtimeProviderKeys = Object.keys(realtimeSchemas);
-            if (realtimeProviderKeys.length > 0) {
+            const defaultRealtimeProvider = response.data.default_providers.realtime;
+            if (defaultRealtimeProvider && realtimeSchemas[defaultRealtimeProvider]) {
+                selectedProviders.realtime = defaultRealtimeProvider;
+            } else if (realtimeProviderKeys.length > 0) {
                 selectedProviders.realtime = realtimeProviderKeys[0];
             }
 

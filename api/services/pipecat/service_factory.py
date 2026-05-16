@@ -493,30 +493,14 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     )
 
     if provider == ServiceProviders.OPENAI_REALTIME.value:
-        from pipecat.services.openai.realtime.events import (
-            AudioConfiguration,
-            AudioInput,
-            AudioOutput,
-            InputAudioTranscription,
-            SessionProperties,
+        from api.services.pipecat.openai_realtime import (
+            create_openai_realtime_llm_service,
         )
-        from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
 
-        return OpenAIRealtimeLLMService(
+        return create_openai_realtime_llm_service(
             api_key=api_key,
-            settings=OpenAIRealtimeLLMService.Settings(
-                model=model,
-                session_properties=SessionProperties(
-                    audio=AudioConfiguration(
-                        input=AudioInput(
-                            transcription=InputAudioTranscription(),
-                        ),
-                        output=AudioOutput(
-                            voice=voice or "alloy",
-                        ),
-                    ),
-                ),
-            ),
+            model=model,
+            voice=voice,
         )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:
         from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService

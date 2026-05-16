@@ -14,6 +14,7 @@ from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
     ElevenlabsTTSConfiguration,
     GoogleRealtimeLLMConfiguration,
+    OpenAIRealtimeLLMConfiguration,
     OpenAILLMService,
 )
 from api.services.configuration.resolve import resolve_effective_config
@@ -225,6 +226,25 @@ class TestRealtimeOverride:
         assert result.realtime.voice == "Kore"
         assert result.realtime.provider == "google_realtime"  # inherited
         assert result.realtime.api_key == "goog-global-rt"  # inherited
+
+    def test_override_realtime_to_openai(self, global_config):
+        result = resolve_effective_config(
+            global_config,
+            {
+                "is_realtime": True,
+                "realtime": {
+                    "provider": "openai_realtime",
+                    "api_key": "openai-rt-override",
+                    "model": "gpt-4o-realtime-preview",
+                    "voice": "shimmer",
+                },
+            },
+        )
+        assert result.is_realtime is True
+        assert isinstance(result.realtime, OpenAIRealtimeLLMConfiguration)
+        assert result.realtime.provider == "openai_realtime"
+        assert result.realtime.voice == "shimmer"
+        assert result.realtime.api_key == "openai-rt-override"
 
     def test_override_is_realtime_only_without_realtime_section(self, global_config):
         """Override is_realtime=True but provide no realtime config.

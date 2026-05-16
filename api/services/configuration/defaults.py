@@ -13,6 +13,7 @@ left as ``None``.
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
     ElevenlabsTTSConfiguration,
+    GoogleRealtimeLLMConfiguration,
     OpenAIEmbeddingsConfiguration,
     OpenAILLMService,
     ServiceProviders,
@@ -24,6 +25,7 @@ _DEFAULTS = {
     "tts": (ServiceProviders.ELEVENLABS, ElevenlabsTTSConfiguration),
     "stt": (ServiceProviders.DEEPGRAM, DeepgramSTTConfiguration),
     "embeddings": (ServiceProviders.OPENAI, OpenAIEmbeddingsConfiguration),
+    "realtime": (ServiceProviders.GOOGLE_REALTIME, GoogleRealtimeLLMConfiguration),
 }
 
 # Public mapping of service name -> default provider

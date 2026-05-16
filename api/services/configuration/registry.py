@@ -304,22 +304,25 @@ OPENAI_REALTIME_VOICES = [
 ]
 
 
-# @register_service(ServiceType.REALTIME)
-# class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
-#     provider: Literal[ServiceProviders.OPENAI_REALTIME] = (
-#         ServiceProviders.OPENAI_REALTIME
-#     )
-#     model: str = Field(
-#         default="gpt-4o-realtime-preview",
-#         json_schema_extra={
-#             "examples": OPENAI_REALTIME_MODELS,
-#             "allow_custom_input": True,
-#         },
-#     )
-#     voice: str = Field(
-#         default="alloy",
-#         json_schema_extra={"examples": OPENAI_REALTIME_VOICES},
-#     )
+@register_service(ServiceType.REALTIME)
+class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.OPENAI_REALTIME] = (
+        ServiceProviders.OPENAI_REALTIME
+    )
+    model: str = Field(
+        default="gpt-4o-realtime-preview",
+        json_schema_extra={
+            "examples": OPENAI_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="alloy",
+        json_schema_extra={
+            "examples": OPENAI_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
 
 
 GOOGLE_REALTIME_MODELS = ["gemini-3.1-flash-live-preview"]
@@ -403,7 +406,7 @@ LLMConfig = Annotated[
 
 RealtimeConfig = Annotated[
     Union[
-        # OpenAIRealtimeLLMConfiguration,
+        OpenAIRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,
     ],
     Field(discriminator="provider"),

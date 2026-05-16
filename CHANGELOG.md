@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.30.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.29.0...dograh-v1.30.0) (2026-05-16)
+
+
+### Features
+
+* add openai realtime models ([#298](https://github.com/dograh-hq/dograh/issues/298)) ([2381a80](https://github.com/dograh-hq/dograh/commit/2381a803ade54f6c8d1db572e0f6c3301dd74c20))
+
+
+### Bug Fixes
+
+* force FORCE_TURN_RELAY for local IPs in setup ([fc04f31](https://github.com/dograh-hq/dograh/commit/fc04f31639e0d326525d6840ca117babe2b25ea8))
+* provider resolution in telephony cost calculation post workflow integration calls ([0523dcb](https://github.com/dograh-hq/dograh/commit/0523dcb079410803a54deec49afda98cbb96e7bd))
+
+
+### Documentation
+
+* add telnyx to telephony providers supporting call transfer ([4ff1f57](https://github.com/dograh-hq/dograh/commit/4ff1f576f0a5e079466318d6e99d27eada6abc9e))
+* update README.md ([ea13492](https://github.com/dograh-hq/dograh/commit/ea13492a894af11410c7c54500f4bdc6fa0c2cda))
+
 ## [1.29.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.28.0...dograh-v1.29.0) (2026-05-13)
 
 

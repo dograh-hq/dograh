@@ -89,6 +89,14 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 2. Pick **Inbound** or **Outbound**, name your bot (e.g. _Lead Qualification_), and describe the use case in 5–10 words (e.g. _Screen insurance form submissions for purchase intent_).
 3. Click **Web Call** — you're talking to your bot.
 
+> 🚀 **Starter template included.** Every fresh install seeds a
+> **Lead Qualification (Inbound)** workflow template — the same flow shown
+> in the [Better Stack walkthrough](https://www.youtube.com/watch?v=xD9JEvfCH9k).
+> From the **Workflows** page, click **New from Template** to materialise
+> it. See the
+> [template docs](https://docs.dograh.com/voice-agent/lead-qualification-template)
+> for details.
+
 > 🔑 **No API keys needed.** Dograh ships with auto-generated keys and its own LLM / TTS / STT stack. Connect your own keys for LLM, TTS, STT, or Telephony (e.g. Twilio, Vonage, Telnyx) anytime.
 
 ## Features

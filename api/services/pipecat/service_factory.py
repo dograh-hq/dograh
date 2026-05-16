@@ -493,6 +493,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
     )
 
     if provider == ServiceProviders.OPENAI_REALTIME.value:
+        from api.services.pipecat.realtime.openai_realtime import (
+            DograhOpenAIRealtimeLLMService,
+        )
         from pipecat.services.openai.realtime.events import (
             AudioConfiguration,
             AudioInput,
@@ -500,11 +503,10 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             InputAudioTranscription,
             SessionProperties,
         )
-        from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
 
-        return OpenAIRealtimeLLMService(
+        return DograhOpenAIRealtimeLLMService(
             api_key=api_key,
-            settings=OpenAIRealtimeLLMService.Settings(
+            settings=DograhOpenAIRealtimeLLMService.Settings(
                 model=model,
                 session_properties=SessionProperties(
                     audio=AudioConfiguration(
@@ -519,7 +521,9 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             ),
         )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:
-        from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
+        from api.services.pipecat.realtime.gemini_live import (
+            DograhGeminiLiveLLMService,
+        )
 
         # Gemini Live enables input/output audio transcription by default
         # in its _connect() method — no need to configure it explicitly.
@@ -529,9 +533,30 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         }
         if language:
             settings_kwargs["language"] = language
-        return GeminiLiveLLMService(
+        return DograhGeminiLiveLLMService(
             api_key=api_key,
-            settings=GeminiLiveLLMService.Settings(**settings_kwargs),
+            settings=DograhGeminiLiveLLMService.Settings(**settings_kwargs),
+        )
+    elif provider == ServiceProviders.GOOGLE_VERTEX_REALTIME.value:
+        from api.services.pipecat.realtime.gemini_live_vertex import (
+            DograhGeminiLiveVertexLLMService,
+        )
+
+        project_id = getattr(realtime_config, "project_id", None)
+        location = getattr(realtime_config, "location", None) or "us-east4"
+        credentials = getattr(realtime_config, "credentials", None)
+
+        settings_kwargs = {
+            "model": model,
+            "voice": voice or "Charon",
+        }
+        if language:
+            settings_kwargs["language"] = language
+        return DograhGeminiLiveVertexLLMService(
+            credentials=credentials,
+            project_id=project_id,
+            location=location,
+            settings=DograhGeminiLiveVertexLLMService.Settings(**settings_kwargs),
         )
     else:
         raise HTTPException(

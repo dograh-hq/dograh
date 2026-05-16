@@ -321,6 +321,7 @@ class CustomToolManager:
                     tool=tool,
                     arguments=function_call_params.arguments,
                     call_context_vars=self._engine._call_context_vars,
+                    gathered_context_vars=self._engine._gathered_context,
                     organization_id=await self.get_organization_id(),
                 )
 

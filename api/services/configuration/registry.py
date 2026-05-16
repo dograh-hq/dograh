@@ -34,6 +34,7 @@ class ServiceProviders(str, Enum):
     RIME = "rime"
     OPENAI_REALTIME = "openai_realtime"
     GOOGLE_REALTIME = "google_realtime"
+    GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -53,6 +54,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.RIME,
         ServiceProviders.OPENAI_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
+        ServiceProviders.GOOGLE_VERTEX_REALTIME,
         # ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
@@ -291,7 +293,7 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(default=None)
 
 
-OPENAI_REALTIME_MODELS = ["gpt-4o-realtime-preview", "gpt-4o-mini-realtime-preview"]
+OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
 OPENAI_REALTIME_VOICES = [
     "alloy",
     "ash",
@@ -304,22 +306,25 @@ OPENAI_REALTIME_VOICES = [
 ]
 
 
-# @register_service(ServiceType.REALTIME)
-# class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
-#     provider: Literal[ServiceProviders.OPENAI_REALTIME] = (
-#         ServiceProviders.OPENAI_REALTIME
-#     )
-#     model: str = Field(
-#         default="gpt-4o-realtime-preview",
-#         json_schema_extra={
-#             "examples": OPENAI_REALTIME_MODELS,
-#             "allow_custom_input": True,
-#         },
-#     )
-#     voice: str = Field(
-#         default="alloy",
-#         json_schema_extra={"examples": OPENAI_REALTIME_VOICES},
-#     )
+@register_service(ServiceType.REALTIME)
+class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.OPENAI_REALTIME] = (
+        ServiceProviders.OPENAI_REALTIME
+    )
+    model: str = Field(
+        default="gpt-realtime-2",
+        json_schema_extra={
+            "examples": OPENAI_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="alloy",
+        json_schema_extra={
+            "examples": OPENAI_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
 
 
 GOOGLE_REALTIME_MODELS = ["gemini-3.1-flash-live-preview"]
@@ -381,9 +386,58 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+GOOGLE_VERTEX_REALTIME_MODELS = [
+    "google/gemini-live-2.5-flash-native-audio",
+]
+GOOGLE_VERTEX_REALTIME_VOICES = GOOGLE_REALTIME_VOICES
+GOOGLE_VERTEX_REALTIME_LANGUAGES = GOOGLE_REALTIME_LANGUAGES
+
+
+@register_service(ServiceType.REALTIME)
+class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.GOOGLE_VERTEX_REALTIME] = (
+        ServiceProviders.GOOGLE_VERTEX_REALTIME
+    )
+    model: str = Field(
+        default="google/gemini-live-2.5-flash-native-audio",
+        json_schema_extra={
+            "examples": GOOGLE_VERTEX_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="Charon",
+        json_schema_extra={
+            "examples": GOOGLE_VERTEX_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    language: str = Field(
+        default="en-US",
+        json_schema_extra={
+            "examples": GOOGLE_VERTEX_REALTIME_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
+    location: str = Field(
+        default="us-east4",
+        description="GCP region for the Vertex AI endpoint (e.g. 'us-east4').",
+    )
+    credentials: str | None = Field(
+        default=None,
+        description=(
+            "Service account JSON credentials string. If omitted, falls back to "
+            "Application Default Credentials (ADC)."
+        ),
+    )
+    api_key: str | list[str] | None = Field(default=None)
+
+
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
+    ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
 }
 
 
@@ -403,8 +457,9 @@ LLMConfig = Annotated[
 
 RealtimeConfig = Annotated[
     Union[
-        # OpenAIRealtimeLLMConfiguration,
+        OpenAIRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,
+        GoogleVertexRealtimeLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]

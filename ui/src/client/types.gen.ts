@@ -1861,6 +1861,12 @@ export type HttpApiConfig = {
      */
     parameters?: Array<ToolParameter> | null;
     /**
+     * Preset Parameters
+     *
+     * Parameters injected by Dograh from fixed values or workflow context templates
+     */
+    preset_parameters?: Array<PresetToolParameter> | null;
+    /**
      * Timeout Ms
      *
      * Request timeout in milliseconds
@@ -2478,6 +2484,38 @@ export type PlivoConfigurationResponse = {
      * From Numbers
      */
     from_numbers: Array<string>;
+};
+
+/**
+ * PresetToolParameter
+ *
+ * A parameter injected by Dograh at runtime.
+ */
+export type PresetToolParameter = {
+    /**
+     * Name
+     *
+     * Parameter name (used as key in request body)
+     */
+    name: string;
+    /**
+     * Type
+     *
+     * Parameter type: string, number, or boolean
+     */
+    type: string;
+    /**
+     * Value Template
+     *
+     * Fixed value or template, e.g. {{initial_context.phone_number}}
+     */
+    value_template: string;
+    /**
+     * Required
+     *
+     * Whether the parameter must resolve to a non-empty value
+     */
+    required?: boolean;
 };
 
 /**

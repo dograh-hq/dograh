@@ -5,6 +5,8 @@ from pipecat.services.openai.realtime.events import (
     AudioConfiguration,
     AudioInput,
     AudioOutput,
+    ConversationItem,
+    ConversationItemCreateEvent,
     InputAudioTranscription,
     SessionProperties,
 )
@@ -12,9 +14,18 @@ from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService
 
 
 class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
-    """OpenAI Realtime service with Dograh async tool result forwarding."""
+    """OpenAI Realtime service with Dograh async tool result forwarding.
+
+    Temporary workaround for Pipecat's OpenAI Realtime async tool completion flow.
+    Remove this override once upstream handles async tool markers and final results
+    without double-encoding or premature completion.
+    """
 
     async def _process_completed_function_calls(self, send_new_results: bool):
+        # Workaround: Pipecat's stock OpenAI Realtime handler treats async
+        # running markers as completed tool output and ignores the later
+        # developer-role finished payload. We keep the normal sync path and
+        # only forward the async final result here until upstream fixes that.
         sent_new_result = False
         for message in self._context.get_messages():
             if not message.get("role") or message.get("content") == "IN_PROGRESS":
@@ -47,6 +58,17 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
 
         if sent_new_result:
             await self._create_response()
+
+    async def _send_tool_result(self, tool_call_id: str, result: str):
+        await self.send_client_event(
+            ConversationItemCreateEvent(
+                item=ConversationItem(
+                    type="function_call_output",
+                    call_id=tool_call_id,
+                    output=result,
+                )
+            )
+        )
 
     @classmethod
     def _is_async_tool_marker(cls, content: Any) -> bool:

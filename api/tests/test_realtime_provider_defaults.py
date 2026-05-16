@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from pipecat.services.openai.realtime.events import ConversationItemCreateEvent
+
 from api.services.pipecat.openai_realtime import create_openai_realtime_llm_service
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.registry import REGISTRY, ServiceType
@@ -56,6 +58,24 @@ class FakeContext:
 
     def get_messages(self):
         return self._messages
+
+
+@pytest.mark.asyncio
+async def test_openai_realtime_sends_function_call_output_as_plain_string():
+    service = create_openai_realtime_llm_service(
+        api_key="test",
+        model="gpt-4o-realtime-preview",
+    )
+    service.send_client_event = AsyncMock()
+
+    await service._send_tool_result("call_sync", '{"foo":"bar"}')
+
+    service.send_client_event.assert_awaited_once()
+    event = service.send_client_event.await_args.args[0]
+    assert isinstance(event, ConversationItemCreateEvent)
+    assert event.item.type == "function_call_output"
+    assert event.item.call_id == "call_sync"
+    assert event.item.output == '{"foo":"bar"}'
 
 
 @pytest.mark.asyncio

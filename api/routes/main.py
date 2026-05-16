@@ -8,7 +8,6 @@ from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
 from api.routes.integration import router as integration_router
 from api.routes.knowledge_base import router as knowledge_base_router
-from api.routes.looptalk import router as looptalk_router
 from api.routes.node_types import router as node_types_router
 from api.routes.organization import router as organization_router
 from api.routes.organization_usage import router as organization_usage_router
@@ -44,7 +43,6 @@ router.include_router(integration_router)
 router.include_router(organization_router)
 router.include_router(s3_router)
 router.include_router(service_keys_router)
-router.include_router(looptalk_router)
 router.include_router(organization_usage_router)
 router.include_router(reports_router)
 router.include_router(webrtc_signaling_router)

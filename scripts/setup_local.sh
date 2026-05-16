@@ -68,6 +68,8 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
             ip=$(hostname -I 2>/dev/null | awk '{print $1}')
             [[ -n "$ip" ]] && { echo "$ip"; return; }
         fi
+
+        return 0
     }
 
     DEFAULT_TURN_HOST="$(detect_lan_ip)"
@@ -100,6 +102,17 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     fi
 fi
 
+if [[ "${ENABLE_COTURN:-false}" != "true" ]]; then
+    FORCE_TURN_RELAY=false
+elif [[ -z "${FORCE_TURN_RELAY:-}" ]]; then
+    if dograh_is_local_ipv4 "$TURN_HOST"; then
+        FORCE_TURN_RELAY=true
+        echo -e "${YELLOW}Detected a local/private TURN host IP; enabling FORCE_TURN_RELAY=true.${NC}"
+    else
+        FORCE_TURN_RELAY=false
+    fi
+fi
+
 # Telemetry opt-out (default: true)
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
 
@@ -112,6 +125,7 @@ echo -e "  Coturn:        ${BLUE}${ENABLE_COTURN:-false}${NC}"
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     echo -e "  TURN Host:     ${BLUE}$TURN_HOST${NC}"
     echo -e "  TURN Secret:   ${BLUE}********${NC}"
+    echo -e "  Force relay:   ${BLUE}$FORCE_TURN_RELAY${NC}"
 fi
 echo -e "  Telemetry:     ${BLUE}$ENABLE_TELEMETRY${NC}"
 echo -e "  Registry:      ${BLUE}$REGISTRY${NC}"
@@ -155,6 +169,9 @@ OSS_JWT_SECRET=$OSS_JWT_SECRET
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY
+
+# Relay-only ICE candidates (auto-enabled for local/private TURN host IPs)
+FORCE_TURN_RELAY=$FORCE_TURN_RELAY
 ENV_EOF
 
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then

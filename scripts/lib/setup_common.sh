@@ -98,6 +98,28 @@ dograh_is_ipv4() {
     [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
 }
 
+dograh_is_local_ipv4() {
+    local ip=$1
+    local o1 o2 o3 o4 octet
+
+    dograh_is_ipv4 "$ip" || return 1
+    IFS=. read -r o1 o2 o3 o4 <<< "$ip"
+
+    for octet in "$o1" "$o2" "$o3" "$o4"; do
+        [[ "$octet" =~ ^[0-9]+$ ]] || return 1
+        (( octet >= 0 && octet <= 255 )) || return 1
+    done
+
+    (( o1 == 10 )) && return 0
+    (( o1 == 127 )) && return 0
+    (( o1 == 169 && o2 == 254 )) && return 0
+    (( o1 == 172 && o2 >= 16 && o2 <= 31 )) && return 0
+    (( o1 == 192 && o2 == 168 )) && return 0
+    (( o1 == 100 && o2 >= 64 && o2 <= 127 )) && return 0
+
+    return 1
+}
+
 dograh_infer_server_ip() {
     local project_dir=${1:-$(dograh_project_dir)}
     local turn_conf="$project_dir/turnserver.conf"

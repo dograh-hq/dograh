@@ -2,6 +2,7 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
+from types import SimpleNamespace
 
 from pipecat.services.openai.realtime.events import ConversationItemCreateEvent
 
@@ -9,6 +10,10 @@ from api.services.pipecat.openai_realtime import create_openai_realtime_llm_serv
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.registry import REGISTRY, ServiceType
 from api.services.workflow.pipecat_engine import PipecatEngine
+from api.services.pipecat.realtime.openai_realtime import (
+    DograhOpenAIRealtimeLLMService,
+)
+from api.services.pipecat.service_factory import create_realtime_llm_service
 from pipecat.utils.async_tool_cancellation import CANCEL_ASYNC_TOOL_NAME
 
 
@@ -50,6 +55,21 @@ def test_openai_realtime_registers_async_cancellation_tool_dynamically():
 
     assert service._async_tool_cancellation_enabled is True
     assert CANCEL_ASYNC_TOOL_NAME in service._functions
+
+
+def test_openai_realtime_factory_uses_main_style_service():
+    user_config = SimpleNamespace(
+        realtime=SimpleNamespace(
+            provider="openai_realtime",
+            model="gpt-4o-realtime-preview",
+            api_key="test",
+            voice="alloy",
+        )
+    )
+    service = create_realtime_llm_service(user_config, audio_config=SimpleNamespace())
+
+    assert isinstance(service, DograhOpenAIRealtimeLLMService)
+    assert service._enable_async_tool_cancellation is True
 
 
 class FakeContext:

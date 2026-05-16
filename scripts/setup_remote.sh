@@ -49,6 +49,15 @@ if ! dograh_is_ipv4 "$SERVER_IP"; then
     dograh_fail "Invalid IP address format"
 fi
 
+if [[ -z "${FORCE_TURN_RELAY:-}" ]]; then
+    if dograh_is_local_ipv4 "$SERVER_IP"; then
+        FORCE_TURN_RELAY=true
+        dograh_warn "Detected a local/private server IP; enabling FORCE_TURN_RELAY=true."
+    else
+        FORCE_TURN_RELAY=false
+    fi
+fi
+
 # Get the TURN secret (skip prompt if TURN_SECRET is already set)
 if [[ -z "${TURN_SECRET:-}" ]]; then
     echo -e "${YELLOW}Enter a shared secret for the TURN server (press Enter to generate a random one):${NC}"
@@ -185,6 +194,7 @@ echo -e "${GREEN}Configuration:${NC}"
 echo -e "  Server IP:        ${BLUE}$SERVER_IP${NC}"
 echo -e "  TURN Secret:      ${BLUE}********${NC}"
 echo -e "  Deploy mode:      ${BLUE}$DEPLOY_MODE${NC}"
+echo -e "  Force TURN relay: ${BLUE}$FORCE_TURN_RELAY${NC}"
 echo -e "  FastAPI workers:  ${BLUE}$FASTAPI_WORKERS${NC}  (ports 8000..$((8000 + FASTAPI_WORKERS - 1)))"
 if [[ "$DEPLOY_MODE" == "build" ]]; then
     if [[ "${REPO_SOURCE:-}" == "clone" ]]; then
@@ -267,6 +277,7 @@ MINIO_PUBLIC_ENDPOINT=https://$SERVER_IP
 # TURN Server Configuration (time-limited credentials via TURN REST API)
 TURN_HOST=$SERVER_IP
 TURN_SECRET=$TURN_SECRET
+FORCE_TURN_RELAY=$FORCE_TURN_RELAY
 
 # JWT secret for OSS authentication
 OSS_JWT_SECRET=$OSS_JWT_SECRET

@@ -29,6 +29,20 @@ class ToolParameter(BaseModel):
     )
 
 
+class PresetToolParameter(BaseModel):
+    """A parameter injected by Dograh at runtime."""
+
+    name: str = Field(description="Parameter name (used as key in request body)")
+    type: str = Field(description="Parameter type: string, number, or boolean")
+    value_template: str = Field(
+        description="Fixed value or template, e.g. {{initial_context.phone_number}}"
+    )
+    required: bool = Field(
+        default=True,
+        description="Whether the parameter must resolve to a non-empty value",
+    )
+
+
 class HttpApiConfig(BaseModel):
     """Configuration for HTTP API tools."""
 
@@ -42,6 +56,10 @@ class HttpApiConfig(BaseModel):
     )
     parameters: Optional[List[ToolParameter]] = Field(
         default=None, description="Parameters that the tool accepts from LLM"
+    )
+    preset_parameters: Optional[List[PresetToolParameter]] = Field(
+        default=None,
+        description="Parameters injected by Dograh from fixed values or workflow context templates",
     )
     timeout_ms: Optional[int] = Field(
         default=5000, description="Request timeout in milliseconds"

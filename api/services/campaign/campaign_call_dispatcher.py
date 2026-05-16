@@ -20,8 +20,8 @@ from api.utils.common import get_backend_endpoints
 if TYPE_CHECKING:
     # Type-only — importing api.services.telephony eagerly triggers the
     # provider package init, which can pull in this module via the routes
-    # chain and create a circular import. Runtime calls below go through
-    # ``factory.get_telephony_provider`` (lazy import inside the method).
+    # chain and create a circular import. Runtime calls below lazy-import the
+    # factory helpers inside methods instead.
     from api.services.telephony.base import TelephonyProvider
 
 
@@ -30,12 +30,6 @@ class CampaignCallDispatcher:
 
     def __init__(self):
         self.default_concurrent_limit = int(DEFAULT_ORG_CONCURRENCY_LIMIT)
-
-    async def get_telephony_provider(self, organization_id: int) -> "TelephonyProvider":
-        """Get telephony provider instance for specific organization (default config)."""
-        from api.services.telephony.factory import get_default_telephony_provider
-
-        return await get_default_telephony_provider(organization_id)
 
     async def get_provider_for_campaign(self, campaign) -> "TelephonyProvider":
         """Get the telephony provider pinned to this campaign's config. Falls back

@@ -81,8 +81,8 @@ class ProviderSpec:
             stored config JSON and as the WorkflowRunMode value.
         provider_cls: The TelephonyProvider subclass.
         config_loader: Normalizes raw stored config into the dict shape the
-            provider constructor expects. Replaces the if/elif chain in the
-            old factory.load_telephony_config().
+            provider constructor expects. Replaces the old factory if/elif
+            chain.
         transport_factory: Async callable that creates the pipecat transport
             for an accepted WebSocket. Provider-specific kwargs (stream_sid,
             call_sid, etc.) are forwarded as ``**kwargs``.

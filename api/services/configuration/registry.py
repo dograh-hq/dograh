@@ -207,6 +207,7 @@ class OpenAILLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
         default="gpt-4.1",
+        description="OpenAI chat model to use.",
         json_schema_extra={"examples": OPENAI_MODELS, "allow_custom_input": True},
     )
 
@@ -216,6 +217,7 @@ class GoogleLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
         default="gemini-2.0-flash",
+        description="Gemini model on Google AI Studio (not Vertex).",
         json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
     )
 
@@ -225,6 +227,7 @@ class GroqLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.GROQ] = ServiceProviders.GROQ
     model: str = Field(
         default="llama-3.3-70b-versatile",
+        description="Groq-hosted model identifier.",
         json_schema_extra={"examples": GROQ_MODELS, "allow_custom_input": True},
     )
 
@@ -234,10 +237,14 @@ class OpenRouterLLMConfiguration(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
     model: str = Field(
         default="openai/gpt-4.1",
+        description="OpenRouter model slug in 'vendor/model' form.",
         json_schema_extra={"examples": OPENROUTER_MODELS, "allow_custom_input": True},
     )
 
-    base_url: str = Field(default="https://openrouter.ai/api/v1")
+    base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="Override only if proxying OpenRouter through your own gateway.",
+    )
 
 
 @register_llm
@@ -245,10 +252,13 @@ class AzureLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
     model: str = Field(
         default="gpt-4.1-mini",
+        description="Azure deployment name (not the upstream OpenAI model id).",
         json_schema_extra={"examples": AZURE_MODELS, "allow_custom_input": True},
     )
 
-    endpoint: str
+    endpoint: str = Field(
+        description="Azure OpenAI resource endpoint (e.g. https://<resource>.openai.azure.com).",
+    )
 
 
 @register_llm
@@ -256,6 +266,7 @@ class DograhLLMService(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
         default="default",
+        description="Dograh-hosted model tier.",
         json_schema_extra={"examples": DOGRAH_LLM_MODELS, "allow_custom_input": True},
     )
 
@@ -265,12 +276,25 @@ class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.AWS_BEDROCK] = ServiceProviders.AWS_BEDROCK
     model: str = Field(
         default="us.amazon.nova-pro-v1:0",
+        description="Bedrock model ID — include the region inference-profile prefix (e.g. 'us.').",
         json_schema_extra={"examples": AWS_BEDROCK_MODELS, "allow_custom_input": True},
     )
-    aws_access_key: str = Field(default="")
-    aws_secret_key: str = Field(default="")
-    aws_region: str = Field(default="us-east-1")
-    api_key: str | list[str] | None = Field(default=None)
+    aws_access_key: str = Field(
+        default="",
+        description="AWS access key ID with bedrock:InvokeModel permission.",
+    )
+    aws_secret_key: str = Field(
+        default="",
+        description="AWS secret access key paired with the access key ID.",
+    )
+    aws_region: str = Field(
+        default="us-east-1",
+        description="AWS region where the Bedrock model is available.",
+    )
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description="Not used for Bedrock — authentication is via the AWS credentials above. Leave blank.",
+    )
 
 
 SPEACHES_LLM_MODELS = ["llama3", "mistral", "phi3", "qwen2", "gemma2", "deepseek-r1"]
@@ -281,6 +305,7 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
         default="llama3",
+        description="Model name as exposed by your OpenAI-compatible server.",
         json_schema_extra={
             "examples": SPEACHES_LLM_MODELS,
             "allow_custom_input": True,
@@ -288,9 +313,12 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     )
     base_url: str = Field(
         default="http://localhost:11434/v1",
-        description="OpenAI-compatible endpoint (Ollama, vLLM, etc.)",
+        description="OpenAI-compatible endpoint (Ollama, vLLM, etc.).",
     )
-    api_key: str | list[str] | None = Field(default=None)
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description="Usually not required for self-hosted endpoints. Leave blank unless your server enforces one.",
+    )
 
 
 OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
@@ -313,6 +341,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     model: str = Field(
         default="gpt-realtime-2",
+        description="OpenAI realtime (speech-to-speech) model.",
         json_schema_extra={
             "examples": OPENAI_REALTIME_MODELS,
             "allow_custom_input": True,
@@ -320,6 +349,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     voice: str = Field(
         default="alloy",
+        description="Voice the model speaks in.",
         json_schema_extra={
             "examples": OPENAI_REALTIME_VOICES,
             "allow_custom_input": True,
@@ -365,6 +395,7 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     model: str = Field(
         default="gemini-3.1-flash-live-preview",
+        description="Gemini Live model on Google AI Studio (not Vertex).",
         json_schema_extra={
             "examples": GOOGLE_REALTIME_MODELS,
             "allow_custom_input": True,
@@ -372,6 +403,7 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     voice: str = Field(
         default="Puck",
+        description="Voice the model speaks in.",
         json_schema_extra={
             "examples": GOOGLE_REALTIME_VOICES,
             "allow_custom_input": True,
@@ -379,6 +411,7 @@ class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     language: str = Field(
         default="en",
+        description="ISO 639-1 language code.",
         json_schema_extra={
             "examples": GOOGLE_REALTIME_LANGUAGES,
             "allow_custom_input": True,
@@ -400,6 +433,7 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     model: str = Field(
         default="google/gemini-live-2.5-flash-native-audio",
+        description="Vertex AI publisher/model identifier.",
         json_schema_extra={
             "examples": GOOGLE_VERTEX_REALTIME_MODELS,
             "allow_custom_input": True,
@@ -407,13 +441,15 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     voice: str = Field(
         default="Charon",
+        description="Voice the model speaks in.",
         json_schema_extra={
             "examples": GOOGLE_VERTEX_REALTIME_VOICES,
             "allow_custom_input": True,
         },
     )
     language: str = Field(
-        default="en-US",
+        default="en",
+        description="BCP-47 language code (e.g. 'en-US').",
         json_schema_extra={
             "examples": GOOGLE_VERTEX_REALTIME_LANGUAGES,
             "allow_custom_input": True,
@@ -427,11 +463,18 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     credentials: str | None = Field(
         default=None,
         description=(
-            "Service account JSON credentials string. If omitted, falls back to "
-            "Application Default Credentials (ADC)."
+            "Paste the entire service-account JSON file contents. If omitted, "
+            "falls back to Application Default Credentials (ADC)."
+        ),
+        json_schema_extra={"multiline": True},
+    )
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description=(
+            "Not used for Vertex AI — authentication is via the service account "
+            "in `credentials` (or ADC). Leave blank."
         ),
     )
-    api_key: str | list[str] | None = Field(default=None)
 
 
 REALTIME_PROVIDERS = {
@@ -470,7 +513,10 @@ RealtimeConfig = Annotated[
 @register_tts
 class DeepgramTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
-    voice: str = "aura-2-helena-en"
+    voice: str = Field(
+        default="aura-2-helena-en",
+        description="Deepgram voice ID (model is inferred from the 'aura-N' prefix).",
+    )
 
     @computed_field
     @property
@@ -492,10 +538,14 @@ ELEVENLABS_TTS_MODELS = ["eleven_flash_v2_5"]
 @register_tts
 class ElevenlabsTTSConfiguration(BaseServiceConfiguration):
     provider: Literal[ServiceProviders.ELEVENLABS] = ServiceProviders.ELEVENLABS
-    voice: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel voice ID
-    speed: float = Field(default=1.0, ge=0.1, le=2.0, description="Speed of the voice")
+    voice: str = Field(
+        default="21m00Tcm4TlvDq8ikWAM",
+        description="ElevenLabs voice ID from your Voice Library.",
+    )
+    speed: float = Field(default=1.0, ge=0.1, le=2.0, description="Speed of the voice.")
     model: str = Field(
         default="eleven_flash_v2_5",
+        description="ElevenLabs TTS model.",
         json_schema_extra={"examples": ELEVENLABS_TTS_MODELS},
     )
     base_url: str = Field(
@@ -515,9 +565,14 @@ OPENAI_TTS_MODELS = ["gpt-4o-mini-tts"]
 class OpenAITTSService(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
-        default="gpt-4o-mini-tts", json_schema_extra={"examples": OPENAI_TTS_MODELS}
+        default="gpt-4o-mini-tts",
+        description="OpenAI TTS model.",
+        json_schema_extra={"examples": OPENAI_TTS_MODELS},
     )
-    voice: str = "alloy"
+    voice: str = Field(
+        default="alloy",
+        description="OpenAI TTS voice name.",
+    )
 
 
 DOGRAH_TTS_MODELS = ["default"]
@@ -527,10 +582,15 @@ DOGRAH_TTS_MODELS = ["default"]
 class DograhTTSService(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
-        default="default", json_schema_extra={"examples": DOGRAH_TTS_MODELS}
+        default="default",
+        description="Dograh TTS tier.",
+        json_schema_extra={"examples": DOGRAH_TTS_MODELS},
     )
-    voice: str = "default"
-    speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice")
+    voice: str = Field(
+        default="default",
+        description="Voice preset.",
+    )
+    speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 
 
 CARTESIA_TTS_MODELS = ["sonic-3"]
@@ -540,15 +600,20 @@ CARTESIA_TTS_MODELS = ["sonic-3"]
 class CartesiaTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
-        default="sonic-3", json_schema_extra={"examples": CARTESIA_TTS_MODELS}
+        default="sonic-3",
+        description="Cartesia TTS model.",
+        json_schema_extra={"examples": CARTESIA_TTS_MODELS},
     )
-    voice: str = Field(default="3faa81ae-d3d8-4ab1-9e44-e50e46d33c30")
-    speed: float = Field(default=1.0, ge=0.6, le=1.5, description="Speed of the voice")
+    voice: str = Field(
+        default="3faa81ae-d3d8-4ab1-9e44-e50e46d33c30",
+        description="Cartesia voice UUID from your Cartesia dashboard.",
+    )
+    speed: float = Field(default=1.0, ge=0.6, le=1.5, description="Speed of the voice.")
     volume: float = Field(
         default=1.0,
         ge=0.5,
         le=2.0,
-        description="Volume multiplier for generated speech",
+        description="Volume multiplier for generated speech.",
     )
 
 
@@ -623,10 +688,13 @@ SARVAM_LANGUAGES = [
 class SarvamTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="bulbul:v2", json_schema_extra={"examples": SARVAM_TTS_MODELS}
+        default="bulbul:v2",
+        description="Sarvam TTS model (voice list depends on this).",
+        json_schema_extra={"examples": SARVAM_TTS_MODELS},
     )
     voice: str = Field(
         default="anushka",
+        description="Sarvam voice name; must match the selected model's voice list.",
         json_schema_extra={
             "examples": SARVAM_V2_VOICES,
             "model_options": {
@@ -636,7 +704,9 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         },
     )
     language: str = Field(
-        default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
+        default="hi-IN",
+        description="BCP-47 Indian-language code (e.g. hi-IN, en-IN).",
+        json_schema_extra={"examples": SARVAM_LANGUAGES},
     )
 
 
@@ -647,10 +717,12 @@ CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]
 class CambTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.CAMB] = ServiceProviders.CAMB
     model: str = Field(
-        default="mars-flash", json_schema_extra={"examples": CAMB_TTS_MODELS}
+        default="mars-flash",
+        description="Camb.ai TTS model.",
+        json_schema_extra={"examples": CAMB_TTS_MODELS},
     )
-    voice: str = Field(default="147320", description="Camb.ai voice ID")
-    language: str = Field(default="en-us", description="BCP-47 language code")
+    voice: str = Field(default="147320", description="Camb.ai voice ID.")
+    language: str = Field(default="en-us", description="BCP-47 language code.")
 
 
 RIME_TTS_MODELS = ["arcana", "mistv3", "mistv2", "mist"]
@@ -662,17 +734,19 @@ class RimeTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.RIME] = ServiceProviders.RIME
     model: str = Field(
         default="arcana",
+        description="Rime TTS model.",
         json_schema_extra={"examples": RIME_TTS_MODELS, "allow_custom_input": True},
     )
     voice: str = Field(
         default="celeste",
-        description="Rime voice ID",
+        description="Rime voice ID.",
     )
     speed: float = Field(
-        default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier"
+        default=1.0, ge=0.5, le=2.0, description="Speech speed multiplier."
     )
     language: str = Field(
         default="en",
+        description="ISO 639-1 language code.",
         json_schema_extra={"examples": RIME_TTS_LANGUAGES, "allow_custom_input": True},
     )
 
@@ -685,6 +759,7 @@ class SpeachesTTSConfiguration(BaseTTSConfiguration):
     provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
         default="kokoro",
+        description="Model name as served by your TTS endpoint (e.g. Kokoro-FastAPI).",
         json_schema_extra={
             "examples": SPEACHES_TTS_MODELS,
             "allow_custom_input": True,
@@ -693,16 +768,19 @@ class SpeachesTTSConfiguration(BaseTTSConfiguration):
     voice: str = Field(
         default="af_heart",
         json_schema_extra={"allow_custom_input": True},
-        description="Voice ID for the TTS engine",
+        description="Voice ID for the TTS engine.",
     )
     base_url: str = Field(
         default="http://localhost:8000/v1",
-        description="OpenAI-compatible TTS endpoint (Kokoro-FastAPI, etc.)",
+        description="OpenAI-compatible TTS endpoint (Kokoro-FastAPI, etc.).",
     )
     speed: float = Field(
-        default=1.0, ge=0.25, le=4.0, description="Speech speed (0.25 to 4.0)"
+        default=1.0, ge=0.25, le=4.0, description="Speech speed (0.25 to 4.0)."
     )
-    api_key: str | list[str] | None = Field(default=None)
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description="Usually not required for self-hosted TTS. Leave blank unless enforced.",
+    )
 
 
 TTSConfig = Annotated[
@@ -813,10 +891,13 @@ DEEPGRAM_LANGUAGES = [
 class DeepgramSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.DEEPGRAM] = ServiceProviders.DEEPGRAM
     model: str = Field(
-        default="nova-3-general", json_schema_extra={"examples": DEEPGRAM_STT_MODELS}
+        default="nova-3-general",
+        description="Deepgram STT model.",
+        json_schema_extra={"examples": DEEPGRAM_STT_MODELS},
     )
     language: str = Field(
         default="multi",
+        description="Language code; 'multi' enables auto-detect (Nova-3 only).",
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
             "model_options": {
@@ -834,7 +915,9 @@ CARTESIA_STT_MODELS = ["ink-whisper"]
 class CartesiaSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
-        default="ink-whisper", json_schema_extra={"examples": CARTESIA_STT_MODELS}
+        default="ink-whisper",
+        description="Cartesia STT model.",
+        json_schema_extra={"examples": CARTESIA_STT_MODELS},
     )
 
 
@@ -845,7 +928,9 @@ OPENAI_STT_MODELS = ["gpt-4o-transcribe"]
 class OpenAISTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
-        default="gpt-4o-transcribe", json_schema_extra={"examples": OPENAI_STT_MODELS}
+        default="gpt-4o-transcribe",
+        description="OpenAI transcription model.",
+        json_schema_extra={"examples": OPENAI_STT_MODELS},
     )
 
 
@@ -858,10 +943,14 @@ DOGRAH_STT_LANGUAGES = DEEPGRAM_LANGUAGES
 class DograhSTTService(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
-        default="default", json_schema_extra={"examples": DOGRAH_STT_MODELS}
+        default="default",
+        description="Dograh STT tier.",
+        json_schema_extra={"examples": DOGRAH_STT_MODELS},
     )
     language: str = Field(
-        default="multi", json_schema_extra={"examples": DOGRAH_STT_LANGUAGES}
+        default="multi",
+        description="Language code; use 'multi' for auto-detect.",
+        json_schema_extra={"examples": DOGRAH_STT_LANGUAGES},
     )
 
 
@@ -873,10 +962,14 @@ SARVAM_STT_MODELS = ["saarika:v2.5", "saaras:v2"]
 class SarvamSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
-        default="saarika:v2.5", json_schema_extra={"examples": SARVAM_STT_MODELS}
+        default="saarika:v2.5",
+        description="Sarvam STT model.",
+        json_schema_extra={"examples": SARVAM_STT_MODELS},
     )
     language: str = Field(
-        default="hi-IN", json_schema_extra={"examples": SARVAM_LANGUAGES}
+        default="hi-IN",
+        description="BCP-47 Indian-language code.",
+        json_schema_extra={"examples": SARVAM_LANGUAGES},
     )
 
 
@@ -912,10 +1005,13 @@ SPEECHMATICS_STT_LANGUAGES = [
 class SpeechmaticsSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SPEECHMATICS] = ServiceProviders.SPEECHMATICS
     model: str = Field(
-        default="enhanced", description="Operating point: standard or enhanced"
+        default="enhanced",
+        description="Speechmatics operating point: 'standard' or 'enhanced'.",
     )
     language: str = Field(
-        default="en", json_schema_extra={"examples": SPEECHMATICS_STT_LANGUAGES}
+        default="en",
+        description="ISO 639-1 language code.",
+        json_schema_extra={"examples": SPEECHMATICS_STT_LANGUAGES},
     )
 
 
@@ -931,6 +1027,7 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SPEACHES] = ServiceProviders.SPEACHES
     model: str = Field(
         default="Systran/faster-distil-whisper-small.en",
+        description="Whisper model identifier as served by your STT endpoint.",
         json_schema_extra={
             "examples": SPEACHES_STT_MODELS,
             "allow_custom_input": True,
@@ -938,6 +1035,7 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
     )
     language: str = Field(
         default="en",
+        description="ISO 639-1 language code.",
         json_schema_extra={
             "examples": SPEACHES_STT_LANGUAGES,
             "allow_custom_input": True,
@@ -945,9 +1043,12 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
     )
     base_url: str = Field(
         default="http://localhost:8000/v1",
-        description="OpenAI-compatible STT endpoint (Speaches, etc.)",
+        description="OpenAI-compatible STT endpoint (Speaches, etc.).",
     )
-    api_key: str | list[str] | None = Field(default=None)
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description="Usually not required for self-hosted STT. Leave blank unless enforced.",
+    )
 
 
 ASSEMBLYAI_STT_MODELS = ["u3-rt-pro"]
@@ -959,10 +1060,12 @@ class AssemblyAISTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.ASSEMBLYAI] = ServiceProviders.ASSEMBLYAI
     model: str = Field(
         default="u3-rt-pro",
+        description="AssemblyAI realtime STT model.",
         json_schema_extra={"examples": ASSEMBLYAI_STT_MODELS},
     )
     language: str = Field(
         default="en",
+        description="ISO 639-1 language code.",
         json_schema_extra={"examples": ASSEMBLYAI_STT_LANGUAGES},
     )
 
@@ -1077,10 +1180,12 @@ class GladiaSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.GLADIA] = ServiceProviders.GLADIA
     model: str = Field(
         default="solaria-1",
+        description="Gladia STT model.",
         json_schema_extra={"examples": GLADIA_STT_MODELS},
     )
     language: str = Field(
         default="en",
+        description="ISO 639-1 language code.",
         json_schema_extra={"examples": GLADIA_STT_LANGUAGES},
     )
 
@@ -1110,6 +1215,7 @@ class OpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     provider: Literal[ServiceProviders.OPENAI] = ServiceProviders.OPENAI
     model: str = Field(
         default="text-embedding-3-small",
+        description="OpenAI embedding model.",
         json_schema_extra={"examples": OPENAI_EMBEDDING_MODELS},
     )
 
@@ -1122,10 +1228,14 @@ class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     provider: Literal[ServiceProviders.OPENROUTER] = ServiceProviders.OPENROUTER
     model: str = Field(
         default="openai/text-embedding-3-small",
+        description="OpenRouter-hosted embedding model slug.",
         json_schema_extra={"examples": OPENROUTER_EMBEDDING_MODELS},
     )
 
-    base_url: str = Field(default="https://openrouter.ai/api/v1")
+    base_url: str = Field(
+        default="https://openrouter.ai/api/v1",
+        description="Override only if proxying OpenRouter through your own gateway.",
+    )
 
 
 EmbeddingsConfig = Annotated[

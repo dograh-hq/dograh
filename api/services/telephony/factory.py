@@ -6,9 +6,7 @@ resolution paths exist:
 * by config id — the canonical path used by outbound (test calls, campaigns,
   API triggers) and by the websocket transport once a workflow run has
   ``initial_context.telephony_configuration_id`` stamped on it.
-* by org default — used as a fallback when no specific config is requested
-  (e.g. the legacy ``/telephony-config`` endpoint, the back-compat
-  ``get_telephony_provider(organization_id)`` shim).
+* by org default — used as a fallback when no specific config is requested.
 * for inbound — given a detected provider and an account-id from the webhook,
   iterate the org's configs of that provider and return the one whose stored
   account-id credential matches.
@@ -194,28 +192,6 @@ async def load_credentials_for_transport(
             f"(config_id={telephony_configuration_id}, org={organization_id})"
         )
     return config
-
-
-# ---------------------------------------------------------------------------
-# Back-compat shims
-# ---------------------------------------------------------------------------
-
-
-async def load_telephony_config(organization_id: int) -> Dict[str, Any]:
-    """Deprecated: returns the org's default config.
-
-    Existing callers that don't carry a config id continue to work via this
-    shim. New code should pass an explicit telephony_configuration_id."""
-    return await load_default_telephony_config(organization_id)
-
-
-async def get_telephony_provider(organization_id: int) -> TelephonyProvider:
-    """Deprecated: returns a provider for the org's default config.
-
-    See ``load_telephony_config`` above. New code should call
-    ``get_telephony_provider_by_id`` with the resolved config id.
-    """
-    return await get_default_telephony_provider(organization_id)
 
 
 async def get_all_telephony_providers() -> List[Type[TelephonyProvider]]:

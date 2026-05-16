@@ -28,7 +28,7 @@ If you find yourself editing anything else, re-read the registry plumbing first:
 
 | Want to change... | Source of truth |
 | --- | --- |
-| Outbound provider lookup | `factory.get_telephony_provider*` reads `registry.get(name).provider_cls` |
+| Outbound provider lookup | `factory.get_default_telephony_provider`, `get_telephony_provider_by_id`, and `get_telephony_provider_for_run` read `registry.get(name).provider_cls` |
 | Stored credentials → constructor dict | `ProviderSpec.config_loader` |
 | Audio sample rate / VAD rate | `ProviderSpec.transport_sample_rate` (full `AudioConfig` is built in `pipecat/audio_config.py::create_audio_config`) |
 | Which transport runs in `run_pipeline_telephony` | `ProviderSpec.transport_factory` |

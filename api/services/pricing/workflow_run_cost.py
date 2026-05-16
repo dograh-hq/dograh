@@ -3,7 +3,7 @@ from loguru import logger
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.services.pricing.cost_calculator import cost_calculator
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import get_telephony_provider_for_run
 
 
 async def _fetch_telephony_cost(workflow_run) -> dict | None:
@@ -27,7 +27,7 @@ async def _fetch_telephony_cost(workflow_run) -> dict | None:
         logger.warning("Workflow not found for workflow run")
         raise Exception("Workflow not found")
 
-    provider = await get_telephony_provider(workflow.organization_id)
+    provider = await get_telephony_provider_for_run(workflow_run, workflow.organization_id)
     call_cost_info = await provider.get_call_cost(call_id)
 
     if call_cost_info.get("status") == "error":

@@ -4,7 +4,6 @@ from api.db.campaign_client import CampaignClient
 from api.db.embed_token_client import EmbedTokenClient
 from api.db.integration_client import IntegrationClient
 from api.db.knowledge_base_client import KnowledgeBaseClient
-from api.db.looptalk_client import LoopTalkClient
 from api.db.organization_client import OrganizationClient
 from api.db.organization_configuration_client import OrganizationConfigurationClient
 from api.db.organization_usage_client import OrganizationUsageClient
@@ -29,7 +28,6 @@ class DBClient(
     OrganizationUsageClient,
     IntegrationClient,
     WorkflowTemplateClient,
-    LoopTalkClient,
     CampaignClient,
     ReportsClient,
     APIKeyClient,
@@ -54,7 +52,6 @@ class DBClient(
     - OrganizationUsageClient: handles organization usage and quota operations
     - IntegrationClient: handles integration operations
     - WorkflowTemplateClient: handles workflow template operations
-    - LoopTalkClient: handles LoopTalk testing operations
     - CampaignClient: handles campaign operations
     - ReportsClient: handles reports and analytics operations
     - APIKeyClient: handles API key operations

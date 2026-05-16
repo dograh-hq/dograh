@@ -1,7 +1,7 @@
 """Transport factories for non-telephony pipelines.
 
 Telephony transports live in their respective ``api.services.telephony.providers/<name>/transport.py``.
-This module hosts only the shared, non-telephony transports (WebRTC, internal/LoopTalk).
+This module hosts only the shared, non-telephony transports (WebRTC).
 """
 
 from api.services.pipecat.audio_config import AudioConfig
@@ -32,24 +32,3 @@ async def create_webrtc_transport(
             audio_out_mixer=mixer,
         ),
     )
-
-
-def create_internal_transport(
-    workflow_run_id: int,
-    audio_config: AudioConfig,
-    latency_seconds: float = 0.0,
-    ambient_noise_config: dict | None = None,
-):
-    """Create an internal transport for agent-to-agent connections (LoopTalk).
-
-    Args:
-        workflow_run_id: ID of the workflow run for turn analyzer context
-        audio_config: Audio configuration for the transport
-        latency_seconds: Network latency to simulate
-
-    Returns:
-        InternalTransport instance configured with turn analyzer
-    """
-    pass
-    # Commented out because looptalk coming in the regular import flow
-    # was causing issue. May be move this to looptalk/orchestrator.py

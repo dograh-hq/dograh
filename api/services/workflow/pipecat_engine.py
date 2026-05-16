@@ -140,6 +140,33 @@ class PipecatEngine:
         self._context_summarization_manager: Optional[ContextSummarizationManager] = (
             None
         )
+        self._supports_async_tools: bool = False
+        try:
+            from pipecat.services.openai.realtime.llm import (
+                OpenAIRealtimeLLMService,
+            )
+
+            self._supports_async_tools = isinstance(llm, OpenAIRealtimeLLMService)
+        except Exception:
+            self._supports_async_tools = False
+
+    @property
+    def supports_async_tools(self) -> bool:
+        """Return True when the active realtime service can keep speaking while tools run."""
+        return self._supports_async_tools
+
+    def ensure_async_tool_cancellation_enabled(self) -> None:
+        """Enable Pipecat's async cancellation helper after dynamic tool registration."""
+        if not self.supports_async_tools:
+            return
+        if not getattr(self.llm, "_enable_async_tool_cancellation", False):
+            return
+        if getattr(self.llm, "_async_tool_cancellation_enabled", False):
+            return
+        has_async_tools = getattr(self.llm, "_has_async_tools", None)
+        setup_async_cancellation = getattr(self.llm, "_setup_async_tool_cancellation", None)
+        if has_async_tools and setup_async_cancellation and has_async_tools():
+            setup_async_cancellation()
 
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
@@ -376,7 +403,12 @@ class PipecatEngine:
                 )
 
         # Register the function with the LLM
-        self.llm.register_function("retrieve_from_knowledge_base", retrieve_kb_func)
+        self.llm.register_function(
+            "retrieve_from_knowledge_base",
+            retrieve_kb_func,
+            cancel_on_interruption=not self.supports_async_tools,
+        )
+        self.ensure_async_tool_cancellation_enabled()
 
     async def _perform_variable_extraction_if_needed(
         self, node: Optional[Node], run_in_background: bool = True

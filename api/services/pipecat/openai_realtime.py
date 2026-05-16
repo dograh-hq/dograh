@@ -44,4 +44,5 @@ def create_openai_realtime_llm_service(
             model=model,
             session_properties=SessionProperties(**session_kwargs),
         ),
+        enable_async_tool_cancellation=True,
     )

@@ -787,16 +787,24 @@ class TestCustomToolManagerUnit:
             assert "param1" in schema.required
 
     @pytest.mark.asyncio
-    async def test_register_handlers_creates_working_handler(self):
+    @pytest.mark.parametrize(
+        "supports_async_tools, expected_cancel_on_interruption",
+        [(False, True), (True, False)],
+    )
+    async def test_register_handlers_creates_working_handler(
+        self, supports_async_tools, expected_cancel_on_interruption
+    ):
         """Test that register_handlers creates handlers that can execute tools."""
         from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 
         # Create a mock engine with a mock LLM
         mock_llm = Mock()
         registered_handlers = {}
+        registered_kwargs = {}
 
         def capture_register(name, handler, **kwargs):
             registered_handlers[name] = handler
+            registered_kwargs[name] = kwargs
 
         mock_llm.register_function = capture_register
 
@@ -810,6 +818,8 @@ class TestCustomToolManagerUnit:
             mock_engine
         )
         mock_engine.llm = mock_llm
+        mock_engine.supports_async_tools = supports_async_tools
+        mock_engine.ensure_async_tool_cancellation_enabled = Mock()
 
         manager = CustomToolManager(mock_engine)
 
@@ -845,6 +855,9 @@ class TestCustomToolManagerUnit:
 
             # Verify handler was registered
             assert "api_call" in registered_handlers
+            assert registered_kwargs["api_call"]["cancel_on_interruption"] is (
+                expected_cancel_on_interruption
+            )
 
         # Now test that the handler works
         handler = registered_handlers["api_call"]
@@ -874,6 +887,87 @@ class TestCustomToolManagerUnit:
 
             # Verify result was returned
             assert result_received["status"] == "success"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("category", ["end_call", "transfer_call"])
+    async def test_terminal_tools_stay_synchronous_with_async_runtime(self, category):
+        """End/transfer tools control the call lifecycle and must not run as async background tools."""
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
+        mock_llm = Mock()
+        registered_kwargs = {}
+
+        def capture_register(name, handler, **kwargs):
+            registered_kwargs[name] = kwargs
+
+        mock_llm.register_function = capture_register
+
+        mock_engine = Mock()
+        mock_engine._workflow_run_id = 1
+        mock_engine._call_context_vars = {}
+        mock_engine._organization_id = None
+        mock_engine._get_organization_id = AsyncMock(return_value=1)
+        mock_engine.llm = mock_llm
+        mock_engine.supports_async_tools = True
+        mock_engine.ensure_async_tool_cancellation_enabled = Mock()
+
+        manager = CustomToolManager(mock_engine)
+        mock_tool = MockToolModel(
+            tool_uuid="terminal-uuid",
+            name="Terminal Tool",
+            description="Control the call lifecycle",
+            category=category,
+            definition={
+                "schema_version": 1,
+                "type": category,
+                "config": {
+                    "messageType": "none",
+                    "destination": "+1234567890",
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.pipecat_engine_custom_tools.db_client"
+        ) as mock_db:
+            mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
+
+            await manager.register_handlers(["terminal-uuid"])
+
+        assert registered_kwargs["terminal_tool"]["cancel_on_interruption"] is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "supports_async_tools, expected_cancel_on_interruption",
+        [(False, True), (True, False)],
+    )
+    async def test_knowledge_base_registration_respects_async_runtime(
+        self, supports_async_tools, expected_cancel_on_interruption
+    ):
+        from api.services.workflow.pipecat_engine import PipecatEngine
+
+        mock_llm = Mock()
+        registered_kwargs = {}
+
+        def capture_register(name, handler, **kwargs):
+            registered_kwargs[name] = kwargs
+
+        mock_llm.register_function = capture_register
+
+        engine = PipecatEngine(
+            llm=mock_llm,
+            context=Mock(),
+            workflow=Mock(),
+            call_context_vars={},
+            workflow_run_id=1,
+        )
+        engine._supports_async_tools = supports_async_tools
+
+        await engine._register_knowledge_base_function(["doc-uuid"])
+
+        assert registered_kwargs["retrieve_from_knowledge_base"][
+            "cancel_on_interruption"
+        ] is expected_cancel_on_interruption
 
 
 def _update_llm_context(context, system_message, functions):

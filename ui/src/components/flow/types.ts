@@ -55,6 +55,10 @@ export type FlowNodeData = {
     qa_sample_rate?: number;
     // Tools - array of tool UUIDs that can be invoked by this node
     tool_uuids?: string[];
+    // Per-node MCP function allowlist: { toolUuid: [raw MCP tool name, ...] }.
+    // Default-none: a toolUuid absent here (or mapped to []) exposes zero
+    // functions of that MCP server on this node.
+    mcp_tool_filters?: Record<string, string[]>;
     // Documents - array of knowledge base document UUIDs that can be referenced by this node
     document_uuids?: string[];
 }

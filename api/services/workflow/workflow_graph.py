@@ -89,6 +89,7 @@ class Node:
         self.delayed_start_duration = getattr(data, "delayed_start_duration", None)
         self.tool_uuids = getattr(data, "tool_uuids", None)
         self.document_uuids = getattr(data, "document_uuids", None)
+        self.mcp_tool_filters = getattr(data, "mcp_tool_filters", None)
         self.pre_call_fetch_enabled = getattr(data, "pre_call_fetch_enabled", False)
         self.pre_call_fetch_url = getattr(data, "pre_call_fetch_url", None)
         self.pre_call_fetch_credential_uuid = getattr(

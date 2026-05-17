@@ -12,6 +12,7 @@ import {
 import type { RecordingResponseSchema, ToolResponse, TransferCallConfig as APITransferCallConfig } from "@/client/types.gen";
 import type { EndCallConfig } from "@/client/types.gen";
 import {
+    CredentialSelector,
     type HttpMethod,
     type KeyValueItem,
     type PresetToolParameter,
@@ -19,6 +20,7 @@ import {
     validateUrl,
 } from "@/components/http";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -26,15 +28,20 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAuth } from "@/lib/auth";
 
 import {
+    createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     type EndCallMessageType,
     getCategoryConfig,
     getToolTypeLabel,
+    MCP_URL_PATTERN,
     renderToolIcon,
     type ToolCategory,
 } from "../config";
@@ -107,6 +114,11 @@ export default function ToolDetailPage() {
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
     const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
+
+    // MCP form state
+    const [mcpUrl, setMcpUrl] = useState("");
+    const [mcpCredentialUuid, setMcpCredentialUuid] = useState("");
+    const [mcpToolsFilter, setMcpToolsFilter] = useState("");
 
     // Org-level recordings for audio dropdowns
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -182,6 +194,24 @@ export default function ToolDetailPage() {
                 setCustomMessage("");
                 setTransferAudioRecordingId("");
                 setTransferTimeout(30);
+            }
+        } else if (tool.category === "mcp") {
+            // Populate MCP specific fields
+            const config = tool.definition?.config as
+                | { url?: string; credential_uuid?: string | null; tools_filter?: string[] }
+                | undefined;
+            if (config) {
+                setMcpUrl(config.url || "");
+                setMcpCredentialUuid(config.credential_uuid || "");
+                setMcpToolsFilter(
+                    Array.isArray(config.tools_filter)
+                        ? config.tools_filter.join(", ")
+                        : ""
+                );
+            } else {
+                setMcpUrl("");
+                setMcpCredentialUuid("");
+                setMcpToolsFilter("");
             }
         } else {
             // Populate HTTP API specific fields
@@ -275,6 +305,16 @@ export default function ToolDetailPage() {
                 setError("Please enter a valid phone number (E.164 format) or SIP endpoint (e.g., PJSIP/1234)");
                 return;
             }
+        } else if (tool.category === "mcp") {
+            // Validate MCP server URL (must be http(s))
+            if (!mcpUrl.trim()) {
+                setError("Please enter the MCP server URL");
+                return;
+            }
+            if (!MCP_URL_PATTERN.test(mcpUrl.trim())) {
+                setError("MCP server URL must start with http:// or https://");
+                return;
+            }
         } else if (tool.category !== "end_call") {
             // Validate URL for HTTP API tools
             const urlValidation = validateUrl(url);
@@ -350,6 +390,12 @@ export default function ToolDetailPage() {
                             timeout: transferTimeout,
                         },
                     },
+                };
+            } else if (tool.category === "mcp") {
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter),
                 };
             } else {
                 // Build HTTP API request body
@@ -510,6 +556,7 @@ const data = await response.json();`;
     const isEndCallTool = tool.category === "end_call";
     const isTransferCallTool = tool.category === "transfer_call";
     const isBuiltinTool = tool.category === "calculator";
+    const isMcpTool = tool.category === "mcp";
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
     return (
@@ -545,7 +592,7 @@ const data = await response.json();`;
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {!isEndCallTool && !isTransferCallTool && !isBuiltinTool && (
+                            {!isEndCallTool && !isTransferCallTool && !isBuiltinTool && !isMcpTool && (
                                 <Button
                                     variant="outline"
                                     onClick={() => setShowCodeDialog(true)}
@@ -613,6 +660,79 @@ const data = await response.json();`;
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
                         />
+                    ) : isMcpTool ? (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>MCP Server Configuration</CardTitle>
+                                <CardDescription>
+                                    Configure the MCP server endpoint. Its tools become available to the agent.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-name">Tool Name</Label>
+                                    <Input
+                                        id="mcp-name"
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                        placeholder="e.g., Customer MCP Server"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-description">Description</Label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Provide a description which makes it easy for LLM to understand what this tool does
+                                    </p>
+                                    <Textarea
+                                        id="mcp-description"
+                                        value={description}
+                                        onChange={(e) => setDescription(e.target.value)}
+                                        placeholder="What does this MCP server provide?"
+                                        rows={3}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-url">MCP Server URL</Label>
+                                    <Input
+                                        id="mcp-url"
+                                        value={mcpUrl}
+                                        onChange={(e) => setMcpUrl(e.target.value)}
+                                        placeholder="https://your-mcp-server.example.com/mcp"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Transport</Label>
+                                    <Input
+                                        value="Streamable HTTP"
+                                        disabled
+                                        readOnly
+                                    />
+                                </div>
+
+                                <CredentialSelector
+                                    value={mcpCredentialUuid}
+                                    onChange={setMcpCredentialUuid}
+                                    label="Credential (Optional)"
+                                    description="Select a credential for authenticating with the MCP server, or leave empty for no auth."
+                                />
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-tools-filter">Tools Filter (Optional)</Label>
+                                    <Input
+                                        id="mcp-tools-filter"
+                                        value={mcpToolsFilter}
+                                        onChange={(e) => setMcpToolsFilter(e.target.value)}
+                                        placeholder="e.g., tool_one, tool_two"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Comma-separated list of tool names to allow. Leave empty to expose all tools from the server.
+                                    </p>
+                                </div>
+                            </CardContent>
+                        </Card>
                     ) : (
                         <HttpApiToolConfig
                             name={name}

@@ -1,10 +1,12 @@
 """API routes for managing tools."""
 
+import asyncio
 import re
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
+from loguru import logger
 from pydantic import BaseModel, Field, field_validator
 
 from api.db import db_client
@@ -13,6 +15,8 @@ from api.enums import PostHogEvent, ToolCategory, ToolStatus
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
+from api.services.workflow.mcp_tool_session import discover_mcp_tools
+from api.services.workflow.tools.mcp_tool import McpDefinitionError, validate_mcp_definition
 
 router = APIRouter(prefix="/tools")
 
@@ -176,6 +180,57 @@ class CalculatorToolDefinition(BaseModel):
     type: Literal["calculator"] = Field(description="Tool type")
 
 
+class McpToolConfig(BaseModel):
+    """Configuration for MCP (Model Context Protocol) tools."""
+
+    transport: Literal["streamable_http"] = Field(
+        default="streamable_http", description="MCP transport protocol"
+    )
+    url: str = Field(description="MCP server URL (must be http:// or https://)")
+    credential_uuid: Optional[str] = Field(
+        default=None, description="Reference to ExternalCredentialModel for auth"
+    )
+    tools_filter: list[str] = Field(
+        default_factory=list,
+        description="Allowlist of MCP tool names to expose (empty = all tools)",
+    )
+    timeout_secs: int = Field(default=30, description="Connection timeout in seconds")
+    sse_read_timeout_secs: int = Field(
+        default=300, description="SSE read timeout in seconds"
+    )
+    discovered_tools: list[dict] = Field(
+        default_factory=list,
+        description=(
+            "Server-managed cache of the MCP server's tool catalog "
+            "[{name, description}]. Populated best-effort by the backend."
+        ),
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        """Validate that URL starts with http:// or https://."""
+        if not isinstance(v, str) or not v.startswith(("http://", "https://")):
+            raise ValueError("config.url must be an http(s) URL")
+        return v
+
+    @field_validator("tools_filter")
+    @classmethod
+    def validate_tools_filter(cls, v: list) -> list:
+        """Validate that tools_filter is a list of strings."""
+        if not all(isinstance(t, str) for t in v):
+            raise ValueError("tools_filter must be a list of strings")
+        return v
+
+
+class McpToolDefinition(BaseModel):
+    """Tool definition for MCP (Model Context Protocol) tools."""
+
+    schema_version: int = Field(default=1, description="Schema version")
+    type: Literal["mcp"] = Field(description="Tool type")
+    config: McpToolConfig = Field(description="MCP server configuration")
+
+
 # Union type for tool definitions - Pydantic will discriminate based on 'type' field
 ToolDefinition = Annotated[
     Union[
@@ -183,6 +238,7 @@ ToolDefinition = Annotated[
         EndCallToolDefinition,
         TransferCallToolDefinition,
         CalculatorToolDefinition,
+        McpToolDefinition,
     ],
     Field(discriminator="type"),
 ]
@@ -246,6 +302,14 @@ class ToolResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class McpRefreshResponse(BaseModel):
+    """Result of re-discovering an MCP server's tool catalog."""
+
+    tool_uuid: str
+    discovered_tools: list = Field(default_factory=list)
+    error: Optional[str] = None
 
 
 def build_tool_response(tool, include_created_by: bool = False) -> ToolResponse:
@@ -336,6 +400,56 @@ async def list_tools(
     return [build_tool_response(tool) for tool in tools]
 
 
+async def _fetch_credential(credential_uuid: Optional[str], organization_id: int):
+    """Best-effort credential lookup for MCP auth. A missing/failed credential
+    degrades to ``None`` (unauthenticated) rather than failing the request."""
+    if not credential_uuid:
+        return None
+    try:
+        return await db_client.get_credential_by_uuid(
+            credential_uuid, organization_id
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MCP: credential fetch failed: {e}")
+        return None
+
+
+async def _populate_discovered_tools(
+    definition: dict, *, organization_id: int
+) -> dict:
+    """Best-effort: for an MCP definition, connect to the server, list its
+    tools, and overwrite ``config.discovered_tools``. Never raises and never
+    blocks tool save — a dead server yields ``discovered_tools: []``. Non-MCP
+    definitions pass through untouched."""
+    if not isinstance(definition, dict) or definition.get("type") != "mcp":
+        return definition
+    try:
+        cfg = validate_mcp_definition(definition)
+    except McpDefinitionError:
+        return definition
+
+    credential = await _fetch_credential(cfg.get("credential_uuid"), organization_id)
+
+    # Run discovery in an isolated asyncio task so an anyio cancel-scope
+    # CancelledError doesn't bleed into the parent task and corrupt the
+    # subsequent DB write. _run() never raises (degrades to []).
+    async def _run() -> list:
+        try:
+            return await discover_mcp_tools(
+                url=cfg["url"],
+                credential=credential,
+                timeout_secs=cfg["timeout_secs"],
+                sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
+            )
+        except BaseException as e:  # noqa: BLE001
+            logger.warning(f"MCP discovery failed; caching empty list: {e}")
+            return []
+
+    discovered = await asyncio.ensure_future(_run())
+    definition["config"]["discovered_tools"] = discovered
+    return definition
+
+
 @router.post("/")
 async def create_tool(
     request: CreateToolRequest,
@@ -357,11 +471,16 @@ async def create_tool(
 
     validate_category(request.category)
 
+    definition = await _populate_discovered_tools(
+        request.definition.model_dump(),
+        organization_id=user.selected_organization_id,
+    )
+
     tool = await db_client.create_tool(
         organization_id=user.selected_organization_id,
         user_id=user.id,
         name=request.name,
-        definition=request.definition.model_dump(),
+        definition=definition,
         category=request.category,
         description=request.description,
         icon=request.icon,
@@ -410,6 +529,69 @@ async def get_tool(
     return build_tool_response(tool, include_created_by=True)
 
 
+@router.post("/{tool_uuid}/mcp/refresh")
+async def refresh_mcp_tools(
+    tool_uuid: str,
+    user: UserModel = Depends(get_user),
+) -> McpRefreshResponse:
+    """Re-discover an MCP tool's server catalog and overwrite the cached
+    ``definition.config.discovered_tools``. Server down → 200 with error
+    (cache not overwritten on transient failure)."""
+    if not user.selected_organization_id:
+        raise HTTPException(
+            status_code=400, detail="No organization selected for the user"
+        )
+
+    tool = await db_client.get_tool_by_uuid(
+        tool_uuid, user.selected_organization_id, include_archived=True
+    )
+    if not tool:
+        raise HTTPException(status_code=404, detail="Tool not found")
+    if tool.category != ToolCategory.MCP.value:
+        raise HTTPException(status_code=400, detail="Tool is not an MCP tool")
+
+    try:
+        cfg = validate_mcp_definition(tool.definition)
+    except McpDefinitionError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid MCP definition: {e}")
+
+    credential = await _fetch_credential(
+        cfg.get("credential_uuid"), user.selected_organization_id
+    )
+
+    try:
+        discovered = await discover_mcp_tools(
+            url=cfg["url"],
+            credential=credential,
+            timeout_secs=cfg["timeout_secs"],
+            sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(f"MCP refresh discovery failed: {e}")
+        discovered = []
+
+    if not discovered:
+        error = (
+            f"Could not reach the MCP server at {cfg['url']} "
+            f"(or it exposes no tools). Previously cached list retained."
+        )
+        # Do NOT clobber a previously-good cache with [] on a transient outage.
+        return McpRefreshResponse(
+            tool_uuid=tool_uuid, discovered_tools=[], error=error
+        )
+
+    new_def = dict(tool.definition or {})
+    new_def["config"] = {**new_def.get("config", {}), "discovered_tools": discovered}
+    await db_client.update_tool(
+        tool_uuid=tool_uuid,
+        organization_id=user.selected_organization_id,
+        definition=new_def,
+    )
+    return McpRefreshResponse(
+        tool_uuid=tool_uuid, discovered_tools=discovered, error=None
+    )
+
+
 @router.put("/{tool_uuid}")
 async def update_tool(
     tool_uuid: str,
@@ -434,12 +616,21 @@ async def update_tool(
     if request.status:
         validate_status(request.status)
 
+    definition = (
+        await _populate_discovered_tools(
+            request.definition.model_dump(),
+            organization_id=user.selected_organization_id,
+        )
+        if request.definition
+        else None
+    )
+
     tool = await db_client.update_tool(
         tool_uuid=tool_uuid,
         organization_id=user.selected_organization_id,
         name=request.name,
         description=request.description,
-        definition=request.definition.model_dump() if request.definition else None,
+        definition=definition,
         icon=request.icon,
         icon_color=request.icon_color,
         status=request.status,

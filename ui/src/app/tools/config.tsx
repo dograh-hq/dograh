@@ -12,7 +12,7 @@ import type {
     TransferCallToolDefinition,
 } from "@/client/types.gen";
 
-export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration";
+export type ToolCategory = "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";
 
 export type EndCallMessageType = "none" | "custom" | "audio";
 
@@ -76,6 +76,14 @@ export const TOOL_CATEGORIES: ToolCategoryConfig[] = [
         },
     },
     {
+        value: "mcp",
+        label: "MCP Server",
+        description: "Connect a customer MCP server; its tools become available to the agent",
+        icon: Puzzle,
+        iconName: "puzzle",
+        iconColor: "#8B5CF6",
+    },
+    {
         value: "native",
         label: "Native (Coming Soon)",
         description: "Built-in tools like call transfer, DTMF input",
@@ -128,6 +136,8 @@ export function getToolTypeLabel(category: string): string {
             return "Native Tool";
         case "integration":
             return "Integration Tool";
+        case "mcp":
+            return "MCP Server Tool";
         default:
             return "Tool";
     }
@@ -182,6 +192,24 @@ export function createCalculatorDefinition(): CalculatorToolDefinition {
     return {
         schema_version: 1,
         type: "calculator",
+    };
+}
+
+export const MCP_URL_PATTERN = /^https?:\/\//i;
+
+export function createMcpDefinition(url: string, credentialUuid: string, toolsFilterCsv: string) {
+    return {
+        schema_version: 1,
+        type: "mcp" as const,
+        config: {
+            transport: "streamable_http" as const,
+            url: url.trim(),
+            credential_uuid: credentialUuid || null,
+            tools_filter: toolsFilterCsv
+                .split(",")
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0),
+        },
     };
 }
 

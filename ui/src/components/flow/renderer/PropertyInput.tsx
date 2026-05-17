@@ -23,6 +23,10 @@ export interface RendererContext {
     tools: ToolResponse[];
     documents: DocumentResponseSchema[];
     recordings: RecordingResponseSchema[];
+    /** Per-node MCP function allowlist (sibling of tool_uuids on node data). */
+    mcpToolFilters?: Record<string, string[]>;
+    /** Persist a new mcp_tool_filters object onto the node form values. */
+    onMcpToolFiltersChange?: (next: Record<string, string[]>) => void;
 }
 
 export interface PropertyInputProps {
@@ -83,6 +87,10 @@ export function PropertyInput({ spec, value, onChange, context }: PropertyInputP
                     value={value}
                     onChange={onChange}
                     tools={context.tools}
+                    mcpToolFilters={context.mcpToolFilters ?? {}}
+                    onMcpToolFiltersChange={
+                        context.onMcpToolFiltersChange ?? (() => {})
+                    }
                 />
             );
         case "document_refs":
@@ -401,7 +409,13 @@ function ToolRefsWidget({
     value,
     onChange,
     tools,
-}: WidgetProps & { tools: ToolResponse[] }) {
+    mcpToolFilters,
+    onMcpToolFiltersChange,
+}: WidgetProps & {
+    tools: ToolResponse[];
+    mcpToolFilters: Record<string, string[]>;
+    onMcpToolFiltersChange: (next: Record<string, string[]>) => void;
+}) {
     return (
         <ToolSelector
             value={(value as string[] | undefined) ?? []}
@@ -409,6 +423,8 @@ function ToolRefsWidget({
             tools={tools}
             label={spec.display_name}
             description={spec.description}
+            mcpToolFilters={mcpToolFilters}
+            onMcpToolFiltersChange={onMcpToolFiltersChange}
         />
     );
 }

@@ -35,6 +35,7 @@ from api.services.workflow.tools.custom_tool import (
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
+    from api.services.workflow.mcp_tool_session import McpToolSession
 
 
 def get_function_schema(
@@ -121,11 +122,18 @@ class CustomToolManager:
         """Get the organization ID from the engine (shared cache)."""
         return await self._engine._get_organization_id()
 
-    async def get_tool_schemas(self, tool_uuids: list[str]) -> list[FunctionSchema]:
+    async def get_tool_schemas(
+        self,
+        tool_uuids: list[str],
+        mcp_tool_filters: Optional[dict[str, list[str]]] = None,
+    ) -> list[FunctionSchema]:
         """Fetch custom tools and convert them to function schemas.
 
         Args:
             tool_uuids: List of tool UUIDs to fetch
+            mcp_tool_filters: Optional per-node filter mapping tool_uuid → list of
+                raw MCP tool names to expose. None (default) exposes all tools.
+                Empty dict or entry with [] suppresses all tools for that uuid.
 
         Returns:
             List of FunctionSchema objects for LLM
@@ -154,6 +162,22 @@ class CustomToolManager:
                         )
                     continue
 
+                if tool.category == ToolCategory.MCP.value:
+                    session = self._engine._mcp_sessions.get(tool.tool_uuid)
+                    if session is None or not session.available:
+                        logger.warning(
+                            f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
+                            f"unavailable; skipping"
+                        )
+                        continue
+                    allowed = (
+                        None
+                        if mcp_tool_filters is None
+                        else set(mcp_tool_filters.get(tool.tool_uuid, []))
+                    )
+                    schemas.extend(session.function_schemas(allowed))
+                    continue
+
                 raw_schema = tool_to_function_schema(tool)
                 function_name = raw_schema["function"]["name"]
 
@@ -178,11 +202,18 @@ class CustomToolManager:
             logger.error(f"Failed to fetch custom tools: {e}")
             return []
 
-    async def register_handlers(self, tool_uuids: list[str]) -> None:
+    async def register_handlers(
+        self,
+        tool_uuids: list[str],
+        mcp_tool_filters: Optional[dict[str, list[str]]] = None,
+    ) -> None:
         """Register custom tool execution handlers with the LLM.
 
         Args:
             tool_uuids: List of tool UUIDs to register handlers for
+            mcp_tool_filters: Optional per-node filter mapping tool_uuid → list of
+                raw MCP tool names to expose. None (default) exposes all tools.
+                Empty dict or entry with [] suppresses all tools for that uuid.
         """
         organization_id = await self.get_organization_id()
         if not organization_id:
@@ -200,6 +231,32 @@ class CustomToolManager:
                     logger.debug(
                         f"Registered calculator tool handler "
                         f"(tool_uuid: {tool.tool_uuid})"
+                    )
+                    continue
+
+                if tool.category == ToolCategory.MCP.value:
+                    session = self._engine._mcp_sessions.get(tool.tool_uuid)
+                    if session is None or not session.available:
+                        logger.warning(
+                            f"MCP tool '{tool.name}' ({tool.tool_uuid}) "
+                            f"unavailable; skipping handler registration"
+                        )
+                        continue
+                    allowed = (
+                        None
+                        if mcp_tool_filters is None
+                        else set(mcp_tool_filters.get(tool.tool_uuid, []))
+                    )
+                    mcp_schemas = session.function_schemas(allowed)
+                    for fs in mcp_schemas:
+                        self._engine.llm.register_function(
+                            fs.name,
+                            self._create_mcp_handler(session, fs.name),
+                            timeout_secs=session.call_timeout_secs,
+                        )
+                    logger.debug(
+                        f"Registered {len(mcp_schemas)} MCP "
+                        f"handlers for tool '{tool.name}' ({tool.tool_uuid})"
                     )
                     continue
 
@@ -334,6 +391,29 @@ class CustomToolManager:
                 )
 
         return http_tool_handler
+
+    def _create_mcp_handler(self, session: "McpToolSession", function_name: str):
+        """Create a handler that proxies an LLM function call to a live MCP
+        session. Errors are returned to the LLM as structured text so the
+        agent can recover verbally; the call is never crashed."""
+
+        async def mcp_tool_handler(
+            function_call_params: FunctionCallParams,
+        ) -> None:
+            logger.info(f"MCP Tool EXECUTED: {function_name}")
+            logger.info(f"Arguments: {function_call_params.arguments}")
+            try:
+                result = await session.call(
+                    function_name, function_call_params.arguments or {}
+                )
+                await function_call_params.result_callback(result)
+            except Exception as e:
+                logger.error(f"MCP tool '{function_name}' failed: {e}")
+                await function_call_params.result_callback(
+                    {"status": "error", "error": str(e)}
+                )
+
+        return mcp_tool_handler
 
     def _create_end_call_handler(self, tool: Any, function_name: str):
         """Create a handler function for an end call tool.

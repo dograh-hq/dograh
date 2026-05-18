@@ -123,7 +123,7 @@ Current builds include the built-in app catalog entries for Harvest and Neal:
 | App ID | Display name | Default realtime profile |
 |--------|--------------|--------------------------|
 | `harvest` | `Harvest Home Quote` | `gemini_live_phone` |
-| `neal_roofing` | `Neal Roofing` | `openai_realtime_2_phone` |
+| `neal_roofing` | `Neal Roofing` | `gemini_live_phone` |
 
 Verify the catalog from the updated API:
 
@@ -147,6 +147,8 @@ Each template should include a `trigger` node connected to an `agentNode`. The t
 curl -fsS -X POST https://YOUR_DOMAIN/api/v1/workflow/WORKFLOW_ID/validate \
   -H "X-API-Key: dg_your_api_key"
 ```
+
+For live phone routing, also verify the saved workflow and number mapping, because Twilio uses the published workflow record attached to the inbound number rather than the catalog default alone. The readback should show each active Twilio number pointing at the intended `inbound_workflow_id`, and the released workflow definition should have the expected realtime provider/model override before you place a live test call.
 
 ## Roll back
 

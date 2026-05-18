@@ -1,11 +1,12 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Globe } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Globe } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
+import { toast } from 'sonner';
 
-import { getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
+import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
 import type { DailyUsageBreakdownResponse, MpsCreditsResponse, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
@@ -49,13 +50,19 @@ export default function UsagePage() {
         return pageParam ? parseInt(pageParam, 10) : 1;
     });
     const [isExecutingFilters, setIsExecutingFilters] = useState(false);
+    const [isDownloadingReport, setIsDownloadingReport] = useState(false);
 
     // Daily usage breakdown state (only for paid orgs)
     const [dailyUsage, setDailyUsage] = useState<DailyUsageBreakdownResponse | null>(null);
     const [isLoadingDaily, setIsLoadingDaily] = useState(false);
 
-    // Initialize filters from URL
+    // Initialize filters from URL. `activeFilters` tracks the in-progress
+    // edits in the FilterBuilder; `appliedFilters` is what's actually been
+    // committed via Apply (and what drives fetching + the download button).
     const [activeFilters, setActiveFilters] = useState<ActiveFilter[]>(() => {
+        return decodeFiltersFromURL(searchParams, usageFilterAttributes);
+    });
+    const [appliedFilters, setAppliedFilters] = useState<ActiveFilter[]>(() => {
         return decodeFiltersFromURL(searchParams, usageFilterAttributes);
     });
 
@@ -83,51 +90,50 @@ export default function UsagePage() {
         }
     }, [auth.isAuthenticated]);
 
+    // Translate the FilterBuilder state into the query-param shape the
+    // backend expects. Shared between the listing fetch and the CSV export
+    // so they stay in lockstep.
+    const buildUsageQueryParams = (filters?: ActiveFilter[]) => {
+        let filterParam: string | undefined;
+        let startDate = '';
+        let endDate = '';
+
+        if (filters && filters.length > 0) {
+            const dateRangeFilter = filters.find(f => f.attribute.id === 'dateRange');
+            if (dateRangeFilter && dateRangeFilter.value) {
+                const dateValue = dateRangeFilter.value as DateRangeValue;
+                if (dateValue.from) startDate = dateValue.from.toISOString();
+                if (dateValue.to) endDate = dateValue.to.toISOString();
+            }
+
+            const otherFilters = filters.filter(f => f.attribute.id !== 'dateRange');
+            if (otherFilters.length > 0) {
+                const filterData = otherFilters.map(filter => ({
+                    attribute: filter.attribute.id,
+                    type: filter.attribute.type,
+                    value: filter.value,
+                }));
+                filterParam = JSON.stringify(filterData);
+            }
+        }
+
+        return {
+            ...(startDate && { start_date: startDate }),
+            ...(endDate && { end_date: endDate }),
+            ...(filterParam && { filters: filterParam }),
+        };
+    };
+
     // Fetch usage history
     const fetchUsageHistory = useCallback(async (page: number, filters?: ActiveFilter[]) => {
         if (!auth.isAuthenticated) return;
         setIsLoadingHistory(true);
         try {
-            let filterParam = undefined;
-            let startDate = '';
-            let endDate = '';
-
-            if (filters && filters.length > 0) {
-                // Extract date range filter if present
-                const dateRangeFilter = filters.find(f => f.attribute.id === 'dateRange');
-                if (dateRangeFilter && dateRangeFilter.value) {
-                    const dateValue = dateRangeFilter.value as DateRangeValue;
-
-                    if (dateValue.from) {
-                        // The dates are already in the user's local timezone
-                        // Convert to UTC ISO string for the backend
-                        startDate = dateValue.from.toISOString();
-                    }
-                    if (dateValue.to) {
-                        // Convert to UTC ISO string for the backend
-                        endDate = dateValue.to.toISOString();
-                    }
-                }
-
-                // Process other filters (excluding dateRange)
-                const otherFilters = filters.filter(f => f.attribute.id !== 'dateRange');
-                if (otherFilters.length > 0) {
-                    const filterData = otherFilters.map(filter => ({
-                        attribute: filter.attribute.id,
-                        type: filter.attribute.type,
-                        value: filter.value,
-                    }));
-                    filterParam = JSON.stringify(filterData);
-                }
-            }
-
             const response = await getUsageHistoryApiV1OrganizationsUsageRunsGet({
                 query: {
                     page,
                     limit: 50,
-                    ...(startDate && { start_date: startDate }),
-                    ...(endDate && { end_date: endDate }),
-                    ...(filterParam && { filters: filterParam })
+                    ...buildUsageQueryParams(filters),
                 },
             });
 
@@ -160,6 +166,37 @@ export default function UsagePage() {
             setIsLoadingDaily(false);
         }
     }, [auth.isAuthenticated, organizationPricing]);
+
+    // Download a CSV of all runs matching the current filters.
+    const handleDownloadReport = async () => {
+        if (!auth.isAuthenticated) return;
+        setIsDownloadingReport(true);
+        try {
+            const response = await downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet({
+                query: buildUsageQueryParams(appliedFilters),
+                parseAs: 'blob',
+            });
+
+            if (response.data) {
+                const blob = response.data as Blob;
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'usage_runs_report.csv';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+            } else {
+                toast.error('Failed to download report');
+            }
+        } catch (error) {
+            console.error('Failed to download usage report:', error);
+            toast.error('Failed to download report');
+        } finally {
+            setIsDownloadingReport(false);
+        }
+    };
 
     // Handle timezone change
     const handleTimezoneChange = async (timezone: ITimezoneOption | string) => {
@@ -195,9 +232,9 @@ export default function UsagePage() {
     useEffect(() => {
         if (auth.isAuthenticated) {
             fetchMpsCredits();
-            fetchUsageHistory(currentPage, activeFilters);
+            fetchUsageHistory(currentPage, appliedFilters);
         }
-    }, [auth.isAuthenticated, currentPage, activeFilters, fetchUsageHistory, fetchMpsCredits]);
+    }, [auth.isAuthenticated, currentPage, appliedFilters, fetchUsageHistory, fetchMpsCredits]);
 
     // Fetch daily usage when organizationPricing becomes available
     useEffect(() => {
@@ -229,6 +266,7 @@ export default function UsagePage() {
     const handleApplyFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1); // Reset to first page when applying filters
+        setAppliedFilters(activeFilters);
         updateUrlParams({ page: 1, filters: activeFilters });
         await fetchUsageHistory(1, activeFilters);
         setIsExecutingFilters(false);
@@ -241,6 +279,8 @@ export default function UsagePage() {
     const handleClearFilters = useCallback(async () => {
         setIsExecutingFilters(true);
         setCurrentPage(1);
+        setActiveFilters([]);
+        setAppliedFilters([]);
         updateUrlParams({ page: 1, filters: [] }); // Clear filters from URL
         await fetchUsageHistory(1, []); // Fetch all runs without filters
         setIsExecutingFilters(false);
@@ -249,8 +289,8 @@ export default function UsagePage() {
     // Handle page change
     const handlePageChange = (newPage: number) => {
         setCurrentPage(newPage);
-        updateUrlParams({ page: newPage, filters: activeFilters });
-        fetchUsageHistory(newPage, activeFilters);
+        updateUrlParams({ page: newPage, filters: appliedFilters });
+        fetchUsageHistory(newPage, appliedFilters);
     };
 
     // Handle row click to navigate to workflow run
@@ -289,8 +329,8 @@ export default function UsagePage() {
             <div>
                 <div className="flex justify-between items-start">
                     <div>
-                        <h1 className="text-3xl font-bold mb-2">Usage Dashboard</h1>
-                        <p className="text-muted-foreground">Monitor your Dograh Token usage and quota</p>
+                        <h1 className="text-3xl font-bold mb-2">Agent Runs</h1>
+                        <p className="text-muted-foreground">See all your Agent Runs across all Voice Agents. You can use filters to filter out required Agent Runs.</p>
                     </div>
                         <div className="flex items-center gap-2">
                             <Globe className="h-4 w-4 text-muted-foreground" />
@@ -419,7 +459,7 @@ export default function UsagePage() {
                 )}
 
                 {/* Filter Builder */}
-                <div className="mb-6">
+                <div className="mb-6 space-y-3">
                     <FilterBuilder
                         availableAttributes={usageFilterAttributes}
                         activeFilters={activeFilters}
@@ -428,6 +468,19 @@ export default function UsagePage() {
                         onClearFilters={handleClearFilters}
                         isExecuting={isExecutingFilters}
                     />
+                    {appliedFilters.length > 0 && (
+                        <div className="flex justify-end">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={handleDownloadReport}
+                                disabled={isDownloadingReport}
+                            >
+                                <Download className="h-4 w-4 mr-2" />
+                                {isDownloadingReport ? 'Preparing...' : 'Download Filtered Results'}
+                            </Button>
+                        </div>
+                    )}
                 </div>
 
                 {/* Usage History */}
@@ -435,9 +488,9 @@ export default function UsagePage() {
                     <CardHeader>
                         <div className="flex justify-between items-start">
                             <div className="space-y-1.5">
-                                <CardTitle>Usage History</CardTitle>
+                                <CardTitle>All Runs</CardTitle>
                                 <CardDescription>
-                                    View detailed usage by workflow run
+                                    Every agent run across your organization, with usage details
                                 </CardDescription>
                             </div>
                         </div>
@@ -463,7 +516,7 @@ export default function UsagePage() {
                                                 <TableHead className="font-semibold">Date</TableHead>
                                                 <TableHead className="font-semibold text-right">Duration</TableHead>
                                                 <TableHead className="font-semibold text-right">
-                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Dograh Tokens'}
+                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Tokens'}
                                                 </TableHead>
                                                 <TableHead className="font-semibold">Actions</TableHead>
                                             </TableRow>
@@ -490,7 +543,9 @@ export default function UsagePage() {
                                                         )}
                                                     </TableCell>
                                                     <TableCell className="text-sm">
-                                                        {run.phone_number || '-'}
+                                                        {(run.call_type === 'inbound'
+                                                            ? run.caller_number
+                                                            : run.called_number) || '-'}
                                                     </TableCell>
                                                     <TableCell>
                                                         {run.disposition ? (
@@ -526,7 +581,7 @@ export default function UsagePage() {
                                 </div>
 
                                 {/* Summary */}
-                                {activeFilters.length > 0 && (
+                                {appliedFilters.length > 0 && (
                                     <div className="mt-4 p-3 bg-muted rounded-md">
                                         <p className="text-sm text-muted-foreground">
                                             Total for filtered period: <span className="font-semibold text-foreground">
@@ -570,7 +625,7 @@ export default function UsagePage() {
                                 )}
                             </>
                         ) : (
-                            <p className="text-center py-8 text-muted-foreground">No usage history found</p>
+                            <p className="text-center py-8 text-muted-foreground">No runs found</p>
                         )}
                     </CardContent>
                 </Card>

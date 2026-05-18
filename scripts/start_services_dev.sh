@@ -17,8 +17,11 @@ LOG_DIR="$BASE_LOG_DIR/$TIMESTAMP"      # Timestamped log directory
 LATEST_LINK="$BASE_LOG_DIR/latest"      # Symlink to latest logs
 VENV_PATH="$BASE_DIR/venv"
 
-ARQ_WORKERS=${ARQ_WORKERS:-1}
 LOG_TO_FILE=${LOG_TO_FILE:-true}
+
+HEALTH_CHECK_ENDPOINT="/api/v1/health"
+HEALTH_MAX_ATTEMPTS=${HEALTH_MAX_ATTEMPTS:-30}
+HEALTH_INTERVAL=${HEALTH_INTERVAL:-2}
 
 cd "$BASE_DIR"
 echo "Starting Dograh Services (DEV MODE) at $(date) in BASE_DIR: ${BASE_DIR}"
@@ -42,19 +45,15 @@ SERVICE_NAMES=(
   "ari_manager"
   "campaign_orchestrator"
   "uvicorn"
+  "arq"
 )
 
 SERVICE_COMMANDS=(
   "python -m api.services.telephony.ari_manager"
   "python -m api.services.campaign.campaign_orchestrator"
   "uvicorn api.app:app --host 0.0.0.0 --port $UVICORN_BASE_PORT --reload --reload-dir api"
+  "python -m arq api.tasks.arq.WorkerSettings --custom-log-dict api.tasks.arq.LOG_CONFIG"
 )
-
-# Add ARQ workers dynamically
-for ((i=1; i<=ARQ_WORKERS; i++)); do
-  SERVICE_NAMES+=("arq$i")
-  SERVICE_COMMANDS+=("python -m arq api.tasks.arq.WorkerSettings --custom-log-dict api.tasks.arq.LOG_CONFIG")
-done
 
 ###############################################################################
 ### 3) Activate virtual environment
@@ -198,7 +197,32 @@ for i in "${!SERVICE_NAMES[@]}"; do
 done
 
 ###############################################################################
-### 8) Summary
+### 8) Wait for uvicorn health check
+###############################################################################
+
+echo "Waiting for uvicorn health check at http://127.0.0.1:${UVICORN_BASE_PORT}${HEALTH_CHECK_ENDPOINT} ..."
+
+healthy=false
+for ((attempt = 1; attempt <= HEALTH_MAX_ATTEMPTS; attempt++)); do
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" \
+    "http://127.0.0.1:${UVICORN_BASE_PORT}${HEALTH_CHECK_ENDPOINT}" 2>/dev/null || echo "000")
+
+  if [[ "$http_code" == "200" ]]; then
+    echo "✓ uvicorn healthy (attempt $attempt)"
+    healthy=true
+    break
+  fi
+  sleep "$HEALTH_INTERVAL"
+done
+
+if ! $healthy; then
+  echo "✗ uvicorn FAILED health check after $HEALTH_MAX_ATTEMPTS attempts."
+  echo "  Check logs: tail -f $LOG_DIR/uvicorn.log"
+  exit 1
+fi
+
+###############################################################################
+### 9) Summary
 ###############################################################################
 
 echo
@@ -217,6 +241,3 @@ echo "Logs: tail -f $LOG_DIR/*.log"
 echo "Rotated logs: ls $LOG_DIR/*.log.*"
 echo "To stop: ./scripts/stop_services.sh"
 echo "──────────────────────────────────────────────────"
-
-# Keep the script alive (required for Docker - PID 1 must not exit)
-wait

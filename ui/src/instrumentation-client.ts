@@ -5,6 +5,18 @@
 import * as Sentry from "@sentry/nextjs";
 import posthog from "posthog-js";
 
+// Drop errors originating from browser extensions (MetaMask's inpage.js,
+// injected widgets, etc.) by matching their URL scheme.
+const sharedSentryOptions = {
+  debug: false,
+  denyUrls: [
+    /^chrome-extension:\/\//i,
+    /^moz-extension:\/\//i,
+    /^safari-extension:\/\//i,
+    /^safari-web-extension:\/\//i,
+  ],
+};
+
 // Initialize Sentry - prioritize NEXT_PUBLIC env vars, fallback to API
 const initSentry = () => {
   const hasPublicConfig = process.env.NEXT_PUBLIC_SENTRY_DSN;
@@ -14,7 +26,7 @@ const initSentry = () => {
     // Use client-side environment variables
     Sentry.init({
       dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-      debug: false,
+      ...sharedSentryOptions,
     });
     console.log('Sentry initialized from NEXT_PUBLIC config');
   } else {
@@ -25,7 +37,7 @@ const initSentry = () => {
         if (config.enabled && config.dsn) {
           Sentry.init({
             dsn: config.dsn,
-            debug: false,
+            ...sharedSentryOptions,
           });
           console.log('Sentry initialized from API config');
         } else {

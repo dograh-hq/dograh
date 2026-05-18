@@ -1,12 +1,11 @@
 import asyncio
 from typing import Optional
 
-from fastapi import HTTPException, WebSocket
+from fastapi import HTTPException
 from loguru import logger
 
 from api.constants import TUNER_BASE_URL
 from api.db import db_client
-from api.db.models import WorkflowModel
 from api.enums import WorkflowRunMode
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
@@ -45,19 +44,12 @@ from api.services.pipecat.service_factory import (
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
-from api.services.pipecat.transport_setup import (
-    create_ari_transport,
-    create_cloudonix_transport,
-    create_telnyx_transport,
-    create_twilio_transport,
-    create_vobiz_transport,
-    create_vonage_transport,
-    create_webrtc_transport,
-)
+from api.services.pipecat.transport_setup import create_webrtc_transport
 from api.services.pipecat.ws_sender_registry import get_ws_sender
+from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import NodeType, ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
-from api.services.workflow.workflow import WorkflowGraph
+from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -95,387 +87,139 @@ from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 ensure_tracing()
 
 
-async def run_pipeline_twilio(
-    websocket_client: WebSocket,
-    stream_sid: str,
-    call_sid: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Twilio connections"""
-    logger.debug(
-        f"Running pipeline for Twilio connection with workflow_id: {workflow_id} and workflow_run_id: {workflow_run_id}"
-    )
-    set_current_run_id(workflow_run_id)
+def _create_realtime_user_turn_config(provider: str):
+    """Return user turn strategies and optional local VAD for realtime providers."""
+    if provider in {
+        ServiceProviders.GOOGLE_REALTIME.value,
+        ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
+    }:
+        # Let Gemini Live own barge-in via its server-side VAD, but keep local
+        # Silero VAD for early user-turn start and speaking-state tracking.
+        return (
+            UserTurnStrategies(
+                start=[VADUserTurnStartStrategy(enable_interruptions=False)],
+                stop=[SpeechTimeoutUserTurnStopStrategy()],
+            ),
+            SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+        )
 
-    # Store call ID in cost_info for later cost calculation (provider-agnostic)
-    cost_info = {"call_id": call_sid}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+    if provider == ServiceProviders.OPENAI_REALTIME.value:
+        # OpenAI Realtime already emits speaking-state frames and interruption
+        # events from the provider, so the aggregator should follow those
+        # external signals rather than run its own local VAD.
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[ExternalUserTurnStopStrategy()],
+            ),
+            None,
+        )
 
-    # Get workflow to extract all pipeline configurations
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    # Create audio configuration for Twilio
-    audio_config = create_audio_config(WorkflowRunMode.TWILIO.value)
-
-    transport = await create_twilio_transport(
-        websocket_client,
-        stream_sid,
-        call_sid,
-        workflow_run_id,
-        audio_config,
-        workflow.organization_id,
-        vad_config,
-        ambient_noise_config,
-    )
-    await _run_pipeline(
-        transport,
-        workflow_id,
-        workflow_run_id,
-        user_id,
-        audio_config=audio_config,
+    return (
+        UserTurnStrategies(
+            start=[VADUserTurnStartStrategy()],
+            stop=[SpeechTimeoutUserTurnStopStrategy()],
+        ),
+        SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
     )
 
 
-async def run_pipeline_vonage(
-    websocket_client,
-    call_uuid: str,
-    workflow: WorkflowModel,
-    organization_id: int,
+async def run_pipeline_telephony(
+    websocket,
+    *,
+    provider_name: str,
     workflow_id: int,
     workflow_run_id: int,
     user_id: int,
-):
-    """Run pipeline for Vonage WebSocket connections.
-
-    Vonage uses raw PCM audio over WebSocket instead of base64-encoded μ-law.
-    The audio is transmitted as binary frames at 16kHz by default.
-    """
-    logger.info(f"Starting Vonage pipeline for workflow run {workflow_run_id}")
-    set_current_run_id(workflow_run_id)
-    set_current_org_id(organization_id)
-
-    # Store call ID in cost_info for later cost calculation (provider-agnostic)
-    cost_info = {"call_id": call_uuid}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    # Extract VAD and ambient noise config from workflow
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        # Setup audio config for Vonage using the centralized config
-        audio_config = create_audio_config(WorkflowRunMode.VONAGE.value)
-
-        # Create Vonage transport
-        transport = await create_vonage_transport(
-            websocket_client,
-            call_uuid,
-            workflow_run_id,
-            audio_config,
-            organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
-        # No special handshake needed for Vonage
-        # Audio streaming starts immediately
-
-        # Run the pipeline (same as Twilio/WebRTC)
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            call_context_vars={},
-            audio_config=audio_config,
-        )
-
-    except Exception as e:
-        logger.error(f"Error in Vonage pipeline: {e}")
-        raise
-
-
-async def run_pipeline_ari(
-    websocket_client: WebSocket,
-    channel_id: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Asterisk ARI WebSocket connections.
-
-    ARI uses raw 16-bit signed linear PCM (SLIN16) at 16kHz
-    transmitted as binary WebSocket frames via chan_websocket.
-    """
-    logger.info(f"Starting ARI pipeline for workflow run {workflow_run_id}")
-    set_current_run_id(workflow_run_id)
-
-    # Store call ID (channel_id) in cost_info
-    cost_info = {"call_id": channel_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    # Get workflow to extract configurations
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        audio_config = create_audio_config(WorkflowRunMode.ARI.value)
-
-        transport = await create_ari_transport(
-            websocket_client,
-            channel_id,
-            workflow_run_id,
-            audio_config,
-            workflow.organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            audio_config=audio_config,
-        )
-
-    except Exception as e:
-        logger.error(f"Error in ARI pipeline: {e}")
-        raise
-
-
-async def run_pipeline_vobiz(
-    websocket_client: WebSocket,
-    stream_id: str,
     call_id: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
+    transport_kwargs: dict,
 ) -> None:
-    """Run pipeline for Vobiz using Plivo-compatible WebSocket protocol."""
-    logger.info(
-        f"[run {workflow_run_id}] Starting Vobiz pipeline - "
-        f"stream_id={stream_id}, call_id={call_id}, workflow_id={workflow_id}"
-    )
-    set_current_run_id(workflow_run_id)
+    """Run a pipeline for any telephony provider.
 
-    cost_info = {"call_id": call_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+    Replaces the previous per-provider run_pipeline_<x> functions. The
+    provider's transport factory and audio config are looked up from the
+    registry, so adding a new provider requires no changes here.
 
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        audio_config = create_audio_config(WorkflowRunMode.VOBIZ.value)
-        logger.info(
-            f"[run {workflow_run_id}] Vobiz audio config: "
-            f"sample_rate={audio_config.transport_in_sample_rate}Hz, format=MULAW"
-        )
-
-        transport = await create_vobiz_transport(
-            websocket_client,
-            stream_id,
-            call_id,
-            workflow_run_id,
-            audio_config,
-            workflow.organization_id,
-            vad_config,
-            ambient_noise_config,
-        )
-
-        logger.info(f"[run {workflow_run_id}] Starting Vobiz pipeline execution")
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            audio_config=audio_config,
-        )
-        logger.info(f"[run {workflow_run_id}] Vobiz pipeline completed successfully")
-
-    except Exception as e:
-        logger.error(
-            f"[run {workflow_run_id}] Error in Vobiz pipeline: {e}", exc_info=True
-        )
-        raise
-
-
-async def run_pipeline_telnyx(
-    websocket_client: WebSocket,
-    stream_id: str,
-    call_control_id: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Telnyx Call Control WebSocket connections.
-
-    Telnyx uses PCMU at 8kHz over WebSocket with base64-encoded media events,
-    similar to Twilio's protocol.
+    Args:
+        websocket: The accepted WebSocket from the provider.
+        provider_name: Stable identifier of the provider (registry key).
+        workflow_id: Workflow being executed.
+        workflow_run_id: Workflow run row.
+        user_id: Owner of the workflow.
+        call_id: Provider call identifier (stored in cost_info for billing).
+        transport_kwargs: Provider-specific kwargs forwarded to the transport
+            factory (e.g. stream_sid + call_sid for Twilio).
     """
-    logger.info(
-        f"[run {workflow_run_id}] Starting Telnyx pipeline - "
-        f"stream_id={stream_id}, call_control_id={call_control_id}, "
-        f"workflow_id={workflow_id}"
-    )
+    logger.debug(f"Running {provider_name} pipeline for workflow_run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
 
-    cost_info = {"call_id": call_control_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
+    await db_client.update_workflow_run(workflow_run_id, cost_info={"call_id": call_id})
 
     workflow = await db_client.get_workflow(workflow_id, user_id)
-
     if workflow:
         set_current_org_id(workflow.organization_id)
 
-    vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    try:
-        audio_config = create_audio_config(WorkflowRunMode.TELNYX.value)
-
-        transport = await create_telnyx_transport(
-            websocket_client,
-            stream_id,
-            call_control_id,
-            workflow_run_id,
-            audio_config,
-            workflow.organization_id,
-            vad_config,
-            ambient_noise_config,
+        ambient_noise_config = workflow.workflow_configurations.get(
+            "ambient_noise_configuration"
         )
 
-        await _run_pipeline(
-            transport,
-            workflow_id,
-            workflow_run_id,
-            user_id,
-            audio_config=audio_config,
+    # The telephony config id is stamped on the workflow run when it's created
+    # (test call, campaign dispatch, inbound). Transports use it to load creds
+    # from the right config row. Falls back to None for legacy runs (transports
+    # then resolve the org's default config).
+    workflow_run = await db_client.get_workflow_run(workflow_run_id)
+    telephony_configuration_id = None
+    if workflow_run and workflow_run.initial_context:
+        telephony_configuration_id = workflow_run.initial_context.get(
+            "telephony_configuration_id"
         )
-        logger.info(f"[run {workflow_run_id}] Telnyx pipeline completed successfully")
 
-    except Exception as e:
-        logger.error(
-            f"[run {workflow_run_id}] Error in Telnyx pipeline: {e}", exc_info=True
-        )
-        raise
+    # Resolve effective user config here so the transport can tune its
+    # bot-stopped-speaking fallback based on is_realtime; pass the resolved
+    # values into _run_pipeline so it doesn't fetch them again.
+    from api.services.configuration.resolve import resolve_effective_config
 
-
-async def run_pipeline_cloudonix(
-    websocket_client: WebSocket,
-    stream_sid: str,
-    workflow_id: int,
-    workflow_run_id: int,
-    user_id: int,
-) -> None:
-    """Run pipeline for Cloudonix connections"""
-    logger.debug(
-        f"Running pipeline for Cloudonix connection with workflow_id: {workflow_id} and workflow_run_id: {workflow_run_id}"
+    user_config = await db_client.get_user_configurations(user_id)
+    run_configs = (
+        (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
+    user_config = resolve_effective_config(
+        user_config, run_configs.get("model_overrides")
+    )
+    is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
-    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
-    call_id = workflow_run.gathered_context.get("call_id")
-    if not call_id:
-        logger.warning("call_id not found in gathered_context")
-        raise Exception()
+    spec = telephony_registry.get(provider_name)
+    audio_config = create_audio_config(provider_name)
 
-    # Store call ID in cost_info for later cost calculation (provider-agnostic)
-    cost_info = {"call_id": call_id}
-    await db_client.update_workflow_run(workflow_run_id, cost_info=cost_info)
-
-    # Get workflow to extract all pipeline configurations
-    workflow = await db_client.get_workflow(workflow_id, user_id)
-
-    # Set org context early so tasks created by the transport inherit it
-    if workflow:
-        set_current_org_id(workflow.organization_id)
-
-    vad_config = None
-    ambient_noise_config = None
-    if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
-        if "ambient_noise_configuration" in workflow.workflow_configurations:
-            ambient_noise_config = workflow.workflow_configurations[
-                "ambient_noise_configuration"
-            ]
-
-    # Create audio configuration for Cloudonix
-    audio_config = create_audio_config(WorkflowRunMode.CLOUDONIX.value)
-
-    transport = await create_cloudonix_transport(
-        websocket_client,
-        call_id,
-        stream_sid,
+    transport = await spec.transport_factory(
+        websocket,
         workflow_run_id,
         audio_config,
         workflow.organization_id,
-        vad_config,
-        ambient_noise_config,
+        ambient_noise_config=ambient_noise_config,
+        telephony_configuration_id=telephony_configuration_id,
+        is_realtime=is_realtime,
+        **transport_kwargs,
     )
-    await _run_pipeline(
-        transport,
-        workflow_id,
-        workflow_run_id,
-        user_id,
-        audio_config=audio_config,
-    )
+
+    try:
+        await _run_pipeline(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            audio_config=audio_config,
+            workflow_run=workflow_run,
+            resolved_user_config=user_config,
+        )
+    except Exception as e:
+        logger.error(
+            f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
+            exc_info=True,
+        )
+        raise
 
 
 async def run_pipeline_smallwebrtc(
@@ -499,11 +243,8 @@ async def run_pipeline_smallwebrtc(
     if workflow:
         set_current_org_id(workflow.organization_id)
 
-    vad_config = None
     ambient_noise_config = None
     if workflow and workflow.workflow_configurations:
-        if "vad_configuration" in workflow.workflow_configurations:
-            vad_config = workflow.workflow_configurations["vad_configuration"]
         if "ambient_noise_configuration" in workflow.workflow_configurations:
             ambient_noise_config = workflow.workflow_configurations[
                 "ambient_noise_configuration"
@@ -512,12 +253,27 @@ async def run_pipeline_smallwebrtc(
     # Create audio configuration for WebRTC
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
 
+    # Resolve workflow_run + effective user_config here so the transport can
+    # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
+    # reuses these via kwargs so we don't fetch twice.
+    from api.services.configuration.resolve import resolve_effective_config
+
+    workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+    user_config = await db_client.get_user_configurations(user_id)
+    run_configs = (
+        (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
+    )
+    user_config = resolve_effective_config(
+        user_config, run_configs.get("model_overrides")
+    )
+    is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
+
     transport = await create_webrtc_transport(
         webrtc_connection,
         workflow_run_id,
         audio_config,
-        vad_config,
         ambient_noise_config,
+        is_realtime=is_realtime,
     )
     await _run_pipeline(
         transport,
@@ -527,6 +283,8 @@ async def run_pipeline_smallwebrtc(
         call_context_vars=call_context_vars,
         audio_config=audio_config,
         user_provider_id=user_provider_id,
+        workflow_run=workflow_run,
+        resolved_user_config=user_config,
     )
 
 
@@ -538,6 +296,8 @@ async def _run_pipeline(
     call_context_vars: dict = {},
     audio_config: AudioConfig = None,
     user_provider_id: str | None = None,
+    workflow_run=None,
+    resolved_user_config=None,
 ) -> None:
     """
     Run the pipeline with the given transport and configuration
@@ -547,24 +307,22 @@ async def _run_pipeline(
         workflow_id: The ID of the workflow
         workflow_run_id: The ID of the workflow run
         user_id: The ID of the user
-        mode: The mode of the pipeline (twilio or smallwebrtc)
+        workflow_run: Pre-fetched workflow run row. Fetched here if None.
+        resolved_user_config: User configuration with model_overrides already
+            applied. Fetched and resolved here if None.
     """
-    workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
+    if workflow_run is None:
+        workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
 
     # If the workflow run is already completed, we don't need to run it again
     if workflow_run.is_completed:
         raise HTTPException(status_code=400, detail="Workflow run already completed")
 
     merged_call_context_vars = workflow_run.initial_context
-    # If there is some extra call_context_vars, update them
+    # If there is some extra call_context_vars, fold them in. Persistence
+    # happens once below, after runtime_configuration is also resolved.
     if call_context_vars:
         merged_call_context_vars = {**merged_call_context_vars, **call_context_vars}
-        await db_client.update_workflow_run(
-            workflow_run_id, initial_context=merged_call_context_vars
-        )
-
-    # Get user configuration
-    user_config = await db_client.get_user_configurations(user_id)
 
     # Get workflow for metadata (name, organization_id, call_disposition_codes)
     workflow = await db_client.get_workflow(workflow_id, user_id)
@@ -603,11 +361,17 @@ async def _run_pipeline(
                     term.strip() for term in dictionary.split(",") if term.strip()
                 ]
 
-    # Resolve model overrides from the version onto global user config
-    from api.services.configuration.resolve import resolve_effective_config
+    # Resolve model overrides from the version onto global user config (skip
+    # when the caller already resolved it).
+    if resolved_user_config is None:
+        from api.services.configuration.resolve import resolve_effective_config
 
-    model_overrides = run_configs.get("model_overrides")
-    user_config = resolve_effective_config(user_config, model_overrides)
+        user_config = await db_client.get_user_configurations(user_id)
+        user_config = resolve_effective_config(
+            user_config, run_configs.get("model_overrides")
+        )
+    else:
+        user_config = resolved_user_config
 
     # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
     is_realtime = user_config.is_realtime and user_config.realtime is not None
@@ -626,6 +390,36 @@ async def _run_pipeline(
         tts = create_tts_service(user_config, audio_config)
         llm = create_llm_service(user_config)
         inference_llm = None
+
+    # Stamp the providers/models actually resolved for this run onto
+    # initial_context so they're available for post-call analytics
+    # (model_overrides may have shifted them away from the org-level
+    # user_config).
+    if is_realtime:
+        # llm_* refers to the side-channel text LLM (variable extraction,
+        # voicemail detection); realtime_* is the speech-to-speech service.
+        runtime_configuration = {
+            "realtime_provider": user_config.realtime.provider,
+            "realtime_model": user_config.realtime.model,
+            "llm_provider": user_config.llm.provider,
+            "llm_model": user_config.llm.model,
+        }
+    else:
+        runtime_configuration = {
+            "stt_provider": user_config.stt.provider,
+            "stt_model": user_config.stt.model,
+            "tts_provider": user_config.tts.provider,
+            "tts_model": user_config.tts.model,
+            "llm_provider": user_config.llm.provider,
+            "llm_model": user_config.llm.model,
+        }
+    merged_call_context_vars = {
+        **merged_call_context_vars,
+        "runtime_configuration": runtime_configuration,
+    }
+    await db_client.update_workflow_run(
+        workflow_run_id, initial_context=merged_call_context_vars
+    )
 
     workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(run_workflow_json))
 
@@ -779,25 +573,23 @@ async def _run_pipeline(
     engine.set_audio_config(audio_config)
 
     assistant_params = LLMAssistantAggregatorParams(
-        expect_stripped_words=True,
         correct_aggregation_callback=engine.create_aggregation_correction_callback(),
     )
 
+    user_mute_strategies = [
+        MuteUntilFirstBotCompleteUserMuteStrategy(),
+        FunctionCallUserMuteStrategy(),
+        CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
+    ]
+    user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
+
     # Configure turn strategies based on STT provider, model, and workflow configuration
     if is_realtime:
-        # Realtime services have server-side VAD/turn detection.
-        # For stop strategy, lets rely on SmartTurnAnalyzer which is
-        # enabled by default
-        user_turn_strategies = UserTurnStrategies(
-            start=[VADUserTurnStartStrategy()], stop=[]
+        # Realtime services still need user-turn tracking even when the model
+        # itself owns speech generation and interruption behavior.
+        user_turn_strategies, user_vad_analyzer = _create_realtime_user_turn_config(
+            user_config.realtime.provider
         )
-
-        # Lets not start the pipeline as muted for Realtime
-        # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
-        user_mute_strategies = [
-            FunctionCallUserMuteStrategy(),
-            CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-        ]
     else:
         # Deepgram Flux uses external turn detection (VAD + External start/stop)
         # Other models use configurable turn detection strategy
@@ -838,18 +630,11 @@ async def _run_pipeline(
                 stop=[SpeechTimeoutUserTurnStopStrategy()],
             )
 
-        # - CallbackUserMuteStrategy: mutes based on engine's _mute_pipeline state
-        user_mute_strategies = [
-            MuteUntilFirstBotCompleteUserMuteStrategy(),
-            FunctionCallUserMuteStrategy(),
-            CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
-        ]
-
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
         user_mute_strategies=user_mute_strategies,
         user_idle_timeout=max_user_idle_timeout,
-        vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+        vad_analyzer=user_vad_analyzer,
     )
     context_aggregator = LLMContextAggregatorPair(
         context, assistant_params=assistant_params, user_params=user_params
@@ -879,7 +664,6 @@ async def _run_pipeline(
     async def on_user_turn_started(aggregator, strategy):
         user_idle_handler.reset()
 
-    # Voicemail detection and recording router are not supported in realtime mode
     voicemail_detector = None
     recording_router = None
 
@@ -891,58 +675,60 @@ async def _run_pipeline(
     )
     engine.set_fetch_recording_audio(fetch_audio)
 
-    if not is_realtime:
-        # Create voicemail detector if enabled in workflow configurations
-        voicemail_config = (workflow.workflow_configurations or {}).get(
-            "voicemail_detection", {}
+    voicemail_config = (workflow.workflow_configurations or {}).get(
+        "voicemail_detection", {}
+    )
+    if is_realtime and voicemail_config.get("enabled", False):
+        logger.info(
+            f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
         )
-        if voicemail_config.get("enabled", False):
-            logger.info(
-                f"Voicemail detection enabled for workflow run {workflow_run_id}"
-            )
-            # Create a separate LLM instance for the voicemail sub-pipeline
-            # (can't share with main pipeline as it would mess up frame linking)
-            if voicemail_config.get("use_workflow_llm", True):
-                voicemail_llm = create_llm_service(user_config)
-            else:
-                voicemail_llm = create_llm_service_from_provider(
-                    provider=voicemail_config.get("provider", "openai"),
-                    model=voicemail_config.get("model", "gpt-4.1"),
-                    api_key=voicemail_config.get("api_key", ""),
-                )
-
-            long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
-            custom_system_prompt = voicemail_config.get("system_prompt") or None
-
-            voicemail_detector = VoicemailDetector(
-                llm=voicemail_llm,
-                long_speech_timeout=long_speech_timeout,
-                custom_system_prompt=custom_system_prompt,
+    if voicemail_config.get("enabled", False) and not is_realtime:
+        logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
+        # Create a separate LLM instance for the voicemail sub-pipeline
+        # (can't share with main pipeline as it would mess up frame linking)
+        if voicemail_config.get("use_workflow_llm", True):
+            voicemail_llm = create_llm_service(user_config)
+        else:
+            voicemail_llm = create_llm_service_from_provider(
+                provider=voicemail_config.get("provider", "openai"),
+                model=voicemail_config.get("model", "gpt-4.1"),
+                api_key=voicemail_config.get("api_key", ""),
             )
 
-            # Register event handler to end task when voicemail is detected
-            @voicemail_detector.event_handler("on_voicemail_detected")
-            async def _on_voicemail_detected(_processor):
-                logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
-                await engine.end_call_with_reason(
-                    reason=EndTaskReason.VOICEMAIL_DETECTED.value,
-                    abort_immediately=True,
-                )
+        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
+        custom_system_prompt = voicemail_config.get("system_prompt") or None
 
-        # Create recording router if workflow has active recordings
-        if has_recordings:
-            recording_router = RecordingRouterProcessor(
-                audio_sample_rate=audio_config.pipeline_sample_rate,
-                fetch_recording_audio=fetch_audio,
+        voicemail_detector = VoicemailDetector(
+            llm=voicemail_llm,
+            long_speech_timeout=long_speech_timeout,
+            custom_system_prompt=custom_system_prompt,
+        )
+
+        # Register event handler to end task when voicemail is detected
+        @voicemail_detector.event_handler("on_voicemail_detected")
+        async def _on_voicemail_detected(_processor):
+            logger.info(f"Voicemail detected for workflow run {workflow_run_id}")
+            await engine.end_call_with_reason(
+                reason=EndTaskReason.VOICEMAIL_DETECTED.value,
+                abort_immediately=True,
             )
-            # Warm the recording cache in the background so audio is ready
-            # before the first playback request.
-            asyncio.create_task(
-                warm_recording_cache(
-                    organization_id=workflow.organization_id,
-                    pipeline_sample_rate=audio_config.pipeline_sample_rate,
-                )
+
+    # Recording router is only meaningful in non-realtime mode (it routes between
+    # pre-recorded audio playback and dynamic TTS; realtime LLMs produce audio
+    # directly).
+    if not is_realtime and has_recordings:
+        recording_router = RecordingRouterProcessor(
+            audio_sample_rate=audio_config.pipeline_sample_rate,
+            fetch_recording_audio=fetch_audio,
+        )
+        # Warm the recording cache in the background so audio is ready
+        # before the first playback request.
+        asyncio.create_task(
+            warm_recording_cache(
+                organization_id=workflow.organization_id,
+                pipeline_sample_rate=audio_config.pipeline_sample_rate,
             )
+        )
 
     # Build the pipeline
     if is_realtime:
@@ -954,6 +740,7 @@ async def _run_pipeline(
             assistant_context_aggregator,
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
+            voicemail_detector=voicemail_detector,
         )
     else:
         pipeline = build_pipeline(

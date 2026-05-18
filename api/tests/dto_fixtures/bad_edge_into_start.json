@@ -1,0 +1,24 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller."}
+    },
+    {
+      "id": "a",
+      "type": "agentNode",
+      "position": {"x": 200, "y": 0},
+      "data": {"name": "Agent", "prompt": "Continue the conversation."}
+    }
+  ],
+  "edges": [
+    {
+      "id": "a-s",
+      "source": "a",
+      "target": "s",
+      "data": {"label": "loop back to start", "condition": "always"}
+    }
+  ]
+}

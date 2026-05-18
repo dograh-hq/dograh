@@ -25,6 +25,23 @@ import logger from '@/lib/logger';
 import { getNextNodeId, getRandomId } from "@/lib/utils";
 import { DEFAULT_WORKFLOW_CONFIGURATIONS, WorkflowConfigurations } from "@/types/workflow-configurations";
 
+// Pull a WorkflowError[] out of any validate-shaped payload — works whether
+// the body is the raw `{ is_valid, errors }` (validate success-with-errors)
+// or wrapped as `{ detail: { is_valid, errors } }` (HTTPException body for
+// validate's 422 and save's 409). Returns [] for any other shape so callers
+// can tell "no structured errors in this response" from "valid".
+function extractWorkflowErrors(payload: unknown): WorkflowError[] {
+    if (!payload || typeof payload !== "object") return [];
+    const p = payload as {
+        is_valid?: boolean;
+        errors?: WorkflowError[];
+        detail?: { is_valid?: boolean; errors?: WorkflowError[] } | string;
+    };
+    if (p.is_valid === false && p.errors) return p.errors;
+    if (typeof p.detail === "object" && p.detail?.errors) return p.detail.errors;
+    return [];
+}
+
 // Build initial node data from spec defaults. Replaces the per-type
 // hardcoded `getNewNode` switch — adding a new node type is now zero
 // frontend code: declare the spec on the backend and the defaults flow
@@ -238,6 +255,29 @@ export const useWorkflowState = ({
         setIsDirty(true);
     };
 
+    // Replace the canvas's validation state with `errors`. Always clears any
+    // prior invalid markers first, so passing [] is the "workflow is now
+    // valid" path.
+    const applyWorkflowErrors = useCallback(
+        (errors: WorkflowError[]) => {
+            clearValidationErrors();
+            errors.forEach((error) => {
+                if (error.kind === "node" && error.id) {
+                    markNodeAsInvalid(error.id, error.message);
+                } else if (error.kind === "edge" && error.id) {
+                    markEdgeAsInvalid(error.id, error.message);
+                }
+            });
+            setWorkflowValidationErrors(errors);
+        },
+        [
+            clearValidationErrors,
+            markNodeAsInvalid,
+            markEdgeAsInvalid,
+            setWorkflowValidationErrors,
+        ],
+    );
+
     // Validate workflow function
     const validateWorkflow = useCallback(async () => {
         if (!user?.id) return;
@@ -247,58 +287,16 @@ export const useWorkflowState = ({
                     workflow_id: workflowId,
                 },
             });
-
-            // Clear validation errors first
-            clearValidationErrors();
-
-            // Check if we have validation errors
-            if (response.error) {
-                let errors: WorkflowError[] = [];
-                const errorResponse = response.error as {
-                    is_valid?: boolean;
-                    errors?: WorkflowError[];
-                    detail?: { errors: WorkflowError[] };
-                };
-
-                if (errorResponse.is_valid === false && errorResponse.errors) {
-                    errors = errorResponse.errors;
-                } else if (errorResponse.detail?.errors) {
-                    errors = errorResponse.detail.errors;
-                }
-
-                if (errors.length > 0) {
-                    // Update nodes with validation state
-                    errors.forEach((error) => {
-                        if (error.kind === 'node' && error.id) {
-                            markNodeAsInvalid(error.id, error.message);
-                        } else if (error.kind === 'edge' && error.id) {
-                            markEdgeAsInvalid(error.id, error.message);
-                        }
-                    });
-
-                    setWorkflowValidationErrors(errors);
-                }
-            } else if (response.data) {
-                if (response.data.is_valid === false && response.data.errors) {
-                    const errors = response.data.errors;
-
-                    errors.forEach((error: WorkflowError) => {
-                        if (error.kind === 'node' && error.id) {
-                            markNodeAsInvalid(error.id, error.message);
-                        } else if (error.kind === 'edge' && error.id) {
-                            markEdgeAsInvalid(error.id, error.message);
-                        }
-                    });
-
-                    setWorkflowValidationErrors(errors);
-                } else {
-                    logger.info('Workflow is valid');
-                }
-            }
+            // 422 surfaces under response.error, 200 with is_valid=true under
+            // response.data. extractWorkflowErrors normalises both — empty
+            // list means "valid" and clears any stale highlights.
+            applyWorkflowErrors(
+                extractWorkflowErrors(response.error ?? response.data),
+            );
         } catch (error: unknown) {
             logger.error(`Unexpected validation error: ${error}`);
         }
-    }, [workflowId, user, clearValidationErrors, markNodeAsInvalid, markEdgeAsInvalid, setWorkflowValidationErrors]);
+    }, [workflowId, user, applyWorkflowErrors]);
 
     // Save workflow function. Returns version info from the API response.
     const saveWorkflow = useCallback(async (updateWorkflowDefinition: boolean = true): Promise<{ versionNumber?: number; versionStatus?: string } | undefined> => {
@@ -311,6 +309,7 @@ export const useWorkflowState = ({
         const viewport = rfInstance.current.getViewport();
         const flow = { nodes: currentNodes, edges: currentEdges, viewport };
         let result: { versionNumber?: number; versionStatus?: string } | undefined;
+        let saveSucceeded = false;
         try {
             const response = await updateWorkflowApiV1WorkflowWorkflowIdPut({
                 path: {
@@ -321,21 +320,59 @@ export const useWorkflowState = ({
                     workflow_definition: updateWorkflowDefinition ? flow : null,
                 },
             });
-            setIsDirty(false);
-            if (response.data) {
-                result = {
-                    versionNumber: response.data.version_number ?? undefined,
-                    versionStatus: response.data.version_status ?? undefined,
-                };
+            if (response.error) {
+                // Backend rejected the save (e.g. 409 trigger-path conflict).
+                // When it carries structured WorkflowError items, reuse the
+                // validate pipeline so the offending node/edge gets
+                // highlighted in-canvas. We only apply when there are
+                // structured errors — a non-structured failure (network,
+                // 500) shouldn't wipe the existing validation state.
+                const workflowErrors = extractWorkflowErrors(response.error);
+                if (workflowErrors.length > 0) {
+                    applyWorkflowErrors(workflowErrors);
+                }
+                logger.error(`Error saving workflow: ${JSON.stringify(response.error)}`);
+            } else {
+                setIsDirty(false);
+                if (response.data) {
+                    // Reload server state into the canvas — the backend may
+                    // have mutated the definition (e.g. minted a missing
+                    // trigger_path) and is the source of truth post-save.
+                    // Passing no `changes` arg skips history/dirty tracking.
+                    const wf = response.data.workflow_definition as
+                        | { nodes?: FlowNode[]; edges?: FlowEdge[] }
+                        | undefined;
+                    if (wf?.nodes) setNodes(wf.nodes);
+                    if (wf?.edges) setEdges(wf.edges);
+                    result = {
+                        versionNumber: response.data.version_number ?? undefined,
+                        versionStatus: response.data.version_status ?? undefined,
+                    };
+                    saveSucceeded = true;
+                }
             }
         } catch (error) {
             logger.error(`Error saving workflow: ${error}`);
         }
 
-        // Validate after saving
-        await validateWorkflow();
+        // Only run validate after a successful save — when save failed we've
+        // already populated the validation state from the error response and
+        // re-running validate would clear those errors (validate reads the
+        // unchanged DB state, which won't surface the user's pending issue).
+        if (saveSucceeded) {
+            await validateWorkflow();
+        }
         return result;
-    }, [workflowId, workflowName, setIsDirty, user, validateWorkflow]);
+    }, [
+        workflowId,
+        workflowName,
+        setIsDirty,
+        setNodes,
+        setEdges,
+        user,
+        validateWorkflow,
+        applyWorkflowErrors,
+    ]);
 
     // Set up keyboard shortcut for save (Cmd/Ctrl + S)
     useEffect(() => {

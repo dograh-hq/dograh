@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from loguru import logger
 
-from api.services.workflow.workflow import TEMPLATE_VAR_PATTERN
+from api.services.workflow.workflow_graph import TEMPLATE_VAR_PATTERN
 
 _CURRENT_TIME_PREFIX = "current_time"
 _CURRENT_WEEKDAY_PREFIX = "current_weekday"

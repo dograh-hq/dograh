@@ -12,12 +12,6 @@ from typing import Any, Dict
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
-from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
-from api.services.workflow.tools.custom_tool import (
-    execute_http_tool,
-    tool_to_function_schema,
-)
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     FunctionCallInProgressFrame,
@@ -31,6 +25,12 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
+
+from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
+from api.services.workflow.tools.custom_tool import (
+    execute_http_tool,
+    tool_to_function_schema,
+)
 from pipecat.tests import MockLLMService, run_test
 
 
@@ -139,6 +139,45 @@ class TestToolToFunctionSchema:
         assert "customer_name" in required
         assert "duration_minutes" in required
         assert "is_priority" not in required
+
+    def test_preset_parameters_are_not_exposed_to_llm_schema(self):
+        """Test that preset parameters are injected at runtime, not shown to the LLM."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-preset",
+            name="Lookup Customer",
+            description="Lookup a customer using contextual identifiers",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/customers/lookup",
+                    "parameters": [
+                        {
+                            "name": "customer_name",
+                            "type": "string",
+                            "description": "Customer name spoken by the caller",
+                            "required": True,
+                        }
+                    ],
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        schema = tool_to_function_schema(tool)
+        props = schema["function"]["parameters"]["properties"]
+
+        assert "customer_name" in props
+        assert "phone_number" not in props
 
     def test_tool_name_sanitization(self):
         """Test that tool names with special characters are sanitized."""
@@ -254,6 +293,108 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
             assert result["status_code"] == 201
             assert result["data"]["id"] == 123
+
+    @pytest.mark.asyncio
+    async def test_post_request_injects_preset_parameters(self):
+        """Test that preset parameters are resolved from runtime context."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-preset",
+            name="Create Lead",
+            description="Create a lead with caller context",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/leads",
+                    "timeout_ms": 5000,
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        },
+                        {
+                            "name": "customer_id",
+                            "type": "number",
+                            "value_template": "{{gathered_context.customer_id}}",
+                            "required": True,
+                        },
+                        {
+                            "name": "is_vip",
+                            "type": "boolean",
+                            "value_template": "{{initial_context.is_vip}}",
+                            "required": False,
+                        },
+                    ],
+                },
+            },
+        )
+
+        arguments = {"name": "John"}
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {"id": 123}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(
+                tool,
+                arguments,
+                call_context_vars={
+                    "phone_number": "+14155550123",
+                    "is_vip": "true",
+                },
+                gathered_context_vars={"customer_id": "42"},
+            )
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["json"] == {
+                "name": "John",
+                "phone_number": "+14155550123",
+                "customer_id": 42,
+                "is_vip": True,
+            }
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_missing_required_preset_parameter_returns_error(self):
+        """Test that required preset parameters fail before the HTTP request."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-preset-error",
+            name="Create Lead",
+            description="Create a lead with caller context",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/leads",
+                    "timeout_ms": 5000,
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        result = await execute_http_tool(tool, {"name": "John"}, call_context_vars={})
+
+        assert result["status"] == "error"
+        assert "phone_number" in result["error"]
 
     @pytest.mark.asyncio
     async def test_get_request_sends_query_params(self):
@@ -720,13 +861,19 @@ class TestCustomToolManagerUnit:
     @pytest.mark.asyncio
     async def test_get_tool_schemas_returns_correct_format(self):
         """Test that get_tool_schemas returns FunctionSchema objects."""
-        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+        # Create a mock engine
         from pipecat.adapters.schemas.function_schema import FunctionSchema
 
-        # Create a mock engine
+        from api.services.workflow.pipecat_engine import PipecatEngine
+        from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
+
         mock_engine = Mock()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
+        mock_engine._organization_id = None
+        mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
+            mock_engine
+        )
 
         manager = CustomToolManager(mock_engine)
 
@@ -754,29 +901,31 @@ class TestCustomToolManagerUnit:
             },
         )
 
-        with patch(
-            "api.services.workflow.pipecat_engine_custom_tools.get_organization_id_from_workflow_run"
-        ) as mock_get_org:
-            mock_get_org.return_value = 1
-
-            with patch(
+        with (
+            patch(
                 "api.services.workflow.pipecat_engine_custom_tools.db_client"
-            ) as mock_db:
-                mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
+            ) as mock_db,
+            patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
 
-                schemas = await manager.get_tool_schemas(["uuid-1"])
+            schemas = await manager.get_tool_schemas(["uuid-1"])
 
-                assert len(schemas) == 1
-                schema = schemas[0]
+            assert len(schemas) == 1
+            schema = schemas[0]
 
-                # Schema should be a FunctionSchema object
-                assert isinstance(schema, FunctionSchema)
+            # Schema should be a FunctionSchema object
+            assert isinstance(schema, FunctionSchema)
 
-                # FunctionSchema should have correct attributes
-                assert schema.name == "test_tool"
-                assert "param1" in schema.properties
-                assert schema.properties["param1"]["type"] == "string"
-                assert "param1" in schema.required
+            # FunctionSchema should have correct attributes
+            assert schema.name == "test_tool"
+            assert "param1" in schema.properties
+            assert schema.properties["param1"]["type"] == "string"
+            assert "param1" in schema.required
 
     @pytest.mark.asyncio
     async def test_register_handlers_creates_working_handler(self):
@@ -792,9 +941,15 @@ class TestCustomToolManagerUnit:
 
         mock_llm.register_function = capture_register
 
+        from api.services.workflow.pipecat_engine import PipecatEngine
+
         mock_engine = Mock()
         mock_engine._workflow_run_id = 1
         mock_engine._call_context_vars = {}
+        mock_engine._organization_id = None
+        mock_engine._get_organization_id = PipecatEngine._get_organization_id.__get__(
+            mock_engine
+        )
         mock_engine.llm = mock_llm
 
         manager = CustomToolManager(mock_engine)
@@ -815,20 +970,22 @@ class TestCustomToolManagerUnit:
             },
         )
 
-        with patch(
-            "api.services.workflow.pipecat_engine_custom_tools.get_organization_id_from_workflow_run"
-        ) as mock_get_org:
-            mock_get_org.return_value = 1
-
-            with patch(
+        with (
+            patch(
                 "api.services.workflow.pipecat_engine_custom_tools.db_client"
-            ) as mock_db:
-                mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
+            ) as mock_db,
+            patch(
+                "api.db:db_client.get_organization_id_by_workflow_run_id",
+                new_callable=AsyncMock,
+                return_value=1,
+            ),
+        ):
+            mock_db.get_tools_by_uuids = AsyncMock(return_value=[mock_tool])
 
-                await manager.register_handlers(["uuid-1"])
+            await manager.register_handlers(["uuid-1"])
 
-                # Verify handler was registered
-                assert "api_call" in registered_handlers
+            # Verify handler was registered
+            assert "api_call" in registered_handlers
 
         # Now test that the handler works
         handler = registered_handlers["api_call"]

@@ -13,9 +13,6 @@ FILLER_SOUND_PROBABILITY = 0.0
 
 VOICEMAIL_RECORDING_DURATION = 5.0
 
-# Configuration constants
-ENABLE_TRACING = os.getenv("ENABLE_TRACING", "false").lower() == "true"
-
 # Langfuse Configuration
 LANGFUSE_HOST = os.getenv("LANGFUSE_HOST")
 LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
@@ -136,9 +133,23 @@ TURN_HOST = os.getenv("TURN_HOST", "localhost")
 TURN_PORT = int(os.getenv("TURN_PORT", "3478"))
 TURN_TLS_PORT = int(os.getenv("TURN_TLS_PORT", "5349"))
 TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))
+# Diagnostic flag: when true, strip all non-relay ICE candidates from the
+# answer SDP so every media path must traverse the TURN server. Use for
+# verifying TURN connectivity end-to-end; expect connection failures if
+# TURN is misconfigured or unreachable.
+FORCE_TURN_RELAY = os.getenv("FORCE_TURN_RELAY", "false").lower() == "true"
 
 # OSS Email/Password Auth
 OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")
 OSS_JWT_EXPIRY_HOURS = int(os.getenv("OSS_JWT_EXPIRY_HOURS", "720"))  # 30 days
 
 TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")
+
+# REMOVE-AFTER 2026-05-15: transitional flag. When True, Telnyx webhook
+# signature verification is skipped for configs that have no
+# webhook_public_key set (existing configs predating the field). Set in prod
+# through 2026-05-15 to give users time to add their key; once removed,
+# configs without a key will fail signature verification.
+TELNYX_WEBHOOK_VERIFICATION_OPTIONAL = (
+    os.getenv("TELNYX_WEBHOOK_VERIFICATION_OPTIONAL", "false").lower() == "true"
+)

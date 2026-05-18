@@ -247,22 +247,31 @@ class RateLimiter:
 
     # ======== FROM NUMBER POOL METHODS ========
 
+    @staticmethod
+    def _from_number_pool_key(
+        organization_id: int, telephony_configuration_id: int | None
+    ) -> str:
+        return f"from_number_pool:{organization_id}:{telephony_configuration_id}"
+
     async def initialize_from_number_pool(
-        self, organization_id: int, from_numbers: list[str]
+        self,
+        organization_id: int,
+        from_numbers: list[str],
+        telephony_configuration_id: int | None,
     ) -> bool:
         """
-        Initialize the from_number pool for an organization.
+        Initialize the from_number pool for an organization + telephony config.
         Uses ZADD NX so it won't overwrite numbers that are already in use.
 
-        Args:
-            organization_id: The organization ID
-            from_numbers: List of phone numbers to add to the pool
+        Pools are scoped per (organization_id, telephony_configuration_id) so
+        that orgs with multiple telephony configurations do not leak caller IDs
+        across configs.
         """
         if not from_numbers:
             return False
 
         redis_client = await self._get_redis()
-        key = f"from_number_pool:{organization_id}"
+        key = self._from_number_pool_key(organization_id, telephony_configuration_id)
 
         try:
             # ZADD NX: only add members that don't already exist (preserves in-use scores)
@@ -274,15 +283,18 @@ class RateLimiter:
             logger.error(f"Error initializing from_number pool: {e}")
             return False
 
-    async def acquire_from_number(self, organization_id: int) -> Optional[str]:
+    async def acquire_from_number(
+        self, organization_id: int, telephony_configuration_id: int | None
+    ) -> Optional[str]:
         """
-        Atomically acquire an available from_number from the pool.
+        Atomically acquire an available from_number from the pool for the given
+        (organization_id, telephony_configuration_id).
         Cleans stale entries (score > 0 and older than 30 min) before acquiring.
 
         Returns the phone number if available, None if all numbers are in use.
         """
         redis_client = await self._get_redis()
-        key = f"from_number_pool:{organization_id}"
+        key = self._from_number_pool_key(organization_id, telephony_configuration_id)
         now = time.time()
         stale_cutoff = now - self.stale_call_timeout
 
@@ -321,16 +333,21 @@ class RateLimiter:
             logger.error(f"Error acquiring from_number: {e}")
             return None
 
-    async def release_from_number(self, organization_id: int, from_number: str) -> bool:
+    async def release_from_number(
+        self,
+        organization_id: int,
+        from_number: str,
+        telephony_configuration_id: int | None,
+    ) -> bool:
         """
-        Release a from_number back to the pool by setting its score to 0.
-        Harmless if already released (score already 0).
+        Release a from_number back to its (org, telephony config) pool by
+        setting its score to 0. Harmless if already released (score already 0).
         """
         if not from_number:
             return False
 
         redis_client = await self._get_redis()
-        key = f"from_number_pool:{organization_id}"
+        key = self._from_number_pool_key(organization_id, telephony_configuration_id)
 
         lua_script = """
         local key = KEYS[1]
@@ -356,19 +373,33 @@ class RateLimiter:
             return False
 
     async def store_workflow_from_number_mapping(
-        self, workflow_run_id: int, organization_id: int, from_number: str
+        self,
+        workflow_run_id: int,
+        organization_id: int,
+        from_number: str,
+        telephony_configuration_id: int | None,
     ) -> bool:
         """
-        Store the mapping between workflow_run_id and its from_number.
-        Used for cleanup when calls complete.
+        Store the mapping between workflow_run_id and its from_number, plus
+        the telephony_configuration_id so cleanup can release back to the
+        correct pool.
         """
         redis_client = await self._get_redis()
         mapping_key = f"workflow_from_number:{workflow_run_id}"
 
         try:
+            # Redis hashes can't store None — use empty string sentinel for legacy
+            # campaigns whose telephony_configuration_id has not been backfilled.
+            tcid_value = (
+                "" if telephony_configuration_id is None else telephony_configuration_id
+            )
             await redis_client.hset(
                 mapping_key,
-                mapping={"org_id": organization_id, "from_number": from_number},
+                mapping={
+                    "org_id": organization_id,
+                    "from_number": from_number,
+                    "telephony_configuration_id": tcid_value,
+                },
             )
             await redis_client.expire(mapping_key, 1800)  # 30 min TTL
             return True
@@ -378,10 +409,11 @@ class RateLimiter:
 
     async def get_workflow_from_number_mapping(
         self, workflow_run_id: int
-    ) -> Optional[tuple[int, str]]:
+    ) -> Optional[tuple[int, str, int | None]]:
         """
         Get the from_number mapping for a workflow run.
-        Returns (organization_id, from_number) tuple or None if not found.
+        Returns (organization_id, from_number, telephony_configuration_id) or
+        None if not found. telephony_configuration_id is None for legacy entries.
         """
         redis_client = await self._get_redis()
         mapping_key = f"workflow_from_number:{workflow_run_id}"
@@ -389,7 +421,9 @@ class RateLimiter:
         try:
             mapping = await redis_client.hgetall(mapping_key)
             if mapping and "org_id" in mapping and "from_number" in mapping:
-                return (int(mapping["org_id"]), mapping["from_number"])
+                raw_tcid = mapping.get("telephony_configuration_id", "")
+                tcid = int(raw_tcid) if raw_tcid not in (None, "") else None
+                return (int(mapping["org_id"]), mapping["from_number"], tcid)
             return None
         except Exception as e:
             logger.error(f"Error getting workflow from_number mapping: {e}")

@@ -1,0 +1,36 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller."}
+    },
+    {
+      "id": "a",
+      "type": "agentNode",
+      "position": {"x": 200, "y": 0},
+      "data": {"name": "Agent", "prompt": "Continue the conversation."}
+    },
+    {
+      "id": "e",
+      "type": "endCall",
+      "position": {"x": 400, "y": 0},
+      "data": {"name": "End", "prompt": "Say goodbye."}
+    }
+  ],
+  "edges": [
+    {
+      "id": "s-a",
+      "source": "s",
+      "target": "a",
+      "data": {"label": "start to agent", "condition": "always"}
+    },
+    {
+      "id": "a-e",
+      "source": "a",
+      "target": "e",
+      "data": {"label": "agent to end", "condition": "always"}
+    }
+  ]
+}

@@ -43,5 +43,16 @@ On Windows (PowerShell):
 
 ## Environment Configuration
 
-- `api/.env` - Backend environment variables
+- `api/.env` - Backend environment variables. Source this when running diagnostic scripts or one-off services against the dev DB (e.g. `python -m api.services.admin_utils.local_exec`).
+- `api/.env.test` - Test-only environment variables. Source this when running pytest so tests hit the test DB and never the dev/prod credentials in `api/.env`.
 - `ui/.env` - Frontend environment variables
+
+Typical invocation:
+
+```bash
+# Tests
+source venv/bin/activate && set -a && source api/.env.test && set +a && python -m pytest api/tests/...
+
+# Diagnostics / scripts
+source venv/bin/activate && set -a && source api/.env && set +a && python -m api.services.admin_utils.local_exec
+```

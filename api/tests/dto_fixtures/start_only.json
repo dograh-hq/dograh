@@ -1,0 +1,11 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller and hang up."}
+    }
+  ],
+  "edges": []
+}

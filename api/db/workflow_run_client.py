@@ -28,6 +28,7 @@ class WorkflowRunClient(BaseDBClient):
         call_type: CallType = CallType.OUTBOUND,
         initial_context: dict = None,
         gathered_context: dict = None,
+        logs: dict = None,
         campaign_id: int = None,
         queued_run_id: int = None,
         use_draft: bool = False,
@@ -91,6 +92,7 @@ class WorkflowRunClient(BaseDBClient):
                 definition_id=target_def.id if target_def else None,
                 initial_context=initial_context or default_context,
                 gathered_context=gathered_context or {},
+                logs=logs or {},
                 campaign_id=campaign_id,
                 queued_run_id=queued_run_id,
                 storage_backend=current_backend.value,
@@ -235,6 +237,22 @@ class WorkflowRunClient(BaseDBClient):
                 .where(WorkflowRunModel.id == run_id)
             )
             return result.scalars().first()
+
+    async def get_organization_id_by_workflow_run_id(
+        self, run_id: int | None
+    ) -> int | None:
+        """Resolve organization_id from a workflow run via workflow.user."""
+        if not run_id:
+            return None
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(WorkflowModel.organization_id)
+                .join(
+                    WorkflowRunModel, WorkflowRunModel.workflow_id == WorkflowModel.id
+                )
+                .where(WorkflowRunModel.id == run_id)
+            )
+            return result.scalar_one_or_none()
 
     async def get_workflow_runs_by_workflow_id(
         self,

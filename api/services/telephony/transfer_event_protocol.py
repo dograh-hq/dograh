@@ -68,6 +68,10 @@ class TransferContext:
     original_call_sid: str
     conference_name: str
     initiated_at: float
+    # workflow_run_id: lets transfer_id-keyed webhooks resolve org/credentials.
+    # conference_id: set by providers that seed the conference on answer (Telnyx).
+    workflow_run_id: Optional[int] = None
+    conference_id: Optional[str] = None
 
     def to_json(self) -> str:
         """Convert context to JSON string."""

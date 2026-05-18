@@ -7,10 +7,12 @@ import { Suspense } from "react";
 import ChatwootWidget from "@/components/ChatwootWidget";
 import AppLayout from "@/components/layout/AppLayout";
 import PostHogIdentify from "@/components/PostHogIdentify";
+import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";
 import SpinLoader from "@/components/SpinLoader";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/context/AppConfigContext";
 import { OnboardingProvider } from "@/context/OnboardingContext";
+import { TelephonyConfigWarningsProvider } from "@/context/TelephonyConfigWarningsContext";
 import { UserConfigProvider } from "@/context/UserConfigContext";
 import { AuthProvider } from "@/lib/auth";
 
@@ -59,22 +61,26 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <AuthProvider>
-          <AppConfigProvider>
-            <Suspense fallback={<SpinLoader />}>
-              <UserConfigProvider>
-                <OnboardingProvider>
-                  <PostHogIdentify />
-                  <AppLayout>
-                    {children}
-                  </AppLayout>
-                  <Toaster />
-                  <ChatwootWidget />
-                </OnboardingProvider>
-              </UserConfigProvider>
-            </Suspense>
-          </AppConfigProvider>
-        </AuthProvider>
+        <SentryErrorBoundary>
+          <AuthProvider>
+            <AppConfigProvider>
+              <Suspense fallback={<SpinLoader />}>
+                <UserConfigProvider>
+                  <TelephonyConfigWarningsProvider>
+                    <OnboardingProvider>
+                      <PostHogIdentify />
+                      <AppLayout>
+                        {children}
+                      </AppLayout>
+                      <Toaster />
+                      <ChatwootWidget />
+                    </OnboardingProvider>
+                  </TelephonyConfigWarningsProvider>
+                </UserConfigProvider>
+              </Suspense>
+            </AppConfigProvider>
+          </AuthProvider>
+        </SentryErrorBoundary>
       </body>
     </html>
   );

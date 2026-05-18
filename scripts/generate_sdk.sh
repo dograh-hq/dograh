@@ -6,6 +6,8 @@
 #   3. Pydantic request/response models + TS interfaces (datamodel-codegen
 #      / openapi-typescript)
 #   4. Client method mixins (_generated_client.py / _generated_client.ts)
+#   5. Full OpenAPI spec for the Mintlify docs site
+#      (docs/api-reference/openapi.json)
 #
 # Run from anywhere — the script resolves the repo root relative to itself.
 # Requires:
@@ -105,5 +107,10 @@ python -m sdk.codegen.client_codegen \
     --input "$OPENAPI_JSON" \
     --py-out "sdk/python/src/dograh_sdk/_generated_client.py" \
     --ts-out "sdk/typescript/src/_generated_client.ts"
+
+# ── 5. Docs OpenAPI spec ─────────────────────────────────────────────
+
+echo "→ Dumping full OpenAPI spec for docs site..."
+python -m scripts.dump_docs_openapi
 
 echo "✓ SDK regenerated."

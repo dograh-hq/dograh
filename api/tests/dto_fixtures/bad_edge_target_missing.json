@@ -1,0 +1,18 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller."}
+    }
+  ],
+  "edges": [
+    {
+      "id": "s-ghost",
+      "source": "s",
+      "target": "ghost-node",
+      "data": {"label": "to nowhere", "condition": "always"}
+    }
+  ]
+}

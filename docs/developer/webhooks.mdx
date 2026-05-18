@@ -26,6 +26,8 @@ The following variables are available in your `payload_template` using double-br
 | `workflow_run_name` | string | Name of the run |
 | `workflow_id` | integer | ID of the workflow |
 | `workflow_name` | string | Name of the workflow |
+| `campaign_id` | integer \| null | ID of the campaign this run belongs to (null for ad-hoc runs) |
+| `call_time` | string | ISO-8601 UTC timestamp of when the run was created |
 | `initial_context` | object | Context passed when the call was initiated |
 | `gathered_context` | object | Data extracted during the call by agent nodes |
 | `cost_info` | object | Call cost breakdown |

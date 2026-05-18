@@ -1,0 +1,30 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": -200, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller."}
+    },
+    {
+      "id": "w",
+      "type": "webhook",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Notify CRM"}
+    },
+    {
+      "id": "e",
+      "type": "endCall",
+      "position": {"x": 200, "y": 0},
+      "data": {"name": "End", "prompt": "Say goodbye."}
+    }
+  ],
+  "edges": [
+    {
+      "id": "w-e",
+      "source": "w",
+      "target": "e",
+      "data": {"label": "after webhook", "condition": "always"}
+    }
+  ]
+}

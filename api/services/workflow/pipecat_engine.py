@@ -1,11 +1,5 @@
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
 
-from api.services.pipecat.audio_playback import play_audio
-from api.services.workflow.disposition_mapper import (
-    apply_disposition_mapping,
-    get_organization_id_from_workflow_run,
-)
-from api.services.workflow.workflow import Node, WorkflowGraph
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
@@ -20,6 +14,11 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.settings import LLMSettings
 from pipecat.utils.enums import EndTaskReason
+
+from api.db import db_client
+from api.services.pipecat.audio_playback import play_audio
+from api.services.workflow.disposition_mapper import apply_disposition_mapping
+from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
 if TYPE_CHECKING:
     from pipecat.frames.frames import Frame
@@ -114,6 +113,9 @@ class PipecatEngine:
         # Custom tool manager (initialized in initialize())
         self._custom_tool_manager: Optional[CustomToolManager] = None
 
+        # Cached organization ID (resolved lazily from workflow run)
+        self._organization_id: Optional[int] = None
+
         # Embeddings configuration (passed from run_pipeline.py)
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
@@ -141,10 +143,13 @@ class PipecatEngine:
 
     async def _get_organization_id(self) -> Optional[int]:
         """Get and cache the organization ID from workflow run."""
-        if self._custom_tool_manager:
-            return await self._custom_tool_manager.get_organization_id()
-        # Fallback for when manager is not yet initialized
-        return await get_organization_id_from_workflow_run(self._workflow_run_id)
+        if self._organization_id is None:
+            self._organization_id = (
+                await db_client.get_organization_id_by_workflow_run_id(
+                    self._workflow_run_id
+                )
+            )
+        return self._organization_id
 
     def _get_otel_context(self):
         """Extract the OTel Context from the task's TracingContext.
@@ -324,11 +329,7 @@ class PipecatEngine:
         )
 
         # Register function with LLM
-        self.llm.register_function(
-            name,
-            transition_func,
-            cancel_on_interruption=False,
-        )
+        self.llm.register_function(name, transition_func)
 
     async def _register_knowledge_base_function(
         self, document_uuids: list[str]

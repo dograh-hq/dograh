@@ -7,11 +7,9 @@ list the catalog before populating those fields with real UUIDs.
 
 from api.db import db_client
 from api.mcp_server.auth import authenticate_mcp_request
-from api.mcp_server.server import mcp
 from api.mcp_server.tracing import traced_tool
 
 
-@mcp.tool
 @traced_tool
 async def list_tools(status: str | None = "active") -> list[dict]:
     """List tools the agent can invoke during a call.
@@ -36,7 +34,6 @@ async def list_tools(status: str | None = "active") -> list[dict]:
     ]
 
 
-@mcp.tool
 @traced_tool
 async def list_documents() -> list[dict]:
     """List knowledge-base documents the agent can reference during a call.
@@ -59,7 +56,6 @@ async def list_documents() -> list[dict]:
     ]
 
 
-@mcp.tool
 @traced_tool
 async def list_credentials() -> list[dict]:
     """List external credentials available for webhook auth and pre-call fetch.
@@ -83,7 +79,6 @@ async def list_credentials() -> list[dict]:
     ]
 
 
-@mcp.tool
 @traced_tool
 async def list_recordings(workflow_id: int | None = None) -> list[dict]:
     """List pre-recorded audio files available for greetings and edge

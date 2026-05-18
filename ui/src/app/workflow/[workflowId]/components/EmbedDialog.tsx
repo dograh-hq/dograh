@@ -1,4 +1,4 @@
-import { Check, Copy, Loader2, Plus, Rocket, Trash2 } from "lucide-react";
+import { Check, Copy, ExternalLink, Loader2, Mic, Plus, Rocket, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import {
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
+import { WIDGET_MODE_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 interface EmbedDialogProps {
     open: boolean;
@@ -61,9 +62,9 @@ export function EmbedDialog({
     const [isEnabled, setIsEnabled] = useState(false);
     const [domains, setDomains] = useState<string[]>([]);
     const [newDomain, setNewDomain] = useState("");
-    const [embedMode, setEmbedMode] = useState<"floating" | "inline">("floating");
+    const [embedMode, setEmbedMode] = useState<"floating" | "inline" | "headless">("floating");
     const [position, setPosition] = useState("bottom-right");
-    const [buttonText, setButtonText] = useState("Start Call");
+    const [buttonText, setButtonText] = useState("Talk to Agent");
     const [buttonColor, setButtonColor] = useState("#10b981");
     const [callToActionText, setCallToActionText] = useState("Click to start voice conversation");
 
@@ -81,9 +82,9 @@ export function EmbedDialog({
                 // Load settings
                 if (response.data.settings) {
                     const settings = response.data.settings as Record<string, string>;
-                    setEmbedMode((settings.embedMode as "floating" | "inline") || "floating");
+                    setEmbedMode((settings.embedMode as "floating" | "inline" | "headless") || "floating");
                     setPosition(settings.position || "bottom-right");
-                    setButtonText(settings.buttonText || "Start Call");
+                    setButtonText(settings.buttonText || "Talk to Agent");
                     setButtonColor(settings.buttonColor || "#10b981");
                     setCallToActionText(settings.callToActionText || "Click to start voice conversation");
                 }
@@ -177,12 +178,23 @@ export function EmbedDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-4xl w-full max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <Rocket className="h-5 w-5" />
-                        Deploy Workflow
-                    </DialogTitle>
+                    <div className="flex items-center justify-between">
+                        <DialogTitle className="flex items-center gap-2">
+                            <Rocket className="h-5 w-5" />
+                            Configure Widget
+                        </DialogTitle>
+                        <a
+                            href={WIDGET_MODE_DOCUMENTATION_URLS[embedMode]}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors pr-6"
+                        >
+                            Docs
+                            <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                    </div>
                     <DialogDescription>
-                        Embed &quot;{workflowName}&quot; on any website with a simple script tag
+                        Add &quot;{workflowName}&quot; to any website with a simple script tag.
                     </DialogDescription>
                 </DialogHeader>
 
@@ -266,7 +278,7 @@ export function EmbedDialog({
                                 {/* Embed Mode Selection */}
                                 <div className="space-y-4">
                                     <Label>Embed Mode</Label>
-                                    <div className="grid grid-cols-2 gap-4">
+                                    <div className="grid grid-cols-3 gap-4">
                                         <button
                                             type="button"
                                             onClick={() => setEmbedMode("floating")}
@@ -299,6 +311,22 @@ export function EmbedDialog({
                                                 </div>
                                             </div>
                                         </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setEmbedMode("headless")}
+                                            className={`p-4 rounded-lg border-2 transition-all ${
+                                                embedMode === "headless"
+                                                    ? "border-primary bg-primary/5"
+                                                    : "border-muted hover:border-muted-foreground/20"
+                                            }`}
+                                        >
+                                            <div className="space-y-2">
+                                                <div className="font-medium">Headless (Bring Your Own UI)</div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    No UI — drive calls from your own buttons via the JS API
+                                                </div>
+                                            </div>
+                                        </button>
                                     </div>
                                 </div>
 
@@ -306,26 +334,40 @@ export function EmbedDialog({
                                 <div className="space-y-4">
                                     <Label>Configuration</Label>
 
-                                    {/* Shared: Button Color */}
-                                    <div className="space-y-2">
-                                        <Label htmlFor="button-color" className="text-sm">Button Color</Label>
-                                        <div className="flex gap-2">
-                                            <Input
-                                                id="button-color-picker"
-                                                type="color"
-                                                value={buttonColor}
-                                                onChange={(e) => setButtonColor(e.target.value)}
-                                                className="w-14 h-10 cursor-pointer"
-                                            />
-                                            <Input
-                                                id="button-color"
-                                                value={buttonColor}
-                                                onChange={(e) => setButtonColor(e.target.value)}
-                                                placeholder="#10b981"
-                                                className="flex-1"
-                                            />
+                                    {/* Shared: Button Text + Button Color (skipped in headless — host renders its own UI) */}
+                                    {embedMode !== "headless" && (
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="button-text" className="text-sm">Button Text</Label>
+                                                <Input
+                                                    id="button-text"
+                                                    value={buttonText}
+                                                    onChange={(e) => setButtonText(e.target.value)}
+                                                    placeholder="Talk to Agent"
+                                                    maxLength={40}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="button-color" className="text-sm">Button Color</Label>
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        id="button-color-picker"
+                                                        type="color"
+                                                        value={buttonColor}
+                                                        onChange={(e) => setButtonColor(e.target.value)}
+                                                        className="w-14 h-10 cursor-pointer"
+                                                    />
+                                                    <Input
+                                                        id="button-color"
+                                                        value={buttonColor}
+                                                        onChange={(e) => setButtonColor(e.target.value)}
+                                                        placeholder="#10b981"
+                                                        className="flex-1"
+                                                    />
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
+                                    )}
 
                                     {/* Floating mode: Position */}
                                     {embedMode === "floating" && (
@@ -345,52 +387,29 @@ export function EmbedDialog({
                                         </div>
                                     )}
 
-                                    {/* Inline mode: Button Text, CTA Text */}
+                                    {/* Inline mode: Call to Action Text */}
                                     {embedMode === "inline" && (
-                                        <>
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="button-text" className="text-sm">Button Text</Label>
-                                                    <Input
-                                                        id="button-text"
-                                                        value={buttonText}
-                                                        onChange={(e) => setButtonText(e.target.value)}
-                                                        placeholder="Start Call"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="cta-text" className="text-sm">Call to Action Text</Label>
-                                                    <Input
-                                                        id="cta-text"
-                                                        value={callToActionText}
-                                                        onChange={(e) => setCallToActionText(e.target.value)}
-                                                        placeholder="Click to start voice conversation"
-                                                    />
-                                                </div>
-                                            </div>
-                                        </>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="cta-text" className="text-sm">Call to Action Text</Label>
+                                            <Input
+                                                id="cta-text"
+                                                value={callToActionText}
+                                                onChange={(e) => setCallToActionText(e.target.value)}
+                                                placeholder="Click to start voice conversation"
+                                            />
+                                        </div>
                                     )}
 
-                                    {/* Preview */}
-                                    {embedMode === "floating" ? (
-                                        <div className="rounded-lg border bg-background p-4 flex items-center justify-center">
-                                            <div
-                                                className="w-[60px] h-[60px] rounded-full flex items-center justify-center shadow-lg"
-                                                style={{
-                                                    backgroundColor: buttonColor,
-                                                }}
+                                    {/* Preview (skipped for headless — host renders its own UI) */}
+                                    {embedMode === "headless" ? null : embedMode === "floating" ? (
+                                        <div className="rounded-lg border bg-muted/30 p-6 flex items-center justify-center">
+                                            <button
+                                                className="inline-flex items-center gap-2 rounded-full px-5 py-3 font-medium text-white shadow-lg whitespace-nowrap"
+                                                style={{ backgroundColor: buttonColor }}
                                             >
-                                                <svg
-                                                    width="24"
-                                                    height="24"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="white"
-                                                    strokeWidth="2"
-                                                >
-                                                    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-                                                </svg>
-                                            </div>
+                                                <Mic className="h-4 w-4" />
+                                                {buttonText || "Talk to Agent"}
+                                            </button>
                                         </div>
                                     ) : (
                                         <div className="rounded-lg border bg-background p-6 flex items-center justify-center">
@@ -406,6 +425,64 @@ export function EmbedDialog({
                                                 >
                                                     {buttonText}
                                                 </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Headless mode: Integration Instructions */}
+                                    {embedMode === "headless" && (
+                                        <div className="space-y-3">
+                                            <div className="rounded-lg bg-muted/50 p-4">
+                                                <h4 className="font-medium mb-2">Integration Instructions</h4>
+                                                <ul className="text-sm space-y-2 text-muted-foreground">
+                                                    <li>• Add the embed script tag to your page (see below).</li>
+                                                    <li>• The widget renders no UI — render your own buttons.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.start()</code> to begin a call.</li>
+                                                    <li>• Call <code className="text-xs">window.DograhWidget.end()</code> to end it.</li>
+                                                    <li>• Subscribe to <code className="text-xs">onCallStart</code>, <code className="text-xs">onCallEnd</code>, <code className="text-xs">onStatusChange</code>, <code className="text-xs">onError</code> to drive your UI.</li>
+                                                    <li>• <code className="text-xs">start()</code> must run inside a user-gesture handler (click) so the browser grants microphone access.</li>
+                                                </ul>
+                                            </div>
+
+                                            <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
+                                                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example — track status in your own state</h4>
+                                                <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mb-2">
+                                                    Mirror the call status into a variable you control, then render whatever UI you like from it. The status values are <code className="text-xs">idle</code>, <code className="text-xs">connecting</code>, <code className="text-xs">connected</code>, <code className="text-xs">failed</code>.
+                                                </p>
+                                                <pre className="text-xs overflow-x-auto">
+                                                    <code className="text-blue-800 dark:text-blue-200">{`// Vanilla JS — keep your own state, render however you want
+let callStatus = 'idle';
+
+window.DograhWidget?.onStatusChange((status) => {
+  callStatus = status;
+  // ...trigger your render here (re-paint DOM, dispatch event, etc.)
+});
+
+document.getElementById('talk-btn').addEventListener('click', () => {
+  if (callStatus === 'connected' || callStatus === 'connecting') {
+    window.DograhWidget.end();
+  } else {
+    window.DograhWidget.start();
+  }
+});`}</code>
+                                                </pre>
+                                                <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mt-3 mb-2">React:</p>
+                                                <pre className="text-xs overflow-x-auto">
+                                                    <code className="text-blue-800 dark:text-blue-200">{`function TalkButton() {
+  const [status, setStatus] = useState('idle');
+
+  useEffect(() => {
+    window.DograhWidget?.onStatusChange(setStatus);
+  }, []);
+
+  const isLive = status === 'connected' || status === 'connecting';
+  return (
+    <button onClick={() => isLive ? window.DograhWidget.end() : window.DograhWidget.start()}>
+      {/* render anything you want from \`status\` */}
+    </button>
+  );
+}`}</code>
+                                                </pre>
                                             </div>
                                         </div>
                                     )}
@@ -477,8 +554,8 @@ export function EmbedDialog({
                                     </Button>
                                 </div>
 
-                                {/* Embed Script (shows after saving) */}
-                                {embedToken && embedToken.is_active && (
+                                {/* Embed Script (shows after saving; placeholder before) */}
+                                {embedToken && embedToken.is_active ? (
                                     <>
                                         <Separator />
                                         <div className="space-y-3">
@@ -511,6 +588,16 @@ export function EmbedDialog({
                                                 Add this script to your website&apos;s HTML to enable the voice widget.
                                                 Configuration changes will apply automatically without re-embedding.
                                             </p>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <>
+                                        <Separator />
+                                        <div className="space-y-3">
+                                            <Label className="text-muted-foreground">Embed Code</Label>
+                                            <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground">
+                                                Click <span className="font-medium">Save Configurations</span> to generate your embed script.
+                                            </div>
                                         </div>
                                     </>
                                 )}

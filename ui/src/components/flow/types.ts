@@ -43,11 +43,6 @@ export type FlowNodeData = {
     credential_uuid?: string;
     custom_headers?: Array<{ key: string; value: string }>;
     payload_template?: Record<string, unknown>;
-    retry_config?: {
-        enabled: boolean;
-        max_retries: number;
-        retry_delay_seconds: number;
-    };
     // QA node specific
     qa_enabled?: boolean;
     qa_analysis_provider?: string;

@@ -24,6 +24,9 @@ interface VersionHistoryPanelProps {
     loading: boolean;
     activeVersionId: number | null;
     onSelectVersion: (version: WorkflowVersion) => void;
+    hasMore: boolean;
+    loadingMore: boolean;
+    onLoadMore: () => void;
 }
 
 const statusLabel: Record<string, string> = {
@@ -45,6 +48,9 @@ export const VersionHistoryPanel = ({
     loading,
     activeVersionId,
     onSelectVersion,
+    hasMore,
+    loadingMore,
+    onLoadMore,
 }: VersionHistoryPanelProps) => {
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -125,6 +131,20 @@ export const VersionHistoryPanel = ({
                                 </button>
                             );
                         })}
+                        {hasMore && (
+                            <Button
+                                variant="ghost"
+                                onClick={onLoadMore}
+                                disabled={loadingMore}
+                                className="w-full text-sm text-gray-300 hover:text-white hover:bg-[#2a2a2a]"
+                            >
+                                {loadingMore ? (
+                                    <LoaderCircle className="w-4 h-4 animate-spin" />
+                                ) : (
+                                    "Load more"
+                                )}
+                            </Button>
+                        )}
                     </div>
                 )}
             </div>

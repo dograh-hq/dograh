@@ -383,6 +383,20 @@ class CampaignOrchestrator:
                     f"pausing campaign. Stats: {stats}"
                 )
                 await db_client.update_campaign(campaign_id=campaign_id, state="paused")
+                await db_client.append_campaign_log(
+                    campaign_id=campaign_id,
+                    level="warning",
+                    event="circuit_breaker_tripped",
+                    message=(
+                        f"Paused at scheduling: failure rate "
+                        f"{stats['failure_rate']:.2%} "
+                        f"({stats['failure_count']}/"
+                        f"{stats['failure_count'] + stats['success_count']}) "
+                        f"exceeded threshold {stats['threshold']:.2%} "
+                        f"in {stats['window_seconds']}s window"
+                    ),
+                    details=stats,
+                )
                 await self.publisher.publish_circuit_breaker_tripped(
                     campaign_id=campaign_id,
                     failure_rate=stats["failure_rate"],

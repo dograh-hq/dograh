@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,11 +15,11 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import OrganizationConfigurationKey
 from api.services.auth.depends import get_user
-from api.services.campaign.report import generate_campaign_report_csv
 from api.services.campaign.runner import campaign_runner_service
 from api.services.campaign.source_sync import CampaignSourceSyncService
 from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import check_dograh_quota
+from api.services.reports import generate_campaign_report_csv
 from api.services.storage import storage_fs
 
 router = APIRouter(prefix="/campaign")
@@ -40,14 +40,17 @@ async def _get_org_concurrent_limit(organization_id: int) -> int:
 
 
 async def _get_from_numbers_count(organization_id: int) -> int:
-    """Get the number of configured from_numbers for an organization."""
+    """Active phone-number count from the org's default telephony config.
+    Used to validate ``max_concurrency`` against caller-id supply."""
     try:
-        config = await db_client.get_configuration(
-            organization_id,
-            OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+        default_cfg = await db_client.get_default_telephony_configuration(
+            organization_id
         )
-        if config and config.value:
-            return len(config.value.get("from_numbers", []))
+        if default_cfg:
+            addresses = await db_client.list_active_normalized_addresses_for_config(
+                default_cfg.id
+            )
+            return len(addresses)
     except Exception:
         pass
     return 0
@@ -151,6 +154,10 @@ class CreateCampaignRequest(BaseModel):
     workflow_id: int
     source_type: str = Field(..., pattern="^(google-sheet|csv)$")
     source_id: str  # Google Sheet URL or CSV file key
+    # Optional during the legacy → multi-config migration window. Required in
+    # a follow-up. When omitted, the dispatcher falls back to the org's
+    # default config.
+    telephony_configuration_id: Optional[int] = None
     retry_config: Optional[RetryConfigRequest] = None
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
@@ -163,6 +170,20 @@ class UpdateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+
+
+class CampaignLogEntryResponse(BaseModel):
+    """A single timestamped entry from the campaign's append-only log.
+
+    Surfaced in the UI so operators can see why a campaign moved to
+    paused / failed without digging through server logs.
+    """
+
+    ts: str
+    level: str
+    event: str
+    message: str
+    details: Optional[Dict[str, Any]] = None
 
 
 class CampaignResponse(BaseModel):
@@ -187,6 +208,9 @@ class CampaignResponse(BaseModel):
     total_queued_count: int = 0
     parent_campaign_id: Optional[int] = None
     redialed_campaign_id: Optional[int] = None
+    telephony_configuration_id: Optional[int] = None
+    telephony_configuration_name: Optional[str] = None
+    logs: List[CampaignLogEntryResponse] = Field(default_factory=list)
 
 
 class CampaignsResponse(BaseModel):
@@ -232,6 +256,7 @@ def _build_campaign_response(
     workflow_name: str,
     executed_count: int = 0,
     total_queued_count: int = 0,
+    telephony_configuration_name: Optional[str] = None,
 ) -> CampaignResponse:
     """Build a CampaignResponse from a campaign model."""
     # Get retry_config from campaign or use defaults
@@ -286,6 +311,13 @@ def _build_campaign_response(
         total_queued_count=total_queued_count,
         parent_campaign_id=parent_campaign_id,
         redialed_campaign_id=redialed_campaign_id,
+        telephony_configuration_id=campaign.telephony_configuration_id,
+        telephony_configuration_name=telephony_configuration_name,
+        logs=[
+            CampaignLogEntryResponse(**entry)
+            for entry in (campaign.logs or [])
+            if isinstance(entry, dict)
+        ],
     )
 
 
@@ -294,6 +326,22 @@ async def _get_campaign_stats(campaign_id: int) -> tuple[int, int]:
     stats_map = await db_client.get_queued_runs_stats_for_campaigns([campaign_id])
     s = stats_map.get(campaign_id, {})
     return s.get("executed", 0), s.get("total", 0)
+
+
+async def _get_telephony_configuration_name(
+    config_id: Optional[int], organization_id: int
+) -> Optional[str]:
+    """Resolve the display name for a campaign's telephony configuration.
+
+    Org-scoped lookup so a stale FK from another org (shouldn't happen, but
+    cheap to enforce) doesn't leak across tenants.
+    """
+    if config_id is None:
+        return None
+    cfg = await db_client.get_telephony_configuration_for_org(
+        config_id, organization_id
+    )
+    return cfg.name if cfg else None
 
 
 @router.post("/create")
@@ -316,10 +364,12 @@ async def create_campaign(
         raise HTTPException(status_code=400, detail=validation_result.error.message)
 
     # Validate template variables against source data columns
-    workflow = await db_client.get_workflow_by_id(request.workflow_id)
+    workflow = await db_client.get_workflow(
+        request.workflow_id, organization_id=user.selected_organization_id
+    )
     if workflow:
         from api.services.workflow.dto import ReactFlowDTO
-        from api.services.workflow.workflow import WorkflowGraph
+        from api.services.workflow.workflow_graph import WorkflowGraph
 
         workflow_def = workflow.released_definition.workflow_json
         if workflow_def:
@@ -355,6 +405,25 @@ async def create_campaign(
             request.max_concurrency, user.selected_organization_id
         )
 
+    # Resolve which telephony config the campaign is pinned to. Explicit value
+    # wins; otherwise default to the org's default config so legacy clients keep
+    # working through the migration window.
+    telephony_configuration_id = request.telephony_configuration_id
+    if telephony_configuration_id:
+        cfg = await db_client.get_telephony_configuration_for_org(
+            telephony_configuration_id, user.selected_organization_id
+        )
+        if not cfg:
+            raise HTTPException(
+                status_code=400, detail="telephony_configuration_not_found"
+            )
+    else:
+        default_cfg = await db_client.get_default_telephony_configuration(
+            user.selected_organization_id
+        )
+        if default_cfg:
+            telephony_configuration_id = default_cfg.id
+
     # Build retry_config dict if provided
     retry_config = None
     if request.retry_config:
@@ -381,9 +450,15 @@ async def create_campaign(
         max_concurrency=request.max_concurrency,
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
+        telephony_configuration_id=telephony_configuration_id,
     )
 
-    return _build_campaign_response(campaign, workflow_name)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
+    return _build_campaign_response(
+        campaign, workflow_name, telephony_configuration_name=cfg_name
+    )
 
 
 @router.get("/")
@@ -404,12 +479,22 @@ async def get_campaigns(
         [c.id for c in campaigns]
     )
 
+    # Build {config_id: name} map by fetching all configs for the org once,
+    # rather than one lookup per campaign.
+    org_configs = await db_client.list_telephony_configurations(
+        user.selected_organization_id
+    )
+    config_name_map = {cfg.id: cfg.name for cfg in org_configs}
+
     campaign_responses = [
         _build_campaign_response(
             c,
             workflow_map.get(c.workflow_id, "Unknown"),
             executed_count=stats_map.get(c.id, {}).get("executed", 0),
             total_queued_count=stats_map.get(c.id, {}).get("total", 0),
+            telephony_configuration_name=config_name_map.get(
+                c.telephony_configuration_id
+            ),
         )
         for c in campaigns
     ]
@@ -430,8 +515,15 @@ async def get_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -441,27 +533,26 @@ async def start_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Start campaign execution"""
-    # Check if organization has TELEPHONY_CONFIGURATION configured
-    twilio_config = await db_client.get_configuration(
-        user.selected_organization_id,
-        OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+    # Block start if the org has no telephony configuration at all.
+    configs = await db_client.list_telephony_configurations(
+        user.selected_organization_id
     )
-
-    if not twilio_config or not twilio_config.value:
+    if not configs:
         raise HTTPException(
             status_code=401,
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
-    # Check Dograh quota before starting campaign
-    quota_result = await check_dograh_quota(user)
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
-
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Check Dograh quota before starting campaign (apply per-workflow
+    # model_overrides so we evaluate the keys this campaign will use).
+    quota_result = await check_dograh_quota(user, workflow_id=campaign.workflow_id)
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Start the campaign using the runner service
     try:
@@ -474,8 +565,15 @@ async def start_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -501,8 +599,15 @@ async def pause_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -564,8 +669,15 @@ async def update_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 
@@ -725,7 +837,16 @@ async def redial_campaign(
 
     workflow_name = await db_client.get_workflow_name(child.workflow_id, user.id)
     executed, total = await _get_campaign_stats(child.id)
-    return _build_campaign_response(child, workflow_name or "Unknown", executed, total)
+    cfg_name = await _get_telephony_configuration_name(
+        child.telephony_configuration_id, user.selected_organization_id
+    )
+    return _build_campaign_response(
+        child,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
+    )
 
 
 @router.post("/{campaign_id}/resume")
@@ -734,27 +855,26 @@ async def resume_campaign(
     user: UserModel = Depends(get_user),
 ) -> CampaignResponse:
     """Resume a paused campaign"""
-    # Check if organization has TELEPHONY_CONFIGURATION configured
-    twilio_config = await db_client.get_configuration(
-        user.selected_organization_id,
-        OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value,
+    # Block resume if the org has no telephony configuration at all.
+    configs = await db_client.list_telephony_configurations(
+        user.selected_organization_id
     )
-
-    if not twilio_config or not twilio_config.value:
+    if not configs:
         raise HTTPException(
             status_code=401,
             detail="You must configure telephony first by going to APP_URL/configure-telephony",
         )
 
-    # Check Dograh quota before resuming campaign
-    quota_result = await check_dograh_quota(user)
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
-
     # Verify campaign exists and belongs to organization
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Check Dograh quota before resuming campaign (apply per-workflow
+    # model_overrides so we evaluate the keys this campaign will use).
+    quota_result = await check_dograh_quota(user, workflow_id=campaign.workflow_id)
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Resume the campaign using the runner service
     try:
@@ -767,8 +887,15 @@ async def resume_campaign(
     workflow_name = await db_client.get_workflow_name(campaign.workflow_id, user.id)
 
     executed, total = await _get_campaign_stats(campaign.id)
+    cfg_name = await _get_telephony_configuration_name(
+        campaign.telephony_configuration_id, user.selected_organization_id
+    )
     return _build_campaign_response(
-        campaign, workflow_name or "Unknown", executed, total
+        campaign,
+        workflow_name or "Unknown",
+        executed,
+        total,
+        telephony_configuration_name=cfg_name,
     )
 
 

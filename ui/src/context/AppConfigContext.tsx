@@ -7,6 +7,8 @@ interface AppConfig {
     apiVersion: string;
     deploymentMode: string;
     authProvider: string;
+    turnEnabled: boolean;
+    forceTurnRelay: boolean;
 }
 
 interface AppConfigContextType {
@@ -19,6 +21,8 @@ const defaultConfig: AppConfig = {
     apiVersion: 'unknown',
     deploymentMode: 'oss',
     authProvider: 'local',
+    turnEnabled: false,
+    forceTurnRelay: false,
 };
 
 const AppConfigContext = createContext<AppConfigContextType>({
@@ -39,6 +43,8 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
                     apiVersion: data.api || 'unknown',
                     deploymentMode: data.deploymentMode || 'oss',
                     authProvider: data.authProvider || 'local',
+                    turnEnabled: Boolean(data.turnEnabled),
+                    forceTurnRelay: Boolean(data.forceTurnRelay),
                 });
             })
             .catch(() => {

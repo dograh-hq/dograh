@@ -1,0 +1,9 @@
+---
+title: "Create Configuration"
+description: "Create a new telephony configuration"
+openapi: "POST /api/v1/organizations/telephony-configs"
+---
+
+Call [List Supported Providers](/api-reference/telephony-configs/providers) first to discover the credential fields for the provider you want to configure — they vary per provider.
+
+Configuration `name` must be unique within your organization. Set `is_default_outbound: true` to mark this configuration as the org-wide default for outbound calls (any existing default is unset). New configurations have no phone numbers; add them via [Add a phone number](/api-reference/telephony-configs/phone-numbers/create).

@@ -87,6 +87,7 @@ def do_run_migrations(connection):
         render_item=render_item,
         compare_type=True,
         compare_server_default=True,
+        transaction_per_migration=True,
     )
     with context.begin_transaction():
         context.run_migrations()

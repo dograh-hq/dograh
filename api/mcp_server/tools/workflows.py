@@ -2,11 +2,9 @@ from fastapi import HTTPException
 
 from api.db import db_client
 from api.mcp_server.auth import authenticate_mcp_request
-from api.mcp_server.server import mcp
 from api.mcp_server.tracing import traced_tool
 
 
-@mcp.tool
 @traced_tool
 async def list_workflows(status: str | None = "active") -> list[dict]:
     """List agents (workflows) in the caller's organization.
@@ -32,7 +30,6 @@ async def list_workflows(status: str | None = "active") -> list[dict]:
     ]
 
 
-@mcp.tool
 @traced_tool
 async def get_workflow(workflow_id: int) -> dict:
     """Fetch a single agent by id, including its current published definition."""

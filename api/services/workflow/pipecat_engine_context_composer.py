@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
-    from api.services.workflow.workflow import Node, WorkflowGraph
+    from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools.knowledge_base import get_knowledge_base_tool

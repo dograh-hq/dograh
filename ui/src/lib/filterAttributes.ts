@@ -85,12 +85,30 @@ export const baseFilterAttributes: Record<string, Omit<FilterAttribute, "id">> =
       step: 1,
     },
   },
-  phoneNumber: {
+  callerNumber: {
     type: "text",
-    label: "Phone Number",
+    label: "Caller Number",
     config: {
-      placeholder: "Enter phone number (partial match)",
+      placeholder: "Enter caller number (partial match)",
       maxLength: 20,
+    },
+  },
+  calledNumber: {
+    type: "text",
+    label: "Called Number",
+    config: {
+      placeholder: "Enter called number (partial match)",
+      maxLength: 20,
+    },
+  },
+  campaignId: {
+    type: "number",
+    label: "Campaign ID",
+    config: {
+      placeholder: "Enter campaign ID",
+      min: 1,
+      max: 9999999,
+      step: 1,
     },
   },
 };
@@ -135,7 +153,8 @@ export const superadminFilterAttributes = createFilterAttributes(
     "dateRange",
     "runId",
     "workflowId",
-    "phoneNumber",
+    "callerNumber",
+    "calledNumber",
     "dispositionCode",
     "status",
     "duration",
@@ -153,9 +172,19 @@ export const usageFilterAttributes = createFilterAttributes(
     "dateRange",
     "duration",
     "dispositionCode",
-    "phoneNumber",
+    "callerNumber",
+    "calledNumber",
+    "runId",
+    "workflowId",
+    "campaignId",
   ],
   {
+    runId: {
+      label: "Run ID",
+    },
+    workflowId: {
+      label: "Agent ID",
+    },
     dateRange: {
       label: "Date Range",
       config: {

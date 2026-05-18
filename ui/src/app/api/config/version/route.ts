@@ -12,6 +12,8 @@ export async function GET() {
   let apiVersion = "unknown";
   let deploymentMode = "oss";
   let authProvider = "local";
+  let turnEnabled = false;
+  let forceTurnRelay = false;
 
   try {
     const response = await healthApiV1HealthGet();
@@ -20,6 +22,8 @@ export async function GET() {
       apiVersion = data.version;
       deploymentMode = data.deployment_mode;
       authProvider = data.auth_provider;
+      turnEnabled = Boolean(data.turn_enabled);
+      forceTurnRelay = Boolean(data.force_turn_relay);
     }
   } catch {
     apiVersion = "unavailable";
@@ -30,5 +34,7 @@ export async function GET() {
     api: apiVersion,
     deploymentMode,
     authProvider,
+    turnEnabled,
+    forceTurnRelay,
   });
 }

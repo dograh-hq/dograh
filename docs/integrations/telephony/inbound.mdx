@@ -1,17 +1,26 @@
 ---
 title: "Inbound Calling"
-description: "Configure inbound calling for Twilio, Vonage, and Cloudonix providers in Dograh AI"
+description: "Configure inbound calling for Twilio, Vonage, Plivo, Telnyx, Cloudonix, Vobiz, and Asterisk ARI providers in Dograh AI"
 ---
 
 ## Overview
 
-Dograh AI supports inbound calling across all supported telephony providers. When someone calls your configured phone number, your voice agent automatically answers and handles the interaction. The inbound calling configuration in Dograh AI uses the same telephony settings as outbound calling.
+Dograh AI supports inbound calling across all supported telephony providers. When someone calls your configured phone number, your voice agent automatically answers and handles the interaction. Inbound and outbound calls share the same telephony configuration.
 
 ## Supported Providers for Inbound Calls
 
 <CardGroup cols={3}>
   <Card title="Twilio" href="/integrations/telephony/twilio">
     Industry-leading platform with robust inbound call handling
+  </Card>
+  <Card title="Vonage" href="/integrations/telephony/vonage">
+    Application-level inbound routing with high-quality 16kHz audio
+  </Card>
+  <Card title="Plivo" href="/integrations/telephony/plivo">
+    Application-level inbound routing on Plivo's global voice cloud
+  </Card>
+  <Card title="Telnyx" href="/integrations/telephony/telnyx">
+    Application-level inbound via Telnyx Call Control API
   </Card>
   <Card title="Cloudonix" href="/integrations/telephony/cloudonix">
     SIP-based inbound calling with flexible trunk configuration
@@ -24,59 +33,67 @@ Dograh AI supports inbound calling across all supported telephony providers. Whe
   </Card>
 </CardGroup>
 
-<Note>
-**Vonage**: Inbound calling support is coming soon. Currently supports outbound calling only.
-</Note>
-
 ## How Inbound Calling Works
 
-When someone calls your configured phone number:
+Dograh exposes a **single inbound webhook URL** for the whole org:
 
-1. **Call Received**: The telephony provider receives the incoming call
-2. **Webhook Triggered**: The provider sends a webhook to Dograh AI
-3. **Agent Activated**: Dograh AI activates your configured voice agent workflow
+```
+https://api.dograh.com/api/v1/telephony/inbound/run
+```
+
+When a call arrives:
+
+1. **Call Received**: Your telephony provider receives the incoming call
+2. **Webhook Triggered**: The provider sends a webhook to `/inbound/run`
+3. **Org & Agent Resolved**: Dograh identifies the org from the webhook's account credentials, then looks up which agent should answer based on the called number's **Inbound workflow** assignment in your telephony configuration
 4. **Audio Streaming**: Real-time audio streams between caller and agent via WebSocket
 5. **Conversation Handled**: Your voice agent manages the entire conversation
 
+You don't construct per-workflow URLs anymore — the routing is done by the called number's inbound workflow assignment in Dograh.
+
 ## Configuration in Dograh AI
 
-Setting up inbound calling requires three simple steps:
+Setting up inbound calling takes three steps:
 
 ### Step 1: Configure Telephony Provider
 
-The telephony configuration for inbound calling is **identical** to outbound calling. Follow the **Configuration** section in your provider's documentation page:
+The telephony configuration for inbound calling is **identical** to outbound calling. Add (or open) a configuration at **/telephony-configurations** following your provider's documentation:
 
 - [Twilio Configuration](/integrations/telephony/twilio#configuration)
+- [Vonage Configuration](/integrations/telephony/vonage#configuration)
+- [Plivo Configuration](/integrations/telephony/plivo#configuration)
+- [Telnyx Configuration](/integrations/telephony/telnyx#configuration)
 - [Cloudonix Configuration](/integrations/telephony/cloudonix#configuration)
 - [Vobiz Configuration](/integrations/telephony/vobiz#configuration)
 - [Asterisk ARI Configuration](/integrations/telephony/asterisk-ari#configuration-in-dograh)
 
-### Step 2: Get Your Workflow Webhook URL
+### Step 2: Assign an Inbound Workflow to the Phone Number
 
-1. **Find Your Workflow ID**: 
-   - Navigate to your workflow page (e.g., `https://app.dograh.com/workflow/3`)
-   - Note the workflow ID from the URL (in this example: `3`)
+1. Go to **/telephony-configurations** and open your configuration
+2. In the **Phone numbers** section, edit the number that should receive inbound calls
+3. Set its **Inbound workflow** to the agent that should answer
+4. Save
 
-2. **Construct Webhook URL**:
-   ```
-   https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}
-   ```
-   
-   For example, if your workflow ID is `3`:
-   ```
-   https://api.dograh.com/api/v1/telephony/inbound/3
-   ```
+This is what tells Dograh which agent to run when a call comes in for that number.
 
-   <Note>
-   If you're using a self-hosted Dograh instance, replace `api.dograh.com` with your own domain.
-   </Note>
+### Step 3: Point Your Provider at `/inbound/run`
 
-### Step 3: Configure Provider-Specific Inbound Settings
+Each provider needs its inbound webhook (Twilio Voice URL / Vonage Answer URL / etc.) set to the global Dograh endpoint:
 
-Each telephony provider requires additional configuration to route incoming calls to your Dograh AI webhook. Follow the provider-specific inbound setup instructions:
+```
+https://api.dograh.com/api/v1/telephony/inbound/run
+```
+
+<Note>
+If you're self-hosting Dograh, replace `api.dograh.com` with your own domain.
+</Note>
+
+The exact place to set this varies by provider — follow the provider-specific instructions:
 
 - [Twilio Inbound Setup](/integrations/telephony/twilio#inbound-calling-setup)
 - [Vonage Inbound Setup](/integrations/telephony/vonage#inbound-calling-setup)
+- [Plivo Inbound Setup](/integrations/telephony/plivo#inbound-calling-setup)
+- [Telnyx Inbound Setup](/integrations/telephony/telnyx#inbound-calling-setup)
 - [Cloudonix Inbound Setup](/integrations/telephony/cloudonix#inbound-calling-setup)
 - [Vobiz Inbound Setup](/integrations/telephony/vobiz#inbound-calling-setup)
 - [Asterisk ARI Inbound Setup](/integrations/telephony/asterisk-ari#inbound-calling)
@@ -114,8 +131,8 @@ After completing both the Dograh AI configuration and provider-specific setup:
   
   <Accordion title="Workflow not found error">
     - **Error**: "Workflow not found"
-    - **Solution**: Verify the workflow ID in your webhook URL is correct and the workflow exists in your dashboard
-    - Double-check the webhook URL format: `https://api.dograh.com/api/v1/telephony/inbound/{workflow_id}`
+    - **Solution**: Open the called number in **/telephony-configurations** and confirm an **Inbound workflow** is assigned. Without an assignment, Dograh has no agent to route the call to.
+    - Verify the assigned workflow still exists in your dashboard
   </Accordion>
   
   <Accordion title="Account validation failed">
@@ -126,8 +143,8 @@ After completing both the Dograh AI configuration and provider-specific setup:
   
   <Accordion title="Phone number not configured">
     - **Error**: "Phone number not configured: This number is not set up for inbound calls"
-    - **Solution**: Add this phone number to your telephony configuration in Dograh AI
-    - Ensure the phone number is properly linked to your provider account
+    - **Solution**: Add this phone number under **Phone numbers** in your telephony configuration at **/telephony-configurations**
+    - Ensure the phone number is also linked to your provider account
   </Accordion>
   
   <Accordion title="Signature validation failed">
@@ -162,12 +179,11 @@ After completing both the Dograh AI configuration and provider-specific setup:
 - **Single Configuration**: Use the same telephony configuration for both inbound and outbound calls
 - **Testing**: Always test inbound calling after configuration changes
 - **Monitoring**: Monitor both Dograh AI logs and provider dashboards for call analytics
-- **Backup Numbers**: Configure multiple phone numbers for redundancy
 - **Security**: Ensure webhook signature verification is enabled for security
 
 ## Next Steps
 
 1. Choose your telephony provider and complete the basic configuration
-2. Follow the provider-specific setup instructions (to be detailed)
-3. Test your inbound calling setup
-4. Configure your voice agent workflow for optimal caller experience
+2. Follow the provider-specific setup instructions
+3. Assign an inbound workflow to each phone number that should accept calls
+4. Test your inbound calling setup

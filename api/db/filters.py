@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Float, Integer, and_, cast, func
+from sqlalchemy import Float, Integer, Text, and_, cast, func
 from sqlalchemy.dialects.postgresql import JSONB
 
 from api.db.models import WorkflowRunModel
@@ -48,8 +48,10 @@ ATTRIBUTE_FIELD_MAPPING = {
     "tokenUsage": "cost_info.total_cost_usd",
     "runId": "id",
     "workflowId": "workflow_id",
+    "campaignId": "campaign_id",
     "callTags": "gathered_context.call_tags",
-    "phoneNumber": "initial_context.phone",
+    "callerNumber": "initial_context.caller_number",
+    "calledNumber": "initial_context.called_number",
 }
 
 
@@ -69,7 +71,8 @@ def apply_workflow_run_filters(
     - runId: Filter by workflow run ID (exact match)
     - workflowId: Filter by workflow ID (exact match)
     - callTags: Filter by gathered_context.call_tags (array of strings)
-    - phoneNumber: Filter by initial_context.phone (text search)
+    - callerNumber: Filter by initial_context.caller_number (text search)
+    - calledNumber: Filter by initial_context.called_number (text search)
 
     Args:
         base_query: The base SQLAlchemy query to apply filters to
@@ -117,6 +120,12 @@ def apply_workflow_run_filters(
                 if value.get("value") is not None:
                     filter_conditions.append(
                         WorkflowRunModel.workflow_id == value["value"]
+                    )
+
+            elif filter_type == "number" and field == "campaign_id":
+                if value.get("value") is not None:
+                    filter_conditions.append(
+                        WorkflowRunModel.campaign_id == value["value"]
                     )
 
             elif filter_type == "dateRange" and field == "created_at":
@@ -169,15 +178,30 @@ def apply_workflow_run_filters(
                     call_tags = gathered_context_jsonb.op("->")("call_tags")
                     filter_conditions.append(call_tags.op("@>")(func.cast(tags, JSONB)))
 
-            elif filter_type == "text" and field == "initial_context.phone":
-                # Filter by phone number (contains search)
+            elif filter_type == "text" and field == "initial_context.caller_number":
                 phone = value.get("value", "").strip()
                 if phone:
-                    # Use ->> operator for compatibility with all PostgreSQL versions
+                    # Cast ->> result to Text so .contains() emits LIKE,
+                    # not the JSONB @> operator (the default for untyped exprs).
                     filter_conditions.append(
-                        cast(WorkflowRunModel.initial_context, JSONB)
-                        .op("->>")("phone")
-                        .contains(phone)
+                        cast(
+                            cast(WorkflowRunModel.initial_context, JSONB).op("->>")(
+                                "caller_number"
+                            ),
+                            Text,
+                        ).contains(phone)
+                    )
+
+            elif filter_type == "text" and field == "initial_context.called_number":
+                phone = value.get("value", "").strip()
+                if phone:
+                    filter_conditions.append(
+                        cast(
+                            cast(WorkflowRunModel.initial_context, JSONB).op("->>")(
+                                "called_number"
+                            ),
+                            Text,
+                        ).contains(phone)
                     )
 
             elif filter_type == "numberRange":

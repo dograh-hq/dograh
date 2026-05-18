@@ -1,10 +1,10 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, ChevronDown, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, ChevronDown, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -21,6 +21,7 @@ import {
     DropdownMenuItem,
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
     Popover,
     PopoverContent,
@@ -37,6 +38,7 @@ interface WorkflowEditorHeaderProps {
     rfInstance: React.RefObject<ReactFlowInstance<FlowNode, FlowEdge> | null>;
     onRun: (mode: string) => Promise<void>;
     workflowId: number;
+    workflowUuid?: string;
     saveWorkflow: (updateWorkflowDefinition?: boolean) => Promise<void>;
     user: { id: string; email?: string };
     onPhoneCallClick: () => void;
@@ -46,6 +48,7 @@ interface WorkflowEditorHeaderProps {
     onBackToDraft: () => void;
     hasDraft: boolean;
     onPublished: () => void;
+    renameWorkflow: (newName: string) => Promise<void>;
 }
 
 export const WorkflowEditorHeader = ({
@@ -63,12 +66,26 @@ export const WorkflowEditorHeader = ({
     hasDraft,
     onPublished,
     workflowId,
+    workflowUuid,
+    renameWorkflow,
 }: WorkflowEditorHeaderProps) => {
     const router = useRouter();
     const { toggleSidebar } = useSidebar();
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [duplicating, setDuplicating] = useState(false);
     const [publishing, setPublishing] = useState(false);
+    // One discriminated-union state instead of (isEditingName, nameDraft,
+    // nameError, isRenaming): they're not independent — error and saving are
+    // mutually exclusive, and both are meaningless in the display state. The
+    // union makes the bad combinations unrepresentable and structurally
+    // prevents the Enter→disable-input→blur→re-fire race.
+    type RenameState =
+        | { kind: "display" }
+        | { kind: "editing"; draft: string; error: string | null }
+        | { kind: "saving"; draft: string };
+    const [rename, setRename] = useState<RenameState>({ kind: "display" });
+    const nameInputRef = useRef<HTMLInputElement>(null);
+    const renameButtonRef = useRef<HTMLButtonElement>(null);
 
     const hasValidationErrors = workflowValidationErrors.length > 0;
     const isCallDisabled = isDirty || hasValidationErrors;
@@ -123,6 +140,19 @@ export const WorkflowEditorHeader = ({
         }
     };
 
+    const handleCopyAgentUuid = async () => {
+        if (!workflowUuid) {
+            toast.error("Agent UUID not available");
+            return;
+        }
+        try {
+            await navigator.clipboard.writeText(workflowUuid);
+            toast.success("Agent UUID copied");
+        } catch {
+            toast.error("Failed to copy Agent UUID");
+        }
+    };
+
     const handleDownloadWorkflow = () => {
         if (!rfInstance.current) return;
 
@@ -141,6 +171,66 @@ export const WorkflowEditorHeader = ({
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+    };
+
+    const enterEditMode = () => {
+        setRename({ kind: "editing", draft: workflowName, error: null });
+    };
+
+    const exitEditMode = () => {
+        setRename({ kind: "display" });
+        // Return focus to the pencil button so keyboard users aren't stranded.
+        // Defer to next tick so React commits the input unmount first.
+        setTimeout(() => renameButtonRef.current?.focus(), 0);
+    };
+
+    const attemptSave = async () => {
+        // Only "editing" can initiate a save. This also guards against the
+        // blur fired when disabling the input transitions us to "saving".
+        if (rename.kind !== "editing") return;
+        const trimmed = rename.draft.trim();
+        if (trimmed.length === 0) {
+            setRename({ ...rename, error: "Name cannot be empty" });
+            return;
+        }
+        if (trimmed === workflowName) {
+            // No-op: exit cleanly with no API call.
+            exitEditMode();
+            return;
+        }
+        setRename({ kind: "saving", draft: rename.draft });
+        try {
+            await renameWorkflow(trimmed);
+            // Success: store update already propagated workflowName. Exit edit mode.
+            exitEditMode();
+        } catch {
+            // Roll back: keep user's typed value, reopen the input, focus it,
+            // surface a sonner toast (matches existing duplicate/publish failure pattern).
+            toast.error("Failed to rename workflow");
+            setRename({ kind: "editing", draft: trimmed, error: null });
+            setTimeout(() => nameInputRef.current?.focus(), 0);
+        }
+    };
+
+    const handleRenameKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === "Enter") {
+            event.preventDefault();
+            void attemptSave();
+        } else if (event.key === "Escape") {
+            event.preventDefault();
+            exitEditMode();
+        }
+    };
+
+    const handleRenameBlur = () => {
+        // Ignore the blur fired when the input is disabled during save.
+        if (rename.kind !== "editing") return;
+        // On blur with empty/whitespace, revert silently to display mode so the user is never trapped.
+        if (rename.draft.trim().length === 0) {
+            exitEditMode();
+            return;
+        }
+        void attemptSave();
     };
 
     return (
@@ -162,12 +252,52 @@ export const WorkflowEditorHeader = ({
                 </button>
 
                 <div className="flex items-center gap-2">
-                    <h1 className="text-base font-medium text-white whitespace-nowrap">
-                        <span className="md:hidden">
-                            {workflowName.length > 8 ? `${workflowName.slice(0, 8)}…` : workflowName}
-                        </span>
-                        <span className="hidden md:inline">{workflowName}</span>
-                    </h1>
+                    {rename.kind !== "display" ? (
+                        <div className="flex flex-col gap-1">
+                            <Input
+                                ref={nameInputRef}
+                                value={rename.draft}
+                                onChange={(e) => {
+                                    // onChange can't fire while disabled (kind === "saving"),
+                                    // but the type guard is needed for the discriminated union.
+                                    if (rename.kind === "editing") {
+                                        setRename({ ...rename, draft: e.target.value, error: null });
+                                    }
+                                }}
+                                onKeyDown={handleRenameKeyDown}
+                                onBlur={handleRenameBlur}
+                                disabled={rename.kind === "saving"}
+                                autoFocus
+                                onFocus={(e) => e.currentTarget.select()}
+                                aria-label="Workflow name"
+                                aria-invalid={rename.kind === "editing" && rename.error !== null}
+                                className="h-8 max-w-xs bg-[#2a2a2a] border-[#3a3a3a] text-white text-base font-medium"
+                            />
+                            {rename.kind === "editing" && rename.error && (
+                                <span className="text-xs text-red-500" role="alert">{rename.error}</span>
+                            )}
+                        </div>
+                    ) : (
+                        <>
+                            <h1 className="text-base font-medium text-white whitespace-nowrap truncate max-w-[14rem] md:max-w-md">
+                                <span className="md:hidden">
+                                    {workflowName.length > 8 ? `${workflowName.slice(0, 8)}…` : workflowName}
+                                </span>
+                                <span className="hidden md:inline">{workflowName}</span>
+                            </h1>
+                            {!isViewingHistoricalVersion && (
+                                <button
+                                    ref={renameButtonRef}
+                                    type="button"
+                                    onClick={enterEditMode}
+                                    aria-label="Rename workflow"
+                                    className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-[#2a2a2a] transition-colors"
+                                >
+                                    <Pencil className="w-4 h-4 text-gray-400" />
+                                </button>
+                            )}
+                        </>
+                    )}
                 </div>
             </div>
 
@@ -379,6 +509,14 @@ export const WorkflowEditorHeader = ({
                         >
                             <Download className="w-4 h-4 mr-2" />
                             Download Workflow
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                            onClick={handleCopyAgentUuid}
+                            disabled={!workflowUuid}
+                            className="text-white hover:bg-[#2a2a2a] cursor-pointer"
+                        >
+                            <Clipboard className="w-4 h-4 mr-2" />
+                            Copy Agent UUID
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

@@ -24,7 +24,13 @@ export const SETTINGS_DOCUMENTATION_URLS: Record<string, string> = {
     templateVariables: `${DOCS_BASE}/voice-agent/template-variables`,
 
     recordings: `${DOCS_BASE}/voice-agent/pre-recorded-audio`,
-    deployment: `${DOCS_BASE}/deployment/web-widget`,
+    deployment: `${DOCS_BASE}/voice-agent/add-to-website`,
+};
+
+export const WIDGET_MODE_DOCUMENTATION_URLS: Record<"floating" | "inline" | "headless", string> = {
+    floating: `${DOCS_BASE}/voice-agent/add-to-website#floating-widget`,
+    inline: `${DOCS_BASE}/voice-agent/add-to-website#inline-component`,
+    headless: `${DOCS_BASE}/voice-agent/add-to-website#headless-mode`,
 };
 
 export const TOOL_DOCUMENTATION_URLS: Record<string, string> = {

@@ -1,7 +1,7 @@
 import asyncio
 import time
 from datetime import UTC, datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 
@@ -15,9 +15,14 @@ from api.services.campaign.errors import (
     PhoneNumberPoolExhaustedError,
 )
 from api.services.campaign.rate_limiter import rate_limiter
-from api.services.telephony.base import TelephonyProvider
-from api.services.telephony.factory import get_telephony_provider
 from api.utils.common import get_backend_endpoints
+
+if TYPE_CHECKING:
+    # Type-only — importing api.services.telephony eagerly triggers the
+    # provider package init, which can pull in this module via the routes
+    # chain and create a circular import. Runtime calls below lazy-import the
+    # factory helpers inside methods instead.
+    from api.services.telephony.base import TelephonyProvider
 
 
 class CampaignCallDispatcher:
@@ -26,9 +31,24 @@ class CampaignCallDispatcher:
     def __init__(self):
         self.default_concurrent_limit = int(DEFAULT_ORG_CONCURRENCY_LIMIT)
 
-    async def get_telephony_provider(self, organization_id: int) -> TelephonyProvider:
-        """Get telephony provider instance for specific organization"""
-        return await get_telephony_provider(organization_id)
+    async def get_provider_for_campaign(self, campaign) -> "TelephonyProvider":
+        """Get the telephony provider pinned to this campaign's config. Falls back
+        to the org's default config for legacy campaigns whose
+        ``telephony_configuration_id`` was never backfilled."""
+        from api.services.telephony.factory import (
+            get_default_telephony_provider,
+            get_telephony_provider_by_id,
+        )
+
+        if campaign.telephony_configuration_id:
+            return await get_telephony_provider_by_id(
+                campaign.telephony_configuration_id, campaign.organization_id
+            )
+        logger.warning(
+            f"Campaign {campaign.id} has no telephony_configuration_id; "
+            f"falling back to org default for {campaign.organization_id}"
+        )
+        return await get_default_telephony_provider(campaign.organization_id)
 
     async def get_org_concurrent_limit(self, organization_id: int) -> int:
         """Get the concurrent call limit for an organization."""
@@ -75,12 +95,14 @@ class CampaignCallDispatcher:
             logger.info(f"No more queued runs for campaign {campaign_id}")
             return 0
 
-        # Initialize from_number pool for this org's provider
+        # Initialize from_number pool for this campaign's telephony config.
         try:
-            provider = await self.get_telephony_provider(campaign.organization_id)
+            provider = await self.get_provider_for_campaign(campaign)
             if provider.from_numbers:
                 await rate_limiter.initialize_from_number_pool(
-                    campaign.organization_id, provider.from_numbers
+                    campaign.organization_id,
+                    provider.from_numbers,
+                    telephony_configuration_id=campaign.telephony_configuration_id,
                 )
         except Exception as e:
             logger.warning(f"Failed to initialize from_number pool: {e}")
@@ -180,12 +202,17 @@ class CampaignCallDispatcher:
             )
             raise ValueError(f"No phone number in queued run {queued_run.id}")
 
-        # Get provider first to determine the mode
-        provider = await self.get_telephony_provider(campaign.organization_id)
+        # Get provider for this campaign's pinned telephony config.
+        provider = await self.get_provider_for_campaign(campaign)
         workflow_run_mode = provider.PROVIDER_NAME
 
-        # Acquire a unique from_number from the pool
-        from_number = await self.acquire_from_number(campaign.organization_id)
+        # Acquire a unique from_number from the pool scoped to this campaign's
+        # telephony configuration so orgs with multiple configs don't leak
+        # caller IDs across configs.
+        from_number = await self.acquire_from_number(
+            campaign.organization_id,
+            telephony_configuration_id=campaign.telephony_configuration_id,
+        )
         if from_number is None:
             # Release concurrent slot before raising
             await rate_limiter.release_concurrent_slot(
@@ -206,6 +233,7 @@ class CampaignCallDispatcher:
             "source_uuid": queued_run.source_uuid,
             "caller_number": from_number,
             "called_number": phone_number,
+            "telephony_configuration_id": campaign.telephony_configuration_id,
         }
 
         logger.info(f"Final initial_context: {initial_context}")
@@ -230,7 +258,10 @@ class CampaignCallDispatcher:
 
             # Store from_number mapping for cleanup on call completion
             await rate_limiter.store_workflow_from_number_mapping(
-                workflow_run.id, campaign.organization_id, from_number
+                workflow_run.id,
+                campaign.organization_id,
+                from_number,
+                telephony_configuration_id=campaign.telephony_configuration_id,
             )
         except Exception as e:
             # Release slot and from_number on error
@@ -239,7 +270,9 @@ class CampaignCallDispatcher:
             )
             if from_number:
                 await rate_limiter.release_from_number(
-                    campaign.organization_id, from_number
+                    campaign.organization_id,
+                    from_number,
+                    telephony_configuration_id=campaign.telephony_configuration_id,
                 )
             raise
 
@@ -318,7 +351,12 @@ class CampaignCallDispatcher:
             )
 
             # Record call initiation failure in circuit breaker
-            await circuit_breaker.record_and_evaluate(campaign.id, is_failure=True)
+            await circuit_breaker.record_and_evaluate(
+                campaign.id,
+                is_failure=True,
+                workflow_run_id=workflow_run.id,
+                reason="call_initiation_failed",
+            )
 
             # Release concurrent slot on failure
             mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run.id)
@@ -332,8 +370,10 @@ class CampaignCallDispatcher:
                 workflow_run.id
             )
             if from_number_mapping:
-                fn_org_id, fn_number = from_number_mapping
-                await rate_limiter.release_from_number(fn_org_id, fn_number)
+                fn_org_id, fn_number, fn_tcid = from_number_mapping
+                await rate_limiter.release_from_number(
+                    fn_org_id, fn_number, telephony_configuration_id=fn_tcid
+                )
                 await rate_limiter.delete_workflow_from_number_mapping(workflow_run.id)
 
             raise
@@ -432,18 +472,24 @@ class CampaignCallDispatcher:
             await asyncio.sleep(1)
 
     async def acquire_from_number(
-        self, organization_id: int, timeout: float = 60
+        self,
+        organization_id: int,
+        telephony_configuration_id: int | None,
+        timeout: float = 600,
     ) -> Optional[str]:
         """
-        Acquire a from_number from the pool with retry.
+        Acquire a from_number from the (org, telephony config) pool with retry.
         Waits up to timeout seconds, polling every 1s.
 
-        Returns the phone number or None if timeout is exceeded.
+        Returns:
+            The acquired phone number as a string, or None if timeout is exceeded.
         """
         wait_start = time.time()
 
         while True:
-            from_number = await rate_limiter.acquire_from_number(organization_id)
+            from_number = await rate_limiter.acquire_from_number(
+                organization_id, telephony_configuration_id
+            )
             if from_number:
                 return from_number
 
@@ -451,13 +497,15 @@ class CampaignCallDispatcher:
             if wait_time > timeout:
                 logger.warning(
                     f"From number pool exhausted for org {organization_id} "
-                    f"after waiting {wait_time:.1f}s"
+                    f"config {telephony_configuration_id} after waiting "
+                    f"{wait_time:.1f}s"
                 )
                 return None
 
             logger.debug(
-                f"All from_numbers in use for org {organization_id}, "
-                f"waited {wait_time:.1f}s, retrying..."
+                f"All from_numbers in use for org {organization_id} "
+                f"config {telephony_configuration_id}, waited {wait_time:.1f}s, "
+                "retrying..."
             )
             await asyncio.sleep(1)
 
@@ -478,13 +526,15 @@ class CampaignCallDispatcher:
                 )
                 slot_released = True
 
-        # Release from_number back to pool
+        # Release from_number back to its (org, telephony config) pool
         from_number_mapping = await rate_limiter.get_workflow_from_number_mapping(
             workflow_run_id
         )
         if from_number_mapping:
-            fn_org_id, fn_number = from_number_mapping
-            fn_success = await rate_limiter.release_from_number(fn_org_id, fn_number)
+            fn_org_id, fn_number, fn_tcid = from_number_mapping
+            fn_success = await rate_limiter.release_from_number(
+                fn_org_id, fn_number, telephony_configuration_id=fn_tcid
+            )
             if fn_success:
                 await rate_limiter.delete_workflow_from_number_mapping(workflow_run_id)
                 logger.info(

@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft, ChevronDown, ChevronRight } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import type { ITimezoneOption } from 'react-timezone-select';
@@ -9,9 +10,10 @@ import { toast } from 'sonner';
 import {
     createCampaignApiV1CampaignCreatePost,
     getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet,
-    getWorkflowsSummaryApiV1WorkflowSummaryGet
+    getWorkflowsSummaryApiV1WorkflowSummaryGet,
+    listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet
 } from '@/client/sdk.gen';
-import type { WorkflowSummaryResponse } from '@/client/types.gen';
+import type { TelephonyConfigurationListItem, WorkflowSummaryResponse } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -47,6 +49,11 @@ export default function NewCampaignPage() {
     // Workflows state
     const [workflows, setWorkflows] = useState<WorkflowSummaryResponse[]>([]);
     const [isLoadingWorkflows, setIsLoadingWorkflows] = useState(true);
+
+    // Telephony configurations state
+    const [telephonyConfigs, setTelephonyConfigs] = useState<TelephonyConfigurationListItem[]>([]);
+    const [selectedTelephonyConfigId, setSelectedTelephonyConfigId] = useState<string>('');
+    const [isLoadingTelephonyConfigs, setIsLoadingTelephonyConfigs] = useState(true);
 
     // Advanced settings state
     const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -94,7 +101,10 @@ export default function NewCampaignPage() {
             const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
-                }
+                },
+                query: {
+                    status: 'active',
+                },
             });
 
             if (response.data) {
@@ -105,6 +115,33 @@ export default function NewCampaignPage() {
             toast.error('Failed to load workflows');
         } finally {
             setIsLoadingWorkflows(false);
+        }
+    }, [user, getAccessToken]);
+
+    // Fetch telephony configurations
+    const fetchTelephonyConfigs = useCallback(async () => {
+        if (!user) return;
+        try {
+            const accessToken = await getAccessToken();
+            const response = await listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet({
+                headers: {
+                    'Authorization': `Bearer ${accessToken}`,
+                }
+            });
+
+            if (response.data) {
+                const configs = response.data.configurations ?? [];
+                setTelephonyConfigs(configs);
+                const defaultConfig = configs.find((c) => c.is_default_outbound) ?? configs[0];
+                if (defaultConfig) {
+                    setSelectedTelephonyConfigId(String(defaultConfig.id));
+                }
+            }
+        } catch (error) {
+            console.error('Failed to fetch telephony configurations:', error);
+            toast.error('Failed to load telephony configurations');
+        } finally {
+            setIsLoadingTelephonyConfigs(false);
         }
     }, [user, getAccessToken]);
 
@@ -183,12 +220,21 @@ export default function NewCampaignPage() {
         if (user) {
             fetchWorkflows();
             fetchCampaignDefaults();
+            fetchTelephonyConfigs();
         }
-    }, [fetchWorkflows, fetchCampaignDefaults, user]);
+    }, [fetchWorkflows, fetchCampaignDefaults, fetchTelephonyConfigs, user]);
+
+    // Phone-number count for the selected telephony config drives concurrency
+    // bounds. Falls back to the campaign-defaults endpoint's count (org default
+    // config) until the configs list resolves.
+    const selectedTelephonyConfig = telephonyConfigs.find(
+        (c) => String(c.id) === selectedTelephonyConfigId,
+    );
+    const availableFromNumbersCount = selectedTelephonyConfig?.phone_number_count ?? fromNumbersCount;
 
     // Effective concurrency limit considering both org limit and available CLIs
-    const effectiveLimit = fromNumbersCount > 0
-        ? Math.min(orgConcurrentLimit, fromNumbersCount)
+    const effectiveLimit = availableFromNumbersCount > 0
+        ? Math.min(orgConcurrentLimit, availableFromNumbersCount)
         : orgConcurrentLimit;
 
     // Handle form submission
@@ -196,7 +242,7 @@ export default function NewCampaignPage() {
         e.preventDefault();
         setCreateError(null);
 
-        if (!campaignName || !selectedWorkflowId || !sourceId) {
+        if (!campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId) {
             toast.error('Please fill in all fields');
             return;
         }
@@ -209,8 +255,8 @@ export default function NewCampaignPage() {
                 return;
             }
             if (maxConcurrencyValue > effectiveLimit) {
-                if (fromNumbersCount > 0 && fromNumbersCount < orgConcurrentLimit) {
-                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. You have ${fromNumbersCount} phone number(s) configured — add more CLIs to increase concurrency.`);
+                if (availableFromNumbersCount > 0 && availableFromNumbersCount < orgConcurrentLimit) {
+                    toast.error(`Max concurrent calls cannot exceed ${effectiveLimit}. The selected configuration has ${availableFromNumbersCount} phone number(s) — add more CLIs to increase concurrency.`);
                 } else {
                     toast.error(`Max concurrent calls cannot exceed organization limit (${effectiveLimit})`);
                 }
@@ -257,6 +303,7 @@ export default function NewCampaignPage() {
                     workflow_id: parseInt(selectedWorkflowId),
                     source_type: sourceType,
                     source_id: sourceId,
+                    telephony_configuration_id: parseInt(selectedTelephonyConfigId),
                     retry_config: retryConfig,
                     max_concurrency: maxConcurrencyValue,
                     schedule_config: scheduleConfig,
@@ -384,6 +431,52 @@ export default function NewCampaignPage() {
                             </div>
 
                             <div className="space-y-2">
+                                <Label htmlFor="telephony-config">Telephony Configuration</Label>
+                                {!isLoadingTelephonyConfigs && telephonyConfigs.length === 0 ? (
+                                    <div className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
+                                        No telephony configurations yet.{' '}
+                                        <Link
+                                            href="/telephony-configurations"
+                                            className="underline text-foreground"
+                                        >
+                                            Add one
+                                        </Link>{' '}
+                                        to create a campaign.
+                                    </div>
+                                ) : (
+                                    <Select
+                                        value={selectedTelephonyConfigId}
+                                        onValueChange={setSelectedTelephonyConfigId}
+                                        required
+                                    >
+                                        <SelectTrigger id="telephony-config">
+                                            <SelectValue placeholder="Select a telephony configuration" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {isLoadingTelephonyConfigs ? (
+                                                <SelectItem value="loading" disabled>
+                                                    Loading configurations...
+                                                </SelectItem>
+                                            ) : (
+                                                telephonyConfigs.map((config) => (
+                                                    <SelectItem
+                                                        key={config.id}
+                                                        value={config.id.toString()}
+                                                    >
+                                                        {config.name} ({config.provider})
+                                                        {config.is_default_outbound ? ' — default' : ''}
+                                                    </SelectItem>
+                                                ))
+                                            )}
+                                        </SelectContent>
+                                    </Select>
+                                )}
+                                <p className="text-sm text-muted-foreground">
+                                    Outbound calls for this campaign will use this configuration&apos;s caller IDs
+                                </p>
+                            </div>
+
+                            <div className="space-y-2">
                                 <Label htmlFor="source-type">Data Source Type</Label>
                                 <Select
                                     value={sourceType}
@@ -480,7 +573,7 @@ export default function NewCampaignPage() {
                             <div className="flex gap-4 pt-4">
                                 <Button
                                     type="submit"
-                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId}
+                                    disabled={isSubmitting || !campaignName || !selectedWorkflowId || !sourceId || !selectedTelephonyConfigId}
                                 >
                                     {isSubmitting ? 'Creating...' : 'Create Campaign'}
                                 </Button>

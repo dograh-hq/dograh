@@ -3,6 +3,7 @@ transcript after completion."""
 
 from api.services.workflow.node_specs._base import (
     DisplayOptions,
+    GraphConstraints,
     NodeCategory,
     NodeExample,
     NodeSpec,
@@ -241,4 +242,10 @@ SPEC = NodeSpec(
             },
         ),
     ],
+    # QA runs post-call against the saved transcript (run_integrations
+    # scans by type), never as a graph step. Reject any edge into or out
+    # of a QA node.
+    graph_constraints=GraphConstraints(
+        min_incoming=0, max_incoming=0, min_outgoing=0, max_outgoing=0
+    ),
 )

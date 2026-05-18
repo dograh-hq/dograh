@@ -1,0 +1,9 @@
+---
+title: "Add Phone Number"
+description: "Attach a new phone number to a telephony configuration"
+openapi: "POST /api/v1/organizations/telephony-configs/{config_id}/phone-numbers"
+---
+
+Set `inbound_workflow_id` to bind incoming calls on this number to a specific agent — Dograh will register the inbound webhook with the provider and the response will include a `provider_sync` block reporting the result. Omit it to add the number for outbound use only.
+
+The `(provider, account_id, address)` tuple must be globally unique across all Dograh organizations, since inbound dispatch keys on it. Attempting to add a number that another organization already owns returns `409`.

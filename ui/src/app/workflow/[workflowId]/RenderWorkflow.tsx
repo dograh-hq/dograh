@@ -39,9 +39,12 @@ const edgeTypes = {
     custom: CustomEdge,
 };
 
+const VERSIONS_PAGE_SIZE = 10;
+
 interface RenderWorkflowProps {
     initialWorkflowName: string;
     workflowId: number;
+    workflowUuid?: string;
     initialFlow?: {
         nodes: FlowNode[];
         edges: FlowEdge[];
@@ -58,12 +61,14 @@ interface RenderWorkflowProps {
     user: { id: string; email?: string };
 }
 
-function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
+function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
     const router = useRouter();
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
     const [versions, setVersions] = useState<WorkflowVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
+    const [versionsLoadingMore, setVersionsLoadingMore] = useState(false);
+    const [versionsHasMore, setVersionsHasMore] = useState(false);
     const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
     // Version info that updates immediately from the GET/save/publish responses.
     const [currentVersionNumber, setCurrentVersionNumber] = useState<number | null>(initialVersionNumber ?? null);
@@ -87,6 +92,8 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         setIsAddNodePanelOpen,
         handleNodeSelect,
         saveWorkflow,
+        workflowConfigurations,
+        saveWorkflowConfigurations,
         onConnect,
         onEdgesChange,
         onNodesChange,
@@ -103,18 +110,24 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
     // Derive hasDraft from the current version status
     const hasDraft = currentVersionStatus === "draft";
 
-    // Fetch workflow versions, optionally forcing a refresh
+    // Fetch the first page of workflow versions, optionally forcing a refresh.
+    // Pagination keeps the panel snappy when a workflow has accumulated a long
+    // history — `workflow_json` is shipped per row, so loading hundreds at once
+    // is expensive on the wire.
     const fetchVersions = useCallback(async (force = false) => {
         if (versionsFetched.current && !force) return;
         setVersionsLoading(true);
         try {
             const response = await getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet({
                 path: { workflow_id: workflowId },
+                query: { limit: VERSIONS_PAGE_SIZE, offset: 0 },
             });
             const data = response.data as WorkflowVersion[] | undefined;
             if (data) {
                 setVersions(data);
-                // Set active version to draft if exists, else published
+                setVersionsHasMore(data.length === VERSIONS_PAGE_SIZE);
+                // Set active version to draft if exists, else published.
+                // Both live on the newest page so the first fetch always sees them.
                 const current = data.find((v) => v.status === "draft") ?? data.find((v) => v.status === "published");
                 if (current) {
                     setActiveVersionId(current.id);
@@ -127,6 +140,24 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
             setVersionsLoading(false);
         }
     }, [workflowId]);
+
+    const handleLoadMoreVersions = useCallback(async () => {
+        if (versionsLoadingMore || !versionsHasMore) return;
+        setVersionsLoadingMore(true);
+        try {
+            const response = await getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet({
+                path: { workflow_id: workflowId },
+                query: { limit: VERSIONS_PAGE_SIZE, offset: versions.length },
+            });
+            const data = response.data as WorkflowVersion[] | undefined;
+            if (data) {
+                setVersions((prev) => [...prev, ...data]);
+                setVersionsHasMore(data.length === VERSIONS_PAGE_SIZE);
+            }
+        } finally {
+            setVersionsLoadingMore(false);
+        }
+    }, [workflowId, versions.length, versionsLoadingMore, versionsHasMore]);
 
     const handleOpenVersionPanel = useCallback(() => {
         setIsVersionPanelOpen(true);
@@ -283,6 +314,17 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
         }
     }, [saveWorkflow, isViewingHistoricalVersion, fetchVersions]);
 
+    const renameWorkflow = useCallback(async (newName: string) => {
+        // The header doesn't render the pencil until the page has mounted with
+        // initial data, so workflowConfigurations is non-null by the time this
+        // runs. Throw rather than silently sending DEFAULT_WORKFLOW_CONFIGURATIONS,
+        // which would overwrite the saved server-side config.
+        if (!workflowConfigurations) {
+            throw new Error("Workflow configurations not loaded");
+        }
+        await saveWorkflowConfigurations(workflowConfigurations, newName);
+    }, [saveWorkflowConfigurations, workflowConfigurations]);
+
     // Memoize the context value to prevent unnecessary re-renders
     const workflowContextValue = useMemo(() => ({
         saveWorkflow: guardedSaveWorkflow,
@@ -303,6 +345,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     rfInstance={rfInstance}
                     onRun={onRun}
                     workflowId={workflowId}
+                    workflowUuid={workflowUuid}
                     saveWorkflow={guardedSaveWorkflow}
                     user={user}
                     onPhoneCallClick={() => setIsPhoneCallDialogOpen(true)}
@@ -312,6 +355,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     onBackToDraft={handleBackToDraft}
                     hasDraft={hasDraft}
                     onPublished={handlePublished}
+                    renameWorkflow={renameWorkflow}
                 />
 
                 {/* Workflow Canvas */}
@@ -482,6 +526,9 @@ function RenderWorkflow({ initialWorkflowName, workflowId, initialFlow, initialT
                     loading={versionsLoading}
                     activeVersionId={activeVersionId}
                     onSelectVersion={handleSelectVersion}
+                    hasMore={versionsHasMore}
+                    loadingMore={versionsLoadingMore}
+                    onLoadMore={handleLoadMoreVersions}
                 />
 
                 <PhoneCallDialog

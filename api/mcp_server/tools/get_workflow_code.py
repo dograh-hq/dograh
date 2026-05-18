@@ -18,12 +18,10 @@ from fastapi import HTTPException
 
 from api.db import db_client
 from api.mcp_server.auth import authenticate_mcp_request
-from api.mcp_server.server import mcp
 from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, generate_code
 
 
-@mcp.tool
 @traced_tool
 async def get_workflow_code(workflow_id: int) -> dict[str, Any]:
     """Return the workflow as SDK TypeScript code the LLM can edit.

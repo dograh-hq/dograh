@@ -1,0 +1,11 @@
+---
+title: "List Runs with Usage"
+description: "Paginated list of workflow runs across the organization with usage and cost"
+openapi: "GET /api/v1/organizations/usage/runs"
+---
+
+Returns a paginated list of runs across all agents in your organization, including duration, cost, and usage details for each run.
+
+Use `start_date` and `end_date` (ISO 8601) to scope the window, and `page` / `limit` to paginate. Pass `filters` as a JSON-encoded string to narrow results further.
+
+To fetch the full transcript or recording for a specific run, use [Retrieve Call Details](/api-reference/calls/get-run).

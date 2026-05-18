@@ -11,7 +11,13 @@ import {
 } from "@/client/sdk.gen";
 import type { RecordingResponseSchema, ToolResponse, TransferCallConfig as APITransferCallConfig } from "@/client/types.gen";
 import type { EndCallConfig } from "@/client/types.gen";
-import { type HttpMethod, type KeyValueItem, type ToolParameter, validateUrl } from "@/components/http";
+import {
+    type HttpMethod,
+    type KeyValueItem,
+    type PresetToolParameter,
+    type ToolParameter,
+    validateUrl,
+} from "@/components/http";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -41,6 +47,12 @@ interface HttpApiConfigWithParams {
     headers?: Record<string, string>;
     credential_uuid?: string;
     parameters?: ToolParameter[];
+    preset_parameters?: Array<{
+        name?: string;
+        type?: PresetToolParameter["type"];
+        value_template?: string;
+        required?: boolean;
+    }>;
     timeout_ms?: number;
     customMessage?: string;
 }
@@ -70,6 +82,7 @@ export default function ToolDetailPage() {
     const [credentialUuid, setCredentialUuid] = useState("");
     const [headers, setHeaders] = useState<KeyValueItem[]>([]);
     const [parameters, setParameters] = useState<ToolParameter[]>([]);
+    const [presetParameters, setPresetParameters] = useState<PresetToolParameter[]>([]);
     const [timeoutMs, setTimeoutMs] = useState(5000);
 
     // End Call form state
@@ -209,6 +222,19 @@ export default function ToolDetailPage() {
                 } else {
                     setParameters([]);
                 }
+
+                if (config.preset_parameters && Array.isArray(config.preset_parameters)) {
+                    setPresetParameters(
+                        config.preset_parameters.map((p) => ({
+                            name: p.name || "",
+                            type: p.type || "string",
+                            valueTemplate: p.value_template || "",
+                            required: p.required ?? true,
+                        }))
+                    );
+                } else {
+                    setPresetParameters([]);
+                }
             }
         }
     };
@@ -261,6 +287,14 @@ export default function ToolDetailPage() {
             const invalidParams = parameters.filter((p) => !p.name.trim());
             if (invalidParams.length > 0) {
                 setError("All parameters must have a name");
+                return;
+            }
+
+            const invalidPresetParams = presetParameters.filter(
+                (p) => !p.name.trim() || !p.valueTemplate.trim()
+            );
+            if (invalidPresetParams.length > 0) {
+                setError("All preset parameters must have a name and a value");
                 return;
             }
         }
@@ -325,6 +359,9 @@ export default function ToolDetailPage() {
                 });
 
                 const validParameters = parameters.filter((p) => p.name.trim());
+                const validPresetParameters = presetParameters.filter(
+                    (p) => p.name.trim() && p.valueTemplate.trim()
+                );
 
                 requestBody = {
                     name,
@@ -342,6 +379,15 @@ export default function ToolDetailPage() {
                                     : undefined,
                             parameters:
                                 validParameters.length > 0 ? validParameters : undefined,
+                            preset_parameters:
+                                validPresetParameters.length > 0
+                                    ? validPresetParameters.map((p) => ({
+                                        name: p.name,
+                                        type: p.type,
+                                        value_template: p.valueTemplate,
+                                        required: p.required,
+                                    }))
+                                    : undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -394,8 +440,20 @@ export default function ToolDetailPage() {
                 exampleBody[p.name] = `<${p.name}>`;
             }
         });
+        presetParameters.forEach((p) => {
+            if (p.type === "number") {
+                exampleBody[p.name] = p.valueTemplate || 0;
+            } else if (p.type === "boolean") {
+                exampleBody[p.name] = p.valueTemplate || true;
+            } else {
+                exampleBody[p.name] = p.valueTemplate || `<${p.name}>`;
+            }
+        });
 
-        const hasBody = httpMethod !== "GET" && httpMethod !== "DELETE" && parameters.length > 0;
+        const hasBody =
+            httpMethod !== "GET" &&
+            httpMethod !== "DELETE" &&
+            (parameters.length > 0 || presetParameters.length > 0);
 
         return `// ${tool.name}
 // ${tool.description || "HTTP API Tool"}
@@ -571,6 +629,8 @@ const data = await response.json();`;
                             onHeadersChange={setHeaders}
                             parameters={parameters}
                             onParametersChange={setParameters}
+                            presetParameters={presetParameters}
+                            onPresetParametersChange={setPresetParameters}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

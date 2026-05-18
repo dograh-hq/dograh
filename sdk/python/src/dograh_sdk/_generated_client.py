@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from dograh_sdk._generated_models import (
+    CreateWorkflowRequest,
     CredentialResponse,
     DocumentListResponseSchema,
     InitiateCallRequest,
@@ -27,6 +28,11 @@ from dograh_sdk._generated_models import (
 
 class _GeneratedClient:
     # `DograhClient.__init__` installs `self._request` (see client.py).
+
+    def create_workflow(self, *, body: CreateWorkflowRequest) -> WorkflowResponse:
+        """Create a new workflow from a workflow definition."""
+        data = self._request("POST", "/workflow/create/definition", json=body.model_dump(mode="json", exclude_none=True))
+        return WorkflowResponse.model_validate(data)
 
     def get_node_type(self, name: str) -> NodeSpec:
         """Fetch a single node spec by name."""

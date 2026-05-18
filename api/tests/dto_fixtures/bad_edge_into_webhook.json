@@ -1,0 +1,30 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": -200, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller."}
+    },
+    {
+      "id": "a",
+      "type": "agentNode",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Agent", "prompt": "Talk to the caller."}
+    },
+    {
+      "id": "w",
+      "type": "webhook",
+      "position": {"x": 200, "y": 0},
+      "data": {"name": "Notify CRM"}
+    }
+  ],
+  "edges": [
+    {
+      "id": "a-w",
+      "source": "a",
+      "target": "w",
+      "data": {"label": "post to webhook", "condition": "always"}
+    }
+  ]
+}

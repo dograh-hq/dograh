@@ -11,6 +11,8 @@ import {
     KeyValueEditor,
     type KeyValueItem,
     ParameterEditor,
+    PresetParameterEditor,
+    type PresetToolParameter,
     type ToolParameter,
     UrlInput,
 } from "@/components/http";
@@ -35,6 +37,8 @@ export interface HttpApiToolConfigProps {
     onHeadersChange: (headers: KeyValueItem[]) => void;
     parameters: ToolParameter[];
     onParametersChange: (parameters: ToolParameter[]) => void;
+    presetParameters: PresetToolParameter[];
+    onPresetParametersChange: (parameters: PresetToolParameter[]) => void;
     timeoutMs: number;
     onTimeoutMsChange: (timeout: number) => void;
     customMessage: string;
@@ -61,6 +65,8 @@ export function HttpApiToolConfig({
     onHeadersChange,
     parameters,
     onParametersChange,
+    presetParameters,
+    onPresetParametersChange,
     timeoutMs,
     onTimeoutMsChange,
     customMessage,
@@ -182,7 +188,7 @@ export function HttpApiToolConfig({
 
                     <TabsContent value="parameters" className="space-y-4 mt-4">
                         <div className="grid gap-2">
-                            <Label>Tool Parameters</Label>
+                            <Label>LLM Parameters</Label>
                             <Label className="text-xs text-muted-foreground">
                                 Define the parameters that the LLM will provide when calling this tool.
                                 These will be sent as JSON body for POST/PUT/PATCH or as URL query params for GET/DELETE.
@@ -190,6 +196,18 @@ export function HttpApiToolConfig({
                             <ParameterEditor
                                 parameters={parameters}
                                 onChange={onParametersChange}
+                            />
+                        </div>
+
+                        <div className="grid gap-2 pt-4 border-t">
+                            <Label>Preset Parameters</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Add values that Dograh should inject at runtime. These are not exposed to the LLM and can use
+                                workflow templates like {`{{initial_context.phone_number}}`} or fixed literals.
+                            </Label>
+                            <PresetParameterEditor
+                                parameters={presetParameters}
+                                onChange={onPresetParametersChange}
                             />
                         </div>
 

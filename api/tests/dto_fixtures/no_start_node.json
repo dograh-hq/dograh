@@ -1,0 +1,24 @@
+{
+  "nodes": [
+    {
+      "id": "a",
+      "type": "agentNode",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Agent", "prompt": "Talk to the caller."}
+    },
+    {
+      "id": "e",
+      "type": "endCall",
+      "position": {"x": 200, "y": 0},
+      "data": {"name": "End", "prompt": "Say goodbye."}
+    }
+  ],
+  "edges": [
+    {
+      "id": "a-e",
+      "source": "a",
+      "target": "e",
+      "data": {"label": "agent to end", "condition": "always"}
+    }
+  ]
+}

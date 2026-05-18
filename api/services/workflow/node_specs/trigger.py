@@ -13,11 +13,24 @@ from api.services.workflow.node_specs._base import (
 SPEC = NodeSpec(
     name="trigger",
     display_name="API Trigger",
-    description="Public HTTP endpoint that launches the workflow.",
+    description=("Public HTTP endpoints that launch the workflow."),
     llm_hint=(
-        "Exposes a public HTTP POST endpoint. External systems call the URL "
-        "(derived from the auto-generated `trigger_path`) to launch this "
-        "workflow. Requires an API key in the `X-API-Key` header."
+        "Exposes two public HTTP POST endpoints derived from the auto-generated "
+        "`trigger_path`:\n"
+        "  • Production: `<backend>/api/v1/public/agent/<trigger_path>` — runs "
+        "the published agent. Use this from production systems.\n"
+        "  • Test: `<backend>/api/v1/public/agent/test/<trigger_path>` — runs "
+        "the latest draft, useful for verifying changes before publishing. "
+        "Falls back to the published agent when no draft exists.\n"
+        "Both require an API key in the `X-API-Key` header.\n"
+        "Request body fields:\n"
+        "  • `phone_number` (string, required) — destination to dial.\n"
+        "  • `initial_context` (object, optional) — merged into the run's "
+        "initial context.\n"
+        "  • `telephony_configuration_id` (int, optional) — pick a specific "
+        "telephony configuration for the call. Must belong to the same "
+        "organization as the trigger. When omitted, the org's default "
+        "outbound configuration is used."
     ),
     category=NodeCategory.trigger,
     icon="Webhook",
@@ -44,7 +57,12 @@ SPEC = NodeSpec(
             display_name="Trigger Path",
             description=(
                 "Auto-generated UUID-style path segment that uniquely "
-                "identifies this trigger. Do not edit manually."
+                "identifies this trigger. Used in both URLs:\n"
+                "  • Production: `/api/v1/public/agent/<trigger_path>` — "
+                "executes the published agent.\n"
+                "  • Test: `/api/v1/public/agent/test/<trigger_path>` — "
+                "executes the latest draft.\n"
+                "Do not edit manually."
             ),
         ),
     ],

@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -8,6 +8,26 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LIB_PATH="$SCRIPT_DIR/lib/setup_common.sh"
+BOOTSTRAP_LIB=""
+
+if [[ ! -f "$LIB_PATH" ]]; then
+    BOOTSTRAP_LIB="$(mktemp)"
+    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/setup_common.sh"
+    LIB_PATH="$BOOTSTRAP_LIB"
+fi
+
+cleanup() {
+    if [[ -n "$BOOTSTRAP_LIB" ]]; then
+        rm -f "$BOOTSTRAP_LIB"
+    fi
+}
+trap cleanup EXIT
+
+# shellcheck disable=SC1090
+. "$LIB_PATH"
+
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║              Dograh Custom Domain Setup                      ║"
@@ -15,13 +35,10 @@ echo "║     Automated Let's Encrypt SSL certificate setup            ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-# Check if running as root or with sudo
 if [[ $EUID -ne 0 ]]; then
-    echo -e "${RED}Error: This script must be run as root or with sudo${NC}"
-    exit 1
+    dograh_fail "This script must be run as root or with sudo"
 fi
 
-# Check if dograh directory exists
 if [[ ! -d "dograh" ]]; then
     echo -e "${RED}Error: 'dograh' directory not found.${NC}"
     echo -e "${YELLOW}Please run this script from the directory containing your Dograh installation.${NC}"
@@ -30,29 +47,17 @@ if [[ ! -d "dograh" ]]; then
     exit 1
 fi
 
-# Get the domain name
 echo -e "${YELLOW}Enter your domain name (e.g., voice.yourcompany.com):${NC}"
 read -p "> " DOMAIN_NAME
+[[ -n "$DOMAIN_NAME" ]] || dograh_fail "Domain name cannot be empty"
 
-if [[ -z "$DOMAIN_NAME" ]]; then
-    echo -e "${RED}Error: Domain name cannot be empty${NC}"
-    exit 1
-fi
-
-# Basic domain validation
 if ! [[ "$DOMAIN_NAME" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}$ ]]; then
-    echo -e "${RED}Error: Invalid domain name format${NC}"
-    exit 1
+    dograh_fail "Invalid domain name format"
 fi
 
-# Get email for Let's Encrypt notifications
 echo -e "${YELLOW}Enter your email address for SSL certificate notifications:${NC}"
 read -p "> " EMAIL_ADDRESS
-
-if [[ -z "$EMAIL_ADDRESS" ]]; then
-    echo -e "${RED}Error: Email address cannot be empty (required by Let's Encrypt)${NC}"
-    exit 1
-fi
+[[ -n "$EMAIL_ADDRESS" ]] || dograh_fail "Email address cannot be empty (required by Let's Encrypt)"
 
 echo ""
 echo -e "${GREEN}Configuration:${NC}"
@@ -60,13 +65,12 @@ echo -e "  Domain:  ${BLUE}$DOMAIN_NAME${NC}"
 echo -e "  Email:   ${BLUE}$EMAIL_ADDRESS${NC}"
 echo ""
 
-# Verify DNS is pointing to this server
 echo -e "${BLUE}[1/7] Verifying DNS configuration...${NC}"
-SERVER_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || echo "")
-RESOLVED_IP=$(dig +short "$DOMAIN_NAME" | tail -1)
+SERVER_IP="$(curl -s ifconfig.me || curl -s icanhazip.com || echo "")"
+RESOLVED_IP="$(dig +short "$DOMAIN_NAME" | tail -1)"
 
 if [[ -z "$SERVER_IP" ]]; then
-    echo -e "${YELLOW}Warning: Could not detect server's public IP${NC}"
+    dograh_warn "Warning: Could not detect server's public IP"
 elif [[ "$RESOLVED_IP" != "$SERVER_IP" ]]; then
     echo -e "${YELLOW}Warning: Domain '$DOMAIN_NAME' resolves to '$RESOLVED_IP' but this server's IP is '$SERVER_IP'${NC}"
     echo -e "${YELLOW}Make sure your DNS A record points to this server before proceeding.${NC}"
@@ -80,7 +84,6 @@ else
     echo -e "${GREEN}✓ DNS is correctly configured (${RESOLVED_IP})${NC}"
 fi
 
-# Detect package manager and install certbot
 echo -e "${BLUE}[2/7] Installing Certbot...${NC}"
 if command -v apt-get &> /dev/null; then
     apt-get update -qq
@@ -90,14 +93,20 @@ elif command -v yum &> /dev/null; then
 elif command -v dnf &> /dev/null; then
     dnf install -y -q certbot
 else
-    echo -e "${RED}Error: Could not detect package manager. Please install certbot manually.${NC}"
-    exit 1
+    dograh_fail "Could not detect package manager. Please install certbot manually."
 fi
 echo -e "${GREEN}✓ Certbot installed${NC}"
 
-# Stop Dograh services to free port 80
 echo -e "${BLUE}[3/7] Stopping Dograh services...${NC}"
 cd dograh
+DOGRAH_DEPLOY_PROJECT_DIR="$(pwd)"
+
+if [[ ! -f remote_up.sh || ! -f scripts/lib/setup_common.sh ]]; then
+    dograh_download_remote_support_bundle "$(pwd)" "main"
+fi
+
+dograh_require_init_compose_layout "$(pwd)"
+
 if docker compose --profile remote ps --quiet 2>/dev/null | grep -q .; then
     docker compose --profile remote down
     echo -e "${GREEN}✓ Dograh services stopped${NC}"
@@ -105,7 +114,6 @@ else
     echo -e "${YELLOW}⚠ No running services found${NC}"
 fi
 
-# Generate SSL certificate
 echo -e "${BLUE}[4/7] Generating Let's Encrypt SSL certificate...${NC}"
 CERTBOT_OUTPUT=$(certbot certonly --standalone \
     --non-interactive \
@@ -115,21 +123,12 @@ CERTBOT_OUTPUT=$(certbot certonly --standalone \
     echo -e "${RED}✗ Certificate generation failed${NC}"
     echo ""
 
-    # Check for common errors and provide helpful hints
     if echo "$CERTBOT_OUTPUT" | grep -qi "timeout\|firewall\|connection"; then
         echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
         echo -e "${YELLOW}  Port 80 appears to be blocked by a firewall.${NC}"
         echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
         echo ""
         echo -e "Let's Encrypt needs to connect to port 80 to verify domain ownership."
-        echo ""
-        echo -e "${BLUE}If using AWS EC2:${NC}"
-        echo "  1. Go to AWS Console → EC2 → Security Groups"
-        echo "  2. Find the security group for your instance"
-        echo "  3. Add inbound rule: HTTP | TCP | Port 80 | 0.0.0.0/0"
-        echo ""
-        echo -e "${BLUE}If using another cloud provider:${NC}"
-        echo "  • Ensure port 80 (TCP) is open for inbound traffic from all sources"
         echo ""
     elif echo "$CERTBOT_OUTPUT" | grep -qi "too many\|rate.limit"; then
         echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
@@ -160,161 +159,60 @@ CERTBOT_OUTPUT=$(certbot certonly --standalone \
 }
 echo -e "${GREEN}✓ SSL certificate generated${NC}"
 
-# Verify and display certificate location
 CERT_PATH="/etc/letsencrypt/live/$DOMAIN_NAME"
 echo ""
 echo -e "${BLUE}Certificate location:${NC}"
 echo -e "  ${CERT_PATH}/"
-if [[ -f "$CERT_PATH/fullchain.pem" ]]; then
-    echo -e "  ${GREEN}✓${NC} fullchain.pem exists"
-else
-    echo -e "  ${RED}✗${NC} fullchain.pem NOT FOUND"
-fi
-if [[ -f "$CERT_PATH/privkey.pem" ]]; then
-    echo -e "  ${GREEN}✓${NC} privkey.pem exists"
-else
-    echo -e "  ${RED}✗${NC} privkey.pem NOT FOUND"
-fi
+[[ -f "$CERT_PATH/fullchain.pem" ]] && echo -e "  ${GREEN}✓${NC} fullchain.pem exists" || echo -e "  ${RED}✗${NC} fullchain.pem NOT FOUND"
+[[ -f "$CERT_PATH/privkey.pem" ]] && echo -e "  ${GREEN}✓${NC} privkey.pem exists" || echo -e "  ${RED}✗${NC} privkey.pem NOT FOUND"
 echo ""
 
-# Copy certificates to dograh/certs directory
-cp /etc/letsencrypt/archive/$DOMAIN_NAME/fullchain1.pem certs/local.crt
-cp /etc/letsencrypt/archive/$DOMAIN_NAME/privkey1.pem certs/local.key
+mkdir -p certs
+cp "$CERT_PATH/fullchain.pem" certs/local.crt
+cp "$CERT_PATH/privkey.pem" certs/local.key
 chmod 644 certs/local.crt certs/local.key
 echo -e "${GREEN}✓${NC} Certificates copied to certs/ directory"
 echo ""
 
-# Update nginx.conf
-echo -e "${BLUE}[5/7] Updating nginx configuration...${NC}"
-cat > nginx.conf << NGINX_EOF
-server {
-    listen 80;
-    server_name $DOMAIN_NAME;
+echo -e "${BLUE}[5/7] Updating canonical remote settings and validating init-based config...${NC}"
+dograh_load_env_file .env
 
-    # Redirect all HTTP to HTTPS
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name $DOMAIN_NAME;
-
-    ssl_certificate     /etc/nginx/certs/local.crt;
-    ssl_certificate_key /etc/nginx/certs/local.key;
-
-    # TLS settings
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_prefer_server_ciphers on;
-    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
-
-    # Backend API and WebSockets — bypass the UI, go straight to api:8000
-    location /api/v1/ {
-        proxy_pass http://api:8000;
-        proxy_http_version 1.1;
-
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-
-        # Long-lived WebSockets (audio streaming, signaling)
-        proxy_read_timeout 3600s;
-        proxy_send_timeout 3600s;
-
-        # Don't buffer streamed responses
-        proxy_buffering off;
-        client_max_body_size 100M;
-    }
-
-    location / {
-        proxy_pass         http://ui:3010;
-        proxy_http_version 1.1;
-
-        # Important for WebSockets / hot reload etc.
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-
-        # Rewrite localhost MinIO URLs in API responses to use current domain
-        sub_filter 'http://localhost:9000/voice-audio/' 'https://\$host/voice-audio/';
-        sub_filter_once off;
-        sub_filter_types application/json text/html;
-    }
-
-    location /voice-audio/ {
-        proxy_pass http://minio:9000/voice-audio/;
-
-        proxy_http_version 1.1;
-
-        # Headers for file downloads from MinIO
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-
-        # Allow large file downloads
-        proxy_buffering off;
-        client_max_body_size 100M;
-    }
-}
-NGINX_EOF
-echo -e "${GREEN}✓ nginx.conf updated${NC}"
-
-# Update .env file with domain name
-echo -e "${BLUE}[6/8] Updating environment variables...${NC}"
-if [[ -f ".env" ]]; then
-    # Update BACKEND_API_ENDPOINT to use domain (public URL the backend advertises)
-    sed -i.bak "s|^BACKEND_API_ENDPOINT=.*|BACKEND_API_ENDPOINT=https://$DOMAIN_NAME|" .env
-    # Drop any stale BACKEND_URL override — the ui container should use the
-    # internal Docker URL (http://api:8000) from docker-compose defaults.
-    sed -i.bak "/^BACKEND_URL=/d" .env
-    sed -i.bak "/^# Backend URL for UI$/d" .env
-    # Update TURN_HOST to use domain
-    sed -i.bak "s|^TURN_HOST=.*|TURN_HOST=$DOMAIN_NAME|" .env
-    # Update MINIO_PUBLIC_ENDPOINT to use domain (browsers fetch /voice-audio/* here)
-    if grep -q "^MINIO_PUBLIC_ENDPOINT=" .env; then
-        sed -i.bak "s|^MINIO_PUBLIC_ENDPOINT=.*|MINIO_PUBLIC_ENDPOINT=https://$DOMAIN_NAME|" .env
-    else
-        echo "MINIO_PUBLIC_ENDPOINT=https://$DOMAIN_NAME" >> .env
-    fi
-    rm -f .env.bak
-    echo -e "${GREEN}✓ .env updated with domain name${NC}"
-else
-    echo -e "${YELLOW}⚠ .env file not found - skipping environment update${NC}"
+if [[ -z "${SERVER_IP:-}" ]]; then
+    SERVER_IP="$(dograh_infer_server_ip "$(pwd)" || true)"
 fi
 
-# Setup auto-renewal
-echo -e "${BLUE}[7/8] Setting up automatic certificate renewal...${NC}"
-DOGRAH_PATH=$(pwd)
+[[ -n "${SERVER_IP:-}" ]] || dograh_fail "Could not determine SERVER_IP from the existing install"
 
-# Create renewal hook script that copies new certificates and restarts nginx
+dograh_set_env_key .env SERVER_IP "$SERVER_IP"
+dograh_set_env_key .env PUBLIC_HOST "$DOMAIN_NAME"
+dograh_set_env_key .env PUBLIC_BASE_URL "https://$DOMAIN_NAME"
+dograh_delete_env_key .env BACKEND_URL
+dograh_prepare_remote_install "$(pwd)"
+echo -e "${GREEN}✓ .env synchronized and init-based config validated${NC}"
+
+echo -e "${BLUE}[6/7] Setting up automatic certificate renewal...${NC}"
+DOGRAH_PATH="$(pwd)"
+
 cat > /etc/letsencrypt/renewal-hooks/deploy/dograh-reload.sh << HOOK_EOF
 #!/bin/bash
-# Copy renewed certificates to dograh certs directory
-cp /etc/letsencrypt/archive/$DOMAIN_NAME/fullchain1.pem $DOGRAH_PATH/certs/local.crt
-cp /etc/letsencrypt/archive/$DOMAIN_NAME/privkey1.pem $DOGRAH_PATH/certs/local.key
+cp /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem $DOGRAH_PATH/certs/local.crt
+cp /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem $DOGRAH_PATH/certs/local.key
 chmod 644 $DOGRAH_PATH/certs/local.crt $DOGRAH_PATH/certs/local.key
 
-# Restart nginx to load new certificates
 cd $DOGRAH_PATH
 docker compose --profile remote restart nginx 2>/dev/null || true
 HOOK_EOF
 chmod +x /etc/letsencrypt/renewal-hooks/deploy/dograh-reload.sh
 
-# Test renewal
-certbot renew --dry-run --quiet && echo -e "${GREEN}✓ Auto-renewal configured and tested${NC}" || echo -e "${YELLOW}⚠ Auto-renewal test had issues, but certificates are installed${NC}"
+if certbot renew --dry-run --quiet; then
+    echo -e "${GREEN}✓ Auto-renewal configured and tested${NC}"
+else
+    echo -e "${YELLOW}⚠ Auto-renewal test had issues, but certificates are installed${NC}"
+fi
 
-# Start Dograh services
 echo ""
-echo -e "${BLUE}[8/8] Starting Dograh services...${NC}"
-docker compose --profile remote up -d --pull always
+echo -e "${BLUE}[7/7] Starting Dograh services through validated startup wrapper...${NC}"
+./remote_up.sh
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
@@ -331,8 +229,7 @@ echo -e "  Private Key: $DOGRAH_PATH/certs/local.key"
 echo -e "  Auto-renewal: Enabled (certificates renew automatically)"
 echo ""
 echo -e "${YELLOW}Files modified:${NC}"
-echo "  - dograh/nginx.conf (updated with domain name)"
-echo "  - dograh/.env (BACKEND_API_ENDPOINT and TURN_HOST updated)"
+echo "  - dograh/.env (canonical public host/base URL updated)"
 echo "  - dograh/certs/local.crt (SSL certificate)"
 echo "  - dograh/certs/local.key (SSL private key)"
 echo "  - /etc/letsencrypt/renewal-hooks/deploy/dograh-reload.sh (renewal hook)"

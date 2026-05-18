@@ -1,0 +1,111 @@
+---
+title: "Agent Stream"
+description: "Stream audio to a Dograh agent over a WebSocket"
+---
+
+## Overview
+
+Agent Stream is a WebSocket endpoint that lets a telephony provider point its media stream at a single URL and drive a Dograh agent run. The agent UUID in the URL selects the agent; provider-specific identifiers in the query string (for Cloudonix: `Domain`) tell Dograh which stored telephony configuration to use for that call. The bearer token and other credentials are never passed in the URL — they live in the stored configuration and are used by Dograh to validate the session and to issue provider API calls (hangup, transfer) during the call.
+
+This is useful when:
+
+- You're integrating Dograh into a SIP gateway or in-house dialer that already speaks a supported provider's streaming protocol
+- You want one stable endpoint per agent rather than wiring up an inbound webhook per phone number
+
+<Warning>
+  Agent Stream currently supports the **Cloudonix** provider only. Other providers
+  return `NotImplementedError` until a per-provider implementation lands. If you
+  need Twilio, Plivo, Telnyx, Vonage, ARI, or another provider, please open a
+  request on [GitHub Discussions](https://github.com/dograh-hq/dograh/discussions)
+  with your use case.
+</Warning>
+
+## Endpoint
+
+```
+wss://app.dograh.com/api/v1/agent-stream/{agent_uuid}
+```
+
+`{agent_uuid}` is the agent's stable UUID (see [Get the Agent UUID](#get-the-agent-uuid) below). On self-hosted deployments, replace `app.dograh.com` with your backend host.
+
+## Prerequisites
+
+- A Dograh agent (workflow) — published or in draft is fine
+- A Cloudonix telephony configuration in your Dograh organization whose `domain_id` matches the `Domain` you pass on the URL. Dograh uses the bearer token from this configuration to validate the call session and to issue provider API calls (hangup, transfer).
+
+## Get the Agent UUID
+
+The Agent UUID is the workflow's stable identifier — it doesn't change when versions are published. You can copy it from two places in the dashboard:
+
+**From the workflow editor**
+
+1. Open your agent in the workflow editor
+2. Click the **⋮** (more options) menu in the top-right of the header
+3. Click **Copy Agent UUID** — the toast confirms the copy
+
+**From the agent's Settings page**
+
+1. Open the agent and go to **Settings**
+2. Scroll to the **Agent UUID** section (also linked in the right-side nav)
+3. Click the UUID code block, or use the **Copy UUID** button
+
+## Connect to the WebSocket
+
+### URL parameters
+
+| Param | Required | Description |
+| --- | --- | --- |
+| `provider` | Yes | Provider name. Currently only `cloudonix` is supported. |
+| `Domain` | Yes (cloudonix) | Cloudonix domain ID. Dograh uses this to look up the matching stored telephony configuration and retrieve the bearer token used for provider API calls. |
+| `callId` / `CallSid` | No | Call identifier from your side; persisted on the workflow run's `gathered_context` as `call_id`. The Cloudonix call SID used for streaming is taken from the `start` event payload, not this param. |
+| `from` | No | Caller phone number, persisted on the workflow run as `caller_number`. |
+| `to` | No | Called phone number, persisted on the workflow run as `called_number`. |
+
+### Cloudonix example
+
+```
+wss://app.dograh.com/api/v1/agent-stream/{agent_uuid}
+  ?provider=cloudonix
+  &Domain={CLOUDONIX_DOMAIN_ID}
+  &callId={CALL_ID}
+  &from=+15555550100
+  &to=+15555550199
+```
+
+Use this URL inside the CXML `<Stream>` your Cloudonix Voice Application returns when the call needs to be bridged to the Dograh agent:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://app.dograh.com/api/v1/agent-stream/{agent_uuid}?provider=cloudonix&Domain=...&callId=...&from=...&to=..."/>
+  </Connect>
+  <Pause length="40"/>
+</Response>
+```
+
+The first two messages on the socket should be Cloudonix's standard `connected` and `start` events (Twilio-compatible framing). Dograh extracts `streamSid` and `callSid` from the `start` event payload, validates the session against Cloudonix using the bearer token from the stored telephony configuration matched by `Domain`, and then begins streaming audio.
+
+## Workflow run lifecycle
+
+When the WebSocket is accepted, Dograh:
+
+1. Looks up the workflow by `agent_uuid`
+2. Runs a quota check against the workflow's owning user
+3. Creates a new `WorkflowRun` (`call_type=inbound`, `mode=cloudonix`, name `WR-AGS-XXXXXXXX`) with the `from`/`to` numbers stamped on `initial_context`, the `callId`/`CallSid` stored as `call_id` on `gathered_context`, and `Domain` recorded under the run's `inbound_webhook` log
+4. Transitions the run to `running` and starts the agent pipeline
+
+The run is visible under the agent's **Runs** tab as soon as it's minted, just like an inbound or outbound call.
+
+## Close codes
+
+| Code | Reason |
+| --- | --- |
+| `1008` | Routing failure — unknown provider, workflow not found, or quota exceeded |
+| `1011` | Server-side failure or unsupported provider for Agent Stream |
+| `4400` | Provider-level handshake error — for cloudonix, missing `Domain`, no matching telephony configuration, missing bearer token on the configuration, malformed `connected`/`start` events, or session validation failed against Cloudonix |
+
+## Security notes
+
+- Treat the URL as a secret — the agent UUID itself authorizes the connection. Store and transmit it only over TLS, and avoid logging the raw URL in places where access is broader than your operations team.
+- No bearer tokens or provider secrets are passed in the URL. Provider credentials live in the stored telephony configuration (matched by `Domain` for Cloudonix) and are used server-side by Dograh to validate the session and issue provider API calls.

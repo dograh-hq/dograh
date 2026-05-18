@@ -240,9 +240,11 @@ SPEC = NodeSpec(
             },
         ),
     ],
+    # `min_outgoing` is intentionally unset: a startCall is allowed to
+    # sit on the canvas without an outgoing edge (e.g. a workflow with
+    # just a greeting). Only constraint: nothing flows INTO the start.
     graph_constraints=GraphConstraints(
         min_incoming=0,
         max_incoming=0,
-        min_outgoing=1,
     ),
 )

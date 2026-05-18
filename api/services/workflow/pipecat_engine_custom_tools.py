@@ -13,21 +13,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from loguru import logger
-
-from api.db import db_client
-from api.enums import ToolCategory, WorkflowRunMode
-from api.services.pipecat.audio_playback import play_audio, play_audio_loop
-from api.services.telephony.call_transfer_manager import get_call_transfer_manager
-from api.services.telephony.factory import get_telephony_provider
-from api.services.telephony.transfer_event_protocol import TransferContext
-from api.services.workflow.disposition_mapper import (
-    get_organization_id_from_workflow_run,
-)
-from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
-from api.services.workflow.tools.custom_tool import (
-    execute_http_tool,
-    tool_to_function_schema,
-)
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.frames.frames import (
     FunctionCallResultProperties,
@@ -35,6 +20,18 @@ from pipecat.frames.frames import (
 )
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.utils.enums import EndTaskReason
+
+from api.db import db_client
+from api.enums import ToolCategory, WorkflowRunMode
+from api.services.pipecat.audio_playback import play_audio, play_audio_loop
+from api.services.telephony.call_transfer_manager import get_call_transfer_manager
+from api.services.telephony.factory import get_telephony_provider_for_run
+from api.services.telephony.transfer_event_protocol import TransferContext
+from api.services.workflow.tools.calculator import get_calculator_tools, safe_calculator
+from api.services.workflow.tools.custom_tool import (
+    execute_http_tool,
+    tool_to_function_schema,
+)
 
 if TYPE_CHECKING:
     from api.services.workflow.pipecat_engine import PipecatEngine
@@ -75,7 +72,6 @@ class CustomToolManager:
 
     def __init__(self, engine: "PipecatEngine") -> None:
         self._engine = engine
-        self._organization_id: Optional[int] = None
 
     async def _play_config_message(
         self, config: dict, *, append_to_context: bool = False
@@ -122,12 +118,8 @@ class CustomToolManager:
         return False
 
     async def get_organization_id(self) -> Optional[int]:
-        """Get and cache the organization ID from workflow run."""
-        if self._organization_id is None:
-            self._organization_id = await get_organization_id_from_workflow_run(
-                self._engine._workflow_run_id
-            )
-        return self._organization_id
+        """Get the organization ID from the engine (shared cache)."""
+        return await self._engine._get_organization_id()
 
     async def get_tool_schemas(self, tool_uuids: list[str]) -> list[FunctionSchema]:
         """Fetch custom tools and convert them to function schemas.
@@ -215,13 +207,10 @@ class CustomToolManager:
                 function_name = schema["function"]["name"]
 
                 # Create and register the handler
-                handler, timeout_secs, cancel_on_interruption = self._create_handler(
-                    tool, function_name
-                )
+                handler, timeout_secs = self._create_handler(tool, function_name)
                 self._engine.llm.register_function(
                     function_name,
                     handler,
-                    cancel_on_interruption=cancel_on_interruption,
                     timeout_secs=timeout_secs,
                 )
 
@@ -244,19 +233,16 @@ class CustomToolManager:
             Async handler function for the tool
         """
         timeout_secs: Optional[float] = None
-        cancel_on_interruption = True
 
         if tool.category == ToolCategory.END_CALL.value:
-            cancel_on_interruption = False
             handler = self._create_end_call_handler(tool, function_name)
         elif tool.category == ToolCategory.TRANSFER_CALL.value:
             timeout_secs = 120.0
-            cancel_on_interruption = False
             handler = self._create_transfer_call_handler(tool, function_name)
         else:
             handler = self._create_http_tool_handler(tool, function_name)
 
-        return handler, timeout_secs, cancel_on_interruption
+        return handler, timeout_secs
 
     def _register_calculator_handler(self) -> None:
         """Register the built-in calculator function with the LLM."""
@@ -335,7 +321,8 @@ class CustomToolManager:
                     tool=tool,
                     arguments=function_call_params.arguments,
                     call_context_vars=self._engine._call_context_vars,
-                    organization_id=self._organization_id,
+                    gathered_context_vars=self._engine._gathered_context,
+                    organization_id=await self.get_organization_id(),
                 )
 
                 await function_call_params.result_callback(result)
@@ -525,7 +512,9 @@ class CustomToolManager:
                     )
                     return
 
-                provider = await get_telephony_provider(organization_id)
+                provider = await get_telephony_provider_for_run(
+                    workflow_run, organization_id
+                )
                 if not provider.supports_transfers() or not provider.validate_config():
                     validation_error_result = {
                         "status": "failed",
@@ -556,6 +545,7 @@ class CustomToolManager:
                     original_call_sid=original_call_sid,
                     conference_name=conference_name,
                     initiated_at=time.time(),
+                    workflow_run_id=self._engine._workflow_run_id,
                 )
                 await call_transfer_manager.store_transfer_context(transfer_context)
 

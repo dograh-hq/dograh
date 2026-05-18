@@ -1,0 +1,35 @@
+---
+title: "Overview"
+description: "Configure telephony providers and manage phone numbers"
+---
+
+A **telephony configuration** binds an organization to a telephony provider (Twilio, Vonage, Plivo, Telnyx, etc.) along with the credentials needed to place and receive calls. Each configuration owns a set of phone numbers; campaigns and inbound routing pin to a specific configuration.
+
+One configuration in your organization can be marked as the **default outbound** — campaigns and ad-hoc calls that omit `telephony_configuration_id` fall back to it.
+
+| Method | Endpoint | Quick Link |
+|---|---|---|
+| `GET` | `/organizations/telephony-providers/metadata` | [List supported providers](/api-reference/telephony-configs/providers) |
+| `GET` | `/organizations/telephony-configs` | [List configurations](/api-reference/telephony-configs/list) |
+| `POST` | `/organizations/telephony-configs` | [Create a configuration](/api-reference/telephony-configs/create) |
+| `GET` | `/organizations/telephony-configs/{config_id}` | [Get a configuration](/api-reference/telephony-configs/get) |
+| `PUT` | `/organizations/telephony-configs/{config_id}` | [Update a configuration](/api-reference/telephony-configs/update) |
+| `DELETE` | `/organizations/telephony-configs/{config_id}` | [Delete a configuration](/api-reference/telephony-configs/delete) |
+| `POST` | `/organizations/telephony-configs/{config_id}/set-default-outbound` | [Set as default outbound](/api-reference/telephony-configs/set-default-outbound) |
+
+## Phone numbers
+
+Phone numbers are nested under a configuration:
+
+| Method | Endpoint | Quick Link |
+|---|---|---|
+| `GET` | `/organizations/telephony-configs/{config_id}/phone-numbers` | [List phone numbers](/api-reference/telephony-configs/phone-numbers/list) |
+| `POST` | `/organizations/telephony-configs/{config_id}/phone-numbers` | [Add a phone number](/api-reference/telephony-configs/phone-numbers/create) |
+| `GET` | `/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}` | [Get a phone number](/api-reference/telephony-configs/phone-numbers/get) |
+| `PUT` | `/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}` | [Update a phone number](/api-reference/telephony-configs/phone-numbers/update) |
+| `DELETE` | `/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}` | [Delete a phone number](/api-reference/telephony-configs/phone-numbers/delete) |
+| `POST` | `/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}/set-default-caller` | [Set as default caller](/api-reference/telephony-configs/phone-numbers/set-default-caller) |
+
+## Sensitive credentials
+
+Provider credentials (API keys, auth tokens, etc.) are masked in `GET` responses. When updating a configuration, you can re-submit the masked value as-is — Dograh detects the mask and preserves the original secret.

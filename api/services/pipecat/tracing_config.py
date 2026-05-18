@@ -6,7 +6,6 @@ from opentelemetry.sdk.trace import SpanProcessor
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 
 from api.constants import (
-    ENABLE_TRACING,
     LANGFUSE_HOST,
     LANGFUSE_PUBLIC_KEY,
     LANGFUSE_SECRET_KEY,
@@ -138,19 +137,18 @@ class _OrgRoutingExporter(SpanExporter):
 
 
 def ensure_tracing() -> bool:
-    """Initialize OTEL tracing if enabled. Returns True if tracing is available.
+    """Initialize OTEL tracing. Returns True once the routing exporter is set up.
 
     Installs an ``_OrgRoutingExporter`` so that spans can be routed to
-    org-specific Langfuse projects at export time.
+    org-specific Langfuse projects at export time. Spans without a matching
+    exporter (no env-var defaults, no registered org) are silently dropped, so
+    this is safe to call unconditionally.
 
     Idempotent — safe to call from both the pipeline process and the ARQ worker.
     """
     global _tracing_initialized, _org_routing_exporter
     if _tracing_initialized:
         return True
-
-    if not ENABLE_TRACING:
-        return False
 
     # Build the default exporter from env-var credentials (may be None)
     default_exporter = None
@@ -161,11 +159,6 @@ def ensure_tracing() -> bool:
         default_exporter = OTLPSpanExporter(
             endpoint=f"{LANGFUSE_HOST}/api/public/otel/v1/traces",
             headers={"Authorization": f"Basic {langfuse_auth}"},
-        )
-    else:
-        logger.warning(
-            "ENABLE_TRACING is true but default Langfuse credentials are not configured. "
-            "Only org-level credentials will be used."
         )
 
     _org_routing_exporter = _OrgRoutingExporter(default_exporter)

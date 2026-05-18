@@ -4,11 +4,13 @@ description: "Initiate an outbound call using an agent's public UUID"
 openapi: "POST /api/v1/public/agent/{uuid}"
 ---
 
-The simplest way to initiate a call programmatically. The `uuid` is visible in the dashboard URL when viewing an agent.
+The simplest way to initiate a call programmatically. The `uuid` comes from the [API Trigger node](/voice-agent/api-trigger) in your agent — add the node to your workflow and copy its auto-generated `trigger_path`.
 
 Use `workflow_run_id` from the response to later [retrieve call details](/api-reference/calls/get-run), recordings, and transcripts.
 
 Pass `initial_context` to inject runtime data as template variables into the agent's prompt. See [Using initial context](/api-reference/calls#using-initial-context).
+
+Pass `telephony_configuration_id` to route the call through a specific telephony configuration instead of your organization's default. The id is shown on each row in **Telephony configurations** (`https://app.dograh.com/telephony-configurations` for hosted or `http://localhost:3010/telephony-configurations` for local).
 
 <Note>
 Your telephony provider must be configured before outbound calls will connect. See [Telephony](/integrations/telephony/overview) for setup instructions.

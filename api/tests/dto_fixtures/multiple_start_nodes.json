@@ -1,0 +1,17 @@
+{
+  "nodes": [
+    {
+      "id": "s1",
+      "type": "startCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Start A", "prompt": "Greet path A.", "is_start": true}
+    },
+    {
+      "id": "s2",
+      "type": "startCall",
+      "position": {"x": 0, "y": 200},
+      "data": {"name": "Start B", "prompt": "Greet path B.", "is_start": true}
+    }
+  ],
+  "edges": []
+}

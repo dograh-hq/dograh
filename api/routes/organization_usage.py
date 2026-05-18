@@ -3,14 +3,16 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.reports import generate_usage_runs_report_csv
 
 router = APIRouter(prefix="/organizations")
 
@@ -47,7 +49,13 @@ class WorkflowRunUsageResponse(BaseModel):
     call_duration_seconds: int
     recording_url: Optional[str] = None
     transcript_url: Optional[str] = None
-    phone_number: Optional[str] = None
+    phone_number: Optional[str] = Field(
+        default=None,
+        deprecated=True,
+        description="Deprecated. Use caller_number and called_number instead.",
+    )
+    caller_number: Optional[str] = None
+    called_number: Optional[str] = None
     call_type: Optional[str] = None
     disposition: Optional[str] = None
     initial_context: Optional[Dict[str, Any]] = None
@@ -129,13 +137,55 @@ async def get_mps_credits(user: UserModel = Depends(get_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+FILTERS_DESCRIPTION = """\
+JSON-encoded array of filter objects. Each object has the shape:
+
+```json
+{ "attribute": "<name>", "type": "<type>", "value": <value> }
+```
+
+Supported `attribute` / `type` / `value` combinations:
+
+| attribute       | type          | value shape                                  | matches                                              |
+|-----------------|---------------|----------------------------------------------|------------------------------------------------------|
+| `runId`         | `number`      | `{ "value": 12345 }`                         | exact run id                                         |
+| `workflowId`    | `number`      | `{ "value": 42 }`                            | exact agent (workflow) id                            |
+| `campaignId`    | `number`      | `{ "value": 7 }`                             | exact campaign id                                    |
+| `callerNumber`  | `text`        | `{ "value": "415555" }`                      | substring match on `initial_context.caller_number`   |
+| `calledNumber`  | `text`        | `{ "value": "9911848" }`                     | substring match on `initial_context.called_number`   |
+| `dispositionCode` | `multiSelect` | `{ "codes": ["XFER", "DNC"] }`             | any of the codes in `gathered_context.mapped_call_disposition` |
+| `duration`      | `numberRange` | `{ "min": 60, "max": 300 }`                  | call duration (seconds), inclusive bounds            |
+
+Unknown attributes and unsupported `type` values are silently ignored.
+
+Date filtering on this endpoint is done via the dedicated `start_date` / `end_date` query params, not via a `dateRange` filter object.
+"""
+
+
 @router.get("/usage/runs", response_model=UsageHistoryResponse)
 async def get_usage_history(
-    start_date: Optional[str] = Query(None, description="ISO format date string"),
-    end_date: Optional[str] = Query(None, description="ISO format date string"),
+    start_date: Optional[str] = Query(
+        None,
+        description="ISO 8601 date-time string (UTC). Lower bound (inclusive) on `created_at`.",
+        examples=["2026-04-01T00:00:00Z"],
+    ),
+    end_date: Optional[str] = Query(
+        None,
+        description="ISO 8601 date-time string (UTC). Upper bound (inclusive) on `created_at`.",
+        examples=["2026-05-01T00:00:00Z"],
+    ),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
-    filters: Optional[str] = Query(None, description="JSON string of filters"),
+    filters: Optional[str] = Query(
+        None,
+        description=FILTERS_DESCRIPTION,
+        examples=[
+            '[{"attribute":"callerNumber","type":"text","value":{"value":"415555"}}]',
+            '[{"attribute":"campaignId","type":"number","value":{"value":7}},'
+            '{"attribute":"duration","type":"numberRange","value":{"min":60,"max":300}}]',
+            '[{"attribute":"dispositionCode","type":"multiSelect","value":{"codes":["XFER","DNC"]}}]',
+        ],
+    ),
     user: UserModel = Depends(get_user),
 ):
     """Get paginated workflow runs with usage for the organization."""
@@ -183,6 +233,50 @@ async def get_usage_history(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/usage/runs/report")
+async def download_usage_runs_report(
+    start_date: Optional[str] = Query(
+        None,
+        description="ISO 8601 date-time string (UTC). Lower bound (inclusive) on `created_at`.",
+    ),
+    end_date: Optional[str] = Query(
+        None,
+        description="ISO 8601 date-time string (UTC). Upper bound (inclusive) on `created_at`.",
+    ),
+    filters: Optional[str] = Query(
+        None,
+        description=FILTERS_DESCRIPTION,
+    ),
+    user: UserModel = Depends(get_user),
+) -> StreamingResponse:
+    """Download a CSV of runs matching the same filters as `/usage/runs`."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+
+    start_dt = datetime.fromisoformat(start_date) if start_date else None
+    end_dt = datetime.fromisoformat(end_date) if end_date else None
+
+    parsed_filters = None
+    if filters:
+        try:
+            parsed_filters = json.loads(filters)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid filters format")
+
+    output, filename = await generate_usage_runs_report_csv(
+        user.selected_organization_id,
+        start_date=start_dt,
+        end_date=end_dt,
+        filters=parsed_filters,
+    )
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/usage/daily-breakdown", response_model=DailyUsageBreakdownResponse)

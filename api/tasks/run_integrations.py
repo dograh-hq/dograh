@@ -1,10 +1,13 @@
 """Execute integrations (QA analysis, webhooks) after workflow run completion."""
 
 import random
+from datetime import UTC, datetime
 from typing import Any, Dict, Optional
 
 import httpx
 from loguru import logger
+from pipecat.utils.enums import EndTaskReason
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from pydantic import ValidationError
 
 from api.constants import BACKEND_API_ENDPOINT
@@ -21,8 +24,6 @@ from api.services.workflow.dto import (
 from api.services.workflow.qa import run_per_node_qa_analysis
 from api.utils.credential_auth import build_auth_header
 from api.utils.template_renderer import render_template
-from pipecat.utils.enums import EndTaskReason
-from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 
 def _should_skip_qa(
@@ -316,6 +317,8 @@ def _build_render_context(
         "workflow_run_name": workflow_run.name,
         "workflow_id": workflow_run.workflow_id,
         "workflow_name": workflow_run.workflow.name if workflow_run.workflow else None,
+        "campaign_id": workflow_run.campaign_id,
+        "call_time": (workflow_run.created_at or datetime.now(UTC)).isoformat(),
         # Nested contexts
         "initial_context": workflow_run.initial_context or {},
         "gathered_context": workflow_run.gathered_context or {},

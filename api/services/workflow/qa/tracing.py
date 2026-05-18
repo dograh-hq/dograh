@@ -78,7 +78,6 @@ def add_qa_span_to_trace(
         return
     try:
         from opentelemetry import trace as otel_trace
-
         from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
         tracer = otel_trace.get_tracer("pipecat")
@@ -122,9 +121,9 @@ def create_node_summary_trace(
     try:
         from opentelemetry import trace as otel_trace
         from opentelemetry.context import Context
+        from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
         from api.services.pipecat.tracing_config import ensure_tracing
-        from pipecat.utils.tracing.service_attributes import add_llm_span_attributes
 
         if not ensure_tracing():
             return None

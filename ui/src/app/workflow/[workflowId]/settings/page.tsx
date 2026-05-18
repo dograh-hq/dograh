@@ -1,7 +1,7 @@
 "use client";
 
 import { format } from "date-fns";
-import { ArrowLeft, BookA, Brain, CalendarIcon, Download, ExternalLink, FileDown, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
+import { ArrowLeft, BookA, Brain, CalendarIcon, Clipboard, Download, ExternalLink, FileDown, Fingerprint, Loader2, Mic, Pause, PhoneOff, Play, Rocket, Settings, Trash2Icon, Upload, Variable, X } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -79,8 +79,9 @@ const NAV_ITEMS = [
     { id: "dictionary", label: "Dictionary", icon: BookA },
     { id: "voicemail", label: "Voicemail Detection", icon: PhoneOff },
     { id: "recordings", label: "Recordings", icon: Mic },
-    { id: "deployment", label: "Deployment", icon: Rocket },
+    { id: "deployment", label: "Add to Website", icon: Rocket },
     { id: "report", label: "Report", icon: FileDown },
+    { id: "identity", label: "Agent UUID", icon: Fingerprint },
 ];
 
 // ---------------------------------------------------------------------------
@@ -993,6 +994,53 @@ function VoicemailSection({
 }
 
 // ---------------------------------------------------------------------------
+// Section: Agent UUID
+// ---------------------------------------------------------------------------
+
+function AgentUuidSection({ workflowUuid }: { workflowUuid: string }) {
+    const handleCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(workflowUuid);
+            toast.success("Agent UUID copied");
+        } catch {
+            toast.error("Failed to copy Agent UUID");
+        }
+    };
+
+    return (
+        <Card id="identity">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                    <Fingerprint className="h-4 w-4" />
+                    Agent UUID
+                </CardTitle>
+                <CardDescription>
+                    Stable identifier for this agent. Used in agent-stream URLs and
+                    other integrations where a numeric workflow ID isn&apos;t portable.
+                </CardDescription>
+            </CardHeader>
+            <CardContent>
+                <button
+                    type="button"
+                    onClick={handleCopy}
+                    title="Click to copy"
+                    className="group flex w-full items-center gap-2 rounded-md border bg-muted/20 p-2 text-left font-mono text-xs transition-colors hover:bg-muted/40"
+                >
+                    <code className="flex-1 truncate">{workflowUuid}</code>
+                    <Clipboard className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-colors group-hover:text-foreground" />
+                </button>
+            </CardContent>
+            <CardFooter className="border-t pt-6">
+                <Button variant="outline" size="sm" onClick={handleCopy}>
+                    <Clipboard className="h-3.5 w-3.5 mr-2" />
+                    Copy UUID
+                </Button>
+            </CardFooter>
+        </Card>
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Main Page
 // ---------------------------------------------------------------------------
 
@@ -1246,23 +1294,27 @@ function WorkflowSettingsInner({
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2 text-base">
                                         <Rocket className="h-4 w-4" />
-                                        Deployment
+                                        Add to Website
                                     </CardTitle>
                                     <CardDescription>
-                                        Generate and manage the embed configuration to deploy this workflow on external
-                                        websites.{" "}
+                                        Configure a widget to add this voice agent to your website.{" "}
                                         <a href={SETTINGS_DOCUMENTATION_URLS.deployment} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">Learn more <ExternalLink className="h-3 w-3" /></a>
                                     </CardDescription>
                                 </CardHeader>
                                 <CardFooter className="border-t pt-6">
                                     <Button variant="outline" onClick={() => setIsEmbedDialogOpen(true)}>
-                                        Configure Embed
+                                        Configure Widget
                                     </Button>
                                 </CardFooter>
                             </Card>
 
                             {/* Report */}
                             <ReportSection workflowId={workflowId} />
+
+                            {/* Agent UUID */}
+                            {workflow.workflow_uuid && (
+                                <AgentUuidSection workflowUuid={workflow.workflow_uuid} />
+                            )}
                         </>
                     )}
                 </div>

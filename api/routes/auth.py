@@ -3,8 +3,10 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
+from api.enums import PostHogEvent
 from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResponse
 from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
+from api.services.posthog_client import capture_event
 from api.utils.auth import create_jwt_token, hash_password, verify_password
 
 router = APIRouter(
@@ -53,6 +55,15 @@ async def signup(request: SignupRequest):
     # Create JWT token
     token = create_jwt_token(user.id, request.email)
 
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event=PostHogEvent.SIGNED_UP,
+        properties={
+            "organization_id": organization.id,
+            "auth_provider": "local",
+        },
+    )
+
     return AuthResponse(
         token=token,
         user=UserResponse(
@@ -78,6 +89,15 @@ async def login(request: LoginRequest):
 
     # Create JWT token
     token = create_jwt_token(user.id, user.email)
+
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event=PostHogEvent.SIGNED_IN,
+        properties={
+            "organization_id": user.selected_organization_id,
+            "auth_provider": "local",
+        },
+    )
 
     return AuthResponse(
         token=token,

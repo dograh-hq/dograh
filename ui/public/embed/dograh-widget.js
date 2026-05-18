@@ -33,6 +33,8 @@
     callbacks: {
       onReady: null,
       onCallStart: null,
+      onCallConnected: null,
+      onCallDisconnected: null,
       onCallEnd: null,
       onError: null,
       onStatusChange: null
@@ -114,7 +116,7 @@
         containerId: configData.settings?.containerId || 'dograh-inline-container',
         position: configData.position || DEFAULT_CONFIG.position,
         buttonColor: configData.settings?.buttonColor || '#10b981',
-        buttonText: configData.settings?.buttonText || 'Start Call',
+        buttonText: configData.settings?.buttonText || 'Talk to Agent',
         callToActionText: configData.settings?.callToActionText || 'Click to start voice conversation',
         autoStart: configData.auto_start || false
       };
@@ -125,13 +127,14 @@
 
     state.isInitialized = true;
 
-    // Load styles
-    injectStyles();
-
     // Create widget UI based on mode
     if (state.config.embedMode === 'inline') {
+      injectStyles();
       createInlineWidget();
+    } else if (state.config.embedMode === 'headless') {
+      createHeadlessWidget();
     } else {
+      injectStyles();
       createFloatingWidget();
     }
 
@@ -192,68 +195,43 @@
         left: 20px;
       }
 
-      .dograh-widget-button {
-        color: white;
-        border: none;
-        border-radius: 50%;
-        width: 60px;
-        height: 60px;
-        cursor: pointer;
-        display: flex;
+      .dograh-widget-cta {
+        display: inline-flex;
         align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        transition: all 0.3s ease;
+        gap: 8px;
+        padding: 12px 20px;
+        border: none;
+        border-radius: 9999px;
+        color: #ffffff;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        max-width: calc(100vw - 40px);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+        transition: filter 150ms ease, transform 100ms ease, box-shadow 200ms ease;
+        animation: dograh-cta-in 220ms ease-out;
       }
 
-      .dograh-widget-button:hover {
-        transform: scale(1.1);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+      .dograh-widget-cta:hover {
+        filter: brightness(1.08);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+      }
+      .dograh-widget-cta:active { transform: scale(0.98); }
+
+      .dograh-widget-cta.dograh-state-connecting { background: #f59e0b !important; animation: dograh-pulse 1.6s infinite; }
+      .dograh-widget-cta.dograh-state-connected  { background: #ef4444 !important; }
+      .dograh-widget-cta.dograh-state-failed     { background: #ef4444 !important; opacity: 0.85; }
+
+      @keyframes dograh-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.6; }
       }
 
-      .dograh-widget-button:active {
-        transform: scale(0.95);
+      @keyframes dograh-cta-in {
+        from { opacity: 0; transform: translateY(8px); }
+        to { opacity: 1; transform: translateY(0); }
       }
-
-      /* Green button for idle/ready state */
-      .dograh-widget-button-idle {
-        background: #10b981;
-      }
-
-      .dograh-widget-button-idle:hover {
-        background: #059669;
-      }
-
-      /* Orange button for connecting state */
-      .dograh-widget-button-connecting {
-        background: #f59e0b;
-        animation: pulse 2s infinite;
-      }
-
-      /* Red button for connected state (to end call) */
-      .dograh-widget-button-connected {
-        background: #ef4444;
-      }
-
-      .dograh-widget-button-connected:hover {
-        background: #dc2626;
-      }
-
-      /* Red button for failed state */
-      .dograh-widget-button-failed {
-        background: #ef4444;
-        opacity: 0.8;
-      }
-
-      @keyframes pulse {
-        0%, 100% {
-          opacity: 1;
-        }
-        50% {
-          opacity: 0.6;
-        }
-      }
-
     `;
 
     const styleSheet = document.createElement('style');
@@ -262,39 +240,81 @@
     document.head.appendChild(styleSheet);
   }
 
+  function ctaLabelForStatus(status) {
+    switch (status) {
+      case 'connecting': return 'Connecting…';
+      case 'connected':  return 'End Call';
+      case 'failed':     return 'Retry';
+      default:           return state.config.buttonText || 'Talk to Agent';
+    }
+  }
+
   /**
-   * Create floating widget UI (simplified - no modal)
+   * Create floating widget UI — a single CTA pill button anchored to the
+   * configured corner of the viewport.
    */
   function createFloatingWidget() {
-    // Create container
     const container = document.createElement('div');
     container.className = `dograh-widget-container ${state.config.position}`;
-    container.id = 'dograh-widget';
+    container.id = 'dograh-widget-root';
 
-    // Create button (configured color to start, red to end)
-    const button = document.createElement('button');
-    button.className = 'dograh-widget-button dograh-widget-button-idle';
-    button.id = 'dograh-widget-button';
-    button.style.backgroundColor = state.config.buttonColor;
-    button.innerHTML = `
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/>
-      </svg>
-    `;
-    button.onclick = toggleCall;
-
-    // Create hidden audio element
     const audio = document.createElement('audio');
     audio.id = 'dograh-widget-audio';
     audio.autoplay = true;
     audio.style.display = 'none';
-
-    // Append elements
-    container.appendChild(button);
     container.appendChild(audio);
-    document.body.appendChild(container);
+    state.audioElement = audio;
 
-    // Store audio element reference
+    document.body.appendChild(container);
+    renderFloating();
+  }
+
+  /**
+   * Render the floating CTA pill. Re-renders preserve the hidden audio
+   * element so an in-progress call is not interrupted on status changes.
+   */
+  function renderFloating() {
+    const container = document.getElementById('dograh-widget-root');
+    if (!container) return;
+
+    Array.from(container.children).forEach((child) => {
+      if (child !== state.audioElement) container.removeChild(child);
+    });
+
+    const status = state.connectionStatus || 'idle';
+
+    const button = document.createElement('button');
+    button.id = 'dograh-widget-cta';
+    button.type = 'button';
+    button.className = `dograh-widget-cta dograh-state-${status}`;
+    // Idle uses configured color; status states use CSS-defined colors.
+    if (status === 'idle') {
+      button.style.backgroundColor = state.config.buttonColor;
+    }
+    button.innerHTML = `
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+        <line x1="12" y1="19" x2="12" y2="23"/>
+        <line x1="8" y1="23" x2="16" y2="23"/>
+      </svg>
+      <span></span>
+    `;
+    button.querySelector('span').textContent = ctaLabelForStatus(status);
+    button.onclick = toggleCall;
+
+    container.appendChild(button);
+  }
+
+  /**
+   * Create headless widget (no UI — host page drives everything via window.DograhWidget API)
+   */
+  function createHeadlessWidget() {
+    const audio = document.createElement('audio');
+    audio.id = 'dograh-widget-audio';
+    audio.autoplay = true;
+    audio.style.display = 'none';
+    document.body.appendChild(audio);
     state.audioElement = audio;
   }
 
@@ -309,30 +329,9 @@
     }
   }
 
-  /**
-   * Update floating widget button appearance
-   */
   function updateFloatingButton(status) {
-    const button = document.getElementById('dograh-widget-button');
-    if (!button) return;
-
-    // Remove all status classes
-    button.classList.remove('dograh-widget-button-idle', 'dograh-widget-button-connecting', 'dograh-widget-button-connected', 'dograh-widget-button-failed');
-
-    // Add current status class
-    button.classList.add(`dograh-widget-button-${status}`);
-
-    // Apply configured color only for idle state, let CSS handle other states
-    button.style.backgroundColor = status === 'idle' ? state.config.buttonColor : '';
-
-    // Update title attribute for tooltip
-    const titles = {
-      idle: 'Start Call',
-      connecting: 'Connecting...',
-      connected: 'End Call',
-      failed: 'Retry Call'
-    };
-    button.title = titles[status] || 'Voice Call';
+    state.connectionStatus = status;
+    renderFloating();
   }
 
   /**
@@ -582,6 +581,10 @@
     // Use appropriate update function based on mode
     if (state.config.embedMode === 'inline') {
       updateInlineStatus(status, text, subtext);
+    } else if (state.config.embedMode === 'headless') {
+      if (state.callbacks.onStatusChange) {
+        state.callbacks.onStatusChange(status, text, subtext);
+      }
     } else {
       updateFloatingButton(status);
     }
@@ -610,7 +613,6 @@
   async function startCall() {
     updateStatus('connecting', 'Connecting...', 'Please wait while we establish the connection');
 
-    // Trigger call start callback
     if (state.callbacks.onCallStart) {
       state.callbacks.onCallStart();
     }
@@ -768,9 +770,18 @@
       console.log('ICE connection state:', state.pc.iceConnectionState);
 
       if (state.pc.iceConnectionState === 'connected' || state.pc.iceConnectionState === 'completed') {
+        const wasAlreadyConnected = state.callStartedAt !== null;
         updateStatus('connected', 'Connected', 'Your voice call is now active');
-        state.callStartedAt = Date.now();
-        emitMessage('dograh:call_started', {});
+        if (!wasAlreadyConnected) {
+          state.callStartedAt = Date.now();
+          if (state.callbacks.onCallConnected) {
+            state.callbacks.onCallConnected({
+              agentId: state.config.workflowId || null,
+              token: state.config.token || null,
+              workflowRunId: state.workflowRunId || null
+            });
+          }
+        }
       } else if (state.pc.iceConnectionState === 'failed' || state.pc.iceConnectionState === 'disconnected') {
         updateStatus('failed', 'Connection lost', 'The call has been disconnected');
         stopCall();
@@ -903,16 +914,21 @@
    * Stop voice call
    */
   function stopCall() {
-    // Emit end message before clearing state so identifiers are still available
-    const durationSeconds = state.callStartedAt
-      ? Math.round((Date.now() - state.callStartedAt) / 1000)
-      : 0;
-    emitMessage('dograh:call_ended', { durationSeconds });
+    // Fire onCallDisconnected only if the call had actually connected, with
+    // identifiers and duration. Must run before we clear callStartedAt.
+    if (state.callStartedAt && state.callbacks.onCallDisconnected) {
+      const durationSeconds = Math.round((Date.now() - state.callStartedAt) / 1000);
+      state.callbacks.onCallDisconnected({
+        agentId: state.config.workflowId || null,
+        token: state.config.token || null,
+        workflowRunId: state.workflowRunId || null,
+        durationSeconds
+      });
+    }
     state.callStartedAt = null;
 
     updateStatus('idle', 'Call ended', 'Click below to start a new call');
 
-    // Trigger call end callback
     if (state.callbacks.onCallEnd) {
       state.callbacks.onCallEnd();
     }
@@ -950,22 +966,6 @@
   }
 
   /**
-   * Emit a postMessage event to the host window
-   * Allows the embedding website to listen for agent lifecycle events via:
-   *   window.addEventListener('message', (event) => { ... })
-   */
-  function emitMessage(eventType, detail) {
-    const message = {
-      type: eventType,
-      agentId: state.config.workflowId || null,
-      token: state.config.token || null,
-      workflowRunId: state.workflowRunId || null,
-      ...detail
-    };
-    window.postMessage(message, '*');
-  }
-
-  /**
    * Generate unique peer ID
    */
   function generatePeerId() {
@@ -993,6 +993,8 @@
     getState: () => state,
     onReady: (callback) => { state.callbacks.onReady = callback; },
     onCallStart: (callback) => { state.callbacks.onCallStart = callback; },
+    onCallConnected: (callback) => { state.callbacks.onCallConnected = callback; },
+    onCallDisconnected: (callback) => { state.callbacks.onCallDisconnected = callback; },
     onCallEnd: (callback) => { state.callbacks.onCallEnd = callback; },
     onError: (callback) => { state.callbacks.onError = callback; },
     onStatusChange: (callback) => { state.callbacks.onStatusChange = callback; },
@@ -1018,6 +1020,8 @@
       // Set callbacks if provided
       if (options.onReady) state.callbacks.onReady = options.onReady;
       if (options.onCallStart) state.callbacks.onCallStart = options.onCallStart;
+      if (options.onCallConnected) state.callbacks.onCallConnected = options.onCallConnected;
+      if (options.onCallDisconnected) state.callbacks.onCallDisconnected = options.onCallDisconnected;
       if (options.onCallEnd) state.callbacks.onCallEnd = options.onCallEnd;
       if (options.onError) state.callbacks.onError = options.onError;
       if (options.onStatusChange) state.callbacks.onStatusChange = options.onStatusChange;

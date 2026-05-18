@@ -13,10 +13,16 @@ Business Logic → TelephonyProvider (Interface) → Concrete Provider (Twilio, 
 ### Using the Provider in Code
 
 ```python
-from api.services.telephony.factory import get_telephony_provider
+from api.services.telephony.factory import (
+    get_default_telephony_provider,
+    get_telephony_provider_by_id,
+)
 
-# Get provider based on organization config
-provider = await get_telephony_provider(organization_id)
+# Get the org's default outbound provider
+provider = await get_default_telephony_provider(organization_id)
+
+# Or resolve a specific telephony configuration row
+provider = await get_telephony_provider_by_id(config_id, organization_id)
 
 # Initiate a call
 result = await provider.initiate_call(
@@ -47,7 +53,7 @@ See the [Custom Provider Guide](https://docs.dograh.com/integrations/telephony/c
 
 Quick checklist:
 1. Create `providers/your_provider.py` implementing `TelephonyProvider`
-2. Update `factory.py` to include your provider
+2. Register the package in `providers/__init__.py` and add its schemas to `api/schemas/telephony_config.py`
 3. Write unit tests
 4. Update documentation
 
@@ -107,7 +113,7 @@ class MockProvider(TelephonyProvider):
     # Implement other required methods...
 
 # In tests
-@patch('api.services.telephony.factory.get_telephony_provider')
+@patch('api.services.telephony.factory.get_default_telephony_provider')
 async def test_call_initiation(mock_get_provider):
     mock_get_provider.return_value = MockProvider()
     # Test your business logic
@@ -141,8 +147,8 @@ await service.initiate_call(...)
 
 New code:
 ```python
-from api.services.telephony.factory import get_telephony_provider
-provider = await get_telephony_provider(org_id)
+from api.services.telephony.factory import get_default_telephony_provider
+provider = await get_default_telephony_provider(org_id)
 await provider.initiate_call(...)
 ```
 

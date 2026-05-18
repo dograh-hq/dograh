@@ -36,12 +36,6 @@ class CustomHeaderDTO(BaseModel):
     value: str
 
 
-class RetryConfigDTO(BaseModel):
-    enabled: bool = False
-    max_retries: int = 3
-    retry_delay_seconds: int = 5
-
-
 # ─────────────────────────────────────────────────────────────────────────
 # Per-type node data classes.
 #
@@ -130,7 +124,6 @@ class WebhookNodeData(_NodeDataBase):
     credential_uuid: Optional[str] = None
     custom_headers: Optional[list[CustomHeaderDTO]] = None
     payload_template: Optional[dict] = None
-    retry_config: Optional[RetryConfigDTO] = None
 
 
 class QANodeData(_NodeDataBase):

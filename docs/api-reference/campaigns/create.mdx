@@ -6,6 +6,8 @@ openapi: "POST /api/v1/campaign/create"
 
 Before creating a campaign, [upload your contacts CSV](/api-reference/campaigns/upload-contacts) to get a `source_url`.
 
+Set `telephony_configuration_id` to pin the campaign to a specific [telephony configuration](/api-reference/telephony-configs). If omitted, Dograh falls back to the organization's [default outbound configuration](/api-reference/telephony-configs/set-default-outbound) — supplying an id that doesn't exist in your organization returns `400 telephony_configuration_not_found`.
+
 The `time_slots` field controls when Dograh is allowed to place calls. If omitted, calls can be placed at any time. The `timezone` field applies to all time slot windows.
 
 ```json

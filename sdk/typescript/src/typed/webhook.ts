@@ -55,10 +55,6 @@ export interface Webhook {
      * JSON body of the request. Values are Jinja-rendered against the run context — `{{workflow_run_id}}`, `{{gathered_context.foo}}`, `{{annotations.qa_xxx}}`, etc.
      */
     payload_template?: Record<string, unknown>;
-    /**
-     * Optional retry settings: `enabled` (bool), `max_retries` (int), `retry_delay_seconds` (int).
-     */
-    retry_config?: Record<string, unknown>;
 }
 
 /** Factory — sets `type` for you so you don't repeat the discriminator. */

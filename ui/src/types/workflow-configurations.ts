@@ -1,10 +1,3 @@
-export interface VADConfiguration {
-    confidence: number;
-    start_seconds: number;
-    stop_seconds: number;
-    minimum_volume: number;
-}
-
 export interface AmbientNoiseConfiguration {
     enabled: boolean;
     volume: number;
@@ -62,7 +55,6 @@ export interface ModelOverrides {
 }
 
 export interface WorkflowConfigurations {
-    vad_configuration?: VADConfiguration;
     ambient_noise_configuration: AmbientNoiseConfiguration;
     max_call_duration: number;  // Maximum call duration in seconds
     max_user_idle_timeout: number;  // Maximum user idle time in seconds

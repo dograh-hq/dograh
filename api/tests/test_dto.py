@@ -4,14 +4,14 @@ import pytest
 
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 
-_FIXTURES_DIR = Path(__file__).parent / "definitions"
+_FIXTURES_DIR = Path(__file__).parent / "dto_fixtures"
 
 
 @pytest.mark.asyncio
 async def test_dto():
     # Path resolved relative to this test file so the test works regardless
     # of the cwd pytest is invoked from.
-    with open(_FIXTURES_DIR / "rf-1.json", "r") as f:
+    with open(_FIXTURES_DIR / "sample_branching_workflow.json", "r") as f:
         dto = ReactFlowDTO.model_validate_json(f.read())
     assert dto is not None
 

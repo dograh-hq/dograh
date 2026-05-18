@@ -9,8 +9,6 @@ Covers:
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 from dograh_sdk import Workflow
 from dograh_sdk._generated_models import NodeSpec

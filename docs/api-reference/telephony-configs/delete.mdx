@@ -1,0 +1,7 @@
+---
+title: "Delete Configuration"
+description: "Delete a telephony configuration"
+openapi: "DELETE /api/v1/organizations/telephony-configs/{config_id}"
+---
+
+Returns `409 Conflict` if the configuration is referenced by any campaign or phone number. Detach those resources first, then retry.

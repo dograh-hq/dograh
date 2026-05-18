@@ -119,7 +119,7 @@ We provide seamless integration with Langfuse for tracing if you want to use you
 Once enabled, traces will be available for every completed call in Dograh.
 
 <Note>
-For self-hosted deployments, you can also configure Langfuse via [environment variables](/developer/environment-variables#tracing-langfuse) (`ENABLE_TRACING`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_HOST`) if you prefer. The UI settings take precedence over environment variables.
+For self-hosted deployments, you can also configure Langfuse via [environment variables](/developer/environment-variables#tracing-langfuse) (`LANGFUSE_SECRET_KEY`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_HOST`) as a default for all organizations. Tracing activates automatically once credentials are available — no separate enable flag is required. Per-organization credentials set in the UI take precedence over environment variables.
 </Note>
 
 ## Quick Reference

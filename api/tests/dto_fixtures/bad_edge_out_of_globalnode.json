@@ -1,0 +1,30 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": -200, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller."}
+    },
+    {
+      "id": "g",
+      "type": "globalNode",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Global", "prompt": "Shared system prompt."}
+    },
+    {
+      "id": "a",
+      "type": "agentNode",
+      "position": {"x": 200, "y": 0},
+      "data": {"name": "Agent", "prompt": "Talk to the caller."}
+    }
+  ],
+  "edges": [
+    {
+      "id": "g-a",
+      "source": "g",
+      "target": "a",
+      "data": {"label": "global to agent", "condition": "always"}
+    }
+  ]
+}

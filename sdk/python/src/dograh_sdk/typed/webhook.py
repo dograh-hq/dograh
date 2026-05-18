@@ -76,9 +76,3 @@ class Webhook(TypedNode):
     `{{annotations.qa_xxx}}`, etc.
     """
 
-    retry_config: Optional[dict[str, Any]] = None
-    """
-    Optional retry settings: `enabled` (bool), `max_retries` (int),
-    `retry_delay_seconds` (int).
-    """
-

@@ -88,7 +88,8 @@
                   "voice-agent/api-trigger",
                   "voice-agent/webhook"
                 ]
-              }
+              },
+              "voice-agent/add-to-website"
             ]
           },
           {
@@ -98,10 +99,13 @@
               "integrations/telephony/inbound",
               "integrations/telephony/twilio",
               "integrations/telephony/vonage",
+              "integrations/telephony/plivo",
+              "integrations/telephony/telnyx",
               "integrations/telephony/cloudonix",
               "integrations/telephony/vobiz",
               "integrations/telephony/asterisk-ari",
               "integrations/telephony/webhooks",
+              "integrations/telephony/agent-stream",
               "integrations/telephony/custom"
             ]
           },
@@ -141,8 +145,8 @@
               "deployment/introduction",
               "deployment/docker",
               "deployment/custom-domain",
+              "deployment/scaling",
               "deployment/update",
-              "deployment/web-widget",
               "deployment/heroku"
             ]
           },
@@ -199,8 +203,8 @@
                 "pages": [
                   "api-reference/calls",
                   "api-reference/calls/trigger",
-                  "api-reference/calls/initiate",
                   "api-reference/calls/get-run",
+                  "api-reference/calls/list-runs",
                   "api-reference/calls/download",
                   "api-reference/calls/inbound"
                 ]
@@ -219,6 +223,30 @@
                   "api-reference/campaigns/resume",
                   "api-reference/campaigns/progress",
                   "api-reference/campaigns/runs"
+                ]
+              },
+              {
+                "group": "Telephony Configurations",
+                "pages": [
+                  "api-reference/telephony-configs",
+                  "api-reference/telephony-configs/providers",
+                  "api-reference/telephony-configs/list",
+                  "api-reference/telephony-configs/create",
+                  "api-reference/telephony-configs/get",
+                  "api-reference/telephony-configs/update",
+                  "api-reference/telephony-configs/delete",
+                  "api-reference/telephony-configs/set-default-outbound",
+                  {
+                    "group": "Phone Numbers",
+                    "pages": [
+                      "api-reference/telephony-configs/phone-numbers/list",
+                      "api-reference/telephony-configs/phone-numbers/create",
+                      "api-reference/telephony-configs/phone-numbers/get",
+                      "api-reference/telephony-configs/phone-numbers/update",
+                      "api-reference/telephony-configs/phone-numbers/delete",
+                      "api-reference/telephony-configs/phone-numbers/set-default-caller"
+                    ]
+                  }
                 ]
               }
             ]

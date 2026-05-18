@@ -1,0 +1,7 @@
+---
+title: "Set Default Caller"
+description: "Designate a phone number as the configuration's default outbound caller id"
+openapi: "POST /api/v1/organizations/telephony-configs/{config_id}/phone-numbers/{phone_number_id}/set-default-caller"
+---
+
+Outbound calls placed through this configuration that don't specify a `from_number` use the default caller. Setting a new default automatically clears the previous one — at most one phone number per configuration can be the default caller.

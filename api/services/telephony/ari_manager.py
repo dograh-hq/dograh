@@ -14,6 +14,7 @@ setup_logging()
 import asyncio
 import json
 import signal
+import uuid
 from typing import Dict, Optional, Set
 from urllib.parse import urlparse
 
@@ -24,7 +25,7 @@ from loguru import logger
 
 from api.constants import REDIS_URL
 from api.db import db_client
-from api.enums import CallType, OrganizationConfigurationKey, WorkflowRunMode
+from api.enums import CallType, WorkflowRunMode
 from api.services.quota_service import check_dograh_quota_by_user_id
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.transfer_event_protocol import (
@@ -35,7 +36,9 @@ from api.services.telephony.transfer_event_protocol import (
 # Redis key pattern and TTL for channel-to-run mapping
 _CHANNEL_KEY_PREFIX = "ari:channel:"
 _EXT_CHANNEL_KEY_PREFIX = "ari:ext_channel:"
+_PENDING_BRIDGE_PREFIX = "ari:pending_bridge:"
 _CHANNEL_KEY_TTL = 3600  # 1 hour safety expiry
+_PENDING_BRIDGE_TTL = 300  # 5 min safety expiry for bridge-pending state
 
 
 class ARIConnection:
@@ -44,18 +47,18 @@ class ARIConnection:
     def __init__(
         self,
         organization_id: int,
+        telephony_configuration_id: int,
         ari_endpoint: str,
         app_name: str,
         app_password: str,
         ws_client_name: str = "",
-        inbound_workflow_id: int = None,
     ):
         self.organization_id = organization_id
+        self.telephony_configuration_id = telephony_configuration_id
         self.ari_endpoint = ari_endpoint.rstrip("/")
         self.app_name = app_name
         self.app_password = app_password
         self.ws_client_name = ws_client_name
-        self.inbound_workflow_id = inbound_workflow_id
 
         self._ws: Optional[websockets.ClientConnection] = None
         self._task: Optional[asyncio.Task] = None
@@ -121,6 +124,33 @@ class ARIConnection:
         r = await self._get_redis()
         await r.delete(f"{_EXT_CHANNEL_KEY_PREFIX}{channel_id}")
 
+    async def _set_pending_bridge(
+        self,
+        ext_channel_id: str,
+        caller_channel_id: str,
+        workflow_run_id: str,
+    ):
+        """Store the bridge context to be consumed when ext media enters Stasis."""
+        r = await self._get_redis()
+        await r.set(
+            f"{_PENDING_BRIDGE_PREFIX}{ext_channel_id}",
+            json.dumps(
+                {
+                    "caller_channel_id": caller_channel_id,
+                    "workflow_run_id": workflow_run_id,
+                }
+            ),
+            ex=_PENDING_BRIDGE_TTL,
+        )
+
+    async def _pop_pending_bridge(self, ext_channel_id: str) -> Optional[dict]:
+        """Read and delete the pending bridge context. Returns None if absent."""
+        r = await self._get_redis()
+        val = await r.getdel(f"{_PENDING_BRIDGE_PREFIX}{ext_channel_id}")
+        if val is None:
+            return None
+        return json.loads(val)
+
     @property
     def ws_url(self) -> str:
         """Build the ARI WebSocket URL."""
@@ -135,8 +165,8 @@ class ARIConnection:
 
     @property
     def connection_key(self) -> str:
-        """Unique key for this connection based on config."""
-        return f"{self.organization_id}:{self.ari_endpoint}:{self.app_name}"
+        """Unique key for this connection — one per ARI config row."""
+        return f"config:{self.telephony_configuration_id}"
 
     async def start(self):
         """Start the WebSocket connection in a background task."""
@@ -249,12 +279,25 @@ class ARIConnection:
         )
 
         if event_type == "StasisStart":
-            # Skip external media channels we created — they fire
-            # their own StasisStart but need no further handling.
             if await self._is_ext_channel(channel_id):
-                logger.debug(
-                    f"[ARI org={self.organization_id}] StasisStart for our "
-                    f"externalMedia channel {channel_id}, ignoring"
+                # External media channel has entered Stasis. If there is a
+                # queued bridge for it, finish bridging now; otherwise the
+                # caller-side handler did not register one and this event is
+                # nothing for us to act on.
+                pending = await self._pop_pending_bridge(channel_id)
+                if pending is None:
+                    logger.debug(
+                        f"[ARI org={self.organization_id}] StasisStart for ext "
+                        f"channel {channel_id} with no pending bridge"
+                    )
+                    return
+                logger.info(
+                    f"[ARI org={self.organization_id}] Ext channel {channel_id} "
+                    f"entered Stasis — completing bridge for caller "
+                    f"{pending['caller_channel_id']} (run {pending['workflow_run_id']})"
+                )
+                asyncio.create_task(
+                    self._complete_bridge_after_ext_ready(channel_id, pending)
                 )
                 return
 
@@ -394,12 +437,18 @@ class ARIConnection:
         workflow_id: str,
         user_id: str,
         workflow_run_id: str,
+        channel_id: Optional[str] = None,
     ) -> str:
         """Create an external media channel via chan_websocket.
 
         Uses ARI externalMedia with transport=websocket so Asterisk connects
         to our backend over WebSocket (via websocket_client.conf).
         Dynamic routing params are passed as URI query params via v() in transport_data.
+
+        If ``channel_id`` is provided, it is passed to Asterisk as the
+        ``channelId`` query parameter so the new channel is created with
+        that id. The caller can then register ext-channel state ahead of
+        the POST and avoid racing against the StasisStart event.
         """
         # v() appends URI query params to the websocket_client.conf URL
         # e.g. wss://api.dograh.com/ws/ari?workflow_id=1&user_id=2&workflow_run_id=3
@@ -409,22 +458,25 @@ class ARIConnection:
             f"workflow_run_id={workflow_run_id})"
         )
 
+        params = {
+            "app": self.app_name,
+            "external_host": self.ws_client_name,
+            "format": "ulaw",
+            "transport": "websocket",
+            "encapsulation": "none",
+            "connection_type": "client",
+            "direction": "both",
+            "transport_data": transport_data,
+        }
+        if channel_id:
+            params["channelId"] = channel_id
+
         result = await self._ari_request(
-            "POST",
-            "/channels/externalMedia",
-            params={
-                "app": self.app_name,
-                "external_host": self.ws_client_name,
-                "format": "ulaw",
-                "transport": "websocket",
-                "encapsulation": "none",
-                "connection_type": "client",
-                "direction": "both",
-                "transport_data": transport_data,
-            },
+            "POST", "/channels/externalMedia", params=params
         )
         ext_channel_id = result.get("id", "")
         if ext_channel_id:
+            # Idempotent — caller may have already marked it before the POST.
             await self._mark_ext_channel(ext_channel_id)
             logger.info(
                 f"[ARI org={self.organization_id}] Created external media channel: {ext_channel_id}"
@@ -468,22 +520,43 @@ class ARIConnection:
         called_number = channel.get("dialplan", {}).get("exten", "unknown")
 
         try:
-            # 1. Check inbound_workflow_id is configured
-            if not self.inbound_workflow_id:
+            # 1. Resolve the workflow from the called extension via the
+            #    telephony_phone_numbers row scoped to this connection's config.
+            phone_row = await db_client.find_active_phone_number_for_inbound(
+                self.organization_id, called_number, "ari"
+            )
+            if (
+                not phone_row
+                or phone_row.telephony_configuration_id
+                != self.telephony_configuration_id
+            ):
                 logger.warning(
-                    f"[ARI org={self.organization_id}] Inbound call on channel {channel_id} "
-                    f"but no inbound_workflow_id configured — hanging up"
+                    f"[ARI org={self.organization_id}] Inbound call to extension "
+                    f"{called_number} on channel {channel_id} — no matching phone "
+                    f"number registered for config {self.telephony_configuration_id}, "
+                    f"hanging up"
+                )
+                await self._delete_channel(channel_id)
+                return
+
+            inbound_workflow_id = phone_row.inbound_workflow_id
+            if not inbound_workflow_id:
+                logger.warning(
+                    f"[ARI org={self.organization_id}] Inbound call to extension "
+                    f"{called_number} on channel {channel_id} — phone number "
+                    f"{phone_row.address} has no inbound_workflow_id assigned, "
+                    f"hanging up"
                 )
                 await self._delete_channel(channel_id)
                 return
 
             # 2. Load workflow to get user_id and verify organization
             workflow = await db_client.get_workflow(
-                self.inbound_workflow_id, organization_id=self.organization_id
+                inbound_workflow_id, organization_id=self.organization_id
             )
             if not workflow:
                 logger.warning(
-                    f"[ARI org={self.organization_id}] Workflow {self.inbound_workflow_id} "
+                    f"[ARI org={self.organization_id}] Workflow {inbound_workflow_id} "
                     f"not found or doesn't belong to this organization — hanging up"
                 )
                 await self._delete_channel(channel_id)
@@ -491,8 +564,10 @@ class ARIConnection:
 
             user_id = workflow.user_id
 
-            # 3. Check quota
-            quota_result = await check_dograh_quota_by_user_id(user_id)
+            # 3. Check quota (apply per-workflow model_overrides).
+            quota_result = await check_dograh_quota_by_user_id(
+                user_id, workflow_id=inbound_workflow_id
+            )
             if not quota_result.has_quota:
                 logger.warning(
                     f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "
@@ -505,7 +580,7 @@ class ARIConnection:
             call_id = channel_id
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
-                workflow_id=self.inbound_workflow_id,
+                workflow_id=inbound_workflow_id,
                 mode=WorkflowRunMode.ARI.value,
                 user_id=user_id,
                 call_type=CallType.INBOUND,
@@ -514,6 +589,7 @@ class ARIConnection:
                     "called_number": called_number,
                     "direction": "inbound",
                     "provider": "ari",
+                    "telephony_configuration_id": self.telephony_configuration_id,
                 },
                 gathered_context={
                     "call_id": call_id,
@@ -534,7 +610,7 @@ class ARIConnection:
                 channel_id,
                 channel_state,
                 str(workflow_run.id),
-                str(self.inbound_workflow_id),
+                str(inbound_workflow_id),
                 str(user_id),
             )
         except Exception as e:
@@ -555,42 +631,96 @@ class ARIConnection:
         workflow_id: str,
         user_id: str,
     ):
-        """Handle StasisStart by creating external media and bridging."""
+        """Set up external media for a caller channel that has entered Stasis.
+
+        Creates the external media channel via chan_websocket and registers
+        a pending bridge entry keyed by its channel id. The bridge itself is
+        created in :meth:`_complete_bridge_after_ext_ready` once the external
+        media channel has entered Stasis (its own StasisStart event).
+        """
+        ext_channel_id = f"dograh-ext-{uuid.uuid4()}"
         try:
             logger.info(
                 f"[ARI org={self.organization_id}] Setting up external media for "
-                f"channel {channel_id} via ws_client={self.ws_client_name}"
+                f"channel {channel_id} via ws_client={self.ws_client_name} "
+                f"(ext_channel_id={ext_channel_id})"
             )
 
-            # 1. Track channel for StasisEnd cleanup (Redis)
+            # 1. Track caller channel for StasisEnd cleanup (Redis).
             await self._set_channel_run(channel_id, workflow_run_id)
 
-            # 2. Create external media channel via chan_websocket
-            # Asterisk connects to our backend using websocket_client.conf config,
-            # with routing params appended as URI query params via v()
-            ext_channel_id = await self._create_external_media(
-                workflow_id, user_id, workflow_run_id
+            # 2. Pre-register all ext-channel state synchronously, before the
+            #    externalMedia POST is sent. Asterisk can fire StasisStart for
+            #    the ext channel before the POST response returns; registering
+            #    here guarantees that event handler finds the marker and the
+            #    pending bridge entry regardless of ordering.
+            await self._mark_ext_channel(ext_channel_id)
+            await self._set_channel_run(ext_channel_id, workflow_run_id)
+            await self._set_pending_bridge(ext_channel_id, channel_id, workflow_run_id)
+            await db_client.update_workflow_run(
+                run_id=int(workflow_run_id),
+                gathered_context={"ext_channel_id": ext_channel_id},
             )
-            if not ext_channel_id:
+
+            # 3. Create the ext media channel with the id we just registered.
+            created_id = await self._create_external_media(
+                workflow_id,
+                user_id,
+                workflow_run_id,
+                channel_id=ext_channel_id,
+            )
+            if not created_id:
+                await self._pop_pending_bridge(ext_channel_id)
                 logger.error(
-                    f"[ARI org={self.organization_id}] Failed to create external media for {channel_id}"
+                    f"[ARI org={self.organization_id}] Failed to create external "
+                    f"media for {channel_id} (ext_channel_id={ext_channel_id})"
+                )
+                return
+            if created_id != ext_channel_id:
+                # Asterisk ignored our channelId — pending state is stale and
+                # will never be consumed. Clear it and surface loudly.
+                await self._pop_pending_bridge(ext_channel_id)
+                logger.error(
+                    f"[ARI org={self.organization_id}] Asterisk returned channel "
+                    f"id {created_id} but we requested {ext_channel_id}; "
+                    f"channelId may not be honored on this ARI version"
                 )
                 return
 
-            # 3. Track ext channel for StasisEnd cleanup (Redis)
-            await self._set_channel_run(ext_channel_id, workflow_run_id)
+            logger.info(
+                f"[ARI org={self.organization_id}] Queued bridge for caller "
+                f"{channel_id} <-> ext {ext_channel_id} (run {workflow_run_id}); "
+                f"waiting for ext channel StasisStart"
+            )
+        except Exception as e:
+            await self._pop_pending_bridge(ext_channel_id)
+            logger.error(
+                f"[ARI org={self.organization_id}] Error handling StasisStart "
+                f"for channel {channel_id}: {e}"
+            )
 
-            # 4. Bridge the call channel with the external media channel
+    async def _complete_bridge_after_ext_ready(
+        self, ext_channel_id: str, pending: dict
+    ):
+        """Bridge the caller and external media channels for a queued entry.
+
+        Invoked from the external media channel's StasisStart handler with
+        the pending entry that :meth:`_handle_stasis_start` registered.
+        Both channels are in the Stasis application at this point, so the
+        bridge and addChannel calls can succeed.
+        """
+        caller_channel_id = pending["caller_channel_id"]
+        workflow_run_id = pending["workflow_run_id"]
+        try:
             bridge_id = await self._create_bridge_and_add_channels(
-                [channel_id, ext_channel_id]
+                [caller_channel_id, ext_channel_id]
             )
             if not bridge_id:
                 logger.error(
-                    f"[ARI org={self.organization_id}] Failed to bridge channels"
+                    f"[ARI org={self.organization_id}] Failed to bridge "
+                    f"channels {caller_channel_id} <-> {ext_channel_id}"
                 )
                 return
-
-            # 5. Store ARI resource IDs in gathered_context for cleanup/debugging
             await db_client.update_workflow_run(
                 run_id=int(workflow_run_id),
                 gathered_context={
@@ -600,8 +730,8 @@ class ARIConnection:
             )
         except Exception as e:
             logger.error(
-                f"[ARI org={self.organization_id}] Error handling StasisStart "
-                f"for channel {channel_id}: {e}"
+                f"[ARI org={self.organization_id}] Error completing bridge for "
+                f"caller {caller_channel_id} / ext {ext_channel_id}: {e}"
             )
 
     async def _handle_stasis_end(self, channel_id: str, workflow_run_id: str):
@@ -902,19 +1032,19 @@ class ARIManager:
 
         for config in active_configs:
             org_id = config["organization_id"]
+            telephony_configuration_id = config["telephony_configuration_id"]
             ari_endpoint = config["ari_endpoint"]
             app_name = config["app_name"]
             app_password = config["app_password"]
             ws_client_name = config["ws_client_name"]
-            inbound_workflow_id = config.get("inbound_workflow_id")
 
             conn = ARIConnection(
                 org_id,
+                telephony_configuration_id,
                 ari_endpoint,
                 app_name,
                 app_password,
                 ws_client_name,
-                inbound_workflow_id=inbound_workflow_id,
             )
             key = conn.connection_key
 
@@ -923,19 +1053,26 @@ class ARIManager:
             if key not in self._connections:
                 # New configuration - start connection
                 logger.info(
-                    f"[ARI Manager] New ARI config for org {org_id}: {ari_endpoint}"
+                    f"[ARI Manager] New ARI config {telephony_configuration_id} "
+                    f"for org {org_id}: {ari_endpoint}"
                 )
                 self._connections[key] = conn
                 await conn.start()
             else:
-                # Existing configuration - check if password or inbound_workflow_id changed
+                # Existing configuration — reconnect if connection-level fields
+                # (endpoint, app, password, ws client) changed. Workflow IDs are
+                # resolved per-call via telephony_phone_numbers, so changes to
+                # them don't require a reconnect.
                 existing = self._connections[key]
                 if (
-                    existing.app_password != app_password
-                    or existing.inbound_workflow_id != inbound_workflow_id
+                    existing.ari_endpoint != conn.ari_endpoint
+                    or existing.app_name != app_name
+                    or existing.app_password != app_password
+                    or existing.ws_client_name != ws_client_name
                 ):
                     logger.info(
-                        f"[ARI Manager] Config changed for org {org_id}, reconnecting..."
+                        f"[ARI Manager] Config {telephony_configuration_id} "
+                        f"changed for org {org_id}, reconnecting..."
                     )
                     await existing.stop()
                     self._connections[key] = conn
@@ -953,47 +1090,44 @@ class ARIManager:
         if active_configs:
             logger.info(
                 f"[ARI Manager] Active connections: {len(self._connections)} "
-                f"(orgs: {[c['organization_id'] for c in active_configs]})"
+                f"(configs: {[c['telephony_configuration_id'] for c in active_configs]})"
             )
         else:
             logger.debug("[ARI Manager] No ARI configurations found")
 
     async def _load_ari_configs(self) -> list:
-        """Load all ARI telephony configurations from the database."""
-        rows = await db_client.get_configurations_by_provider(
-            OrganizationConfigurationKey.TELEPHONY_CONFIGURATION.value, "ari"
-        )
+        """Load all ARI telephony configurations from the multi-config tables."""
+        rows = await db_client.list_all_telephony_configurations_by_provider("ari")
 
         configs = []
         for row in rows:
-            org_id = row["organization_id"]
-            value = row["value"]
-
-            ari_endpoint = value.get("ari_endpoint")
-            app_name = value.get("app_name")
-            app_password = value.get("app_password")
-            ws_client_name = value.get("ws_client_name", "")
+            credentials = row.credentials or {}
+            ari_endpoint = credentials.get("ari_endpoint")
+            app_name = credentials.get("app_name")
+            app_password = credentials.get("app_password")
+            ws_client_name = credentials.get("ws_client_name", "")
 
             if not all([ari_endpoint, app_name, app_password]):
                 logger.warning(
-                    f"[ARI Manager] Incomplete ARI config for org {org_id}, skipping"
+                    f"[ARI Manager] Incomplete ARI config {row.id} "
+                    f"for org {row.organization_id}, skipping"
                 )
                 continue
 
             if not ws_client_name:
                 logger.warning(
-                    f"[ARI Manager] Missing ws_client_name for org {org_id}, "
-                    f"externalMedia WebSocket won't work"
+                    f"[ARI Manager] Missing ws_client_name for config {row.id} "
+                    f"(org {row.organization_id}), externalMedia WebSocket won't work"
                 )
 
             configs.append(
                 {
-                    "organization_id": org_id,
+                    "organization_id": row.organization_id,
+                    "telephony_configuration_id": row.id,
                     "ari_endpoint": ari_endpoint,
                     "app_name": app_name,
                     "app_password": app_password,
                     "ws_client_name": ws_client_name,
-                    "inbound_workflow_id": value.get("inbound_workflow_id"),
                 }
             )
 

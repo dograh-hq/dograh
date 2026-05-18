@@ -2,6 +2,7 @@ from loguru import logger
 
 from api.constants import (
     ENABLE_AWS_S3,
+    ENVIRONMENT,
     MINIO_ACCESS_KEY,
     MINIO_BUCKET,
     MINIO_ENDPOINT,
@@ -11,9 +12,9 @@ from api.constants import (
     S3_BUCKET,
     S3_REGION,
 )
-from api.enums import StorageBackend
+from api.enums import Environment, StorageBackend
 
-from .filesystem import BaseFileSystem, MinioFileSystem, S3FileSystem
+from .filesystem import BaseFileSystem, MinioFileSystem, NullFileSystem, S3FileSystem
 
 
 def get_storage_for_backend(backend: str) -> BaseFileSystem:
@@ -73,12 +74,18 @@ def get_current_storage_backend() -> StorageBackend:
     return StorageBackend.get_current_backend()
 
 
-# Create a single storage instance at module load time
-_backend = StorageBackend.get_current_backend()
-logger.info(
-    f"Initializing storage backend: {_backend.name} (value: {_backend.value}, ENABLE_AWS_S3={ENABLE_AWS_S3})"
-)
-storage_fs = get_storage_for_backend(_backend.value)
+# Create a single storage instance at module load time.
+# In the test environment we skip the real backend so import doesn't require
+# MinIO/S3 to be reachable; tests that need storage must inject a real fs.
+if ENVIRONMENT == Environment.TEST.value:
+    logger.info("ENVIRONMENT=test — using NullFileSystem (no storage backend)")
+    storage_fs: BaseFileSystem = NullFileSystem()
+else:
+    _backend = StorageBackend.get_current_backend()
+    logger.info(
+        f"Initializing storage backend: {_backend.name} (value: {_backend.value}, ENABLE_AWS_S3={ENABLE_AWS_S3})"
+    )
+    storage_fs = get_storage_for_backend(_backend.value)
 
 
 # For backward compatibility, keep get_storage() function

@@ -81,6 +81,7 @@ export default function WorkflowDetailPage() {
             <RenderWorkflow
                 initialWorkflowName={workflow.name}
                 workflowId={workflow.id}
+                workflowUuid={workflow.workflow_uuid ?? undefined}
                 initialFlow={{
                     nodes: workflow.workflow_definition.nodes as FlowNode[],
                     edges: workflow.workflow_definition.edges as FlowEdge[],

@@ -24,9 +24,11 @@ from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from loguru import logger
+from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
+from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 from starlette.websockets import WebSocketState
 
-from api.constants import ENVIRONMENT
+from api.constants import ENVIRONMENT, FORCE_TURN_RELAY
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import Environment
@@ -43,8 +45,6 @@ from api.services.pipecat.ws_sender_registry import (
     unregister_ws_sender,
 )
 from api.services.quota_service import check_dograh_quota
-from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
-from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 router = APIRouter(prefix="/ws")
 
@@ -75,6 +75,58 @@ def is_private_ip_candidate(candidate_str: str) -> bool:
     except (ValueError, IndexError):
         pass
     return False
+
+
+def filter_outbound_sdp(sdp: str) -> str:
+    """Strip ICE candidates from an outbound answer SDP based on env config.
+
+    Two filters apply:
+
+    1. In non-LOCAL environments, drop host candidates with private/CGNAT IPs.
+       aiortc gathers host candidates from every interface on the box, including
+       Docker bridges (172.17.0.1, 172.18.0.1). Advertising those to the browser
+       causes coturn "peer IP X denied" errors when the browser asks TURN to
+       permit them.
+
+    2. When FORCE_TURN_RELAY is set, drop every non-relay candidate so the
+       only path the browser can use is via TURN. Lets you verify TURN
+       connectivity end-to-end — if TURN is broken, the call simply fails.
+    """
+    if ENVIRONMENT == Environment.LOCAL.value and not FORCE_TURN_RELAY:
+        return sdp
+
+    lines = sdp.split("\r\n")
+    filtered: List[str] = []
+    dropped_non_relay = 0
+    kept_relay = 0
+    for line in lines:
+        if line.startswith("a=candidate:"):
+            candidate_str = line[2:]
+            if FORCE_TURN_RELAY and " typ relay" not in candidate_str:
+                dropped_non_relay += 1
+                continue
+            if ENVIRONMENT != Environment.LOCAL.value and is_private_ip_candidate(
+                candidate_str
+            ):
+                continue
+            if FORCE_TURN_RELAY:
+                kept_relay += 1
+        filtered.append(line)
+
+    if FORCE_TURN_RELAY:
+        if kept_relay == 0:
+            logger.warning(
+                "FORCE_TURN_RELAY is on but the answer SDP has no relay candidates "
+                f"(dropped {dropped_non_relay} non-relay). TURN may be unreachable; "
+                "the connection will fail."
+            )
+        else:
+            logger.info(
+                f"FORCE_TURN_RELAY: kept {kept_relay} relay candidates, "
+                f"dropped {dropped_non_relay} non-relay"
+            )
+
+    return "\r\n".join(filtered)
 
 
 def get_ice_servers(user_id: Optional[str] = None) -> List[RTCIceServer]:
@@ -220,8 +272,9 @@ class SignalingManager:
         if org_id:
             set_current_org_id(org_id)
 
-        # Check Dograh quota before initiating the call
-        quota_result = await check_dograh_quota(user)
+        # Check Dograh quota before initiating the call (apply per-workflow
+        # model_overrides so we evaluate the keys this workflow will use).
+        quota_result = await check_dograh_quota(user, workflow_id=workflow_id)
         if not quota_result.has_quota:
             # Send error response for quota issues
             await ws.send_json(
@@ -246,7 +299,11 @@ class SignalingManager:
             await ws.send_json(
                 {
                     "type": "answer",
-                    "payload": {"sdp": answer["sdp"], "type": "answer", "pc_id": pc_id},
+                    "payload": {
+                        "sdp": filter_outbound_sdp(answer["sdp"]),
+                        "type": "answer",
+                        "pc_id": pc_id,
+                    },
                 }
             )
         else:
@@ -298,7 +355,7 @@ class SignalingManager:
                 {
                     "type": "answer",
                     "payload": {
-                        "sdp": answer["sdp"],
+                        "sdp": filter_outbound_sdp(answer["sdp"]),
                         "type": answer["type"],
                         "pc_id": answer["pc_id"],
                     },
@@ -379,7 +436,7 @@ class SignalingManager:
             {
                 "type": "answer",
                 "payload": {
-                    "sdp": answer["sdp"],
+                    "sdp": filter_outbound_sdp(answer["sdp"]),
                     "type": "answer",
                     "pc_id": pc_id,  # Use the client's pc_id
                 },

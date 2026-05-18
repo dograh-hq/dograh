@@ -1,0 +1,9 @@
+---
+title: "Update Configuration"
+description: "Rename a configuration or rotate its credentials"
+openapi: "PUT /api/v1/organizations/telephony-configs/{config_id}"
+---
+
+The `provider` cannot be changed once a configuration exists — create a new configuration if you need to switch providers.
+
+When rotating credentials, you only need to send the fields you're changing. Re-submitting a masked sensitive value preserves the original secret, so it's safe to round-trip a `GET` response back to a `PUT`.

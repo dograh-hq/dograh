@@ -1,0 +1,7 @@
+---
+title: "Set Default Outbound"
+description: "Designate this configuration as the org-wide default for outbound calls"
+openapi: "POST /api/v1/organizations/telephony-configs/{config_id}/set-default-outbound"
+---
+
+Campaigns and ad-hoc calls that omit `telephony_configuration_id` use the default outbound configuration. Setting a new default automatically clears the previous one — at most one configuration can be the default at a time.

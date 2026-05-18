@@ -26,11 +26,15 @@ The payload can contain a valid JSON, and you can reference variables while cons
 - `{{workflow_run_id}}` Unique ID of the Agent run
 - `{{workflow_id}}` ID of the Agent
 - `{{workflow_name}}` Name of the workflow
+- `{{campaign_id}}` ID of the campaign this run belongs to (empty for ad-hoc runs)
+- `{{call_time}}` ISO-8601 UTC timestamp of when the call was initiated
 - `{{initial_context.*}}` [Initial context variables](/core-concepts/context-and-variables#initial_context)
 - `{{gathered_context.*}}` [Extracted variables](/core-concepts/context-and-variables#gathered_context)
 - `{{cost_info.call_duration_seconds}}` Call duration
 - `{{recording_url}}` Call recording URL
 - `{{transcript_url}}` Transcript URL
+
+For the full list of available variables, authentication options, and receiver examples, see the [Webhook Payloads developer reference](/developer/webhooks).
 
 An example of the payload is given below
 

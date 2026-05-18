@@ -11,7 +11,10 @@ from api.schemas.user_configuration import UserConfiguration
 
 
 class UserClient(BaseDBClient):
-    async def get_or_create_user_by_provider_id(self, provider_id: str) -> UserModel:
+    async def get_or_create_user_by_provider_id(
+        self, provider_id: str
+    ) -> tuple[UserModel, bool]:
+        """Return (user, was_created) tuple."""
         async with self.async_session() as session:
             # First try to get existing user
             result = await session.execute(
@@ -19,36 +22,39 @@ class UserClient(BaseDBClient):
             )
             user = result.scalars().first()
 
+            if user is not None:
+                return user, False
+
+            # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING
+            # This is atomic and handles race conditions at the database level
+            from sqlalchemy.dialects.postgresql import insert
+
+            stmt = insert(UserModel.__table__).values(
+                provider_id=provider_id,
+                created_at=datetime.now(timezone.utc),
+                selected_organization_id=None,  # Will be set later
+                is_superuser=False,  # Default value
+            )
+            # ON CONFLICT DO NOTHING - if another request already inserted, this becomes a no-op
+            stmt = stmt.on_conflict_do_nothing(index_elements=["provider_id"])
+
+            result = await session.execute(stmt)
+            await session.commit()
+            was_created = result.rowcount > 0
+
+            # Now fetch the user (either the one we just created or the one that existed)
+            result = await session.execute(
+                select(UserModel).where(UserModel.provider_id == provider_id)
+            )
+            user = result.scalars().first()
+
             if user is None:
-                # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING
-                # This is atomic and handles race conditions at the database level
-                from sqlalchemy.dialects.postgresql import insert
-
-                stmt = insert(UserModel.__table__).values(
-                    provider_id=provider_id,
-                    created_at=datetime.now(timezone.utc),
-                    selected_organization_id=None,  # Will be set later
-                    is_superuser=False,  # Default value
+                # This should never happen, but handle it just in case
+                error_msg = (
+                    f"Failed to create or fetch user with provider_id {provider_id}"
                 )
-                # ON CONFLICT DO NOTHING - if another request already inserted, this becomes a no-op
-                stmt = stmt.on_conflict_do_nothing(index_elements=["provider_id"])
-
-                result = await session.execute(stmt)
-                await session.commit()
-
-                # Now fetch the user (either the one we just created or the one that existed)
-                result = await session.execute(
-                    select(UserModel).where(UserModel.provider_id == provider_id)
-                )
-                user = result.scalars().first()
-
-                if user is None:
-                    # This should never happen, but handle it just in case
-                    error_msg = (
-                        f"Failed to create or fetch user with provider_id {provider_id}"
-                    )
-                    raise ValueError(error_msg)
-        return user
+                raise ValueError(error_msg)
+        return user, was_created
 
     async def get_user_by_id(self, user_id: int) -> UserModel | None:
         """Fetch a user by their internal ID."""

@@ -245,7 +245,7 @@ class OrganizationUsageClient(BaseDBClient):
         limit: int = 50,
         offset: int = 0,
         filters: Optional[list[dict]] = None,
-    ) -> tuple[list[dict], int]:
+    ) -> tuple[list[dict], int, float, int]:
         """Get paginated workflow runs with usage for an organization."""
         async with self.async_session() as session:
             query = (
@@ -267,7 +267,15 @@ class OrganizationUsageClient(BaseDBClient):
 
             # Only allow specific filters for usage history endpoint
             # This ensures security and prevents unexpected filter attributes
-            allowed_filters = {"duration", "dispositionCode", "phoneNumber"}
+            allowed_filters = {
+                "duration",
+                "dispositionCode",
+                "callerNumber",
+                "calledNumber",
+                "runId",
+                "workflowId",
+                "campaignId",
+            }
             sanitized_filters = []
 
             if filters:
@@ -315,13 +323,15 @@ class OrganizationUsageClient(BaseDBClient):
                 total_tokens += dograh_tokens
                 total_duration_seconds += int(round(call_duration))
 
-                # Extract phone number from initial_context based on call_type.
+                ic = run.initial_context or {}
+                caller_number = ic.get("caller_number")
+                called_number = ic.get("called_number") or ic.get("phone_number")
+                # DEPRECATED: phone_number — use caller_number/called_number.
                 # Inbound runs only have caller_number/called_number; the
                 # caller_number is the customer. Outbound runs use the
                 # phone_number key written by the dispatchers.
-                ic = run.initial_context or {}
                 if run.call_type == "inbound":
-                    phone_number = ic.get("caller_number")
+                    phone_number = caller_number
                 else:
                     phone_number = ic.get("phone_number")
 
@@ -341,6 +351,8 @@ class OrganizationUsageClient(BaseDBClient):
                     "recording_url": run.recording_url,
                     "transcript_url": run.transcript_url,
                     "phone_number": phone_number,
+                    "caller_number": caller_number,
+                    "called_number": called_number,
                     "call_type": run.call_type,
                     "disposition": disposition,
                     "initial_context": run.initial_context,
@@ -354,6 +366,66 @@ class OrganizationUsageClient(BaseDBClient):
                 formatted_runs.append(run_data)
 
             return formatted_runs, total_count, total_tokens, total_duration_seconds
+
+    async def get_usage_runs_for_report(
+        self,
+        organization_id: int,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        filters: Optional[list[dict]] = None,
+    ) -> list:
+        """Get filtered runs for an organization-scoped usage CSV report.
+
+        Mirrors the filter allowlist used by `get_usage_history`, but selects
+        only the columns needed by `build_run_report_csv` and returns every
+        matching run (no pagination).
+        """
+        async with self.async_session() as session:
+            query = (
+                select(
+                    WorkflowRunModel.id,
+                    WorkflowRunModel.workflow_id,
+                    WorkflowRunModel.definition_id,
+                    WorkflowRunModel.campaign_id,
+                    WorkflowRunModel.created_at,
+                    WorkflowRunModel.initial_context,
+                    WorkflowRunModel.gathered_context,
+                    WorkflowRunModel.cost_info,
+                    WorkflowRunModel.public_access_token,
+                )
+                .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
+                .join(UserModel, WorkflowModel.user_id == UserModel.id)
+                .where(
+                    UserModel.selected_organization_id == organization_id,
+                    WorkflowRunModel.cost_info.isnot(None),
+                )
+                .order_by(WorkflowRunModel.created_at.desc())
+            )
+
+            if start_date:
+                query = query.where(WorkflowRunModel.created_at >= start_date)
+            if end_date:
+                query = query.where(WorkflowRunModel.created_at <= end_date)
+
+            allowed_filters = {
+                "duration",
+                "dispositionCode",
+                "callerNumber",
+                "calledNumber",
+                "runId",
+                "workflowId",
+                "campaignId",
+            }
+            sanitized_filters = []
+            if filters:
+                for filter_item in filters:
+                    if filter_item.get("attribute") in allowed_filters:
+                        sanitized_filters.append(filter_item)
+
+            query = apply_workflow_run_filters(query, sanitized_filters)
+
+            result = await session.execute(query)
+            return list(result.all())
 
     async def get_daily_usage_breakdown(
         self,

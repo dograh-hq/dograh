@@ -1,0 +1,24 @@
+{
+  "nodes": [
+    {
+      "id": "s",
+      "type": "startCall",
+      "position": {"x": -200, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet the caller."}
+    },
+    {
+      "id": "e",
+      "type": "endCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "End", "prompt": "Say goodbye."}
+    }
+  ],
+  "edges": [
+    {
+      "id": "ghost-e",
+      "source": "ghost-node",
+      "target": "e",
+      "data": {"label": "from nowhere", "condition": "always"}
+    }
+  ]
+}

@@ -21,6 +21,7 @@ node changes.
 """
 
 import asyncio
+import json
 import time
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
@@ -170,10 +171,13 @@ class RealtimeFeedbackObserver(BaseObserver):
         frame = data.frame
         frame_direction = data.direction
 
-        # Skip already processed frames (frames can be observed multiple times)
-        if (
-            frame.id in self._frames_seen
-            or frame_direction != FrameDirection.DOWNSTREAM
+        # Skip already processed frames (frames can be observed multiple times).
+        # ErrorFrames are accepted in either direction — push_error() emits them
+        # UPSTREAM, and we still want to surface them to the UI.
+        if frame.id in self._frames_seen:
+            return
+        if frame_direction != FrameDirection.DOWNSTREAM and not isinstance(
+            frame, ErrorFrame
         ):
             return
         self._frames_seen.add(frame.id)
@@ -319,14 +323,34 @@ class RealtimeFeedbackObserver(BaseObserver):
         # Handle pipeline errors
         elif isinstance(frame, ErrorFrame):
             processor_name = str(frame.processor) if frame.processor else None
+            payload = {
+                "error": frame.error,
+                "fatal": frame.fatal,
+                "processor": processor_name,
+            }
+            # Surface structured fields when the underlying exception carries
+            # them (e.g. google.genai APIError: code=1008, status=None,
+            # message="Your project has been denied access...").
+            exc = frame.exception
+            if exc is not None:
+                exc_type = type(exc).__name__
+                payload["exception_type"] = exc_type
+                payload["exception_message"] = str(exc)
+                for attr in ("code", "status", "message", "details"):
+                    value = getattr(exc, attr, None)
+                    if value is None or attr in payload:
+                        continue
+                    try:
+                        # Ensure the value is JSON-serializable; fall back
+                        # to str() for opaque objects (e.g. raw response).
+                        json.dumps(value)
+                        payload[attr] = value
+                    except (TypeError, ValueError):
+                        payload[attr] = str(value)
             await self._send_message(
                 {
                     "type": RealtimeFeedbackType.PIPELINE_ERROR.value,
-                    "payload": {
-                        "error": frame.error,
-                        "fatal": frame.fatal,
-                        "processor": processor_name,
-                    },
+                    "payload": payload,
                 }
             )
 

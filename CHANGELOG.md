@@ -1,5 +1,92 @@
 # Changelog
 
+## [1.30.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.0...dograh-v1.30.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* fix race between context init and keepalive for Dograh TTS ([ba7d45f](https://github.com/dograh-hq/dograh/commit/ba7d45fde054e30eb717f7912283d71647bdce2c))
+
+## [1.30.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.29.0...dograh-v1.30.0) (2026-05-16)
+
+
+### Features
+
+* add openai realtime models ([#298](https://github.com/dograh-hq/dograh/issues/298)) ([2381a80](https://github.com/dograh-hq/dograh/commit/2381a803ade54f6c8d1db572e0f6c3301dd74c20))
+
+
+### Bug Fixes
+
+* force FORCE_TURN_RELAY for local IPs in setup ([fc04f31](https://github.com/dograh-hq/dograh/commit/fc04f31639e0d326525d6840ca117babe2b25ea8))
+* provider resolution in telephony cost calculation post workflow integration calls ([0523dcb](https://github.com/dograh-hq/dograh/commit/0523dcb079410803a54deec49afda98cbb96e7bd))
+
+
+### Documentation
+
+* add telnyx to telephony providers supporting call transfer ([4ff1f57](https://github.com/dograh-hq/dograh/commit/4ff1f576f0a5e079466318d6e99d27eada6abc9e))
+* update README.md ([ea13492](https://github.com/dograh-hq/dograh/commit/ea13492a894af11410c7c54500f4bdc6fa0c2cda))
+
+## [1.29.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.28.0...dograh-v1.29.0) (2026-05-13)
+
+
+### Features
+
+* an option to setup remote server with docker compose build ([#280](https://github.com/dograh-hq/dograh/issues/280)) ([59619e9](https://github.com/dograh-hq/dograh/commit/59619e9eaad4313b76e4daa436ecdbb6088b33c1))
+* configurable ElevenLabs base URL for Data Residency ([#278](https://github.com/dograh-hq/dograh/issues/278)) ([7f0dac1](https://github.com/dograh-hq/dograh/commit/7f0dac1ad5f3a095dc67bd1476d2b11e6a9b1039))
+* inline rename of workflow on the editor page ([#273](https://github.com/dograh-hq/dograh/issues/273)) ([f2cb649](https://github.com/dograh-hq/dograh/commit/f2cb6499e1f4304814b331ee573dc4a0a565533a))
+* **telephony/telnyx:** add call transfer via conference bridge ([#274](https://github.com/dograh-hq/dograh/issues/274)) ([4a6752e](https://github.com/dograh-hq/dograh/commit/4a6752e62bf896c5815ccfc70897b3ebcd5733f1))
+* verify telnyx webhook signature optionally ([#279](https://github.com/dograh-hq/dograh/issues/279)) ([b670004](https://github.com/dograh-hq/dograh/commit/b670004725c839408e8a2c89d497e69182d7f079))
+
+
+### Bug Fixes
+
+* **ari:** pre-register ext channel id and defer bridge to its StasisS… ([#284](https://github.com/dograh-hq/dograh/issues/284)) ([ebeffdb](https://github.com/dograh-hq/dograh/commit/ebeffdbc40fb95c56ebf4446142fc0d4fc558f24))
+* prior pre-pr drift check failures ([#276](https://github.com/dograh-hq/dograh/issues/276)) ([a190282](https://github.com/dograh-hq/dograh/commit/a1902829dbbbe315a217245a6e615ce1d3901f03))
+
+## [1.28.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.27.0...dograh-v1.28.0) (2026-05-11)
+
+
+### Features
+
+* add headless mode, redesign floating widget, refactor lifecycle callbacks ([#268](https://github.com/dograh-hq/dograh/issues/268)) ([d2a119c](https://github.com/dograh-hq/dograh/commit/d2a119c38ac5cd73ca52d0b323f4889423932172))
+* add logs in campaigns for failure or pausing ([#265](https://github.com/dograh-hq/dograh/issues/265)) ([d4b6afb](https://github.com/dograh-hq/dograh/commit/d4b6afb0204fc54548e1b4268b6c0c0c9be0ed44))
+* add telnyx webhook api key in telephony config ([#270](https://github.com/dograh-hq/dograh/issues/270)) ([01c201b](https://github.com/dograh-hq/dograh/commit/01c201bf092bb1df94f2685c7aaed612af79415a))
+* add voicemail detection in realtime branch ([025bc14](https://github.com/dograh-hq/dograh/commit/025bc143928a30e7876ee576503a4750a1835909))
+* add workflow graph constraints fixtures ([5a358d4](https://github.com/dograh-hq/dograh/commit/5a358d4d297f5e085bbb0b947b20b54b111e07a5))
+* enable FORCE_TURN_RELAY to diagnose turn connectivity for local deployment setups ([#272](https://github.com/dograh-hq/dograh/issues/272)) ([e2fe1f3](https://github.com/dograh-hq/dograh/commit/e2fe1f3cd427450871d10224aa3b255f91881844))
+
+
+### Bug Fixes
+
+* add missing call_id in gathered_context for telnyx ([31e2c13](https://github.com/dograh-hq/dograh/commit/31e2c135b045a4ea7a31c7dd1d585086fa4b0c95))
+* number pool initialization in multi telephony setup ([6d93be3](https://github.com/dograh-hq/dograh/commit/6d93be3ef6ade0e48c26c7dd0c2f8ba0ef3d96f5))
+
+## [1.27.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.26.0...dograh-v1.27.0) (2026-05-02)
+
+
+### Features
+
+* add create workflow tool in MCP ([3e3773f](https://github.com/dograh-hq/dograh/commit/3e3773f4007a86ee5091e4c9335159a5c15f98bf))
+* add examples to create workflow and use sdk ([f041e60](https://github.com/dograh-hq/dograh/commit/f041e6030da480703cfe2aadd7b5fddf55603d06))
+* add Plivo telephony provider support ([#245](https://github.com/dograh-hq/dograh/issues/245)) ([2218ba8](https://github.com/dograh-hq/dograh/commit/2218ba8ad9278251a6d2fb9eb7dad3f2f67734a0))
+* add posthog signup and signin events, enable backend posthog events for oss version ([#249](https://github.com/dograh-hq/dograh/issues/249)) ([f7c1f63](https://github.com/dograh-hq/dograh/commit/f7c1f63e1b4b2f471abaa9340bda8477afaf268f))
+* add test mode for API trigger ([4171ad7](https://github.com/dograh-hq/dograh/commit/4171ad7a54d696f15ac488f3b77b9d823ead92c8))
+* agent stream for cloudonix OPBX ([#261](https://github.com/dograh-hq/dograh/issues/261)) ([7fd3b96](https://github.com/dograh-hq/dograh/commit/7fd3b96470df9cd00ee088eb498e73baaf924681))
+* refactor telephony to support multiple telephony configurations ([#251](https://github.com/dograh-hq/dograh/issues/251)) ([e16f643](https://github.com/dograh-hq/dograh/commit/e16f6438bd4f316b804d46b1c6a61d3e865b3ac8))
+
+
+### Bug Fixes
+
+* api trigger for telnyx & cloudonix ([#258](https://github.com/dograh-hq/dograh/issues/258)) ([6c4830c](https://github.com/dograh-hq/dograh/commit/6c4830cb5e45af57b9e89e3c8c87642110263c8a))
+* honor telnyxs per-call codec in bidirectional stream ([#256](https://github.com/dograh-hq/dograh/issues/256)) ([085ab0a](https://github.com/dograh-hq/dograh/commit/085ab0a7aee39265f8ad71ff925a4b9ac00f1a10))
+* make trigger paths globally unique ([a1d4a1f](https://github.com/dograh-hq/dograh/commit/a1d4a1fab2a665a9e746fc4b53ab69609ec04fc3))
+* normalise telnyx event types ([#259](https://github.com/dograh-hq/dograh/issues/259)) ([14bc66d](https://github.com/dograh-hq/dograh/commit/14bc66d21dfb5513fa7598c5ca9b9ad4317f9eaf))
+
+
+### Documentation
+
+* add missing config image ([983b9be](https://github.com/dograh-hq/dograh/commit/983b9bee715ebb44065b647fa495c31c55f3a4ed))
+
 ## [1.26.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.25.0...dograh-v1.26.0) (2026-04-21)
 
 

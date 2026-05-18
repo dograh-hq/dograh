@@ -13,7 +13,10 @@ import {
     RealtimeFeedback,
     WorkflowConfigErrorDialog
 } from "./components";
+import { TranscriptRailFrame } from "./components/shared/TranscriptRailFrame";
 import { useWebSocketRTC } from "./hooks";
+
+const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
 
 const BrowserCall = ({ workflowId, workflowRunId, initialContextVariables }: {
     workflowId: number,
@@ -106,10 +109,9 @@ const BrowserCall = ({ workflowId, workflowRunId, initialContextVariables }: {
 
     return (
         <>
-            <div className="flex h-screen w-full overflow-hidden">
-                {/* Main content - 2/3 width when panel visible, full width otherwise */}
-                <div className="w-2/3 h-full overflow-y-auto">
-                    <div className="flex justify-center items-center h-full px-8">
+            <div className={`flex ${RUN_SHELL_HEIGHT_CLASS} min-h-0 w-full overflow-hidden bg-background`}>
+                <div className="min-w-0 flex-1 overflow-y-auto">
+                    <div className="flex min-h-full items-center justify-center px-8 py-8">
                         <Card className="w-full max-w-xl">
                             <CardHeader>
                                 <CardTitle>Call Voice Agent</CardTitle>
@@ -151,14 +153,15 @@ const BrowserCall = ({ workflowId, workflowRunId, initialContextVariables }: {
                     </div>
                 </div>
 
-                {/* Show transcript panel */}
-                <div className="w-1/3 h-full shrink-0 overflow-hidden">
-                    <RealtimeFeedback
-                        mode="live"
-                        messages={feedbackMessages}
-                        isCallActive={connectionActive}
-                        isCallCompleted={isCompleted}
-                    />
+                <div className="h-full min-h-0 w-[420px] shrink-0 border-l border-border bg-background p-5">
+                    <TranscriptRailFrame className="h-full">
+                        <RealtimeFeedback
+                            mode="live"
+                            messages={feedbackMessages}
+                            isCallActive={connectionActive}
+                            isCallCompleted={isCompleted}
+                        />
+                    </TranscriptRailFrame>
                 </div>
             </div>
 

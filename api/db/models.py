@@ -541,9 +541,7 @@ class WorkflowRunTextSessionModel(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
-    __table_args__ = (
-        Index("ix_workflow_run_text_sessions_updated_at", "updated_at"),
-    )
+    __table_args__ = (Index("ix_workflow_run_text_sessions_updated_at", "updated_at"),)
 
 
 class OrganizationUsageCycleModel(Base):

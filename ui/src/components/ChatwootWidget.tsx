@@ -1,5 +1,6 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
 declare global {
@@ -22,7 +23,22 @@ const CHATWOOT_BASE_URL = process.env.NEXT_PUBLIC_CHATWOOT_URL;
 const CHATWOOT_WEBSITE_TOKEN = process.env.NEXT_PUBLIC_CHATWOOT_TOKEN;
 
 export default function ChatwootWidget() {
+  const pathname = usePathname();
+
   useEffect(() => {
+    const isWorkflowRunPage = /^\/workflow\/[^/]+\/run\/[^/]+(?:\/.*)?$/.test(pathname);
+
+    if (isWorkflowRunPage) {
+      document.getElementById("cw-widget-holder")?.remove();
+      document.getElementById("cw-bubble-holder")?.remove();
+      document.getElementById("cw-widget-styles")?.remove();
+      document
+        .querySelector(`script[src="${CHATWOOT_BASE_URL}/packs/js/sdk.js"]`)
+        ?.remove();
+      delete window.chatwootSettings;
+      return;
+    }
+
     // Don't initialize if environment variables are not set
     if (!CHATWOOT_BASE_URL || !CHATWOOT_WEBSITE_TOKEN) {
       console.warn("Chatwoot not configured: Missing NEXT_PUBLIC_CHATWOOT_URL or NEXT_PUBLIC_CHATWOOT_TOKEN");
@@ -72,7 +88,7 @@ export default function ChatwootWidget() {
     };
 
     document.body.appendChild(script);
-  }, []);
+  }, [pathname]);
 
   return null;
 }

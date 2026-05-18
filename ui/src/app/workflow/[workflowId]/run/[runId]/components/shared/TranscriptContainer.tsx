@@ -42,31 +42,33 @@ export function TranscriptContainer({
     const StatusIcon = statusConfig.icon;
 
     return (
-        <div className="w-full h-full flex flex-col bg-background border-l border-border">
+        <div className="flex h-full min-h-0 w-full flex-col bg-background">
             {/* Header */}
-            <div className="px-4 py-3 border-b border-border shrink-0">
-                <div className="flex items-center justify-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <span className="font-medium text-sm whitespace-nowrap">{title}</span>
-                    <div className={cn(
-                        "flex items-center gap-1 text-xs px-2 py-0.5 rounded-full shrink-0",
-                        statusConfig.className
-                    )}>
-                        <StatusIcon className="h-3 w-3" />
-                        <span>{statusConfig.label}</span>
+            <div className="shrink-0 border-b border-border px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <MessageSquare className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate text-sm font-medium whitespace-nowrap">{title}</span>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                        {messageCount !== undefined && messageCount > 0 ? (
+                            <span className="text-xs text-muted-foreground">
+                                {messageCount} messages
+                            </span>
+                        ) : null}
+                        <div className={cn(
+                            "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs shrink-0",
+                            statusConfig.className
+                        )}>
+                            <StatusIcon className="h-3 w-3" />
+                            <span>{statusConfig.label}</span>
+                        </div>
                     </div>
                 </div>
             </div>
 
             {/* Content */}
             {children}
-
-            {/* Footer with message count */}
-            {messageCount !== undefined && messageCount > 0 && (
-                <div className="px-4 py-2 border-t border-border text-xs text-muted-foreground shrink-0">
-                    {messageCount} messages
-                </div>
-            )}
         </div>
     );
 }

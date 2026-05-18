@@ -27,7 +27,7 @@ export function TranscriptMessage({ message, nextMessage }: TranscriptMessagePro
         return (
             <div className="flex items-center gap-2 py-2">
                 <div className="flex-1 h-px bg-border"></div>
-                <div className="px-2 py-1 rounded-md text-xs bg-blue-500/10 border border-blue-500/20 inline-flex items-center gap-1.5">
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-xs">
                     <GitBranch className="h-3 w-3 text-blue-500" />
                     <span className="font-medium text-blue-700 dark:text-blue-400">
                         {message.nodeName}
@@ -98,7 +98,7 @@ export function TranscriptMessage({ message, nextMessage }: TranscriptMessagePro
                         <span>{(ttfbMetric.ttfbSeconds * 1000).toFixed(0)}ms</span>
                     </div>
                 )}
-                <div className="px-3 py-1.5 rounded-full text-xs bg-amber-500/10 border border-amber-500/20 inline-flex items-center gap-2">
+                <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1.5 text-xs">
                     <Wrench className="h-3 w-3 text-amber-500" />
                     <span className="font-mono text-amber-700 dark:text-amber-400">
                         {message.functionName}()
@@ -120,7 +120,7 @@ export function TranscriptMessage({ message, nextMessage }: TranscriptMessagePro
             "flex",
             isUser ? "justify-end" : "justify-start"
         )}>
-            <div className="flex flex-col gap-1 max-w-[85%]">
+            <div className="flex max-w-[85%] flex-col gap-1">
                 {/* Show TTFB metric above bot messages */}
                 {ttfbMetric && ttfbMetric.ttfbSeconds !== undefined && (
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-1">
@@ -131,10 +131,10 @@ export function TranscriptMessage({ message, nextMessage }: TranscriptMessagePro
                 )}
                 <div
                     className={cn(
-                        "px-3 py-2 rounded-2xl text-sm",
+                        "rounded-2xl px-4 py-3 text-sm shadow-sm",
                         isUser
                             ? "bg-primary text-primary-foreground rounded-br-md"
-                            : "bg-muted rounded-bl-md",
+                            : "bg-muted rounded-bl-md border border-slate-200/80",
                         !message.final && "opacity-70"
                     )}
                 >

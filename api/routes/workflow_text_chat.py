@@ -148,11 +148,15 @@ def _build_response_from_run_and_session(workflow_run, text_session):
     )
 
 
-def _validate_turn_cursor(session_data: Dict[str, Any], cursor_turn_id: str | None) -> None:
+def _validate_turn_cursor(
+    session_data: Dict[str, Any], cursor_turn_id: str | None
+) -> None:
     if cursor_turn_id is None:
         return
     if not any(turn.get("id") == cursor_turn_id for turn in session_data["turns"]):
-        raise HTTPException(status_code=404, detail="Turn not found in text chat session")
+        raise HTTPException(
+            status_code=404, detail="Turn not found in text chat session"
+        )
 
 
 def _truncate_future_turns(
@@ -202,7 +206,9 @@ async def _load_text_session_or_404(
     if text_session.workflow_run.workflow_id != workflow_id:
         raise HTTPException(status_code=404, detail="Text chat session not found")
     if text_session.workflow_run.mode != WorkflowRunMode.TEXTCHAT.value:
-        raise HTTPException(status_code=400, detail="Workflow run is not a text chat session")
+        raise HTTPException(
+            status_code=400, detail="Workflow run is not a text chat session"
+        )
     return text_session
 
 

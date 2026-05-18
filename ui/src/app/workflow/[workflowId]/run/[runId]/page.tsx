@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
 import { RealtimeFeedback, WorkflowRunLogs } from '@/app/workflow/[workflowId]/run/[runId]/components/RealtimeFeedback';
+import { TranscriptRailFrame } from '@/app/workflow/[workflowId]/run/[runId]/components/shared/TranscriptRailFrame';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import {
     createWorkflowRunApiV1WorkflowWorkflowIdRunsPost,
@@ -29,10 +30,81 @@ interface WorkflowRunResponse {
     is_completed: boolean;
     transcript_url: string | null;
     recording_url: string | null;
+    cost_info: {
+        dograh_token_usage?: number | null;
+        call_duration_seconds?: number | null;
+    } | null;
     initial_context: Record<string, string | number | boolean | object> | null;
     gathered_context: Record<string, string | number | boolean | object> | null;
     logs: WorkflowRunLogs | null;
     annotations: Record<string, unknown> | null;
+}
+
+const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
+
+function formatDuration(seconds?: number | null) {
+    if (seconds == null || Number.isNaN(seconds)) return 'N/A';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins === 0) return `${secs}s`;
+    return `${mins}m ${secs}s`;
+}
+
+function getTranscriptMetrics(logs: WorkflowRunLogs | null, gatheredContext: Record<string, string | number | boolean | object> | null) {
+    const events = logs?.realtime_feedback_events ?? [];
+    const userTurns = events.filter((event) => event.type === 'rtf-user-transcription' && event.payload.final).length;
+    const botTurns = events.filter((event) => event.type === 'rtf-bot-text').length;
+    const toolCalls = events.filter((event) => event.type === 'rtf-function-call-end').length;
+    const nodeNames = new Set(
+        events
+            .map((event) => event.payload.node_name)
+            .filter((nodeName): nodeName is string => Boolean(nodeName))
+    );
+    const visitedNodes = Array.isArray(gatheredContext?.nodes_visited)
+        ? gatheredContext.nodes_visited.length
+        : nodeNames.size;
+
+    return { userTurns, botTurns, toolCalls, visitedNodes };
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="rounded-xl border border-border bg-muted/40 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+            <p className="mt-2 text-lg font-semibold text-foreground">{value}</p>
+        </div>
+    );
+}
+
+function RunMetricsSection({
+    costInfo,
+    logs,
+    gatheredContext,
+}: {
+    costInfo: WorkflowRunResponse['cost_info'];
+    logs: WorkflowRunLogs | null;
+    gatheredContext: Record<string, string | number | boolean | object> | null;
+}) {
+    const metrics = getTranscriptMetrics(logs, gatheredContext);
+
+    return (
+        <Card className="border-border">
+            <CardHeader className="pb-3">
+                <CardTitle className="text-lg">Run Metrics</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                <MetricCard label="Duration" value={formatDuration(costInfo?.call_duration_seconds)} />
+                <MetricCard
+                    label="Token Usage"
+                    value={costInfo?.dograh_token_usage != null ? costInfo.dograh_token_usage.toLocaleString() : 'N/A'}
+                />
+                <MetricCard label="User Turns" value={String(metrics.userTurns)} />
+                <MetricCard label="Bot Turns" value={String(metrics.botTurns)} />
+                <MetricCard label="Tool Calls" value={String(metrics.toolCalls)} />
+                <MetricCard label="Nodes Visited" value={String(metrics.visitedNodes)} />
+            </CardContent>
+        </Card>
+    );
 }
 
 function ContextDisplay({ title, context }: { title: string; context: Record<string, string | number | boolean | object> | null }) {
@@ -94,12 +166,6 @@ export default function WorkflowRunPage() {
         }
     }, [auth]);
 
-    // Shrink and reposition Chatwoot bubble on this page
-    useEffect(() => {
-        document.body.classList.add('chatwoot-compact');
-        return () => document.body.classList.remove('chatwoot-compact');
-    }, []);
-
     const { openPreview, dialog } = MediaPreviewDialog();
 
     useEffect(() => {
@@ -120,6 +186,7 @@ export default function WorkflowRunPage() {
                 is_completed: response.data?.is_completed ?? false,
                 transcript_url: response.data?.transcript_url ?? null,
                 recording_url: response.data?.recording_url ?? null,
+                cost_info: response.data?.cost_info ?? null,
                 initial_context: response.data?.initial_context as Record<string, string> | null ?? null,
                 gathered_context: response.data?.gathered_context as Record<string, string> | null ?? null,
                 logs: response.data?.logs as WorkflowRunLogs | null ?? null,
@@ -181,10 +248,9 @@ export default function WorkflowRunPage() {
     }
     else if (workflowRun?.is_completed) {
         returnValue = (
-            <div className="flex h-screen w-full overflow-hidden">
-                {/* Main content - 2/3 width */}
-                <div className="w-2/3 h-full overflow-y-auto">
-                    <div className="w-full max-w-4xl space-y-6 p-6">
+            <div className={`flex ${RUN_SHELL_HEIGHT_CLASS} min-h-0 w-full overflow-hidden bg-background`}>
+                <div className="min-w-0 flex-1 overflow-y-auto">
+                    <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
                     <Card className="border-border">
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div className="flex items-center gap-4">
@@ -285,6 +351,12 @@ export default function WorkflowRunPage() {
                         </CardContent>
                     </Card>
 
+                        <RunMetricsSection
+                            costInfo={workflowRun?.cost_info}
+                            logs={workflowRun?.logs}
+                            gatheredContext={workflowRun?.gathered_context}
+                        />
+
                         <div className="grid gap-6 md:grid-cols-2">
                             <ContextDisplay
                                 title="Initial Context"
@@ -305,33 +377,32 @@ export default function WorkflowRunPage() {
                     </div>
                 </div>
 
-                {/* Transcript panel - 1/3 width */}
-                <div className="w-1/3 h-full shrink-0 overflow-hidden">
-                    <RealtimeFeedback mode="historical" logs={workflowRun?.logs} />
+                <div className="h-full min-h-0 w-[420px] shrink-0 border-l border-border bg-background p-5">
+                    <TranscriptRailFrame className="h-full">
+                        <RealtimeFeedback mode="historical" logs={workflowRun?.logs} />
+                    </TranscriptRailFrame>
                 </div>
             </div>
         );
     }
     else {
         returnValue =
-            <div className="h-full flex items-center justify-center">
-                <BrowserCall
-                    workflowId={Number(params.workflowId)}
-                    workflowRunId={Number(params.runId)}
-                    initialContextVariables={
-                        workflowRun?.initial_context
-                            ? Object.fromEntries(
-                                Object.entries(workflowRun.initial_context).map(([key, value]) => [
-                                    key,
-                                    typeof value === 'object' && value !== null
-                                        ? JSON.stringify(value)
-                                        : String(value)
-                                ])
-                            )
-                            : null
-                    }
-                />
-            </div>
+            <BrowserCall
+                workflowId={Number(params.workflowId)}
+                workflowRunId={Number(params.runId)}
+                initialContextVariables={
+                    workflowRun?.initial_context
+                        ? Object.fromEntries(
+                            Object.entries(workflowRun.initial_context).map(([key, value]) => [
+                                key,
+                                typeof value === 'object' && value !== null
+                                    ? JSON.stringify(value)
+                                    : String(value)
+                            ])
+                        )
+                        : null
+                }
+            />
     }
 
     return (

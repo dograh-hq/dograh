@@ -490,7 +490,11 @@ class ARIConnection:
             "POST",
             "/bridges",
             params={
-                "type": "mixing,dtmf_events,proxy_media",
+                # Force softmix selection by including video_sfu — simple_bridge
+                # cannot satisfy video routing capabilities, so the bridging core
+                # picks softmix. Required because simple_bridge + chan_websocket
+                # has a known asymmetry where PJSIP->WS frames don't flow.
+                "type": "mixing,dtmf_events,proxy_media,video_sfu",
                 "name": f"bridge-{channel_ids[0]}",
             },
         )

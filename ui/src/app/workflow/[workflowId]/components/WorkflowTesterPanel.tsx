@@ -2,7 +2,7 @@
 
 import { AlertCircle, ArrowLeft, ArrowUpRight, Bot, Loader2, MessageSquareText, Mic, Phone, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { client } from "@/client/client.gen";
@@ -19,8 +19,6 @@ import { cn, getRandomId } from "@/lib/utils";
 
 import { ApiKeyErrorDialog, ConnectionStatus, RealtimeFeedback, WorkflowConfigErrorDialog } from "../run/[runId]/components";
 import { useWebSocketRTC } from "../run/[runId]/hooks";
-
-const TEXT_SESSION_STORAGE_PREFIX = "workflow-text-chat-session";
 
 interface WorkflowTesterPanelProps {
     workflowId: number;
@@ -82,10 +80,6 @@ interface TextChatSessionResponse {
     checkpoint: TextChatCheckpoint;
     created_at: string;
     updated_at: string | null;
-}
-
-function getTextSessionStorageKey(workflowId: number) {
-    return `${TEXT_SESSION_STORAGE_PREFIX}:${workflowId}`;
 }
 
 function formatTimestamp(timestamp: string | null | undefined) {
@@ -432,12 +426,10 @@ function ManualTextChat({
 }) {
     const [session, setSession] = useState<TextChatSessionResponse | null>(null);
     const [draft, setDraft] = useState("");
-    const [loading, setLoading] = useState(true);
     const [creatingSession, setCreatingSession] = useState(false);
     const [sendingMessage, setSendingMessage] = useState(false);
     const [rewindingTurnId, setRewindingTurnId] = useState<string | null>(null);
 
-    const storageKey = useMemo(() => getTextSessionStorageKey(workflowId), [workflowId]);
     const turns = session?.session_data.turns ?? [];
     const hasTurns = turns.length > 0;
 
@@ -466,42 +458,6 @@ function ManualTextChat({
         return response.json() as Promise<TextChatSessionResponse>;
     }, [accessToken]);
 
-    useEffect(() => {
-        let ignore = false;
-
-        const restoreSession = async () => {
-            if (!accessToken) {
-                setLoading(false);
-                return;
-            }
-
-            const storedRunId = window.localStorage.getItem(storageKey);
-            if (!storedRunId) {
-                setLoading(false);
-                return;
-            }
-
-            setLoading(true);
-            try {
-                const restored = await request(`/api/v1/workflow/${workflowId}/text-chat/sessions/${storedRunId}`);
-                if (ignore) return;
-                setSession(restored);
-            } catch {
-                window.localStorage.removeItem(storageKey);
-            } finally {
-                if (!ignore) {
-                    setLoading(false);
-                }
-            }
-        };
-
-        restoreSession();
-
-        return () => {
-            ignore = true;
-        };
-    }, [accessToken, request, storageKey, workflowId]);
-
     const createSession = useCallback(async () => {
         if (disabled) return;
         setCreatingSession(true);
@@ -521,20 +477,19 @@ function ManualTextChat({
             });
             setSession(created);
             setDraft("");
-            window.localStorage.setItem(storageKey, String(created.workflow_run_id));
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
             setCreatingSession(false);
         }
-    }, [disabled, initialContextVariables, request, storageKey, workflowId]);
+    }, [disabled, initialContextVariables, request, workflowId]);
 
     useEffect(() => {
-        if (loading || creatingSession || session || !accessToken || disabled) {
+        if (creatingSession || session || !accessToken || disabled) {
             return;
         }
         void createSession();
-    }, [accessToken, createSession, creatingSession, disabled, loading, session]);
+    }, [accessToken, createSession, creatingSession, disabled, session]);
 
     const sendMessage = useCallback(async () => {
         if (!session || !draft.trim() || disabled) return;
@@ -581,7 +536,7 @@ function ManualTextChat({
         }
     }, [disabled, request, session, workflowId]);
 
-    if (loading || (creatingSession && !session)) {
+    if (creatingSession && !session) {
         return (
             <div className="space-y-4">
                 <Skeleton className="h-24 rounded-2xl" />

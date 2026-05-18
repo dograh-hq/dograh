@@ -46,6 +46,7 @@ from api.services.pipecat.tracing_config import (
 )
 from api.services.pipecat.transport_setup import create_webrtc_transport
 from api.services.pipecat.ws_sender_registry import get_ws_sender
+from api.services.storage import storage_fs
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import NodeType, ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -546,8 +547,11 @@ async def _run_pipeline(
             and qa_data.tuner_api_key
         ):
             from tuner_pipecat_sdk import Observer as TunerObserver
+            recording_object_key = f"recordings/{workflow_run_id}.wav"
+            recording_url = await storage_fs.aget_signed_url(recording_object_key) or ""
             logger.info(
                 f"[Tuner] Creating observer for workflow_run_id={workflow_run_id}, "
+                f"recording_url={recording_url!r}, "
                 f"asr={user_config.stt.provider}/{user_config.stt.model}, "
                 f"llm={user_config.llm.provider}/{user_config.llm.model}, "
                 f"tts={user_config.tts.provider}/{user_config.tts.model}"
@@ -557,6 +561,7 @@ async def _run_pipeline(
                 api_key=qa_data.tuner_api_key,
                 workspace_id=int(qa_data.tuner_workspace_id),
                 agent_id=qa_data.tuner_agent_id,
+                recording_url=recording_url,
                 call_id=str(workflow_run_id),
                 asr_model=f"{user_config.stt.provider}/{user_config.stt.model}",
                 llm_model=f"{user_config.llm.provider}/{user_config.llm.model}",
@@ -764,6 +769,10 @@ async def _run_pipeline(
     if tuner_observer is not None:
         logger.info("[Tuner] Attaching turn tracking observer")
         tuner_observer.attach_turn_tracking_observer(task.turn_tracking_observer)
+        # Wire the tuner's internal latency observer into the pipeline task so it
+        # receives all frames and fires on_latency_breakdown (which populates
+        # llm_ms, tts_ms, and ttfb_ms). Without this the observer never sees frames.
+        task.add_observer(tuner_observer.latency_observer)
         logger.info("[Tuner] Observer fully wired into pipeline")
 
     # Now set the task and transport output on the engine

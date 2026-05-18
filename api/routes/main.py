@@ -26,6 +26,7 @@ from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
 from api.routes.workflow_embed import router as workflow_embed_router
 from api.routes.workflow_recording import router as workflow_recording_router
+from api.routes.workflow_text_chat import router as workflow_text_chat_router
 
 router = APIRouter(
     tags=["main"],
@@ -35,6 +36,7 @@ router = APIRouter(
 router.include_router(telephony_router)
 router.include_router(superuser_router)
 router.include_router(workflow_router)
+router.include_router(workflow_text_chat_router)
 router.include_router(user_router)
 router.include_router(campaign_router)
 router.include_router(credentials_router)

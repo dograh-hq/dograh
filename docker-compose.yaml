@@ -15,7 +15,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
       interval: 3s
       timeout: 3s
       retries: 10
@@ -31,33 +31,33 @@ services:
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
+      test: [ "CMD", "redis-cli", "-a", "redissecret", "ping" ]
       interval: 3s
       timeout: 10s
       retries: 10
     networks:
       - app-network
 
-  minio:
-    image: minio/minio
-    container_name: minio
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
-      MINIO_API_CORS_ALLOW_ORIGIN: "*"
-    ports:
-      - "127.0.0.1:9000:9000" # Bind to localhost explicitly
-      - "127.0.0.1:9001:9001"
-    volumes:
-      - minio-data:/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - app-network
+  # minio:
+  #   image: minio/minio
+  #   container_name: minio
+  #   command: server /data --console-address ":9001"
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #     MINIO_API_CORS_ALLOW_ORIGIN: "*"
+  #   ports:
+  #     - "127.0.0.1:9000:9000" # Bind to localhost explicitly
+  #     - "127.0.0.1:9001:9001"
+  #   volumes:
+  #     - minio-data:/data
+  #   healthcheck:
+  #     test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   networks:
+  #     - app-network
 
   dograh-init:
     image: bash:5.2
@@ -82,23 +82,23 @@ services:
     command:
       - /workspace/scripts/run_dograh_init.sh
 
-  nginx:
-    image: nginx:alpine
-    container_name: nginx_https
-    profiles: ["remote"]
-    depends_on:
-      dograh-init:
-        condition: service_completed_successfully
-      ui:
-        condition: service_started
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - nginx-generated:/etc/nginx/conf.d:ro
-      - ./certs:/etc/nginx/certs:ro
-    networks:
-      - app-network
+  # nginx:
+  #   image: nginx:alpine
+  #   container_name: nginx_https
+  #   profiles: ["remote"]
+  #   depends_on:
+  #     dograh-init:
+  #       condition: service_completed_successfully
+  #     ui:
+  #       condition: service_started
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - nginx-generated:/etc/nginx/conf.d:ro
+  #     - ./certs:/etc/nginx/certs:ro
+  #   networks:
+  #     - app-network
 
   coturn:
     image: coturn/coturn:4.8.0
@@ -142,7 +142,9 @@ services:
       REDIS_URL: "redis://:redissecret@redis:6379"
 
       # Storage configuration - using local MinIO
-      ENABLE_AWS_S3: "false"
+      ENABLE_AWS_S3: "${ENABLE_AWS_S3:-false}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_REGION: "${S3_REGION:-ap-south-1}"
 
       # MinIO
       MINIO_ENDPOINT: "minio:9000"
@@ -163,9 +165,9 @@ services:
       # Langfuse — credentials can be set here or per-organization via the UI
       # at /settings. Tracing is automatically active when credentials are
       # available; uncomment to set defaults for all organizations.
-      # LANGFUSE_SECRET_KEY: ""
-      # LANGFUSE_PUBLIC_KEY: ""
-      # LANGFUSE_HOST: ""
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_HOST: "${LANGFUSE_HOST:-}"
 
       # TURN server configuration (for WebRTC NAT traversal in remote server)
       # Uses time-limited credentials via TURN REST API (HMAC-SHA1)
@@ -187,16 +189,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
-        condition: service_healthy
-      cloudflared:
-        condition: service_started
+      # minio:
+      #   condition: service_healthy
+      # cloudflared:
+      #   condition: service_started
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
-        ]
+      test: [ "CMD-SHELL", 'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"' ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -222,11 +220,7 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
-        ]
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1" ]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -234,20 +228,21 @@ services:
     networks:
       - app-network
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    container_name: cloudflared-tunnel
-    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
-    ports:
-      - "2000:2000" # Expose metrics endpoint
-    networks:
-      - app-network
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: cloudflared-tunnel
+  #   command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
+  #   ports:
+  #     - "2000:2000" # Expose metrics endpoint
+  #   networks:
+  #     - app-network
 
 volumes:
   postgres_data:
   redis_data:
-  minio-data:
-    driver: local
+
+  # minio-data:
+  #   driver: local
   shared-tmp:
     driver: local
   nginx-generated:

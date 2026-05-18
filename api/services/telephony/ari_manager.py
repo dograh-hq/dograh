@@ -489,7 +489,10 @@ class ARIConnection:
         bridge_result = await self._ari_request(
             "POST",
             "/bridges",
-            params={"type": "mixing", "name": f"bridge-{channel_ids[0]}"},
+            params={
+                "type": "mixing,dtmf_events,proxy_media",
+                "name": f"bridge-{channel_ids[0]}",
+            },
         )
         bridge_id = bridge_result.get("id", "")
         if not bridge_id:

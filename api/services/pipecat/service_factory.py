@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 
@@ -36,6 +37,7 @@ from pipecat.services.openai.stt import (
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
+from pipecat.services.minimax.tts import MiniMaxHttpTTSService, MiniMaxTTSSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
@@ -392,6 +394,29 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.MINIMAX.value:
+        group_id = getattr(user_config.tts, "group_id", None)
+        if not group_id:
+            raise HTTPException(
+                status_code=400,
+                detail="MiniMax TTS requires a group_id. Configure it in your TTS settings.",
+            )
+        voice = getattr(user_config.tts, "voice", None) or "English_Graceful_Lady"
+        speed = getattr(user_config.tts, "speed", None) or 1.0
+        session = aiohttp.ClientSession()
+        return MiniMaxHttpTTSService(
+            api_key=user_config.tts.api_key,
+            group_id=group_id,
+            aiohttp_session=session,
+            settings=MiniMaxTTSSettings(
+                model=user_config.tts.model,
+                voice=voice,
+                speed=speed,
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid TTS provider {user_config.tts.provider}"
@@ -470,6 +495,12 @@ def create_llm_service_from_provider(
             base_url=base_url or "http://localhost:11434/v1",
             api_key=api_key or "none",
             settings=SpeachesLLMSettings(model=model),
+        )
+    elif provider == ServiceProviders.MINIMAX.value:
+        return OpenAILLMService(
+            api_key=api_key,
+            base_url=base_url or "https://api.minimax.io/v1",
+            settings=OpenAILLMSettings(model=model, temperature=1.0),
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
@@ -581,5 +612,7 @@ def create_llm_service(user_config):
         kwargs["aws_access_key"] = user_config.llm.aws_access_key
         kwargs["aws_secret_key"] = user_config.llm.aws_secret_key
         kwargs["aws_region"] = user_config.llm.aws_region
+    elif provider == ServiceProviders.MINIMAX.value:
+        kwargs["base_url"] = user_config.llm.base_url
 
     return create_llm_service_from_provider(provider, model, api_key, **kwargs)

@@ -1,6 +1,7 @@
 from typing import Any, BinaryIO, Dict, Optional
 
 import aioboto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from .base import BaseFileSystem
@@ -19,11 +20,12 @@ class S3FileSystem(BaseFileSystem):
         self.bucket_name = bucket_name
         self.region_name = region_name
         self.session = aioboto3.Session()
+        self.config = Config(signature_version="s3v4")
 
     async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
         try:
             async with self.session.client(
-                "s3", region_name=self.region_name
+                "s3", region_name=self.region_name, config=self.config
             ) as s3_client:
                 await s3_client.put_object(
                     Bucket=self.bucket_name, Key=file_path, Body=await content.read()
@@ -35,7 +37,7 @@ class S3FileSystem(BaseFileSystem):
     async def aupload_file(self, local_path: str, destination_path: str) -> bool:
         try:
             async with self.session.client(
-                "s3", region_name=self.region_name
+                "s3", region_name=self.region_name, config=self.config
             ) as s3_client:
                 await s3_client.upload_file(
                     local_path, self.bucket_name, destination_path
@@ -60,7 +62,7 @@ class S3FileSystem(BaseFileSystem):
         """
         try:
             async with self.session.client(
-                "s3", region_name=self.region_name
+                "s3", region_name=self.region_name, config=self.config
             ) as s3_client:
                 params = {"Bucket": self.bucket_name, "Key": file_path}
 
@@ -101,7 +103,7 @@ class S3FileSystem(BaseFileSystem):
         """Get S3 object metadata."""
         try:
             async with self.session.client(
-                "s3", region_name=self.region_name
+                "s3", region_name=self.region_name, config=self.config
             ) as s3_client:
                 response = await s3_client.head_object(
                     Bucket=self.bucket_name, Key=file_path
@@ -127,7 +129,7 @@ class S3FileSystem(BaseFileSystem):
         """Generate a presigned PUT URL for direct file upload."""
         try:
             async with self.session.client(
-                "s3", region_name=self.region_name
+                "s3", region_name=self.region_name, config=self.config
             ) as s3_client:
                 url = await s3_client.generate_presigned_url(
                     "put_object",
@@ -146,7 +148,7 @@ class S3FileSystem(BaseFileSystem):
         """Download a file from S3 to local path."""
         try:
             async with self.session.client(
-                "s3", region_name=self.region_name
+                "s3", region_name=self.region_name, config=self.config
             ) as s3_client:
                 await s3_client.download_file(self.bucket_name, source_path, local_path)
             return True

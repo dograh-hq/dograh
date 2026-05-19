@@ -154,7 +154,7 @@ class NangoService:
         # Create the integration in the database
         integration = await db_client.create_integration(
             integration_id=integration_id,
-            organisation_id=organization_id,
+            organization_id=organization_id,
             provider=webhook_data.provider,
             created_by=user_id,
             is_active=True,

@@ -21,7 +21,7 @@ router = APIRouter(prefix="/integration")
 class IntegrationResponse:
     id: int
     integration_id: str
-    organisation_id: int
+    organization_id: int
     created_by: Optional[int]
     provider: str
     is_active: bool
@@ -71,7 +71,7 @@ def build_integration_response(integration) -> IntegrationResponse:
     return IntegrationResponse(
         id=integration.id,
         integration_id=integration.integration_id,
-        organisation_id=integration.organisation_id,
+        organization_id=integration.organization_id,
         created_by=integration.created_by,
         provider=integration.provider,
         is_active=integration.is_active,

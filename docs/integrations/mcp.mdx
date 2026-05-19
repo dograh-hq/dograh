@@ -14,7 +14,7 @@ Dograh exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io
   - Hosted: `https://app.dograh.com/api/v1/mcp/`
   - Self-hosted: `<YOUR_BACKEND_URL>/api/v1/mcp/`
 
-The endpoint is also shown in **Platform Settings → MCP Server** inside the Dograh UI.
+The endpoint is also shown in **Platform Settings -> MCP Server** inside the Dograh UI.
 
 <Note>
 If you deployed Dograh to a remote server using [`setup_remote.sh`](/deployment/docker#option-2%3A-remote-server-deployment), your endpoint is served with a self-signed SSL certificate. Claude Code will refuse MCP connections to it unless you start the CLI with TLS verification disabled:
@@ -66,6 +66,24 @@ Restart Claude Desktop after saving. The Dograh tools should appear in the tool 
 
 Any MCP client that supports Streamable HTTP transport can connect with the same URL and header. Paste the configuration above into your client's MCP settings file and replace `YOUR_API_KEY`.
 
+## Available MCP tools
+
+Dograh's MCP server currently registers these tools:
+
+- `list_workflows`
+- `get_workflow`
+- `create_workflow`
+- `get_workflow_code`
+- `save_workflow`
+- `list_node_types`
+- `get_node_type`
+- `list_tools`
+- `list_documents`
+- `list_credentials`
+- `list_recordings`
+
+If your assistant mentions a tool name that is not in this list, ask it to use one of the registered tools above instead.
+
 ## Example prompts
 
 Once the MCP server is connected, you can drive Dograh from your coding agent in plain English. A few prompts to try:
@@ -91,9 +109,10 @@ Once the MCP server is connected, you can drive Dograh from your coding agent in
 - "How do I deploy Dograh on a custom domain with HTTPS?"
 
 <Note>
-Agent edits are saved as a new **draft** version — your published agent keeps serving calls until you explicitly publish the draft from the Dograh UI.
+Agent edits are saved as a new **draft** version - your published agent keeps serving calls until you explicitly publish the draft from the Dograh UI.
 </Note>
 
 <Note>
-The API key controls which workspace the assistant sees. Treat it like any other credential — do not commit it to source control or paste it into shared chats.
+The API key controls which workspace the assistant sees. Treat it like any other credential - do not commit it to source control or paste it into shared chats.
 </Note>
+

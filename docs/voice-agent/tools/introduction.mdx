@@ -3,7 +3,7 @@ title: "Tools"
 description: "Extend your voice agent's capabilities by giving it tools to perform actions during live conversations."
 ---
 
-Tools let your AI agent take actions during a conversation — transfer calls, end calls, or call external APIs — based on the context of the conversation and your prompt instructions.
+Tools let your AI agent take actions during a conversation — transfer calls, end calls, call external APIs, or invoke remote MCP servers — based on the context of the conversation and your prompt instructions.
 
 When a tool is attached to a workflow node, the LLM decides **when** to invoke it and **what parameters** to pass, based on the user's spoken intent and your node-level instructions.
 
@@ -23,6 +23,7 @@ Pre-configured tools that handle common telephony operations out of the box:
 Tools you define to integrate with any external system:
 
 - [**HTTP API**](/voice-agent/tools/http-api) — Call any REST API endpoint during a conversation (e.g., CRM updates, data lookups, triggering automations)
+- [**MCP Tool**](/voice-agent/tools/mcp-tool) — Connect an external MCP server and expose its remote tools to the LLM during a conversation
 
 ## How Tools Work
 

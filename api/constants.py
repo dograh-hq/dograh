@@ -144,12 +144,3 @@ OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")
 OSS_JWT_EXPIRY_HOURS = int(os.getenv("OSS_JWT_EXPIRY_HOURS", "720"))  # 30 days
 
 TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")
-
-# REMOVE-AFTER 2026-05-15: transitional flag. When True, Telnyx webhook
-# signature verification is skipped for configs that have no
-# webhook_public_key set (existing configs predating the field). Set in prod
-# through 2026-05-15 to give users time to add their key; once removed,
-# configs without a key will fail signature verification.
-TELNYX_WEBHOOK_VERIFICATION_OPTIONAL = (
-    os.getenv("TELNYX_WEBHOOK_VERIFICATION_OPTIONAL", "false").lower() == "true"
-)

@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Annotated, List, Literal, Optional, Union
+from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -69,6 +69,7 @@ class _ExtractionNodeDataMixin(BaseModel):
 class _ToolDocumentRefsMixin(BaseModel):
     tool_uuids: Optional[List[str]] = None
     document_uuids: Optional[List[str]] = None
+    mcp_tool_filters: Optional[Dict[str, List[str]]] = None
 
 
 class StartCallNodeData(

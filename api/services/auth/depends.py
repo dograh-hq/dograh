@@ -129,22 +129,6 @@ async def get_user(
     return user_model
 
 
-async def get_user_optional(
-    authorization: Annotated[str | None, Header()] = None,
-    x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
-) -> UserModel | None:
-    """
-    Same as get_user but returns None instead of raising 401 if unauthorized.
-    Useful for endpoints that need to work both with and without auth.
-    """
-    try:
-        return await get_user(authorization, x_api_key)
-    except HTTPException as e:
-        if e.status_code == 401:
-            return None
-        raise
-
-
 async def _handle_oss_auth(authorization: str | None) -> UserModel:
     """
     Handle authentication for OSS deployment mode.

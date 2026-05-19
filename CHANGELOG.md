@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.30.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.0...dograh-v1.30.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* fix race between context init and keepalive for Dograh TTS ([ba7d45f](https://github.com/dograh-hq/dograh/commit/ba7d45fde054e30eb717f7912283d71647bdce2c))
+
 ## [1.30.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.29.0...dograh-v1.30.0) (2026-05-16)
 
 

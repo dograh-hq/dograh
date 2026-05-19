@@ -1,5 +1,9 @@
 # Dograh AI
 
+> 💡 **Notice**: This documentation is community-maintained. If you spot any translation inaccuracies or content that has drifted from the English version, please feel free to open a PR!
+>
+> 💡 **提示**:本文档由社区共同维护。如果您发现翻译不准确,或与英文版本存在出入,欢迎随时提交 PR!
+
 **开源、可自托管的 Vapi 与 Retell 替代方案** —— 通过拖拽式工作流编辑器构建生产级语音智能体,2 分钟内即可上线一个能用的语音机器人。
 
 <p align="center">

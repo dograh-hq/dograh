@@ -10,7 +10,7 @@ import {
     listToolsApiV1ToolsGet,
     unarchiveToolApiV1ToolsToolUuidUnarchivePost,
 } from "@/client/sdk.gen";
-import type { ToolResponse } from "@/client/types.gen";
+import type { CreateToolRequest, ToolResponse } from "@/client/types.gen";
 import { CredentialSelector } from "@/components/http";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -137,16 +137,17 @@ export default function ToolsPage() {
                 ? createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter)
                 : createToolDefinition(newToolCategory);
 
+            const requestBody: CreateToolRequest = {
+                name: newToolName,
+                description: newToolDescription || undefined,
+                category: newToolCategory,
+                icon: categoryConfig?.iconName || "globe",
+                icon_color: categoryConfig?.iconColor || "#3B82F6",
+                definition,
+            };
+
             const response = await createToolApiV1ToolsPost({
-                body: {
-                    name: newToolName,
-                    description: newToolDescription || undefined,
-                    category: newToolCategory,
-                    icon: categoryConfig?.iconName || "globe",
-                    icon_color: categoryConfig?.iconColor || "#3B82F6",
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    definition: definition as any,
-                },
+                body: requestBody,
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },

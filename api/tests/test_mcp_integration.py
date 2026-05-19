@@ -94,9 +94,7 @@ async def test_open_mcp_sessions_skips_tool_when_credential_fetch_fails(monkeypa
 
     from api.db import db_client
 
-    monkeypatch.setattr(
-        db_client, "get_tools_by_uuids", AsyncMock(return_value=[tool])
-    )
+    monkeypatch.setattr(db_client, "get_tools_by_uuids", AsyncMock(return_value=[tool]))
     monkeypatch.setattr(
         db_client,
         "get_credential_by_uuid",

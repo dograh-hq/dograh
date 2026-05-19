@@ -8,6 +8,7 @@ import type {
     EndCallConfig,
     EndCallToolDefinition,
     HttpApiToolDefinition,
+    McpToolDefinition,
     TransferCallConfig,
     TransferCallToolDefinition,
 } from "@/client/types.gen";
@@ -159,7 +160,12 @@ export const DEFAULT_TRANSFER_CALL_CONFIG: TransferCallConfig = {
     timeout: 30,
 };
 
-export type ToolDefinition = HttpApiToolDefinition | EndCallToolDefinition | TransferCallToolDefinition | CalculatorToolDefinition;
+export type ToolDefinition =
+    | HttpApiToolDefinition
+    | EndCallToolDefinition
+    | TransferCallToolDefinition
+    | CalculatorToolDefinition
+    | McpToolDefinition;
 
 export function createEndCallDefinition(config: EndCallConfig): EndCallToolDefinition {
     return {
@@ -197,7 +203,11 @@ export function createCalculatorDefinition(): CalculatorToolDefinition {
 
 export const MCP_URL_PATTERN = /^https?:\/\//i;
 
-export function createMcpDefinition(url: string, credentialUuid: string, toolsFilterCsv: string) {
+export function createMcpDefinition(
+    url: string,
+    credentialUuid: string,
+    toolsFilterCsv: string,
+): McpToolDefinition {
     return {
         schema_version: 1,
         type: "mcp" as const,

@@ -71,7 +71,8 @@
                   {
                     "group": "Custom Tools",
                     "pages": [
-                      "voice-agent/tools/http-api"
+                      "voice-agent/tools/http-api",
+                      "voice-agent/tools/mcp-tool"
                     ]
                   }
                 ]

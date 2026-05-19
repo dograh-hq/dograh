@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { renderToolIcon } from "@/app/tools/config";
+import { useWorkflowOptional } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import type { ToolResponse } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +38,33 @@ function discoveredOf(tool: ToolResponse): McpDiscoveredTool[] {
     return def.config?.discovered_tools ?? [];
 }
 
+function withDiscoveredTools(
+    tool: ToolResponse,
+    discoveredTools: McpDiscoveredTool[],
+): ToolResponse {
+    const definition =
+        tool.definition && typeof tool.definition === "object"
+            ? tool.definition
+            : {};
+    const config =
+        "config" in definition &&
+        definition.config &&
+        typeof definition.config === "object"
+            ? definition.config
+            : {};
+
+    return {
+        ...tool,
+        definition: {
+            ...definition,
+            config: {
+                ...config,
+                discovered_tools: discoveredTools,
+            },
+        },
+    };
+}
+
 export function ToolSelector({
     value,
     onChange,
@@ -48,13 +76,11 @@ export function ToolSelector({
     mcpToolFilters = {},
     onMcpToolFiltersChange = () => {},
 }: ToolSelectorProps) {
+    const workflow = useWorkflowOptional();
     const activeTools = tools.filter((t) => t.status === "active");
     const httpTools = activeTools.filter((t) => !isMcp(t));
     const mcpTools = activeTools.filter(isMcp);
 
-    const [discoveredOverride, setDiscoveredOverride] = useState<
-        Record<string, McpDiscoveredTool[]>
-    >({});
     const [refreshing, setRefreshing] = useState<Record<string, boolean>>({});
     const [refreshError, setRefreshError] = useState<Record<string, string>>({});
 
@@ -93,7 +119,9 @@ export function ToolSelector({
             setRefreshError((e) => ({ ...e, [toolUuid]: res.error as string }));
             return;
         }
-        setDiscoveredOverride((d) => ({ ...d, [toolUuid]: res.discovered_tools }));
+        workflow?.updateTool?.(toolUuid, (tool) =>
+            withDiscoveredTools(tool, res.discovered_tools),
+        );
     };
 
     const selectedCount =
@@ -202,8 +230,7 @@ export function ToolSelector({
                                 </div>
                             )}
                             {mcpTools.map((tool) => {
-                                const fns =
-                                    discoveredOverride[tool.tool_uuid] ?? discoveredOf(tool);
+                                const fns = discoveredOf(tool);
                                 const selected = mcpToolFilters[tool.tool_uuid] ?? [];
                                 const busy = !!refreshing[tool.tool_uuid];
                                 const err = refreshError[tool.tool_uuid];

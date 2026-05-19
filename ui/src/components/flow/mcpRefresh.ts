@@ -1,4 +1,5 @@
-import { client } from "@/client/client.gen";
+import { refreshMcpToolsApiV1ToolsToolUuidMcpRefreshPost } from "@/client/sdk.gen";
+import type { McpRefreshResponse } from "@/client/types.gen";
 
 export interface McpDiscoveredTool {
     name: string;
@@ -11,6 +12,32 @@ export interface McpRefreshResult {
     error: string | null;
 }
 
+function normalizeDiscoveredTools(
+    discoveredTools: McpRefreshResponse["discovered_tools"],
+): McpDiscoveredTool[] {
+    if (!Array.isArray(discoveredTools)) {
+        return [];
+    }
+
+    return discoveredTools.flatMap((tool) => {
+        if (!tool || typeof tool !== "object") {
+            return [];
+        }
+
+        const name = "name" in tool ? tool.name : undefined;
+        if (typeof name !== "string" || !name.trim()) {
+            return [];
+        }
+
+        const description =
+            "description" in tool && typeof tool.description === "string"
+                ? tool.description
+                : "";
+
+        return [{ name, description }];
+    });
+}
+
 /**
  * Re-discover an MCP tool's server catalog.
  * Uses the shared generated `client` (auth bearer is injected by interceptor).
@@ -18,8 +45,10 @@ export interface McpRefreshResult {
 export async function refreshMcpTools(
     toolUuid: string,
 ): Promise<McpRefreshResult> {
-    const { data, error } = await client.post({
-        url: `/api/v1/tools/${toolUuid}/mcp/refresh`,
+    const { data, error } = await refreshMcpToolsApiV1ToolsToolUuidMcpRefreshPost({
+        path: {
+            tool_uuid: toolUuid,
+        },
     });
     if (error || !data) {
         return {
@@ -31,5 +60,9 @@ export async function refreshMcpTools(
                     : "Refresh request failed. Check the MCP server and try again.",
         };
     }
-    return data as McpRefreshResult;
+    return {
+        tool_uuid: data.tool_uuid,
+        discovered_tools: normalizeDiscoveredTools(data.discovered_tools),
+        error: data.error ?? null,
+    };
 }

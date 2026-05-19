@@ -35,6 +35,7 @@ import asyncio
 from loguru import logger
 
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
+from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_context_composer import (
     compose_functions_for_node,
     compose_system_prompt_for_node,
@@ -48,7 +49,6 @@ from api.services.workflow.pipecat_engine_custom_tools import (
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
 )
-from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.tools.knowledge_base import (
     retrieve_from_knowledge_base,
 )
@@ -843,9 +843,7 @@ class PipecatEngine:
 
             organization_id = await self._get_organization_id()
             if not organization_id:
-                logger.warning(
-                    "Cannot open MCP sessions: organization_id missing"
-                )
+                logger.warning("Cannot open MCP sessions: organization_id missing")
                 return
 
             tools = await db_client.get_tools_by_uuids(

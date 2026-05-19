@@ -21,7 +21,6 @@ from pydantic import ValidationError
 
 from api.routes.tool import CreateToolRequest, McpToolDefinition, UpdateToolRequest
 from api.services.workflow.tools.mcp_tool import (
-    McpDefinitionError,
     validate_mcp_definition,
 )
 
@@ -238,7 +237,9 @@ async def test_post_tool_mcp_returns_200(test_client_factory, db_session):
             },
         )
 
-    assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+    assert response.status_code == 200, (
+        f"Expected 200, got {response.status_code}: {response.text}"
+    )
     body = response.json()
     assert body["definition"]["type"] == "mcp"
     assert body["definition"]["config"]["url"] == "https://roundtrip.example.com/mcp"
@@ -247,7 +248,9 @@ async def test_post_tool_mcp_returns_200(test_client_factory, db_session):
 
 async def test_post_tool_mcp_invalid_url_returns_422(test_client_factory, db_session):
     """POST /api/v1/tools/ with an ftp:// URL must return HTTP 422."""
-    user, _ = await db_session.get_or_create_user_by_provider_id("mcp_route_test_user_422")
+    user, _ = await db_session.get_or_create_user_by_provider_id(
+        "mcp_route_test_user_422"
+    )
     org, _ = await db_session.get_or_create_organization_by_provider_id(
         "mcp_route_test_org_422", user.id
     )
@@ -399,12 +402,8 @@ async def test_refresh_server_down_returns_200_with_error(monkeypatch):
     monkeypatch.setattr(
         tool_mod.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
     )
-    monkeypatch.setattr(
-        tool_mod.db_client, "update_tool", AsyncMock(return_value=tool)
-    )
-    monkeypatch.setattr(
-        tool_mod, "discover_mcp_tools", AsyncMock(return_value=[])
-    )
+    monkeypatch.setattr(tool_mod.db_client, "update_tool", AsyncMock(return_value=tool))
+    monkeypatch.setattr(tool_mod, "discover_mcp_tools", AsyncMock(return_value=[]))
     resp = await refresh_mcp_tools("tu-mcp", user=_fake_user())
     assert resp.discovered_tools == []
     assert resp.error  # non-empty human-readable message

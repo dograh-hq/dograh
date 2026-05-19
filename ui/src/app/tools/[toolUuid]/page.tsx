@@ -9,12 +9,19 @@ import {
     listRecordingsApiV1WorkflowRecordingsGet,
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
-import type { RecordingResponseSchema, ToolResponse, TransferCallConfig as APITransferCallConfig } from "@/client/types.gen";
-import type { EndCallConfig } from "@/client/types.gen";
+import type {
+    EndCallConfig,
+    HttpApiToolDefinition,
+    RecordingResponseSchema,
+    ToolResponse,
+    TransferCallConfig as APITransferCallConfig,
+    UpdateToolRequest,
+} from "@/client/types.gen";
 import {
     CredentialSelector,
     type HttpMethod,
     type KeyValueItem,
+    type ParameterType,
     type PresetToolParameter,
     type ToolParameter,
     validateUrl,
@@ -47,21 +54,14 @@ import {
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 
-// Extended HttpApiConfig with parameters (until client types are regenerated)
-interface HttpApiConfigWithParams {
-    method?: string;
-    url?: string;
-    headers?: Record<string, string>;
-    credential_uuid?: string;
-    parameters?: ToolParameter[];
-    preset_parameters?: Array<{
-        name?: string;
-        type?: PresetToolParameter["type"];
-        value_template?: string;
-        required?: boolean;
-    }>;
-    timeout_ms?: number;
-    customMessage?: string;
+function normalizeParameterType(value: string | null | undefined): ParameterType {
+    switch (value) {
+        case "number":
+        case "boolean":
+            return value;
+        default:
+            return "string";
+    }
 }
 
 export default function ToolDetailPage() {
@@ -167,8 +167,7 @@ export default function ToolDetailPage() {
             if (config) {
                 setEndCallMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setAudioRecordingId((config as any).audioRecordingId || "");
+                setAudioRecordingId(config.audioRecordingId || "");
                 setEndCallReason(config.endCallReason ?? false);
                 setEndCallReasonDescription(config.endCallReasonDescription || "");
             } else {
@@ -185,8 +184,7 @@ export default function ToolDetailPage() {
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setTransferAudioRecordingId((config as any).audioRecordingId || "");
+                setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
             } else {
                 setTransferDestination("");
@@ -215,17 +213,15 @@ export default function ToolDetailPage() {
             }
         } else {
             // Populate HTTP API specific fields
-            const config = tool.definition?.config as HttpApiConfigWithParams | undefined;
+            const config = tool.definition?.config as HttpApiToolDefinition["config"] | undefined;
             if (config) {
                 setHttpMethod((config.method as HttpMethod) || "POST");
                 setUrl(config.url || "");
                 setCredentialUuid(config.credential_uuid || "");
                 setTimeoutMs(config.timeout_ms || 5000);
                 setCustomMessage(config.customMessage || "");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setCustomMessageType((config as any).customMessageType || "text");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setCustomMessageRecordingId((config as any).customMessageRecordingId || "");
+                setCustomMessageType(config.customMessageType || "text");
+                setCustomMessageRecordingId(config.customMessageRecordingId || "");
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -242,9 +238,9 @@ export default function ToolDetailPage() {
                 // Load parameters
                 if (config.parameters && Array.isArray(config.parameters)) {
                     setParameters(
-                        config.parameters.map((p: ToolParameter) => ({
+                        config.parameters.map((p) => ({
                             name: p.name || "",
-                            type: p.type || "string",
+                            type: normalizeParameterType(p.type),
                             description: p.description || "",
                             required: p.required ?? true,
                         }))
@@ -257,7 +253,7 @@ export default function ToolDetailPage() {
                     setPresetParameters(
                         config.preset_parameters.map((p) => ({
                             name: p.name || "",
-                            type: p.type || "string",
+                            type: normalizeParameterType(p.type),
                             valueTemplate: p.value_template || "",
                             required: p.required ?? true,
                         }))
@@ -345,7 +341,7 @@ export default function ToolDetailPage() {
             setSaveSuccess(false);
             const accessToken = await getAccessToken();
 
-            let requestBody;
+            let requestBody: UpdateToolRequest;
 
             if (tool.category === "calculator") {
                 // Built-in tool - only name/description, no config
@@ -445,8 +441,7 @@ export default function ToolDetailPage() {
 
             const response = await updateToolApiV1ToolsToolUuidPut({
                 path: { tool_uuid: toolUuid },
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                body: requestBody as any,
+                body: requestBody,
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },

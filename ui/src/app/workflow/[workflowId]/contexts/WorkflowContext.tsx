@@ -7,6 +7,10 @@ interface WorkflowContextType {
     saveWorkflow: (updateWorkflowDefinition?: boolean) => Promise<void>;
     documents?: DocumentResponseSchema[];
     tools?: ToolResponse[];
+    updateTool?: (
+        toolUuid: string,
+        updater: (tool: ToolResponse) => ToolResponse,
+    ) => void;
     recordings?: RecordingResponseSchema[];
     readOnly?: boolean;
 }

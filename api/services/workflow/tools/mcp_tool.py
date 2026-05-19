@@ -4,15 +4,76 @@ LLM-function-name namespacing. No I/O, no MCP protocol here."""
 from __future__ import annotations
 
 import re
-from typing import Any, Dict
+from typing import Any, Dict, Literal, Optional
 
-SUPPORTED_TRANSPORTS = {"streamable_http"}
+from pydantic import BaseModel, Field, ValidationError, field_validator
+
 DEFAULT_TIMEOUT_SECS = 30
 DEFAULT_SSE_READ_TIMEOUT_SECS = 300
 
 
 class McpDefinitionError(ValueError):
     """Raised when an MCP tool definition is structurally invalid."""
+
+
+class McpToolConfig(BaseModel):
+    """Configuration for an MCP tool definition."""
+
+    transport: Literal["streamable_http"] = Field(
+        default="streamable_http", description="MCP transport protocol"
+    )
+    url: str = Field(description="MCP server URL (must be http:// or https://)")
+    credential_uuid: Optional[str] = Field(
+        default=None, description="Reference to ExternalCredentialModel for auth"
+    )
+    tools_filter: list[str] = Field(
+        default_factory=list,
+        description="Allowlist of MCP tool names to expose (empty = all tools)",
+    )
+    timeout_secs: int = Field(
+        default=DEFAULT_TIMEOUT_SECS, description="Connection timeout in seconds"
+    )
+    sse_read_timeout_secs: int = Field(
+        default=DEFAULT_SSE_READ_TIMEOUT_SECS,
+        description="SSE read timeout in seconds",
+    )
+    discovered_tools: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Server-managed cache of the MCP server's tool catalog "
+            "[{name, description}]. Populated best-effort by the backend."
+        ),
+    )
+
+    @field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not isinstance(v, str) or not v.startswith(("http://", "https://")):
+            raise ValueError("config.url must be an http(s) URL")
+        return v
+
+    @field_validator("tools_filter")
+    @classmethod
+    def validate_tools_filter(cls, v: list[str]) -> list[str]:
+        if not all(isinstance(tool_name, str) for tool_name in v):
+            raise ValueError("config.tools_filter must be a list of strings")
+        return v
+
+
+class McpToolDefinition(BaseModel):
+    """Persisted MCP tool definition."""
+
+    schema_version: int = Field(default=1, description="Schema version")
+    type: Literal["mcp"] = Field(description="Tool type")
+    config: McpToolConfig = Field(description="MCP server configuration")
+
+
+def _format_validation_error(error: ValidationError) -> str:
+    parts: list[str] = []
+    for item in error.errors():
+        location = ".".join(str(part) for part in item["loc"])
+        parts.append(f"{location}: {item['msg']}")
+    return "; ".join(parts)
 
 
 def validate_mcp_definition(definition: Dict[str, Any]) -> Dict[str, Any]:
@@ -30,37 +91,12 @@ def validate_mcp_definition(definition: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(config, dict):
         raise McpDefinitionError("definition.config is required and must be an object")
 
-    url = config.get("url") or ""
-    if not isinstance(url, str) or not url.startswith(("http://", "https://")):
-        raise McpDefinitionError("config.url must be an http(s) URL")
+    try:
+        parsed = McpToolDefinition.model_validate(definition)
+    except ValidationError as e:
+        raise McpDefinitionError(_format_validation_error(e)) from e
 
-    transport = config.get("transport") or "streamable_http"
-    if transport not in SUPPORTED_TRANSPORTS:
-        raise McpDefinitionError(
-            f"config.transport '{transport}' unsupported; allowed: {sorted(SUPPORTED_TRANSPORTS)}"
-        )
-
-    tools_filter = config.get("tools_filter") or []
-    if not isinstance(tools_filter, list) or not all(
-        isinstance(t, str) for t in tools_filter
-    ):
-        raise McpDefinitionError("config.tools_filter must be a list of strings")
-
-    raw_timeout = config.get("timeout_secs")
-    raw_sse = config.get("sse_read_timeout_secs")
-
-    return {
-        "url": url,
-        "transport": transport,
-        "credential_uuid": config.get("credential_uuid") or None,
-        "tools_filter": tools_filter,
-        "timeout_secs": int(raw_timeout)
-        if raw_timeout is not None
-        else DEFAULT_TIMEOUT_SECS,
-        "sse_read_timeout_secs": int(raw_sse)
-        if raw_sse is not None
-        else DEFAULT_SSE_READ_TIMEOUT_SECS,
-    }
+    return parsed.config.model_dump(exclude={"discovered_tools"})
 
 
 def _slugify(value: str) -> str:

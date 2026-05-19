@@ -16,10 +16,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 from loguru import logger
 from mcp.client.session_group import StreamableHttpParameters
 from pipecat.adapters.schemas.function_schema import FunctionSchema
-
-# TODO: Pipecat's vendored MCPClient calls the deprecated
-# mcp.client.streamable_http.streamablehttp_client (emits DeprecationWarning);
-# it should be migrated to streamable_http_client upstream in the submodule.
 from pipecat.services.mcp_service import MCPClient
 
 from api.services.workflow.tools.mcp_tool import namespace_function_name
@@ -188,9 +184,7 @@ class McpToolSession:
         if allowed_raw_names is None:
             return list(self._schemas)
         return [
-            s
-            for s in self._schemas
-            if self._name_map.get(s.name) in allowed_raw_names
+            s for s in self._schemas if self._name_map.get(s.name) in allowed_raw_names
         ]
 
     def discovered_tools(self) -> List[Dict[str, str]]:

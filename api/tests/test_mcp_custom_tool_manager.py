@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from api.enums import ToolCategory
+from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
 from api.tests.support.mcp_mock_server import running_mcp_server
-from api.services.workflow.mcp_tool_session import McpToolSession
 
 
 def _mcp_tool():
@@ -60,9 +60,9 @@ async def test_get_tool_schemas_and_handler_for_mcp(monkeypatch):
 
             await mgr.register_handlers([tool.tool_uuid])
             assert "mcp__acme_mcp__echo" in registered
-            assert reg_kwargs["mcp__acme_mcp__echo"][
-                "timeout_secs"
-            ] == pytest.approx(15.0)
+            assert reg_kwargs["mcp__acme_mcp__echo"]["timeout_secs"] == pytest.approx(
+                15.0
+            )
 
             captured = {}
 
@@ -100,9 +100,7 @@ async def test_unavailable_mcp_session_contributes_nothing(monkeypatch):
 
     from api.db import db_client
 
-    monkeypatch.setattr(
-        db_client, "get_tools_by_uuids", AsyncMock(return_value=[tool])
-    )
+    monkeypatch.setattr(db_client, "get_tools_by_uuids", AsyncMock(return_value=[tool]))
 
     schemas = await mgr.get_tool_schemas([tool.tool_uuid])
     assert schemas == []
@@ -140,7 +138,9 @@ async def test_per_node_mcp_filter_intersection(monkeypatch):
         engine = MagicMock()
         engine._mcp_sessions = {tool.tool_uuid: session}
         registered = {}
-        engine.llm.register_function = lambda name, fn, **kw: registered.__setitem__(name, fn)
+        engine.llm.register_function = lambda name, fn, **kw: registered.__setitem__(
+            name, fn
+        )
 
         mgr = CustomToolManager(engine)
         mgr.get_organization_id = AsyncMock(return_value=42)
@@ -160,17 +160,13 @@ async def test_per_node_mcp_filter_intersection(monkeypatch):
             assert len(schemas) == 1
             assert all("echo" in s.name for s in schemas)
 
-            await mgr.register_handlers(
-                [tool.tool_uuid], mcp_tool_filters=filters
-            )
+            await mgr.register_handlers([tool.tool_uuid], mcp_tool_filters=filters)
             assert len(registered) == 1
             assert all("echo" in k for k in registered)
 
             # No filter entry for this uuid = none (default-none)
             registered.clear()
-            result = await mgr.get_tool_schemas(
-                [tool.tool_uuid], mcp_tool_filters={}
-            )
+            result = await mgr.get_tool_schemas([tool.tool_uuid], mcp_tool_filters={})
             assert result == []
             await mgr.register_handlers([tool.tool_uuid], mcp_tool_filters={})
             assert registered == {}

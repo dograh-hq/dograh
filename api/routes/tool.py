@@ -16,9 +16,21 @@ from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
 from api.services.posthog_client import capture_event
 from api.services.workflow.mcp_tool_session import discover_mcp_tools
-from api.services.workflow.tools.mcp_tool import McpDefinitionError, validate_mcp_definition
+from api.services.workflow.tools.mcp_tool import (
+    McpDefinitionError,
+    validate_mcp_definition,
+)
+from api.services.workflow.tools.mcp_tool import (
+    McpToolConfig as SharedMcpToolConfig,
+)
+from api.services.workflow.tools.mcp_tool import (
+    McpToolDefinition as SharedMcpToolDefinition,
+)
 
 router = APIRouter(prefix="/tools")
+
+McpToolConfig = SharedMcpToolConfig
+McpToolDefinition = SharedMcpToolDefinition
 
 
 # Request/Response schemas
@@ -178,57 +190,6 @@ class CalculatorToolDefinition(BaseModel):
 
     schema_version: int = Field(default=1, description="Schema version")
     type: Literal["calculator"] = Field(description="Tool type")
-
-
-class McpToolConfig(BaseModel):
-    """Configuration for MCP (Model Context Protocol) tools."""
-
-    transport: Literal["streamable_http"] = Field(
-        default="streamable_http", description="MCP transport protocol"
-    )
-    url: str = Field(description="MCP server URL (must be http:// or https://)")
-    credential_uuid: Optional[str] = Field(
-        default=None, description="Reference to ExternalCredentialModel for auth"
-    )
-    tools_filter: list[str] = Field(
-        default_factory=list,
-        description="Allowlist of MCP tool names to expose (empty = all tools)",
-    )
-    timeout_secs: int = Field(default=30, description="Connection timeout in seconds")
-    sse_read_timeout_secs: int = Field(
-        default=300, description="SSE read timeout in seconds"
-    )
-    discovered_tools: list[dict] = Field(
-        default_factory=list,
-        description=(
-            "Server-managed cache of the MCP server's tool catalog "
-            "[{name, description}]. Populated best-effort by the backend."
-        ),
-    )
-
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        """Validate that URL starts with http:// or https://."""
-        if not isinstance(v, str) or not v.startswith(("http://", "https://")):
-            raise ValueError("config.url must be an http(s) URL")
-        return v
-
-    @field_validator("tools_filter")
-    @classmethod
-    def validate_tools_filter(cls, v: list) -> list:
-        """Validate that tools_filter is a list of strings."""
-        if not all(isinstance(t, str) for t in v):
-            raise ValueError("tools_filter must be a list of strings")
-        return v
-
-
-class McpToolDefinition(BaseModel):
-    """Tool definition for MCP (Model Context Protocol) tools."""
-
-    schema_version: int = Field(default=1, description="Schema version")
-    type: Literal["mcp"] = Field(description="Tool type")
-    config: McpToolConfig = Field(description="MCP server configuration")
 
 
 # Union type for tool definitions - Pydantic will discriminate based on 'type' field
@@ -406,17 +367,13 @@ async def _fetch_credential(credential_uuid: Optional[str], organization_id: int
     if not credential_uuid:
         return None
     try:
-        return await db_client.get_credential_by_uuid(
-            credential_uuid, organization_id
-        )
+        return await db_client.get_credential_by_uuid(credential_uuid, organization_id)
     except Exception as e:  # noqa: BLE001
         logger.warning(f"MCP: credential fetch failed: {e}")
         return None
 
 
-async def _populate_discovered_tools(
-    definition: dict, *, organization_id: int
-) -> dict:
+async def _populate_discovered_tools(definition: dict, *, organization_id: int) -> dict:
     """Best-effort: for an MCP definition, connect to the server, list its
     tools, and overwrite ``config.discovered_tools``. Never raises and never
     blocks tool save — a dead server yields ``discovered_tools: []``. Non-MCP
@@ -576,9 +533,7 @@ async def refresh_mcp_tools(
             f"(or it exposes no tools). Previously cached list retained."
         )
         # Do NOT clobber a previously-good cache with [] on a transient outage.
-        return McpRefreshResponse(
-            tool_uuid=tool_uuid, discovered_tools=[], error=error
-        )
+        return McpRefreshResponse(tool_uuid=tool_uuid, discovered_tools=[], error=error)
 
     new_def = dict(tool.definition or {})
     new_def["config"] = {**new_def.get("config", {}), "discovered_tools": discovered}

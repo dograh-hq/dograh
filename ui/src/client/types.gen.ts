@@ -949,7 +949,9 @@ export type CreateToolRequest = {
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
-    } & CalculatorToolDefinition);
+    } & CalculatorToolDefinition) | ({
+        type: 'mcp';
+    } & McpToolDefinition);
 };
 
 /**
@@ -2095,6 +2097,102 @@ export type MpsCreditsResponse = {
      * Total Quota
      */
     total_quota: number;
+};
+
+/**
+ * McpRefreshResponse
+ *
+ * Result of re-discovering an MCP server's tool catalog.
+ */
+export type McpRefreshResponse = {
+    /**
+     * Tool Uuid
+     */
+    tool_uuid: string;
+    /**
+     * Discovered Tools
+     */
+    discovered_tools?: Array<unknown>;
+    /**
+     * Error
+     */
+    error?: string | null;
+};
+
+/**
+ * McpToolConfig
+ *
+ * Configuration for an MCP tool definition.
+ */
+export type McpToolConfig = {
+    /**
+     * Transport
+     *
+     * MCP transport protocol
+     */
+    transport?: 'streamable_http';
+    /**
+     * Url
+     *
+     * MCP server URL (must be http:// or https://)
+     */
+    url: string;
+    /**
+     * Credential Uuid
+     *
+     * Reference to ExternalCredentialModel for auth
+     */
+    credential_uuid?: string | null;
+    /**
+     * Tools Filter
+     *
+     * Allowlist of MCP tool names to expose (empty = all tools)
+     */
+    tools_filter?: Array<string>;
+    /**
+     * Timeout Secs
+     *
+     * Connection timeout in seconds
+     */
+    timeout_secs?: number;
+    /**
+     * Sse Read Timeout Secs
+     *
+     * SSE read timeout in seconds
+     */
+    sse_read_timeout_secs?: number;
+    /**
+     * Discovered Tools
+     *
+     * Server-managed cache of the MCP server's tool catalog [{name, description}]. Populated best-effort by the backend.
+     */
+    discovered_tools?: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+/**
+ * McpToolDefinition
+ *
+ * Persisted MCP tool definition.
+ */
+export type McpToolDefinition = {
+    /**
+     * Schema Version
+     *
+     * Schema version
+     */
+    schema_version?: number;
+    /**
+     * Type
+     *
+     * Tool type
+     */
+    type: 'mcp';
+    /**
+     * MCP server configuration
+     */
+    config: McpToolConfig;
 };
 
 /**
@@ -3842,7 +3940,9 @@ export type UpdateToolRequest = {
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
-    } & CalculatorToolDefinition) | null;
+    } & CalculatorToolDefinition) | ({
+        type: 'mcp';
+    } & McpToolDefinition) | null;
     /**
      * Status
      */
@@ -7651,6 +7751,50 @@ export type UpdateToolApiV1ToolsToolUuidPutResponses = {
 };
 
 export type UpdateToolApiV1ToolsToolUuidPutResponse = UpdateToolApiV1ToolsToolUuidPutResponses[keyof UpdateToolApiV1ToolsToolUuidPutResponses];
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Tool Uuid
+         */
+        tool_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{tool_uuid}/mcp/refresh';
+};
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostError = RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostErrors[keyof RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostErrors];
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: McpRefreshResponse;
+};
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponse = RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses[keyof RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses];
 
 export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostData = {
     body?: never;

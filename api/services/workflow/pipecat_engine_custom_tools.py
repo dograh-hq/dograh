@@ -34,8 +34,8 @@ from api.services.workflow.tools.custom_tool import (
 )
 
 if TYPE_CHECKING:
-    from api.services.workflow.pipecat_engine import PipecatEngine
     from api.services.workflow.mcp_tool_session import McpToolSession
+    from api.services.workflow.pipecat_engine import PipecatEngine
 
 
 def get_function_schema(

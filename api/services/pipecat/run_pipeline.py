@@ -779,7 +779,6 @@ async def _run_pipeline(
         pipeline_metrics_aggregator=pipeline_metrics_aggregator,
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
-        fetch_recording_audio=fetch_audio,
         user_provider_id=user_provider_id,
     )
 

@@ -60,8 +60,8 @@ class WorkflowRunTextSessionClient(BaseDBClient):
     async def get_workflow_run_text_session(
         self,
         workflow_run_id: int,
-        user_id: int | None = None,
-        organization_id: int | None = None,
+        *,
+        organization_id: int,
     ) -> WorkflowRunTextSessionModel | None:
         async with self.async_session() as session:
             query = (
@@ -74,12 +74,8 @@ class WorkflowRunTextSessionClient(BaseDBClient):
                 .join(WorkflowRunTextSessionModel.workflow_run)
                 .join(WorkflowRunModel.workflow)
                 .where(WorkflowRunTextSessionModel.workflow_run_id == workflow_run_id)
+                .where(WorkflowModel.organization_id == organization_id)
             )
-
-            if organization_id is not None:
-                query = query.where(WorkflowModel.organization_id == organization_id)
-            elif user_id is not None:
-                query = query.where(WorkflowModel.user_id == user_id)
 
             result = await session.execute(query)
             return result.scalars().first()

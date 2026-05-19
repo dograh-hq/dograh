@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Optional, Union
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -7,6 +7,7 @@ from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
     FunctionCallResultProperties,
+    LLMContextFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.task import PipelineTask
@@ -590,8 +591,8 @@ class PipecatEngine:
             # Setup LLM Context with Prompts and Functions
             await self._setup_llm_context(node)
 
-    def get_start_greeting(self) -> Optional[tuple[str, Optional[str]]]:
-        """Return the greeting info for the start node, or None if not configured.
+    def get_node_greeting(self, node_id: str) -> Optional[tuple[str, Optional[str]]]:
+        """Return the greeting info for a node, or None if not configured.
 
         Returns:
             A tuple of (greeting_type, value) where:
@@ -599,19 +600,88 @@ class PipecatEngine:
             - ("audio", recording_id) for pre-recorded audio greetings
             Or None if no greeting is configured.
         """
-        start_node = self.workflow.nodes.get(self.workflow.start_node_id)
-        if not start_node:
+        node = self.workflow.nodes.get(node_id)
+        if not node:
             return None
 
-        greeting_type = start_node.greeting_type or "text"
+        greeting_type = node.greeting_type or "text"
 
-        if greeting_type == "audio" and start_node.greeting_recording_id:
-            return ("audio", start_node.greeting_recording_id)
+        if greeting_type == "audio" and node.greeting_recording_id:
+            return ("audio", node.greeting_recording_id)
 
-        if start_node.greeting:
-            return ("text", self._format_prompt(start_node.greeting))
+        if node.greeting:
+            return ("text", self._format_prompt(node.greeting))
 
         return None
+
+    def get_start_greeting(self) -> Optional[tuple[str, Optional[str]]]:
+        """Return the greeting info for the start node, or None if not configured."""
+        return self.get_node_greeting(self.workflow.start_node_id)
+
+    async def queue_node_opening(
+        self,
+        *,
+        node_id: str,
+        previous_node_id: Optional[str] = None,
+        generate_if_no_greeting: bool = False,
+    ) -> Literal["none", "greeting", "llm"]:
+        """Queue the opening behavior for a node.
+
+        This is the shared source of truth for how a node begins once the
+        engine is ready and the node has already been set on the context.
+
+        Returns:
+            "greeting" when a text/audio greeting was queued,
+            "llm" when an initial LLM generation was queued,
+            "none" when nothing was queued.
+        """
+        if previous_node_id != node_id:
+            greeting_info = self.get_node_greeting(node_id)
+            if greeting_info:
+                greeting_type, greeting_value = greeting_info
+                if (
+                    greeting_type == "audio"
+                    and greeting_value
+                    and self._fetch_recording_audio
+                    and self._transport_output is not None
+                ):
+                    logger.debug(f"Playing audio greeting recording: {greeting_value}")
+                    result = await self._fetch_recording_audio(
+                        recording_pk=int(greeting_value)
+                    )
+                    if result:
+                        await play_audio(
+                            result.audio,
+                            sample_rate=self._audio_config.pipeline_sample_rate
+                            if self._audio_config
+                            else 16000,
+                            queue_frame=self._transport_output.queue_frame,
+                            transcript=result.transcript,
+                            append_to_context=True,
+                        )
+                        return "greeting"
+                    logger.warning(
+                        f"Failed to fetch audio greeting {greeting_value}, "
+                        "falling back to LLM generation"
+                    )
+                elif greeting_value and self.task is not None:
+                    logger.debug("Playing text greeting via TTS")
+                    # append_to_context=True so the assistant aggregator commits
+                    # the greeting to the LLM context once TTS finishes; without
+                    # it the LLM would re-greet on its first generation.
+                    await self.task.queue_frame(
+                        TTSSpeakFrame(greeting_value, append_to_context=True)
+                    )
+                    return "greeting"
+
+        if generate_if_no_greeting and self.llm is not None and self.context is not None:
+            logger.debug("Queueing initial LLM generation for node opening")
+            # Queue after the voicemail detector in the live pipeline so the
+            # detector can gate initial generations when needed.
+            await self.llm.queue_frame(LLMContextFrame(self.context))
+            return "llm"
+
+        return "none"
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""

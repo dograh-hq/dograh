@@ -431,6 +431,17 @@ class CustomToolManager:
                 workflow_run = await db_client.get_workflow_run_by_id(
                     self._engine._workflow_run_id
                 )
+                if workflow_run.mode == WorkflowRunMode.TEXTCHAT.value:
+                    textchat_error_result = {
+                        "status": "failed",
+                        "message": "I'm sorry, but call transfers are not available in text chat tests.",
+                        "action": "transfer_failed",
+                        "reason": "textchat_not_supported",
+                    }
+                    await self._handle_transfer_result(
+                        textchat_error_result, function_call_params, properties
+                    )
+                    return
                 if workflow_run.mode in [
                     WorkflowRunMode.WEBRTC.value,
                     WorkflowRunMode.SMALLWEBRTC.value,

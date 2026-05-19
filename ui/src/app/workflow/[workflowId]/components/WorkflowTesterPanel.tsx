@@ -1,15 +1,19 @@
 "use client";
 
-import { AlertCircle, ArrowLeft, ArrowUpRight, Bot, Loader2, MessageSquareText, Mic, Phone, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
+import { AlertCircle, ArrowUpRight, Loader2, MessageSquareText, Mic, Phone, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { client } from "@/client/client.gen";
-import { createWorkflowRunApiV1WorkflowWorkflowIdRunsPost } from "@/client/sdk.gen";
+import {
+    appendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPost,
+    createTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPost,
+    createWorkflowRunApiV1WorkflowWorkflowIdRunsPost,
+    rewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPost,
+} from "@/client/sdk.gen";
+import type { WorkflowRunTextSessionResponse } from "@/client/types.gen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -38,7 +42,7 @@ interface TextChatTurn {
     id: string;
     status: string;
     created_at: string;
-    user_message: TextChatMessage;
+    user_message: TextChatMessage | null;
     assistant_message: TextChatMessage | null;
     events: Array<Record<string, unknown>>;
     usage: Record<string, unknown>;
@@ -65,33 +69,17 @@ interface TextChatCheckpoint {
     tool_state: Record<string, unknown>;
 }
 
-interface TextChatSessionResponse {
-    workflow_run_id: number;
-    workflow_id: number;
-    name: string;
-    mode: string;
-    state: string;
-    is_completed: boolean;
-    revision: number;
-    initial_context: Record<string, unknown> | null;
-    gathered_context: Record<string, unknown> | null;
-    annotations: Record<string, unknown> | null;
+type TextChatSession = Omit<WorkflowRunTextSessionResponse, "session_data" | "checkpoint"> & {
     session_data: TextChatSessionData;
     checkpoint: TextChatCheckpoint;
-    created_at: string;
-    updated_at: string | null;
-}
+};
 
-function formatTimestamp(timestamp: string | null | undefined) {
-    if (!timestamp) return "";
-    const parsed = new Date(timestamp);
-    if (Number.isNaN(parsed.getTime())) return "";
-    return parsed.toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-    });
+function toTextChatSession(response: WorkflowRunTextSessionResponse): TextChatSession {
+    return {
+        ...response,
+        session_data: response.session_data as unknown as TextChatSessionData,
+        checkpoint: response.checkpoint as unknown as TextChatCheckpoint,
+    };
 }
 
 function getErrorMessage(error: unknown) {
@@ -99,25 +87,27 @@ function getErrorMessage(error: unknown) {
     return "Something went wrong";
 }
 
-async function readErrorMessage(response: Response) {
-    const payload = await response.json().catch(() => null) as
-        | { detail?: string | { message?: string } }
-        | null;
-    if (typeof payload?.detail === "string") return payload.detail;
-    if (typeof payload?.detail === "object" && payload.detail?.message) {
-        return payload.detail.message;
+function extractSdkErrorMessage(error: unknown, fallback: string) {
+    if (!error) return fallback;
+    if (typeof error === "string") return error;
+    if (typeof error === "object") {
+        const detail = (error as { detail?: unknown }).detail;
+        if (typeof detail === "string") return detail;
+        if (detail && typeof detail === "object" && typeof (detail as { message?: unknown }).message === "string") {
+            return (detail as { message: string }).message;
+        }
     }
-    return `Request failed with ${response.status}`;
+    return fallback;
 }
 
 function DisabledNotice({ reason }: { reason: string }) {
     return (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+        <div className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2.5 text-sm text-amber-900 dark:border-amber-500/20 dark:bg-amber-500/10 dark:text-amber-200">
             <div className="flex items-start gap-3">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                     <p className="font-medium">Testing is paused</p>
-                    <p className="text-amber-800 dark:text-amber-300">{reason}</p>
+                    <p className="text-amber-800/90 dark:text-amber-300">{reason}</p>
                 </div>
             </div>
         </div>
@@ -136,106 +126,58 @@ function EmptyState({
     action?: ReactNode;
 }) {
     return (
-        <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card px-6 py-10 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <div className="flex flex-1 flex-col justify-center rounded-xl border border-border/70 bg-background px-5 py-6 text-left">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
                 {icon}
             </div>
-            <div className="mt-5 space-y-2">
-                <h3 className="text-base font-semibold text-foreground">{title}</h3>
+            <div className="mt-4 space-y-1.5">
+                <h3 className="text-sm font-semibold text-foreground">{title}</h3>
                 <p className="text-sm leading-6 text-muted-foreground">{description}</p>
             </div>
-            {action ? <div className="mt-6">{action}</div> : null}
+            {action ? <div className="mt-5">{action}</div> : null}
         </div>
     );
 }
 
-function TextChatModeCard({
-    title,
-    description,
-    preview,
-    actionLabel,
-    icon,
-    onClick,
+function MessageBubble({
+    role,
+    text,
+    state,
 }: {
-    title: string;
-    description: string;
-    preview: ReactNode;
-    actionLabel: string;
-    icon: ReactNode;
-    onClick: () => void;
+    role: "user" | "agent";
+    text: ReactNode;
+    state?: "default" | "muted";
 }) {
+    const isUser = role === "user";
+    const isMuted = state === "muted";
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            className="w-full rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition hover:border-foreground/20 hover:shadow-md"
-        >
-            <div className="space-y-4">
-                <div className="rounded-2xl border border-border bg-muted/40 p-4">
-                    {preview}
-                </div>
-                <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-1">
-                        <div className="text-base font-semibold text-foreground">{title}</div>
-                        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-                    </div>
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-                        {icon}
-                    </div>
-                </div>
-                <div className="text-sm font-medium text-foreground">{actionLabel}</div>
+        <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+            <div
+                className={cn(
+                    "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 text-sm leading-6",
+                    isUser
+                        ? "rounded-br-md bg-primary text-primary-foreground"
+                        : isMuted
+                            ? "rounded-bl-md border border-dashed border-border bg-background text-muted-foreground"
+                            : "rounded-bl-md bg-muted text-foreground",
+                )}
+            >
+                {text}
             </div>
-        </button>
+        </div>
     );
 }
 
-function TextChatLanding({
-    onSelectManual,
-    onSelectSimulated,
-}: {
-    onSelectManual: () => void;
-    onSelectSimulated: () => void;
-}) {
+function TypingBubble() {
     return (
-        <div className="space-y-4">
-            <TextChatModeCard
-                title="Manual Chat"
-                description="Manually chat with the agent."
-                actionLabel="Open Manual Chat"
-                icon={<MessageSquareText className="h-5 w-5" />}
-                onClick={onSelectManual}
-                preview={
-                    <div className="space-y-2">
-                        <div className="flex justify-end">
-                            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3 py-2 text-sm text-primary-foreground">
-                                How are you doing?
-                            </div>
-                        </div>
-                        <div className="flex justify-start">
-                            <div className="max-w-[85%] rounded-2xl rounded-bl-md bg-card px-3 py-2 text-sm text-card-foreground shadow-sm">
-                                I am doing well.
-                            </div>
-                        </div>
-                    </div>
-                }
-            />
-            <TextChatModeCard
-                title="AI Simulated Chat"
-                description="Use a prompt to simulate user responses."
-                actionLabel="Configure Simulation"
-                icon={<Sparkles className="h-5 w-5" />}
-                onClick={onSelectSimulated}
-                preview={
-                    <div className="space-y-2">
-                        <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                            User Prompt
-                        </div>
-                        <div className="rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground">
-                            You are a customer who wants to return a package...
-                        </div>
-                    </div>
-                }
-            />
+        <div className="flex justify-start">
+            <div className="rounded-2xl rounded-bl-md bg-muted px-3.5 py-3">
+                <div className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.3s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.15s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60" />
+                </div>
+            </div>
         </div>
     );
 }
@@ -311,20 +253,20 @@ function EmbeddedVoiceTester({
 
     return (
         <>
-            <div className="min-h-0 flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-                <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+            <div className="min-h-0 flex flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background">
+                <div className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-3">
                     <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                            <Badge variant="outline">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant="outline" className="font-medium">
                                 Run {workflowRunId}
                             </Badge>
-                            <Badge variant="outline">
-                                Browser Voice Test
+                            <Badge variant="outline" className="font-medium">
+                                Browser voice test
                             </Badge>
                         </div>
-                        <CardDescription>
+                        <p className="text-sm text-muted-foreground">
                             The call starts as soon as this test run is created.
-                        </CardDescription>
+                        </p>
                     </div>
                     <Button
                         variant="outline"
@@ -336,7 +278,7 @@ function EmbeddedVoiceTester({
                     </Button>
                 </div>
 
-                <div className="min-h-0 flex-1 overflow-hidden">
+                <div className="min-h-0 flex-1 overflow-hidden bg-muted/15">
                     <RealtimeFeedback
                         mode="live"
                         messages={feedbackMessages}
@@ -345,7 +287,7 @@ function EmbeddedVoiceTester({
                     />
                 </div>
 
-                <div className="border-t border-border px-4 py-3">
+                <div className="border-t border-border/70 bg-background px-4 py-3">
                     <div className="flex flex-col gap-3">
                         <ConnectionStatus connectionStatus={connectionStatus} />
                         {permissionError ? (
@@ -411,60 +353,33 @@ function EmbeddedVoiceTester({
 
 function ManualTextChat({
     workflowId,
-    accessToken,
+    ready,
     initialContextVariables,
     disabled,
     disabledReason,
-    onBack,
 }: {
     workflowId: number;
-    accessToken: string | null;
+    ready: boolean;
     initialContextVariables?: Record<string, string>;
     disabled: boolean;
     disabledReason: string | null;
-    onBack: () => void;
 }) {
-    const [session, setSession] = useState<TextChatSessionResponse | null>(null);
+    const [session, setSession] = useState<TextChatSession | null>(null);
     const [draft, setDraft] = useState("");
     const [creatingSession, setCreatingSession] = useState(false);
     const [sendingMessage, setSendingMessage] = useState(false);
     const [rewindingTurnId, setRewindingTurnId] = useState<string | null>(null);
+    const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
     const turns = session?.session_data.turns ?? [];
-    const hasTurns = turns.length > 0;
-
-    const request = useCallback(async (
-        path: string,
-        init?: RequestInit,
-    ): Promise<TextChatSessionResponse> => {
-        if (!accessToken) {
-            throw new Error("Authentication is still loading");
-        }
-
-        const baseUrl = client.getConfig().baseUrl || window.location.origin;
-        const response = await fetch(`${baseUrl}${path}`, {
-            ...init,
-            headers: {
-                "Authorization": `Bearer ${accessToken}`,
-                "Content-Type": "application/json",
-                ...(init?.headers ?? {}),
-            },
-        });
-
-        if (!response.ok) {
-            throw new Error(await readErrorMessage(response));
-        }
-
-        return response.json() as Promise<TextChatSessionResponse>;
-    }, [accessToken]);
 
     const createSession = useCallback(async () => {
         if (disabled) return;
         setCreatingSession(true);
         try {
-            const created = await request(`/api/v1/workflow/${workflowId}/text-chat/sessions`, {
-                method: "POST",
-                body: JSON.stringify({
+            const response = await createTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPost({
+                path: { workflow_id: workflowId },
+                body: {
                     initial_context: initialContextVariables ?? {},
                     annotations: {
                         tester: {
@@ -473,296 +388,234 @@ function ManualTextChat({
                             ui_mode: "manual_text",
                         },
                     },
-                }),
+                },
             });
-            setSession(created);
+            if (response.error || !response.data) {
+                throw new Error(extractSdkErrorMessage(response.error, "Failed to create chat session"));
+            }
+            setSession(toTextChatSession(response.data));
             setDraft("");
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
             setCreatingSession(false);
         }
-    }, [disabled, initialContextVariables, request, workflowId]);
+    }, [disabled, initialContextVariables, workflowId]);
 
     useEffect(() => {
-        if (creatingSession || session || !accessToken || disabled) {
+        if (creatingSession || session || !ready || disabled) {
             return;
         }
         void createSession();
-    }, [accessToken, createSession, creatingSession, disabled, session]);
+    }, [createSession, creatingSession, disabled, ready, session]);
 
     const sendMessage = useCallback(async () => {
         if (!session || !draft.trim() || disabled) return;
         setSendingMessage(true);
         try {
-            const updated = await request(
-                `/api/v1/workflow/${workflowId}/text-chat/sessions/${session.workflow_run_id}/messages`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({
-                        text: draft.trim(),
-                        expected_revision: session.revision,
-                    }),
+            const response = await appendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPost({
+                path: { workflow_id: workflowId, run_id: session.workflow_run_id },
+                body: {
+                    text: draft.trim(),
+                    expected_revision: session.revision,
                 },
-            );
-            setSession(updated);
+            });
+            if (response.error || !response.data) {
+                throw new Error(extractSdkErrorMessage(response.error, "Failed to send message"));
+            }
+            setSession(toTextChatSession(response.data));
             setDraft("");
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
             setSendingMessage(false);
         }
-    }, [disabled, draft, request, session, workflowId]);
+    }, [disabled, draft, session, workflowId]);
 
     const rewindToTurn = useCallback(async (turnId: string) => {
         if (!session || disabled) return;
         setRewindingTurnId(turnId);
         try {
-            const updated = await request(
-                `/api/v1/workflow/${workflowId}/text-chat/sessions/${session.workflow_run_id}/rewind`,
-                {
-                    method: "POST",
-                    body: JSON.stringify({
-                        cursor_turn_id: turnId,
-                        expected_revision: session.revision,
-                    }),
+            const response = await rewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPost({
+                path: { workflow_id: workflowId, run_id: session.workflow_run_id },
+                body: {
+                    cursor_turn_id: turnId,
+                    expected_revision: session.revision,
                 },
-            );
-            setSession(updated);
+            });
+            if (response.error || !response.data) {
+                throw new Error(extractSdkErrorMessage(response.error, "Failed to rewind session"));
+            }
+            setSession(toTextChatSession(response.data));
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
             setRewindingTurnId(null);
         }
-    }, [disabled, request, session, workflowId]);
+    }, [disabled, session, workflowId]);
 
-    if (creatingSession && !session) {
-        return (
-            <div className="space-y-4">
-                <Skeleton className="h-24 rounded-2xl" />
-                <Skeleton className="h-56 rounded-2xl" />
-                <Skeleton className="h-24 rounded-2xl" />
-            </div>
-        );
-    }
+    useEffect(() => {
+        scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [turns.length, sendingMessage]);
+
+    const inputDisabled = disabled || !session;
 
     return (
-        <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                    <div className="text-lg font-semibold text-foreground">Manual Chat</div>
-                    <p className="text-sm leading-6 text-muted-foreground">Manually chat with the agent.</p>
+        <div className="flex min-h-0 flex-1 flex-col">
+            {disabledReason ? (
+                <div className="pb-3">
+                    <DisabledNotice reason={disabledReason} />
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="ghost" size="sm" onClick={onBack} className="text-muted-foreground">
-                        <ArrowLeft className="h-4 w-4" />
-                        Back
-                    </Button>
-                    {session ? (
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={createSession}
-                            disabled={creatingSession || disabled}
-                        >
-                            <RefreshCw className="h-4 w-4" />
-                            New Session
-                        </Button>
-                    ) : null}
-                </div>
+            ) : null}
+
+            <div className="min-h-0 flex-1 overflow-y-auto">
+                {creatingSession && !session ? (
+                    <div className="space-y-3 py-1">
+                        <Skeleton className="ml-auto h-9 w-2/3 rounded-2xl" />
+                        <Skeleton className="h-12 w-3/4 rounded-2xl" />
+                    </div>
+                ) : turns.length === 0 ? (
+                    <div className="flex h-full items-center justify-center px-4 py-10 text-center">
+                        <p className="text-sm text-muted-foreground">
+                            {disabled
+                                ? (disabledReason ?? "Testing is paused.")
+                                : "Send a message to start the conversation."}
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-3 py-1">
+                        {turns.map((turn) => (
+                            <div key={turn.id} className="group space-y-1.5">
+                                {turn.user_message ? (
+                                    <MessageBubble role="user" text={turn.user_message.text} />
+                                ) : null}
+                                {turn.assistant_message ? (
+                                    <MessageBubble role="agent" text={turn.assistant_message.text} />
+                                ) : turn.status === "failed" ? (
+                                    <MessageBubble role="agent" state="muted" text="Agent turn failed" />
+                                ) : null}
+                                <div className="flex h-4 items-center justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                                    <button
+                                        type="button"
+                                        onClick={() => rewindToTurn(turn.id)}
+                                        disabled={disabled || rewindingTurnId === turn.id}
+                                        className="inline-flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    >
+                                        {rewindingTurnId === turn.id ? (
+                                            <Loader2 className="h-3 w-3 animate-spin" />
+                                        ) : (
+                                            <RotateCcw className="h-3 w-3" />
+                                        )}
+                                        Rewind here
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                        {sendingMessage ? <TypingBubble /> : null}
+                        <div ref={scrollEndRef} />
+                    </div>
+                )}
             </div>
 
-            {disabledReason ? <DisabledNotice reason={disabledReason} /> : null}
-
-            {!session ? (
-                <EmptyState
-                    icon={<MessageSquareText className="h-7 w-7" />}
-                    title={disabled ? "Manual chat is paused" : "Preparing chat"}
-                    description={disabled
-                        ? (disabledReason ?? "Save the draft before starting a manual chat.")
-                        : "Creating a durable text session for this workflow."}
-                />
-            ) : (
-                <div className="min-h-0 flex flex-1 flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-                    <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-                        <div className="text-sm text-muted-foreground">
-                            {turns.length === 0
-                                ? "Send the first message to begin testing."
-                                : "Continue the conversation or rewind from any previous turn."}
-                        </div>
-                        {session.session_data.discarded_future.length > 0 ? (
-                            <Badge variant="outline">
-                                {session.session_data.discarded_future.length} archived branch{session.session_data.discarded_future.length === 1 ? "" : "es"}
-                            </Badge>
-                        ) : null}
-                    </div>
-
-                    <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                        <div className="space-y-5">
-                            {hasTurns ? turns.map((turn) => {
-                                const isResumePoint = session.session_data.cursor_turn_id === turn.id;
-                                return (
-                                    <div key={turn.id} className="space-y-3 rounded-2xl border border-border bg-muted/40 p-4">
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div className="flex items-center gap-2">
-                                                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                                                    {turn.id.replace("turn_", "Turn ")}
-                                                </p>
-                                                {isResumePoint ? (
-                                                    <Badge variant="secondary">Resume point</Badge>
-                                                ) : null}
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-xs text-muted-foreground">{formatTimestamp(turn.created_at)}</span>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => rewindToTurn(turn.id)}
-                                                    disabled={disabled || rewindingTurnId === turn.id}
-                                                    className="h-7 px-2 text-muted-foreground"
-                                                >
-                                                    {rewindingTurnId === turn.id ? (
-                                                        <Loader2 className="h-4 w-4 animate-spin" />
-                                                    ) : (
-                                                        <RotateCcw className="h-4 w-4" />
-                                                    )}
-                                                    Resume Here
-                                                </Button>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex justify-end">
-                                            <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground">
-                                                <p className="leading-6">{turn.user_message.text}</p>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex justify-start">
-                                            <div className={cn(
-                                                "max-w-[85%] rounded-2xl rounded-bl-md px-4 py-3 text-sm",
-                                                turn.assistant_message
-                                                    ? "bg-card text-card-foreground shadow-sm"
-                                                    : "border border-dashed border-border bg-card text-muted-foreground",
-                                            )}>
-                                                {turn.assistant_message ? (
-                                                    <p className="leading-6">{turn.assistant_message.text}</p>
-                                                ) : (
-                                                    <div className="space-y-1.5">
-                                                        <p className="font-medium">Assistant turn pending</p>
-                                                        <p className="text-xs leading-5 text-muted-foreground">
-                                                            The durable session was saved. The executor that fills assistant replies lands in the next pass.
-                                                        </p>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            }) : (
-                                <EmptyState
-                                    icon={<Bot className="h-7 w-7" />}
-                                    title="Session created"
-                                    description="Send the first user message to populate this test thread."
-                                />
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="border-t border-border p-4">
-                        <div className="space-y-4">
-                            <Textarea
-                                value={draft}
-                                onChange={(event) => setDraft(event.target.value)}
-                                placeholder="Write the next user message..."
-                                className="min-h-24"
-                                disabled={sendingMessage || disabled}
-                                onKeyDown={(event) => {
-                                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                                        event.preventDefault();
-                                        void sendMessage();
-                                    }
-                                }}
-                            />
-
-                            <div className="flex items-center justify-between gap-3">
-                                <p className="text-xs text-muted-foreground">
-                                    Press Cmd/Ctrl + Enter to send.
-                                </p>
-                                <Button
-                                    onClick={sendMessage}
-                                    disabled={sendingMessage || !draft.trim() || disabled}
-                                >
-                                    {sendingMessage ? (
-                                        <>
-                                            <Loader2 className="h-4 w-4 animate-spin" />
-                                            Sending...
-                                        </>
-                                    ) : (
-                                        "Send Message"
-                                    )}
-                                </Button>
-                            </div>
-                        </div>
-                    </div>
+            <div className="pt-3">
+                <div className="relative">
+                    <Textarea
+                        value={draft}
+                        onChange={(event) => setDraft(event.target.value)}
+                        placeholder={ready ? "Send a message…" : "Preparing chat…"}
+                        rows={1}
+                        className="min-h-11! resize-none pr-20 text-sm leading-6"
+                        disabled={inputDisabled}
+                        onKeyDown={(event) => {
+                            if (event.key === "Enter" && !event.shiftKey) {
+                                event.preventDefault();
+                                if (sendingMessage) return;
+                                void sendMessage();
+                            }
+                        }}
+                    />
+                    <Button
+                        type="button"
+                        size="sm"
+                        onClick={sendMessage}
+                        disabled={inputDisabled || sendingMessage || !draft.trim()}
+                        className="absolute bottom-1.5 right-1.5 h-8 px-4"
+                    >
+                        {sendingMessage ? (
+                            <>
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Sending
+                            </>
+                        ) : (
+                            "Send"
+                        )}
+                    </Button>
                 </div>
-            )}
+            </div>
         </div>
     );
 }
 
 function AiSimulatorPlaceholder({
     disabledReason,
-    onBack,
 }: {
     disabledReason: string | null;
-    onBack: () => void;
 }) {
     const [simulatorPrompt, setSimulatorPrompt] = useState(
         "Act like a skeptical prospect. Push on pricing, ask about integrations, and end the chat if the assistant becomes repetitive."
     );
 
     return (
-        <div className="space-y-4">
-            <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                    <div className="text-lg font-semibold text-foreground">AI Simulated Chat</div>
-                    <p className="text-sm leading-6 text-muted-foreground">Use a prompt to simulate user responses.</p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={onBack} className="text-muted-foreground">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                </Button>
-            </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
             {disabledReason ? <DisabledNotice reason={disabledReason} /> : null}
-            <Card className="border-border shadow-sm">
-                <CardHeader>
-                    <div className="flex items-start gap-3">
-                        <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
-                            <Sparkles className="h-5 w-5" />
-                        </div>
-                        <div className="space-y-1">
-                            <CardTitle className="text-lg text-foreground">AI Simulated Chat</CardTitle>
-                            <CardDescription>
-                                This will drive multi-turn agent-vs-agent tests on top of the same durable text session model.
-                            </CardDescription>
-                        </div>
-                    </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                    <Textarea
-                        value={simulatorPrompt}
-                        onChange={(event) => setSimulatorPrompt(event.target.value)}
-                        className="min-h-32"
-                    />
-                    <div className="rounded-xl border border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-                        The next increment will persist simulator configuration here, queue turns against the same session, and let you stop or resume the simulation without losing context.
-                    </div>
-                    <Button disabled>
-                        <Sparkles className="h-4 w-4" />
-                        Simulation Wiring Next
-                    </Button>
-                </CardContent>
-            </Card>
+            <p className="text-sm text-muted-foreground">
+                Drive multi-turn, agent-vs-agent tests with a persona prompt.
+            </p>
+            <Textarea
+                value={simulatorPrompt}
+                onChange={(event) => setSimulatorPrompt(event.target.value)}
+                placeholder="Describe the simulated user…"
+                className="min-h-32 resize-none text-sm leading-6"
+            />
+            <Button size="sm" disabled className="self-start">
+                <Sparkles className="h-4 w-4" />
+                Coming soon
+            </Button>
+        </div>
+    );
+}
+
+function ChatModeToggle({
+    value,
+    onChange,
+}: {
+    value: "manual" | "simulated";
+    onChange: (next: "manual" | "simulated") => void;
+}) {
+    const options: Array<{ id: "manual" | "simulated"; label: string }> = [
+        { id: "manual", label: "Manual" },
+        { id: "simulated", label: "Simulated" },
+    ];
+    return (
+        <div className="inline-flex items-center gap-0.5 rounded-md border border-border/70 bg-muted/40 p-0.5">
+            {options.map((option) => {
+                const active = option.id === value;
+                return (
+                    <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => onChange(option.id)}
+                        className={cn(
+                            "rounded-[5px] px-2.5 py-1 text-xs font-medium transition",
+                            active
+                                ? "bg-background text-foreground shadow-xs"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        {option.label}
+                    </button>
+                );
+            })}
         </div>
     );
 }
@@ -779,7 +632,8 @@ export function WorkflowTesterPanel({
     const { isAuthenticated, loading: authLoading, getAccessToken } = auth;
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [activeMode, setActiveMode] = useState<"audio" | "text">("audio");
-    const [textMode, setTextMode] = useState<"landing" | "manual" | "simulated">("landing");
+    const [chatMode, setChatMode] = useState<"manual" | "simulated">("manual");
+    const [chatSessionKey, setChatSessionKey] = useState(0);
     const [voiceRunId, setVoiceRunId] = useState<number | null>(null);
     const [creatingVoiceRun, setCreatingVoiceRun] = useState(false);
     const [tokenReady, setTokenReady] = useState(false);
@@ -827,9 +681,6 @@ export function WorkflowTesterPanel({
         try {
             const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({
                 path: { workflow_id: workflowId },
-                headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                },
                 body: {
                     mode: WORKFLOW_RUN_MODES.SMALL_WEBRTC,
                     name: `WR-${getRandomId()}`,
@@ -837,7 +688,7 @@ export function WorkflowTesterPanel({
             });
 
             if (response.error || !response.data?.id) {
-                throw new Error("Failed to create browser test run");
+                throw new Error(extractSdkErrorMessage(response.error, "Failed to create browser test run"));
             }
 
             setVoiceRunId(response.data.id);
@@ -860,16 +711,16 @@ export function WorkflowTesterPanel({
             <Tabs
                 value={activeMode}
                 onValueChange={(value) => setActiveMode(value as "audio" | "text")}
-                className="min-h-0 flex-1"
+                className="min-h-0 flex-1 gap-0"
             >
-                <div className="border-b border-border px-5 py-4">
+                <div className="border-b border-border/70 px-4 py-3">
                     <div className="flex items-center gap-3">
-                        <TabsList className="grid flex-1 grid-cols-2 rounded-xl bg-muted p-1">
-                            <TabsTrigger value="audio" className="rounded-lg">
+                        <TabsList className="grid h-9 flex-1 grid-cols-2 rounded-lg bg-muted/60 p-1">
+                            <TabsTrigger value="audio" className="rounded-md text-sm">
                                 <Mic className="h-4 w-4" />
                                 Test Audio
                             </TabsTrigger>
-                            <TabsTrigger value="text" className="rounded-lg">
+                            <TabsTrigger value="text" className="rounded-md text-sm">
                                 <MessageSquareText className="h-4 w-4" />
                                 Test Chat
                             </TabsTrigger>
@@ -888,12 +739,12 @@ export function WorkflowTesterPanel({
                     </div>
                 </div>
 
-                <TabsContent value="audio" className="min-h-0 flex-1 px-5 py-5">
-                    <div className="flex h-full min-h-0 flex-col gap-4">
+                <TabsContent value="audio" className="min-h-0 flex-1 px-4 py-4">
+                    <div className="flex h-full min-h-0 flex-col gap-3">
                         {!tokenReady ? (
                             <div className="space-y-4">
-                                <Skeleton className="h-28 rounded-2xl" />
-                                <Skeleton className="h-80 rounded-2xl" />
+                                <Skeleton className="h-14 rounded-xl" />
+                                <Skeleton className="h-80 rounded-xl" />
                             </div>
                         ) : !accessToken ? (
                             <DisabledNotice reason={authUnavailableReason ?? "Authentication is required before browser tests can start."} />
@@ -933,29 +784,37 @@ export function WorkflowTesterPanel({
                     </div>
                 </TabsContent>
 
-                <TabsContent value="text" className="min-h-0 flex-1 px-5 py-5">
-                    {textMode === "landing" ? (
-                        <TextChatLanding
-                            onSelectManual={() => setTextMode("manual")}
-                            onSelectSimulated={() => setTextMode("simulated")}
-                        />
-                    ) : textMode === "manual" ? (
-                        <div className="min-h-0 flex-1">
+                <TabsContent value="text" className="min-h-0 flex-1 px-4 py-3">
+                    <div className="flex h-full min-h-0 flex-col gap-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <ChatModeToggle value={chatMode} onChange={setChatMode} />
+                            {chatMode === "manual" ? (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => setChatSessionKey((k) => k + 1)}
+                                    disabled={testerBlocked}
+                                    className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                                >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                    Reset
+                                </Button>
+                            ) : null}
+                        </div>
+
+                        {chatMode === "manual" ? (
                             <ManualTextChat
+                                key={chatSessionKey}
                                 workflowId={workflowId}
-                                accessToken={accessToken}
+                                ready={tokenReady && !!accessToken}
                                 initialContextVariables={initialContextVariables}
                                 disabled={testerBlocked}
                                 disabledReason={effectiveDisabledReason}
-                                onBack={() => setTextMode("landing")}
                             />
-                        </div>
-                    ) : (
-                        <AiSimulatorPlaceholder
-                            disabledReason={effectiveDisabledReason}
-                            onBack={() => setTextMode("landing")}
-                        />
-                    )}
+                        ) : (
+                            <AiSimulatorPlaceholder disabledReason={effectiveDisabledReason} />
+                        )}
+                    </div>
                 </TabsContent>
             </Tabs>
         </div>

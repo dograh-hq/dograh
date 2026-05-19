@@ -26,9 +26,9 @@ export default function ChatwootWidget() {
   const pathname = usePathname();
 
   useEffect(() => {
-    const isWorkflowRunPage = /^\/workflow\/[^/]+\/run\/[^/]+(?:\/.*)?$/.test(pathname);
+    const isWorkflowPage = /^\/workflow\/[^/]+(?:\/.*)?$/.test(pathname);
 
-    if (isWorkflowRunPage) {
+    if (isWorkflowPage) {
       document.getElementById("cw-widget-holder")?.remove();
       document.getElementById("cw-bubble-holder")?.remove();
       document.getElementById("cw-widget-styles")?.remove();

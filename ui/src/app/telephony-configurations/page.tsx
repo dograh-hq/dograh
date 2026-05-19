@@ -181,8 +181,7 @@ export default function TelephonyConfigurationsPage() {
                     ? "1 Telnyx configuration is"
                     : `${telnyxMissingWebhookPublicKeyCount} Telnyx configurations are`}{" "}
                   missing a webhook public key. Without it, Telnyx call status
-                  updates and inbound calls will be rejected starting{" "}
-                  <span className="font-medium">15 May 2026</span>. Copy your
+                  updates and inbound calls are being rejected. Copy your
                   public key from{" "}
                   <span className="whitespace-nowrap">
                     Mission Control Portal → Keys &amp; Credentials → Public Key

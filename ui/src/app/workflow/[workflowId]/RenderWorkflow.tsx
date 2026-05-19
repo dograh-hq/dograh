@@ -325,14 +325,33 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         await saveWorkflowConfigurations(workflowConfigurations, newName);
     }, [saveWorkflowConfigurations, workflowConfigurations]);
 
+    const updateTool = useCallback(
+        (toolUuid: string, updater: (tool: ToolResponse) => ToolResponse) => {
+            setTools((prev) =>
+                prev?.map((tool) =>
+                    tool.tool_uuid === toolUuid ? updater(tool) : tool,
+                ),
+            );
+        },
+        [],
+    );
+
     // Memoize the context value to prevent unnecessary re-renders
     const workflowContextValue = useMemo(() => ({
         saveWorkflow: guardedSaveWorkflow,
         documents,
         tools,
+        updateTool,
         recordings,
         readOnly: isViewingHistoricalVersion,
-    }), [guardedSaveWorkflow, documents, tools, recordings, isViewingHistoricalVersion]);
+    }), [
+        guardedSaveWorkflow,
+        documents,
+        tools,
+        updateTool,
+        recordings,
+        isViewingHistoricalVersion,
+    ]);
 
     return (
         <WorkflowProvider value={workflowContextValue}>

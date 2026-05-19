@@ -205,6 +205,7 @@ function CanvasPreview({
                     <ToolBadges
                         toolUuids={data.tool_uuids}
                         onStaleUuidsDetected={onStaleTools}
+                        mcpToolFilters={data.mcp_tool_filters}
                     />
                 </div>
             )}
@@ -396,14 +397,22 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     const spec = bySpecName.get(type);
 
     // ── Form state ─────────────────────────────────────────────────────
-    const [values, setValues] = useState<Record<string, unknown>>(() =>
-        spec ? seedValues(data, spec) : {},
+    // mcp_tool_filters is not a spec property, so seedValues won't carry it;
+    // seed merges it back in alongside the spec-derived values.
+    const seed = useCallback(
+        () =>
+            spec
+                ? { ...seedValues(data, spec), mcp_tool_filters: data.mcp_tool_filters }
+                : {},
+        [data, spec],
     );
+
+    const [values, setValues] = useState<Record<string, unknown>>(seed);
 
     // Re-seed once the spec arrives (initial fetch race).
     useEffect(() => {
         if (spec && Object.keys(values).length === 0) {
-            setValues(seedValues(data, spec));
+            setValues(seed());
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [spec]);
@@ -464,7 +473,11 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     const isDirty = useMemo(() => {
         if (!spec) return false;
         const baseline = seedValues(data, spec);
-        return propertyNames.some((n) => values[n] !== baseline[n]);
+        if (propertyNames.some((n) => values[n] !== baseline[n])) return true;
+        return (
+            JSON.stringify(values.mcp_tool_filters ?? {}) !==
+            JSON.stringify(data.mcp_tool_filters ?? {})
+        );
     }, [values, data, spec, propertyNames]);
 
     const handleSave = async () => {
@@ -478,12 +491,12 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     };
 
     const handleOpenChange = (newOpen: boolean) => {
-        if (newOpen && spec) setValues(seedValues(data, spec));
+        if (newOpen && spec) setValues(seed());
         setOpen(newOpen);
     };
 
     useEffect(() => {
-        if (open && spec) setValues(seedValues(data, spec));
+        if (open && spec) setValues(seed());
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data, open]);
 
@@ -562,6 +575,18 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                                 tools: tools ?? [],
                                 documents: documents ?? [],
                                 recordings: recordings ?? [],
+                                mcpToolFilters:
+                                    (values.mcp_tool_filters as
+                                        | Record<string, string[]>
+                                        | undefined) ?? {},
+                                onMcpToolFiltersChange: (next) =>
+                                    setValues((prev) => ({
+                                        ...prev,
+                                        mcp_tool_filters:
+                                            Object.keys(next).length > 0
+                                                ? next
+                                                : undefined,
+                                    })),
                             }}
                         />
                         {type === "trigger" && (

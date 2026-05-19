@@ -1,0 +1,90 @@
+---
+title: "MCP Tool"
+description: "Connect an external MCP server to your voice agent so the LLM can call remote tools during a live conversation."
+---
+
+<Note>
+This page is about using an external MCP server as a **tool inside a voice agent**. If you want Claude, Cursor, or another coding agent to control Dograh itself over MCP, see [Dograh MCP Server](/integrations/mcp).
+</Note>
+
+MCP tools let a Dograh voice agent call tools exposed by a remote [Model Context Protocol](https://modelcontextprotocol.io/) server during a live conversation. Dograh discovers the remote tool catalog, turns those tools into LLM-callable functions, and forwards invocations to the MCP server over authenticated Streamable HTTP.
+
+## What to configure
+
+An MCP tool in Dograh has four important pieces:
+
+- **Name**: the server label shown in Dograh
+- **Description**: tells the LLM when this MCP server is relevant
+- **URL**: the remote MCP server endpoint (`http://` or `https://`)
+- **Credential**: the auth Dograh should send when connecting to that server
+
+You can also set a **tool filter** to allow only specific remote MCP tools to be exposed.
+
+## Authentication
+
+Most hosted MCP servers expect:
+
+```http
+Authorization: Bearer <token>
+```
+
+So before creating the MCP tool, create a credential in Dograh with:
+
+- **Credential Type**: `Bearer Token`
+- **Token**: the access token issued by your MCP server
+
+Then select that credential on the MCP tool.
+
+<Note>
+If the remote MCP server documentation says to use Bearer auth, choose **Bearer Token** in the credential dialog. Dograh will translate that into the exact `Authorization: Bearer <token>` header on the MCP connection.
+</Note>
+
+Dograh also supports other credential types, but **Bearer Token** is the default thing to try for third-party MCP servers unless their docs say otherwise.
+
+## How it works
+
+The runtime path is:
+
+1. When you save or refresh the MCP tool, Dograh opens a short-lived authenticated MCP session and fetches the remote tool catalog.
+2. Dograh stores that catalog as the tool's discovered tools so the UI can show you which remote functions exist.
+3. When a call starts, Dograh opens one live MCP session per attached MCP server and reuses your selected credential for that session.
+4. For each node, Dograh exposes only the MCP tools allowed by the server-level filter and the node-level selection.
+5. Dograh namespaces those remote tools into ordinary LLM function definitions so they can safely coexist with HTTP API tools, call transfer, end call, and other tools.
+6. During the conversation, the LLM sees only the tool name, description, and argument schema. It does **not** see the secret.
+7. When the LLM calls one of those tools, Dograh forwards the invocation to the MCP server over the active authenticated session, receives the result, and feeds that result back into the agent turn.
+
+In short: **Dograh handles discovery, authentication, session management, tool registration, and result plumbing; the LLM only decides when to call the tool and with which arguments.**
+
+## Creating an MCP tool
+
+1. Go to **Tools** and create a new tool.
+2. Choose **MCP Server**.
+3. Enter a clear name and a description that explains when the LLM should use this server.
+4. Paste the MCP server URL.
+5. Select the credential. In most cases this should be a **Bearer Token** credential.
+6. Save the tool and confirm that Dograh discovered the remote tools.
+
+If the server exposes many tools, use filtering to keep only the ones your agent actually needs.
+
+## Attaching it to a node
+
+After the MCP tool is created:
+
+1. Open the workflow node where the tool should be available.
+2. Add the MCP tool from the node's tool list.
+3. Select only the remote MCP functions that should be callable on that node.
+4. In the node prompt, tell the LLM exactly when to use those functions.
+
+The tighter the node-level selection and prompt guidance, the more reliable MCP tool usage becomes.
+
+## Best practices
+
+- Use one MCP server per logical integration when possible.
+- Keep the tool description explicit about **when** the LLM should use that server.
+- Expose only the minimum remote functions needed for each node.
+- Prefer a **Bearer Token** credential unless the MCP server specifies another auth scheme.
+- Test discovery first, then test a real phone/web call to confirm the LLM invokes the right MCP function with the right arguments.
+
+<Note>
+If the remote MCP server is temporarily unavailable, Dograh degrades gracefully and the call can continue without those MCP tools rather than crashing the entire conversation.
+</Note>

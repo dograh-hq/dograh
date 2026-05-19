@@ -10,7 +10,8 @@ import {
     listToolsApiV1ToolsGet,
     unarchiveToolApiV1ToolsToolUuidUnarchivePost,
 } from "@/client/sdk.gen";
-import type { ToolResponse } from "@/client/types.gen";
+import type { CreateToolRequest, ToolResponse } from "@/client/types.gen";
+import { CredentialSelector } from "@/components/http";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -41,8 +42,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
 
 import {
+    createMcpDefinition,
     createToolDefinition,
     getCategoryConfig,
+    MCP_URL_PATTERN,
     renderToolIcon,
     TOOL_CATEGORIES,
     type ToolCategory,
@@ -62,6 +65,11 @@ export default function ToolsPage() {
     const [isCreating, setIsCreating] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [createError, setCreateError] = useState<string | null>(null);
+
+    // MCP-specific create dialog state
+    const [mcpUrl, setMcpUrl] = useState("");
+    const [mcpCredentialUuid, setMcpCredentialUuid] = useState("");
+    const [mcpToolsFilter, setMcpToolsFilter] = useState("");
 
     // Redirect if not authenticated
     useEffect(() => {
@@ -108,21 +116,38 @@ export default function ToolsPage() {
             return;
         }
 
+        if (newToolCategory === "mcp" && !mcpUrl.trim()) {
+            setCreateError("Please enter the MCP server URL");
+            return;
+        }
+
+        if (newToolCategory === "mcp" && !MCP_URL_PATTERN.test(mcpUrl.trim())) {
+            setCreateError("MCP server URL must start with http:// or https://");
+            return;
+        }
+
         try {
             setIsCreating(true);
             setCreateError(null);
             const accessToken = await getAccessToken();
 
             const categoryConfig = getCategoryConfig(newToolCategory);
+
+            const definition = newToolCategory === "mcp"
+                ? createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter)
+                : createToolDefinition(newToolCategory);
+
+            const requestBody: CreateToolRequest = {
+                name: newToolName,
+                description: newToolDescription || undefined,
+                category: newToolCategory,
+                icon: categoryConfig?.iconName || "globe",
+                icon_color: categoryConfig?.iconColor || "#3B82F6",
+                definition,
+            };
+
             const response = await createToolApiV1ToolsPost({
-                body: {
-                    name: newToolName,
-                    description: newToolDescription || undefined,
-                    category: newToolCategory,
-                    icon: categoryConfig?.iconName || "globe",
-                    icon_color: categoryConfig?.iconColor || "#3B82F6",
-                    definition: createToolDefinition(newToolCategory),
-                },
+                body: requestBody,
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },
@@ -139,6 +164,9 @@ export default function ToolsPage() {
                 setNewToolName("");
                 setNewToolDescription("");
                 setNewToolCategory("http_api");
+                setMcpUrl("");
+                setMcpCredentialUuid("");
+                setMcpToolsFilter("");
                 // Navigate to the new tool's detail page
                 router.push(`/tools/${response.data.tool_uuid}`);
             }
@@ -233,6 +261,8 @@ export default function ToolsPage() {
                 return <Badge variant="secondary">Native</Badge>;
             case "integration":
                 return <Badge variant="outline">Integration</Badge>;
+            case "mcp":
+                return <Badge variant="outline">MCP</Badge>;
             default:
                 return <Badge variant="outline">{category}</Badge>;
         }
@@ -465,7 +495,14 @@ export default function ToolsPage() {
             {/* Create Tool Dialog */}
             <Dialog open={isCreateDialogOpen} onOpenChange={(open) => {
                 setIsCreateDialogOpen(open);
-                if (open) setCreateError(null);
+                if (open) {
+                    setCreateError(null);
+                } else {
+                    // Reset MCP fields when dialog is closed without creating
+                    setMcpUrl("");
+                    setMcpCredentialUuid("");
+                    setMcpToolsFilter("");
+                }
             }}>
                 <DialogContent>
                     <DialogHeader>
@@ -482,6 +519,7 @@ export default function ToolsPage() {
                                 onValueChange={(v) => {
                                     const category = v as ToolCategory;
                                     setNewToolCategory(category);
+                                    setCreateError(null);
                                     const categoryConfig = getCategoryConfig(category);
                                     if (categoryConfig?.autoFill) {
                                         setNewToolName(categoryConfig.autoFill.name);
@@ -532,6 +570,46 @@ export default function ToolsPage() {
                                 placeholder="What does this tool do?"
                             />
                         </div>
+
+                        {newToolCategory === "mcp" && (
+                            <>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="mcp-url">MCP Server URL</Label>
+                                    <Input
+                                        id="mcp-url"
+                                        value={mcpUrl}
+                                        onChange={(e) => setMcpUrl(e.target.value)}
+                                        placeholder="https://your-mcp-server.example.com/mcp"
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label>Transport</Label>
+                                    <Input
+                                        value="Streamable HTTP"
+                                        disabled
+                                        readOnly
+                                    />
+                                </div>
+                                <CredentialSelector
+                                    value={mcpCredentialUuid}
+                                    onChange={setMcpCredentialUuid}
+                                    label="Credential (Optional)"
+                                    description="Select a credential for authenticating with the MCP server, or leave empty for no auth."
+                                />
+                                <div className="grid gap-2">
+                                    <Label htmlFor="mcp-tools-filter">Tools Filter (Optional)</Label>
+                                    <Input
+                                        id="mcp-tools-filter"
+                                        value={mcpToolsFilter}
+                                        onChange={(e) => setMcpToolsFilter(e.target.value)}
+                                        placeholder="e.g., tool_one, tool_two"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Comma-separated list of tool names to allow. Leave empty to expose all tools from the server.
+                                    </p>
+                                </div>
+                            </>
+                        )}
                     </div>
                     {createError && (
                         <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">

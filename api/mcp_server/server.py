@@ -8,6 +8,7 @@ from api.mcp_server.tools.catalog import (
     list_tools,
 )
 from api.mcp_server.tools.create_workflow import create_workflow
+from api.mcp_server.tools.docs_search import search_docs
 from api.mcp_server.tools.get_workflow_code import get_workflow_code
 from api.mcp_server.tools.node_types import get_node_type, list_node_types
 from api.mcp_server.tools.save_workflow import save_workflow
@@ -27,5 +28,6 @@ for _tool in (
     list_tools,
     list_workflows,
     save_workflow,
+    search_docs,
 ):
     mcp.tool(_tool)

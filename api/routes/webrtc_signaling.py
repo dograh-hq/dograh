@@ -395,6 +395,9 @@ class SignalingManager:
             if ENVIRONMENT != Environment.LOCAL.value and not FORCE_TURN_RELAY and is_private_ip_candidate(
                 candidate_str
             ):
+                logger.debug(
+                    f"Skipping private IP candidate in {ENVIRONMENT}: {candidate_str[:50]}..."
+                )
                 return
 
             try:
@@ -404,6 +407,7 @@ class SignalingManager:
                 candidate.sdpMLineIndex = candidate_data.get("sdpMLineIndex")
 
                 await pc.add_ice_candidate(candidate)
+                logger.debug(f"Added ICE candidate for pc_id: {pc_id}")
             except Exception as e:
                 logger.error(f"Failed to add ICE candidate: {e}")
         else:

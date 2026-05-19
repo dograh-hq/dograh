@@ -1978,9 +1978,9 @@ export type IntegrationResponse = {
      */
     integration_id: string;
     /**
-     * Organisation Id
+     * Organization Id
      */
-    organisation_id: number;
+    organization_id: number;
     /**
      * Created By
      */

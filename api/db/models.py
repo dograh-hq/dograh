@@ -293,7 +293,7 @@ class IntegrationModel(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     integration_id = Column(String, nullable=False, index=True)  # Nango Connection ID
-    organisation_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     provider = Column(String, nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     is_active = Column(Boolean, default=True, nullable=False)

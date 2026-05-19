@@ -79,6 +79,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
     AZURE_REALTIME = "azure_realtime"
+    CEREBRAS = "cerebras"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -106,6 +107,8 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
+        ServiceProviders.CEREBRAS,
+        # ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
 
@@ -718,6 +721,27 @@ class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
             "examples": AZURE_REALTIME_API_VERSIONS,
         },
     )
+CEREBRAS_MODELS = [
+    "llama3.1-8b",
+    "llama3.1-70b",
+    "llama-3.3-70b",
+    "gpt-oss-120b",
+    "qwen-3-235b-a22b-instruct-2507",
+    "zai-glm-4.7",
+]
+
+
+@register_llm
+class CerebrasLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.CEREBRAS] = ServiceProviders.CEREBRAS
+    model: str = Field(
+        default="llama3.1-8b",
+        json_schema_extra={
+            "examples": CEREBRAS_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+
 
 
 REALTIME_PROVIDERS = {
@@ -743,6 +767,7 @@ LLMConfig = Annotated[
         SpeachesLLMConfiguration,
         MiniMaxLLMConfiguration,
         SarvamLLMConfiguration,
+        CerebrasLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]

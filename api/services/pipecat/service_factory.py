@@ -672,6 +672,11 @@ def create_llm_service_from_provider(
                 model=model,
                 temperature=temperature if temperature is not None else 0.5,
             ),
+    elif provider == ServiceProviders.CEREBRAS.value:
+        from pipecat.services.cerebras.llm import CerebrasLLMService, CerebrasLLMSettings
+        return CerebrasLLMService(
+            api_key=api_key,
+            settings=CerebrasLLMSettings(model=model, temperature=0.1),
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")

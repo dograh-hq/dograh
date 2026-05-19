@@ -140,4 +140,30 @@ LLM_PRICING: Dict[str, Dict[str, TokenPricingModel]] = {
             / 1000000,  # $1.60 per 1M tokens if using data zone
         )
     },
+    ServiceProviders.CEREBRAS: {
+        "llama3.1-8b": TokenPricingModel(
+            prompt_token_price=Decimal("0.10") / 1000000,
+            completion_token_price=Decimal("0.10") / 1000000,
+        ),
+        "llama3.1-70b": TokenPricingModel(
+            prompt_token_price=Decimal("0.60") / 1000000,
+            completion_token_price=Decimal("0.60") / 1000000,
+        ),
+        "llama-3.3-70b": TokenPricingModel(
+            prompt_token_price=Decimal("0.60") / 1000000,
+            completion_token_price=Decimal("0.60") / 1000000,
+        ),
+        "gpt-oss-120b": TokenPricingModel(
+            prompt_token_price=Decimal("0.60") / 1000000,
+            completion_token_price=Decimal("0.60") / 1000000,
+        ),
+        "qwen-3-235b-a22b-instruct-2507": TokenPricingModel(
+            prompt_token_price=Decimal("0.60") / 1000000,
+            completion_token_price=Decimal("0.60") / 1000000,
+        ),
+        "zai-glm-4.7": TokenPricingModel(
+            prompt_token_price=Decimal("0.60") / 1000000,
+            completion_token_price=Decimal("0.60") / 1000000,
+        ),
+    },
 }

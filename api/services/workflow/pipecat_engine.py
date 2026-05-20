@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Dict, Optional, Union
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -16,6 +16,7 @@ from pipecat.services.settings import LLMSettings
 from pipecat.utils.enums import EndTaskReason
 
 from api.db import db_client
+from api.enums import ToolCategory
 from api.services.pipecat.audio_playback import play_audio
 from api.services.workflow.disposition_mapper import apply_disposition_mapping
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
@@ -34,6 +35,7 @@ import asyncio
 from loguru import logger
 
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
+from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_context_composer import (
     compose_functions_for_node,
     compose_system_prompt_for_node,
@@ -116,6 +118,9 @@ class PipecatEngine:
         # Cached organization ID (resolved lazily from workflow run)
         self._organization_id: Optional[int] = None
 
+        # Open MCP tool sessions for this call, keyed by tool_uuid
+        self._mcp_sessions: Dict[str, McpToolSession] = {}
+
         # Embeddings configuration (passed from run_pipeline.py)
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
@@ -177,6 +182,9 @@ class PipecatEngine:
 
             # Helper that encapsulates custom tool management
             self._custom_tool_manager = CustomToolManager(self)
+
+            # Open persistent MCP server sessions for this call (degrades on failure)
+            await self._open_mcp_sessions()
 
             # Helper that encapsulates context summarization
             if self._context_compaction_enabled:
@@ -503,7 +511,10 @@ class PipecatEngine:
 
         # Register custom tool handlers for this node
         if node.tool_uuids and self._custom_tool_manager:
-            await self._custom_tool_manager.register_handlers(node.tool_uuids)
+            await self._custom_tool_manager.register_handlers(
+                node.tool_uuids,
+                mcp_tool_filters=getattr(node, "mcp_tool_filters", None),
+            )
 
         # Register knowledge base retrieval handler if node has documents
         if node.document_uuids:
@@ -529,7 +540,7 @@ class PipecatEngine:
         node = self.workflow.nodes[node_id]
 
         logger.debug(
-            f"Executing node: name: {node.name} is_static: {node.is_static} allow_interrupt: {node.allow_interrupt} is_end: {node.is_end}"
+            f"Executing node: name: {node.name} allow_interrupt: {node.allow_interrupt} is_end: {node.is_end}"
         )
 
         # Track previous node for transition event
@@ -584,11 +595,8 @@ class PipecatEngine:
             )
             await asyncio.sleep(delay_duration)
 
-        if node.is_static:
-            raise ValueError("Static nodes are not supported!")
-        else:
-            # Setup LLM Context with Prompts and Functions
-            await self._setup_llm_context(node)
+        # Setup LLM context with prompts and functions.
+        await self._setup_llm_context(node)
 
     def get_start_greeting(self) -> Optional[tuple[str, Optional[str]]]:
         """Return the greeting info for the start node, or None if not configured.
@@ -615,19 +623,13 @@ class PipecatEngine:
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""
-        if node.is_static:
-            raise ValueError("Static nodes are not supported!")
-        else:
-            # Setup LLM Context with Prompts and Functions
-            await self._setup_llm_context(node)
+        # Setup LLM context with prompts and functions.
+        await self._setup_llm_context(node)
 
     async def _handle_agent_node(self, node: Node) -> None:
         """Handle agent node execution."""
-        if node.is_static:
-            raise ValueError("Static nodes are not supported!")
-        else:
-            # Setup LLM Context with Prompts and Functions
-            await self._setup_llm_context(node)
+        # Setup LLM context with prompts and functions.
+        await self._setup_llm_context(node)
 
     async def end_call_with_reason(
         self,
@@ -814,6 +816,79 @@ class PipecatEngine:
         """Get the gathered context including extracted variables."""
         return self._gathered_context.copy()
 
+    async def _open_mcp_sessions(self) -> None:
+        """Connect every MCP-category tool referenced by any workflow node.
+        Failures degrade (session marked unavailable); never raises."""
+        from api.services.workflow.tools.mcp_tool import (
+            McpDefinitionError,
+            validate_mcp_definition,
+        )
+
+        try:
+            tool_uuids: set[str] = set()
+            for node in self.workflow.nodes.values():
+                for tu in getattr(node, "tool_uuids", None) or []:
+                    tool_uuids.add(tu)
+            if not tool_uuids:
+                return
+
+            organization_id = await self._get_organization_id()
+            if not organization_id:
+                logger.warning("Cannot open MCP sessions: organization_id missing")
+                return
+
+            tools = await db_client.get_tools_by_uuids(
+                list(tool_uuids), organization_id
+            )
+            for tool in tools:
+                if tool.category != ToolCategory.MCP.value:
+                    continue
+                try:
+                    cfg = validate_mcp_definition(tool.definition)
+                except McpDefinitionError as e:
+                    logger.warning(
+                        f"Skipping MCP tool '{tool.name}' ({tool.tool_uuid}): "
+                        f"invalid definition: {e}"
+                    )
+                    continue
+
+                credential = None
+                if cfg["credential_uuid"]:
+                    try:
+                        credential = await db_client.get_credential_by_uuid(
+                            cfg["credential_uuid"], organization_id
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            f"MCP tool '{tool.name}': credential fetch failed: {e}"
+                        )
+                        continue
+
+                session = McpToolSession(
+                    tool_uuid=tool.tool_uuid,
+                    tool_name=tool.name,
+                    url=cfg["url"],
+                    credential=credential,
+                    tools_filter=cfg["tools_filter"],
+                    timeout_secs=cfg["timeout_secs"],
+                    sse_read_timeout_secs=cfg["sse_read_timeout_secs"],
+                )
+                await session.start()
+                self._mcp_sessions[tool.tool_uuid] = session
+        except Exception as e:
+            logger.warning(
+                f"Failed to open MCP sessions; call proceeds without MCP tools: {e}",
+                exc_info=True,
+            )
+
+    async def _close_mcp_sessions(self) -> None:
+        for tool_uuid, session in list(self._mcp_sessions.items()):
+            try:
+                await session.close()
+            except Exception as e:
+                logger.warning(f"Error closing MCP session {tool_uuid}: {e}")
+        self._mcp_sessions = {}
+
     async def cleanup(self):
         """Clean up engine resources on disconnect."""
         # Cancel any pending timeout tasks
@@ -823,6 +898,12 @@ class PipecatEngine:
         ):
             self._user_response_timeout_task.cancel()
 
-        # Cancel any in-flight background summarization
-        if self._context_summarization_manager:
-            await self._context_summarization_manager.cleanup()
+        # Cancel any in-flight background summarization.
+        # MCP sessions are closed in a finally block so they are guaranteed to
+        # run even if the summarization cleanup raises an exception.
+        try:
+            if self._context_summarization_manager:
+                await self._context_summarization_manager.cleanup()
+        finally:
+            # Close any open MCP tool sessions
+            await self._close_mcp_sessions()

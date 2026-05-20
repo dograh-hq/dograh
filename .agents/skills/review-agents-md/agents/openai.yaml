@@ -1,0 +1,4 @@
+interface:
+  display_name: "Review AGENTS.md"
+  short_description: "Audit AGENTS.md scope and drift"
+  default_prompt: "Use $review-agents-md to audit AGENTS.md files for drift, missing coverage, and wrong scope boundaries."

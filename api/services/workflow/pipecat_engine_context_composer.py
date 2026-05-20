@@ -117,7 +117,8 @@ async def compose_functions_for_node(
     # Custom tools
     if node.tool_uuids and custom_tool_manager:
         custom_tool_schemas = await custom_tool_manager.get_tool_schemas(
-            node.tool_uuids
+            node.tool_uuids,
+            mcp_tool_filters=getattr(node, "mcp_tool_filters", None),
         )
         functions.extend(custom_tool_schemas)
 

@@ -127,8 +127,8 @@ def _format_docstring(text: str, indent: int = 4) -> str:
 _FILE_HEADER = '''"""GENERATED — do not edit by hand.
 
 Regenerate with `python -m dograh_sdk.codegen` against the target
-Dograh backend. Source of truth: each node's NodeSpec in the backend's
-`api/services/workflow/node_specs/` directory.
+Dograh backend. Source of truth: the backend's model-backed node-spec
+catalog served from `/api/v1/node-types`.
 """
 
 from __future__ import annotations

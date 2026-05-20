@@ -137,28 +137,6 @@ export type AriConfigurationResponse = {
 };
 
 /**
- * AccessTokenResponse
- */
-export type AccessTokenResponse = {
-    /**
-     * Access Token
-     */
-    access_token: string | null;
-    /**
-     * Refresh Token
-     */
-    refresh_token: string | null;
-    /**
-     * Expires At
-     */
-    expires_at: string | null;
-    /**
-     * Connection Id
-     */
-    connection_id: string;
-};
-
-/**
  * AmbientNoiseUploadRequest
  */
 export type AmbientNoiseUploadRequest = {
@@ -949,7 +927,9 @@ export type CreateToolRequest = {
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
-    } & CalculatorToolDefinition);
+    } & CalculatorToolDefinition) | ({
+        type: 'mcp';
+    } & McpToolDefinition);
 };
 
 /**
@@ -1964,50 +1944,6 @@ export type InitiateCallRequest = {
 };
 
 /**
- * IntegrationResponse
- */
-export type IntegrationResponse = {
-    /**
-     * Id
-     */
-    id: number;
-    /**
-     * Integration Id
-     */
-    integration_id: string;
-    /**
-     * Organisation Id
-     */
-    organisation_id: number;
-    /**
-     * Created By
-     */
-    created_by: number | null;
-    /**
-     * Provider
-     */
-    provider: string;
-    /**
-     * Is Active
-     */
-    is_active: boolean;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Action
-     */
-    action: string;
-    /**
-     * Provider Data
-     */
-    provider_data: {
-        [key: string]: unknown;
-    };
-};
-
-/**
  * ItemKind
  */
 export type ItemKind = 'node' | 'edge' | 'workflow';
@@ -2095,6 +2031,102 @@ export type MpsCreditsResponse = {
      * Total Quota
      */
     total_quota: number;
+};
+
+/**
+ * McpRefreshResponse
+ *
+ * Result of re-discovering an MCP server's tool catalog.
+ */
+export type McpRefreshResponse = {
+    /**
+     * Tool Uuid
+     */
+    tool_uuid: string;
+    /**
+     * Discovered Tools
+     */
+    discovered_tools?: Array<unknown>;
+    /**
+     * Error
+     */
+    error?: string | null;
+};
+
+/**
+ * McpToolConfig
+ *
+ * Configuration for an MCP tool definition.
+ */
+export type McpToolConfig = {
+    /**
+     * Transport
+     *
+     * MCP transport protocol
+     */
+    transport?: 'streamable_http';
+    /**
+     * Url
+     *
+     * MCP server URL (must be http:// or https://)
+     */
+    url: string;
+    /**
+     * Credential Uuid
+     *
+     * Reference to ExternalCredentialModel for auth
+     */
+    credential_uuid?: string | null;
+    /**
+     * Tools Filter
+     *
+     * Allowlist of MCP tool names to expose (empty = all tools)
+     */
+    tools_filter?: Array<string>;
+    /**
+     * Timeout Secs
+     *
+     * Connection timeout in seconds
+     */
+    timeout_secs?: number;
+    /**
+     * Sse Read Timeout Secs
+     *
+     * SSE read timeout in seconds
+     */
+    sse_read_timeout_secs?: number;
+    /**
+     * Discovered Tools
+     *
+     * Server-managed cache of the MCP server's tool catalog [{name, description}]. Populated best-effort by the backend.
+     */
+    discovered_tools?: Array<{
+        [key: string]: unknown;
+    }>;
+};
+
+/**
+ * McpToolDefinition
+ *
+ * Persisted MCP tool definition.
+ */
+export type McpToolDefinition = {
+    /**
+     * Schema Version
+     *
+     * Schema version
+     */
+    schema_version?: number;
+    /**
+     * Type
+     *
+     * Tool type
+     */
+    type: 'mcp';
+    /**
+     * MCP server configuration
+     */
+    config: McpToolConfig;
 };
 
 /**
@@ -2993,20 +3025,6 @@ export type ServiceKeyResponse = {
 };
 
 /**
- * SessionResponse
- */
-export type SessionResponse = {
-    /**
-     * Session Token
-     */
-    session_token: string;
-    /**
-     * Expires At
-     */
-    expires_at: string;
-};
-
-/**
  * SignupRequest
  */
 export type SignupRequest = {
@@ -3798,18 +3816,6 @@ export type UpdateCredentialRequest = {
 };
 
 /**
- * UpdateIntegrationRequest
- */
-export type UpdateIntegrationRequest = {
-    /**
-     * Selected Files
-     */
-    selected_files: Array<{
-        [key: string]: unknown;
-    }>;
-};
-
-/**
  * UpdateToolRequest
  *
  * Request schema for updating a tool.
@@ -3842,7 +3848,9 @@ export type UpdateToolRequest = {
         type: 'transfer_call';
     } & TransferCallToolDefinition) | ({
         type: 'calculator';
-    } & CalculatorToolDefinition) | null;
+    } & CalculatorToolDefinition) | ({
+        type: 'mcp';
+    } & McpToolDefinition) | null;
     /**
      * Status
      */
@@ -7652,6 +7660,50 @@ export type UpdateToolApiV1ToolsToolUuidPutResponses = {
 
 export type UpdateToolApiV1ToolsToolUuidPutResponse = UpdateToolApiV1ToolsToolUuidPutResponses[keyof UpdateToolApiV1ToolsToolUuidPutResponses];
 
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Tool Uuid
+         */
+        tool_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/tools/{tool_uuid}/mcp/refresh';
+};
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostError = RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostErrors[keyof RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostErrors];
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: McpRefreshResponse;
+};
+
+export type RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponse = RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses[keyof RefreshMcpToolsApiV1ToolsToolUuidMcpRefreshPostResponses];
+
 export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostData = {
     body?: never;
     headers?: {
@@ -7695,174 +7747,6 @@ export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses = {
 };
 
 export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponse = UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses[keyof UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses];
-
-export type GetIntegrationsApiV1IntegrationGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/v1/integration/';
-};
-
-export type GetIntegrationsApiV1IntegrationGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetIntegrationsApiV1IntegrationGetError = GetIntegrationsApiV1IntegrationGetErrors[keyof GetIntegrationsApiV1IntegrationGetErrors];
-
-export type GetIntegrationsApiV1IntegrationGetResponses = {
-    /**
-     * Response Get Integrations Api V1 Integration  Get
-     *
-     * Successful Response
-     */
-    200: Array<IntegrationResponse>;
-};
-
-export type GetIntegrationsApiV1IntegrationGetResponse = GetIntegrationsApiV1IntegrationGetResponses[keyof GetIntegrationsApiV1IntegrationGetResponses];
-
-export type CreateSessionApiV1IntegrationSessionPostData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/v1/integration/session';
-};
-
-export type CreateSessionApiV1IntegrationSessionPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type CreateSessionApiV1IntegrationSessionPostError = CreateSessionApiV1IntegrationSessionPostErrors[keyof CreateSessionApiV1IntegrationSessionPostErrors];
-
-export type CreateSessionApiV1IntegrationSessionPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: SessionResponse;
-};
-
-export type CreateSessionApiV1IntegrationSessionPostResponse = CreateSessionApiV1IntegrationSessionPostResponses[keyof CreateSessionApiV1IntegrationSessionPostResponses];
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutData = {
-    body: UpdateIntegrationRequest;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Integration Id
-         */
-        integration_id: number;
-    };
-    query?: never;
-    url: '/api/v1/integration/{integration_id}';
-};
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutError = UpdateIntegrationApiV1IntegrationIntegrationIdPutErrors[keyof UpdateIntegrationApiV1IntegrationIntegrationIdPutErrors];
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutResponses = {
-    /**
-     * Successful Response
-     */
-    200: IntegrationResponse;
-};
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutResponse = UpdateIntegrationApiV1IntegrationIntegrationIdPutResponses[keyof UpdateIntegrationApiV1IntegrationIntegrationIdPutResponses];
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Integration Id
-         */
-        integration_id: number;
-    };
-    query?: never;
-    url: '/api/v1/integration/{integration_id}/access-token';
-};
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetError = GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetErrors[keyof GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetErrors];
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: AccessTokenResponse;
-};
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponse = GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses[keyof GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses];
 
 export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetData = {
     body?: never;

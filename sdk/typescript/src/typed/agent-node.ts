@@ -1,11 +1,11 @@
 // GENERATED — do not edit by hand.
 //
 // Regenerate with `npm run codegen` against the target Dograh backend.
-// Source of truth: each node's NodeSpec in the backend's
-// `api/services/workflow/node_specs/` directory.
+// Source of truth: the backend's model-backed node-spec catalog served
+// from `/api/v1/node-types`.
 
 /**
- * Each entry declares one variable to capture from the conversation, with its name, type, and per-variable hint.
+ * Each entry declares one variable to capture, with its name, data type, and extraction hint.
  */
 export interface AgentNodeExtraction_variablesRow {
     /**
@@ -46,7 +46,7 @@ export interface AgentNode {
      */
     add_global_prompt?: boolean;
     /**
-     * When true, runs an LLM extraction pass on transition out of this node to capture variables from the conversation.
+     * When true, runs an LLM extraction pass for this node.
      */
     extraction_enabled?: boolean;
     /**
@@ -54,7 +54,7 @@ export interface AgentNode {
      */
     extraction_prompt?: string;
     /**
-     * Each entry declares one variable to capture from the conversation, with its name, type, and per-variable hint.
+     * Each entry declares one variable to capture, with its name, data type, and extraction hint.
      */
     extraction_variables?: Array<AgentNodeExtraction_variablesRow>;
     /**

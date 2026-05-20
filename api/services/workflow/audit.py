@@ -7,7 +7,7 @@ script in `api/services/admin_utils/local_exec.py` is the production
 consumer.
 """
 
-from api.services.workflow.node_specs import REGISTRY
+from api.services.workflow.node_specs import all_specs
 
 
 def _build_type_rules() -> tuple[set[str], set[str]]:
@@ -16,14 +16,14 @@ def _build_type_rules() -> tuple[set[str], set[str]]:
     (max_incoming == 0)."""
     src_forbidden: set[str] = set()
     tgt_forbidden: set[str] = set()
-    for name, spec in REGISTRY.items():
+    for spec in all_specs():
         gc = spec.graph_constraints
         if gc is None:
             continue
         if gc.max_outgoing == 0:
-            src_forbidden.add(name)
+            src_forbidden.add(spec.name)
         if gc.max_incoming == 0:
-            tgt_forbidden.add(name)
+            tgt_forbidden.add(spec.name)
     return src_forbidden, tgt_forbidden
 
 

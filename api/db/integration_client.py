@@ -14,7 +14,7 @@ class IntegrationClient(BaseDBClient):
         async with self.async_session() as session:
             result = await session.execute(
                 select(IntegrationModel).where(
-                    IntegrationModel.organisation_id == organization_id
+                    IntegrationModel.organization_id == organization_id
                 )
             )
             return result.scalars().all()
@@ -23,7 +23,7 @@ class IntegrationClient(BaseDBClient):
         self,
         integration_id: str,
         provider: str,
-        organisation_id: int,
+        organization_id: int,
         connection_details: dict,
         created_by: int = None,
         is_active: bool = True,
@@ -32,7 +32,7 @@ class IntegrationClient(BaseDBClient):
         async with self.async_session() as session:
             new_integration = IntegrationModel(
                 integration_id=integration_id,
-                organisation_id=organisation_id,
+                organization_id=organization_id,
                 created_by=created_by,
                 is_active=is_active,
                 provider=provider,
@@ -96,7 +96,7 @@ class IntegrationClient(BaseDBClient):
         async with self.async_session() as session:
             result = await session.execute(
                 select(IntegrationModel).where(
-                    IntegrationModel.organisation_id == organization_id,
+                    IntegrationModel.organization_id == organization_id,
                     IntegrationModel.is_active == True,
                 )
             )

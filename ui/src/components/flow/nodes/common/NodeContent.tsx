@@ -12,7 +12,9 @@ interface NodeContentProps {
     hovered_through_edge?: boolean;
     title: string;
     icon: ReactNode;
-    nodeType?: 'start' | 'agent' | 'end' | 'global' | 'trigger' | 'webhook' | 'qa';
+    badgeLabel?: string;
+    badgeClassName?: string;
+    contentLabel?: string;
     hasSourceHandle?: boolean;
     hasTargetHandle?: boolean;
     children?: ReactNode;
@@ -22,26 +24,7 @@ interface NodeContentProps {
 }
 
 // Get badge styling based on node type
-const getNodeTypeBadge = (nodeType?: string) => {
-    switch (nodeType) {
-        case 'start':
-            return { label: 'Start Node', className: 'bg-emerald-500 text-white' };
-        case 'agent':
-            return { label: 'Agent Node', className: 'bg-blue-500 text-white' };
-        case 'end':
-            return { label: 'End Node', className: 'bg-rose-500 text-white' };
-        case 'global':
-            return { label: 'Global Node', className: 'bg-amber-500 text-white' };
-        case 'trigger':
-            return { label: 'API Trigger', className: 'bg-purple-500 text-white' };
-        case 'webhook':
-            return { label: 'Webhook', className: 'bg-indigo-500 text-white' };
-        case 'qa':
-            return { label: 'QA Analysis', className: 'bg-teal-500 text-white' };
-        default:
-            return { label: 'Node', className: 'bg-zinc-500 text-white' };
-    }
-};
+const DEFAULT_BADGE = { label: 'Node', className: 'bg-zinc-500 text-white' };
 
 export const NodeContent = ({
     selected,
@@ -50,7 +33,9 @@ export const NodeContent = ({
     hovered_through_edge,
     title,
     icon,
-    nodeType,
+    badgeLabel,
+    badgeClassName,
+    contentLabel = "Prompt",
     hasSourceHandle = false,
     hasTargetHandle = false,
     children,
@@ -58,7 +43,10 @@ export const NodeContent = ({
     onDoubleClick,
     nodeId,
 }: NodeContentProps) => {
-    const badge = getNodeTypeBadge(nodeType);
+    const badge = {
+        label: badgeLabel ?? DEFAULT_BADGE.label,
+        className: badgeClassName ?? DEFAULT_BADGE.className,
+    };
 
     return (
         <BaseNode
@@ -98,7 +86,9 @@ export const NodeContent = ({
 
             {/* Content area with prompt label */}
             <div className="p-4">
-                <div className="text-xs text-muted-foreground mb-1.5 font-medium">Prompt:</div>
+                <div className="text-xs text-muted-foreground mb-1.5 font-medium">
+                    {contentLabel}:
+                </div>
                 {children}
             </div>
 

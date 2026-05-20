@@ -122,6 +122,16 @@ class PropertyOption(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    def to_mcp_dict(self) -> dict[str, Any]:
+        """Lean projection for `get_node_type`: the `value` an LLM writes in
+        code, plus a `description` when one carries real meaning. The UI
+        `label` is dropped — it's the option's display string, never used
+        when authoring."""
+        out: dict[str, Any] = {"value": self.value}
+        if self.description:
+            out["description"] = self.description
+        return out
+
 
 class PropertySpec(BaseModel):
     """Single field on a node.
@@ -175,6 +185,43 @@ class PropertySpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    def to_mcp_dict(self) -> dict[str, Any]:
+        """Lean projection of this property for the `get_node_type` MCP tool.
+
+        Keeps only what an LLM needs to author a valid value: name, type,
+        description, llm_hint, requiredness, default, enum options, nested
+        row properties, and validation bounds. UI-rendering concerns
+        (`display_name`, `placeholder`, `display_options`, `editor`,
+        `extra`) and null/empty fields are omitted — they're noise in the
+        model's context and never appear in authored SDK code.
+        """
+        out: dict[str, Any] = {
+            "name": self.name,
+            "type": self.type.value,
+            "description": self.description,
+        }
+        if self.llm_hint:
+            out["llm_hint"] = self.llm_hint
+        if self.required:
+            out["required"] = True
+        if self.default is not None:
+            out["default"] = self.default
+        if self.options:
+            out["options"] = [opt.to_mcp_dict() for opt in self.options]
+        if self.properties:
+            out["properties"] = [prop.to_mcp_dict() for prop in self.properties]
+        for constraint in (
+            "min_value",
+            "max_value",
+            "min_length",
+            "max_length",
+            "pattern",
+        ):
+            value = getattr(self, constraint)
+            if value is not None:
+                out[constraint] = value
+        return out
+
 
 PropertySpec.model_rebuild()
 
@@ -222,3 +269,33 @@ class NodeSpec(BaseModel):
     graph_constraints: Optional[GraphConstraints] = None
 
     model_config = ConfigDict(extra="forbid")
+
+    def to_mcp_dict(self) -> dict[str, Any]:
+        """Lean projection of this spec for the `get_node_type` MCP tool.
+
+        Drops node-level UI metadata (`display_name`, `category`, `icon`,
+        `version`) and the per-property rendering concerns trimmed by
+        `PropertySpec.to_mcp_dict`, leaving just the authoring-relevant
+        schema the LLM consumes when composing a workflow. The full spec is
+        still served verbatim to the frontend renderer (REST `node-types`
+        route) and the SDK codegen / TS validator (`ts_bridge`), which need
+        the dropped fields.
+        """
+        out: dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+        }
+        if self.llm_hint:
+            out["llm_hint"] = self.llm_hint
+        out["properties"] = [prop.to_mcp_dict() for prop in self.properties]
+        if self.examples:
+            out["examples"] = [
+                ex.model_dump(mode="json", exclude_none=True) for ex in self.examples
+            ]
+        if self.graph_constraints:
+            constraints = self.graph_constraints.model_dump(
+                mode="json", exclude_none=True
+            )
+            if constraints:
+                out["graph_constraints"] = constraints
+        return out

@@ -289,3 +289,115 @@ def test_all_dto_types_have_specs():
 def test_node_spec_property_order_stable(spec_name: str, expected_order: list[str]):
     spec = next(spec for spec in all_specs() if spec.name == spec_name)
     assert [prop.name for prop in spec.properties] == expected_order
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# `to_mcp_dict` projection — the lean view served by the `get_node_type`
+# MCP tool. UI-only metadata is dropped so it doesn't poison LLM context;
+# the full spec stays available to the frontend and SDK via other paths.
+# ─────────────────────────────────────────────────────────────────────────
+
+# Keys that are UI-rendering concerns and must never reach the LLM view, at
+# either the node or property level.
+_UI_ONLY_KEYS = frozenset(
+    {
+        "display_name",
+        "icon",
+        "category",
+        "version",
+        "placeholder",
+        "display_options",
+        "editor",
+        "extra",
+        "label",  # PropertyOption display string
+    }
+)
+
+
+def _walk_dicts(node):
+    """Yield every dict nested anywhere inside a projected structure."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk_dicts(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk_dicts(item)
+
+
+@pytest.mark.parametrize("spec", all_specs(), ids=lambda s: s.name)
+def test_to_mcp_dict_drops_ui_only_keys(spec: NodeSpec):
+    projected = spec.to_mcp_dict()
+    for d in _walk_dicts(projected):
+        leaked = _UI_ONLY_KEYS & d.keys()
+        assert not leaked, f"{spec.name}: UI-only keys leaked into LLM view: {leaked}"
+
+
+@pytest.mark.parametrize("spec", all_specs(), ids=lambda s: s.name)
+def test_to_mcp_dict_omits_null_and_empty(spec: NodeSpec):
+    """The lean view never emits null values — absent means unset/optional,
+    which is what halves the noise versus the full model dump."""
+    for d in _walk_dicts(spec.to_mcp_dict()):
+        for key, value in d.items():
+            assert value is not None, f"{spec.name}: {key!r} emitted as null"
+
+
+@pytest.mark.parametrize("spec", all_specs(), ids=lambda s: s.name)
+def test_to_mcp_dict_keeps_property_essentials(spec: NodeSpec):
+    """Every property in the LLM view carries the minimum an LLM needs to
+    author a value: machine name, type, and a description."""
+
+    def _check(props: list[dict]):
+        for prop in props:
+            assert prop.get("name"), f"{spec.name}: property missing name"
+            assert prop.get("type"), f"{spec.name}.{prop.get('name')}: missing type"
+            assert prop.get("description"), (
+                f"{spec.name}.{prop.get('name')}: missing description"
+            )
+            if prop.get("properties"):
+                _check(prop["properties"])
+
+    _check(spec.to_mcp_dict()["properties"])
+
+
+def test_to_mcp_dict_retains_authoring_signal_startcall():
+    """startCall is the richest core node — lock in that the projection
+    keeps the fields an LLM actually authors against while shedding the rest."""
+    spec = next(s for s in all_specs() if s.name == "startCall")
+    projected = spec.to_mcp_dict()
+
+    assert set(projected) == {
+        "name",
+        "description",
+        "llm_hint",
+        "properties",
+        "examples",
+        "graph_constraints",
+    }
+
+    props = {p["name"]: p for p in projected["properties"]}
+
+    # Required field keeps `required`; optional fields omit it.
+    assert props["prompt"]["required"] is True
+    assert "required" not in props["greeting"]
+
+    # Enum options project to bare values, dropping the UI label.
+    assert props["greeting_type"]["options"] == [{"value": "text"}, {"value": "audio"}]
+
+    # Validation bounds survive (they constrain valid authored values).
+    assert props["delayed_start_duration"]["min_value"] == 0.1
+    assert props["delayed_start_duration"]["max_value"] == 10.0
+
+    # llm_hint survives where present (catalog-tool references).
+    assert "list_recordings" in props["greeting_recording_id"]["llm_hint"]
+
+    # fixed_collection rows recurse through the same projection.
+    var_rows = {p["name"]: p for p in props["extraction_variables"]["properties"]}
+    assert var_rows["type"]["options"] == [
+        {"value": "string"},
+        {"value": "number"},
+        {"value": "boolean"},
+    ]
+
+    # graph_constraints drops its null sub-fields.
+    assert projected["graph_constraints"] == {"min_incoming": 0, "max_incoming": 0}

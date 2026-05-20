@@ -18,6 +18,7 @@ import asyncio
 import ipaddress
 import os
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Dict, List, Optional
 
 from aiortc import RTCIceServer
@@ -49,6 +50,28 @@ from api.services.quota_service import check_dograh_quota
 router = APIRouter(prefix="/ws")
 
 
+class NonRelayFilterPolicy(Enum):
+    """What to filter from non-relay ICE candidates. Relay candidates always pass."""
+
+    NONE = "none"        # filter nothing — pass all candidates
+    PRIVATE = "private"  # filter non-relay candidates with private/CGNAT IPs
+    ALL = "all"          # filter all non-relay candidates (relay-only mode)
+
+
+if FORCE_TURN_RELAY:
+    # Outbound: relay-only so browser is forced through TURN.
+    # Inbound: pass all — browser host candidate needed for relay→host pairs.
+    ICE_OUTBOUND_POLICY = NonRelayFilterPolicy.ALL
+    ICE_INBOUND_POLICY = NonRelayFilterPolicy.NONE
+elif ENVIRONMENT == Environment.LOCAL.value:
+    ICE_OUTBOUND_POLICY = NonRelayFilterPolicy.NONE
+    ICE_INBOUND_POLICY = NonRelayFilterPolicy.NONE
+else:
+    # Non-local: drop private-IP host candidates to avoid coturn denied-peer-ip errors.
+    ICE_OUTBOUND_POLICY = NonRelayFilterPolicy.PRIVATE
+    ICE_INBOUND_POLICY = NonRelayFilterPolicy.PRIVATE
+
+
 def is_private_ip_candidate(candidate_str: str) -> bool:
     """Check if ICE candidate contains a private IP address or CGNAT IP Address.
 
@@ -77,52 +100,52 @@ def is_private_ip_candidate(candidate_str: str) -> bool:
     return False
 
 
-def filter_outbound_sdp(sdp: str) -> str:
-    """Strip ICE candidates from an outbound answer SDP based on env config.
+def _keep_candidate(candidate_str: str, policy: NonRelayFilterPolicy) -> bool:
+    """Return True if this ICE candidate should be kept under the given policy.
 
-    Two filters apply:
-
-    1. In non-LOCAL environments, drop host candidates with private/CGNAT IPs.
-       aiortc gathers host candidates from every interface on the box, including
-       Docker bridges (172.17.0.1, 172.18.0.1). Advertising those to the browser
-       causes coturn "peer IP X denied" errors when the browser asks TURN to
-       permit them.
-
-    2. When FORCE_TURN_RELAY is set, drop every non-relay candidate so the
-       only path the browser can use is via TURN. Lets you verify TURN
-       connectivity end-to-end — if TURN is broken, the call simply fails.
+    Relay candidates always pass — a relay with a private IP (LAN TURN server)
+    must never be dropped regardless of policy.
     """
-    if ENVIRONMENT == Environment.LOCAL.value and not FORCE_TURN_RELAY:
+    if " typ relay" in candidate_str:
+        return True
+    if policy == NonRelayFilterPolicy.NONE:
+        return True
+    if policy == NonRelayFilterPolicy.ALL:
+        return False
+    # PRIVATE: drop non-relay candidates with private/CGNAT IPs
+    return not is_private_ip_candidate(candidate_str)
+
+
+def filter_outbound_sdp(sdp: str) -> str:
+    """Strip ICE candidates from an outbound answer SDP based on ICE_OUTBOUND_POLICY."""
+    if ICE_OUTBOUND_POLICY == NonRelayFilterPolicy.NONE:
         return sdp
 
     lines = sdp.split("\r\n")
     filtered: List[str] = []
-    dropped_non_relay = 0
+    dropped = 0
     kept_relay = 0
     for line in lines:
         if line.startswith("a=candidate:"):
             candidate_str = line[2:]
-            if FORCE_TURN_RELAY and " typ relay" not in candidate_str:
-                dropped_non_relay += 1
+            if not _keep_candidate(candidate_str, ICE_OUTBOUND_POLICY):
+                dropped += 1
                 continue
-            is_relay = " typ relay" in candidate_str
-            if ENVIRONMENT != Environment.LOCAL.value and not is_relay and is_private_ip_candidate(candidate_str):
-                continue
-            if FORCE_TURN_RELAY:
+            if " typ relay" in candidate_str:
                 kept_relay += 1
         filtered.append(line)
 
-    if FORCE_TURN_RELAY:
+    if ICE_OUTBOUND_POLICY == NonRelayFilterPolicy.ALL:
         if kept_relay == 0:
             logger.warning(
                 "FORCE_TURN_RELAY is on but the answer SDP has no relay candidates "
-                f"(dropped {dropped_non_relay} non-relay). TURN may be unreachable; "
+                f"(dropped {dropped} non-relay). TURN may be unreachable; "
                 "the connection will fail."
             )
         else:
             logger.info(
                 f"FORCE_TURN_RELAY: kept {kept_relay} relay candidates, "
-                f"dropped {dropped_non_relay} non-relay"
+                f"dropped {dropped} non-relay"
             )
 
     return "\r\n".join(filtered)
@@ -369,9 +392,7 @@ class SignalingManager:
         Uses SmallWebRTC's native ICE trickling support via add_ice_candidate().
         Candidates are parsed using aiortc's candidate_from_sdp() for proper formatting,
         consistent with SmallWebRTCRequestHandler.handle_patch_request().
-
-        In non-local environments, private IP candidates are filtered out to prevent
-        TURN relay errors when coturn blocks private IP ranges (denied-peer-ip).
+        Candidates are filtered according to ICE_INBOUND_POLICY before being added.
         """
         pc_id = payload.get("pc_id")
         candidate_data = payload.get("candidate")
@@ -388,15 +409,9 @@ class SignalingManager:
         if candidate_data:
             candidate_str = candidate_data.get("candidate", "")
 
-            # Filter out private IP candidates in non-local environments, unless
-            # FORCE_TURN_RELAY is on — in that case all media goes via TURN relay
-            # anyway, and we need the browser's LAN host candidate so the server
-            # can form a relay→host pair without requiring NAT hairpin.
-            if ENVIRONMENT != Environment.LOCAL.value and not FORCE_TURN_RELAY and is_private_ip_candidate(
-                candidate_str
-            ):
+            if not _keep_candidate(candidate_str, ICE_INBOUND_POLICY):
                 logger.debug(
-                    f"Skipping private IP candidate in {ENVIRONMENT}: {candidate_str[:50]}..."
+                    f"Dropping inbound candidate per policy ({ICE_INBOUND_POLICY.value}): {candidate_str[:50]}..."
                 )
                 return
 

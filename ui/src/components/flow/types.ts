@@ -5,14 +5,13 @@ export enum NodeType {
     GLOBAL_NODE = 'globalNode',
     TRIGGER = 'trigger',
     WEBHOOK = 'webhook',
-    QA = 'qa'
+    QA = 'qa',
 }
 
 export type FlowNodeData = {
-    prompt: string;
+    prompt?: string;
     name: string;
     is_start?: boolean;
-    is_static?: boolean;
     is_end?: boolean;
     invalid?: boolean;
     validationMessage?: string | null;
@@ -26,8 +25,6 @@ export type FlowNodeData = {
     greeting?: string;
     greeting_type?: 'text' | 'audio';
     greeting_recording_id?: string;
-    wait_for_user_greeting?: boolean;
-    detect_voicemail?: boolean;
     delayed_start?: boolean;
     delayed_start_duration?: number;
     // Pre-call data fetch (StartCall only)
@@ -61,6 +58,7 @@ export type FlowNodeData = {
     mcp_tool_filters?: Record<string, string[]>;
     // Documents - array of knowledge base document UUIDs that can be referenced by this node
     document_uuids?: string[];
+    [key: string]: unknown;
 }
 
 export type FlowNode = {
@@ -135,4 +133,3 @@ export interface Credential {
     created_at: string;
     updated_at: string;
 }
-

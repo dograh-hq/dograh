@@ -152,8 +152,8 @@ class CircuitBreakerConfigResponse(BaseModel):
 class CreateCampaignRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     workflow_id: int
-    source_type: str = Field(..., pattern="^(google-sheet|csv)$")
-    source_id: str  # Google Sheet URL or CSV file key
+    source_type: str = Field(..., pattern="^csv$")
+    source_id: str  # CSV file key
     # Optional during the legacy → multi-config migration window. Required in
     # a follow-up. When omitted, the dispatcher falls back to the org's
     # default config.
@@ -929,8 +929,6 @@ async def get_campaign_source_download_url(
     user: UserModel = Depends(get_user),
 ) -> CampaignSourceDownloadResponse:
     """Get presigned download URL for campaign CSV source file
-
-    Only works for CSV source type. For Google Sheets, use the source_id directly.
     Validates that the campaign belongs to the user's organization for security.
     """
     # Verify campaign exists and belongs to organization

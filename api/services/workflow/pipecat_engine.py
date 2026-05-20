@@ -540,7 +540,7 @@ class PipecatEngine:
         node = self.workflow.nodes[node_id]
 
         logger.debug(
-            f"Executing node: name: {node.name} is_static: {node.is_static} allow_interrupt: {node.allow_interrupt} is_end: {node.is_end}"
+            f"Executing node: name: {node.name} allow_interrupt: {node.allow_interrupt} is_end: {node.is_end}"
         )
 
         # Track previous node for transition event
@@ -595,11 +595,8 @@ class PipecatEngine:
             )
             await asyncio.sleep(delay_duration)
 
-        if node.is_static:
-            raise ValueError("Static nodes are not supported!")
-        else:
-            # Setup LLM Context with Prompts and Functions
-            await self._setup_llm_context(node)
+        # Setup LLM context with prompts and functions.
+        await self._setup_llm_context(node)
 
     def get_start_greeting(self) -> Optional[tuple[str, Optional[str]]]:
         """Return the greeting info for the start node, or None if not configured.
@@ -626,19 +623,13 @@ class PipecatEngine:
 
     async def _handle_end_node(self, node: Node) -> None:
         """Handle end node execution."""
-        if node.is_static:
-            raise ValueError("Static nodes are not supported!")
-        else:
-            # Setup LLM Context with Prompts and Functions
-            await self._setup_llm_context(node)
+        # Setup LLM context with prompts and functions.
+        await self._setup_llm_context(node)
 
     async def _handle_agent_node(self, node: Node) -> None:
         """Handle agent node execution."""
-        if node.is_static:
-            raise ValueError("Static nodes are not supported!")
-        else:
-            # Setup LLM Context with Prompts and Functions
-            await self._setup_llm_context(node)
+        # Setup LLM context with prompts and functions.
+        await self._setup_llm_context(node)
 
     async def end_call_with_reason(
         self,

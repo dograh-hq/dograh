@@ -40,15 +40,17 @@ async def list_node_types() -> dict:
 
 @traced_tool
 async def get_node_type(name: str) -> dict:
-    """Fetch the full schema for a node type, including every property's
-    type, default, conditional visibility rules, and LLM-readable
-    description, plus worked examples.
+    """Fetch the authoring schema for a node type: each property's name,
+    type, default, requiredness, enum options, validation bounds, and
+    LLM-readable description, plus worked examples and graph constraints.
 
-    Use the property `description` and the `examples` list to understand
-    semantics — types alone are not enough.
+    UI-only metadata (display labels, placeholders, conditional visibility
+    rules, renderer hints) is intentionally omitted — set only the fields
+    you need. Use the property `description`/`llm_hint` and the `examples`
+    list to understand semantics; types alone are not enough.
     """
     await authenticate_mcp_request()
     spec = get_spec(name)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown node type: {name!r}")
-    return spec.model_dump(mode="json")
+    return spec.to_mcp_dict()

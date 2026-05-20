@@ -31,7 +31,8 @@ type NodeStyleVariant =
     | "global"
     | "trigger"
     | "webhook"
-    | "qa";
+    | "qa"
+    | "integration";
 
 const STYLE_VARIANT_BY_SPEC: Record<string, NodeStyleVariant> = {
     startCall: "start",
@@ -98,6 +99,70 @@ function buildTriggerEndpoints(
         production: `${backendUrl}/api/v1/public/agent/${triggerPath}`,
         test: `${backendUrl}/api/v1/public/agent/test/${triggerPath}`,
     };
+}
+
+function resolveIntegrationEnabled(
+    spec: NodeSpec,
+    data: FlowNodeData,
+): boolean {
+    for (const prop of spec.properties) {
+        if (!prop.name.endsWith("enabled")) continue;
+        const value = data[prop.name];
+        if (typeof value === "boolean") return value;
+    }
+    return true;
+}
+
+function resolveIntegrationSummary(
+    spec: NodeSpec,
+    data: FlowNodeData,
+): string {
+    for (const prop of spec.properties) {
+        if (
+            prop.name === "name" ||
+            prop.name.endsWith("enabled") ||
+            /api[_-]?key|token|secret/i.test(prop.name)
+        ) {
+            continue;
+        }
+
+        const value = data[prop.name];
+        if (typeof value === "string" && value.trim().length > 0) {
+            return value.length > 30 ? `${value.slice(0, 30)}...` : value;
+        }
+        if (typeof value === "number") {
+            return String(value);
+        }
+    }
+    return "Not configured";
+}
+
+function getBadgeForSpec(
+    spec: NodeSpec | undefined,
+    variant: NodeStyleVariant,
+): { label: string; className: string } {
+    if (!spec) {
+        return { label: "Node", className: "bg-zinc-500 text-white" };
+    }
+
+    switch (variant) {
+        case "start":
+            return { label: "Start Node", className: "bg-emerald-500 text-white" };
+        case "agent":
+            return { label: "Agent Node", className: "bg-blue-500 text-white" };
+        case "end":
+            return { label: "End Node", className: "bg-rose-500 text-white" };
+        case "global":
+            return { label: "Global Node", className: "bg-amber-500 text-white" };
+        case "trigger":
+            return { label: "API Trigger", className: "bg-purple-500 text-white" };
+        case "webhook":
+            return { label: "Webhook", className: "bg-indigo-500 text-white" };
+        case "qa":
+            return { label: "QA Analysis", className: "bg-teal-500 text-white" };
+        case "integration":
+            return { label: spec.display_name, className: "bg-cyan-600 text-white" };
+    }
 }
 
 // ─── Canvas preview dispatch ──────────────────────────────────────────────
@@ -181,6 +246,21 @@ function CanvasPreview({
                 <div className="flex items-center gap-2">
                     <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">
                         {llmSource}
+                    </span>
+                </div>
+                <StatusDot enabled={enabled} />
+            </div>
+        );
+    }
+
+    if (spec.category === "integration") {
+        const enabled = resolveIntegrationEnabled(spec, data);
+        const destination = resolveIntegrationSummary(spec, data);
+        return (
+            <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">
+                        {destination}
                     </span>
                 </div>
                 <StatusDot enabled={enabled} />
@@ -501,10 +581,20 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     }, [data, open]);
 
     // ── Render ──────────────────────────────────────────────────────────
-    const styleVariant = STYLE_VARIANT_BY_SPEC[type];
-    const handles = HANDLES_BY_SPEC[type] ?? { source: true, target: true };
+    const styleVariant =
+        STYLE_VARIANT_BY_SPEC[type] ??
+        (spec?.category === "integration" ? "integration" : "agent");
+    const handles =
+        HANDLES_BY_SPEC[type] ??
+        (spec?.category === "integration"
+            ? { source: false, target: false }
+            : { source: true, target: true });
+    const badge = getBadgeForSpec(spec, styleVariant);
     const Icon = spec ? resolveIcon(spec.icon) : Circle;
     const docUrl = DOC_URL_BY_SPEC[type];
+    const contentLabel = spec?.properties.some((p) => p.name === "prompt")
+        ? "Prompt"
+        : "Details";
 
     // Edit dialog title: "Edit {display_name}". Webhook keeps the original
     // "Edit Webhook" wording — display_name is "Webhook" so it works out.
@@ -520,7 +610,9 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                 hovered_through_edge={data.hovered_through_edge}
                 title={data.name || fallbackTitle}
                 icon={<Icon />}
-                nodeType={styleVariant}
+                badgeLabel={badge.label}
+                badgeClassName={badge.className}
+                contentLabel={contentLabel}
                 hasSourceHandle={handles.source}
                 hasTargetHandle={handles.target}
                 onDoubleClick={() => setOpen(true)}

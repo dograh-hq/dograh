@@ -16,7 +16,6 @@ from api.enums import OrganizationConfigurationKey
 from api.services.integrations import (
     IntegrationCompletionContext,
     has_completion_handlers,
-    requires_public_token,
     run_completion_handlers,
 )
 from api.services.pipecat.tracing_config import register_org_langfuse_credentials
@@ -220,9 +219,8 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
         qa_nodes = [n for n in nodes if n.get("type") == "qa"]
         webhook_nodes = [n for n in nodes if n.get("type") == "webhook"]
         has_registered_integrations = has_completion_handlers(workflow_definition)
-        integration_public_token_required = requires_public_token(workflow_definition)
 
-        # Step 4: Generate public access token if webhooks exist or campaign_id is set
+        # Step 4: Generate a public access token for any run that needs post-call work.
         has_campaign = workflow_run.campaign_id is not None
         if (
             not webhook_nodes
@@ -233,9 +231,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
             logger.debug("No integration nodes and no campaign, skipping")
             return
 
-        public_token = None
-        if webhook_nodes or integration_public_token_required or has_campaign:
-            public_token = await db_client.ensure_public_access_token(workflow_run_id)
+        public_token = await db_client.ensure_public_access_token(workflow_run_id)
 
         # Step 5: Run QA analysis before webhooks
         if qa_nodes:

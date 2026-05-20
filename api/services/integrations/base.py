@@ -67,4 +67,3 @@ class IntegrationPackageSpec:
     routers: tuple[APIRouter, ...] = ()
     create_runtime_sessions: RuntimeFactory | None = None
     run_completion: CompletionHandler | None = None
-    requires_public_token: bool = False

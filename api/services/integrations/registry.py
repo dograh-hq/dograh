@@ -105,13 +105,6 @@ def iter_completion_packages(
             yield package, package_nodes
 
 
-def requires_public_token(workflow_definition: dict[str, Any]) -> bool:
-    return any(
-        package.requires_public_token
-        for package, _nodes in iter_completion_packages(workflow_definition)
-    )
-
-
 def has_completion_handlers(workflow_definition: dict[str, Any]) -> bool:
     return any(
         package.run_completion is not None

@@ -16,7 +16,6 @@ from api.services.integrations.registry import (
     get_node_spec,
     has_completion_handlers,
     register_package,
-    requires_public_token,
     run_completion_handlers,
 )
 
@@ -36,6 +35,5 @@ __all__ = [
     "get_node_spec",
     "has_completion_handlers",
     "register_package",
-    "requires_public_token",
     "run_completion_handlers",
 ]

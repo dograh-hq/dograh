@@ -13,7 +13,6 @@ PACKAGE = register_package(
         nodes=(NODE,),
         create_runtime_sessions=create_runtime_sessions,
         run_completion=run_completion,
-        requires_public_token=True,
     )
 )
 

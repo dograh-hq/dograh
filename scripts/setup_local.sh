@@ -50,8 +50,8 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     # Pick a TURN_HOST that's reachable from BOTH the browser (running on the
     # host) and the API container (running in docker). 127.0.0.1 is tempting
     # but doesn't work for the api container — its own loopback isn't where
-    # coturn lives, so aiortc can't allocate a relay and FORCE_TURN_RELAY
-    # ends up with an empty answer SDP. The host's LAN IP works for both.
+    # coturn lives, so aiortc can't allocate a relay. The host's LAN IP works
+    # for both.
     detect_lan_ip() {
         local ip=""
         if command -v ipconfig >/dev/null 2>&1; then
@@ -102,16 +102,7 @@ if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
     fi
 fi
 
-if [[ "${ENABLE_COTURN:-false}" != "true" ]]; then
-    FORCE_TURN_RELAY=false
-elif [[ -z "${FORCE_TURN_RELAY:-}" ]]; then
-    if dograh_is_local_ipv4 "$TURN_HOST"; then
-        FORCE_TURN_RELAY=true
-        echo -e "${YELLOW}Detected a local/private TURN host IP; enabling FORCE_TURN_RELAY=true.${NC}"
-    else
-        FORCE_TURN_RELAY=false
-    fi
-fi
+FORCE_TURN_RELAY="${FORCE_TURN_RELAY:-false}"
 
 # Telemetry opt-out (default: true)
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
@@ -170,7 +161,7 @@ OSS_JWT_SECRET=$OSS_JWT_SECRET
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY
 
-# Relay-only ICE candidates (auto-enabled for local/private TURN host IPs)
+# Relay-only ICE candidates for explicit TURN diagnostics
 FORCE_TURN_RELAY=$FORCE_TURN_RELAY
 ENV_EOF
 

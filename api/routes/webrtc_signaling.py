@@ -58,18 +58,53 @@ class NonRelayFilterPolicy(Enum):
     ALL = "all"          # filter all non-relay candidates (relay-only mode)
 
 
-if FORCE_TURN_RELAY:
-    # Outbound: relay-only so browser is forced through TURN.
-    # Inbound: pass all — browser host candidate needed for relay→host pairs.
-    ICE_OUTBOUND_POLICY = NonRelayFilterPolicy.ALL
-    ICE_INBOUND_POLICY = NonRelayFilterPolicy.NONE
-elif ENVIRONMENT == Environment.LOCAL.value:
-    ICE_OUTBOUND_POLICY = NonRelayFilterPolicy.NONE
-    ICE_INBOUND_POLICY = NonRelayFilterPolicy.NONE
-else:
-    # Non-local: drop private-IP host candidates to avoid coturn denied-peer-ip errors.
-    ICE_OUTBOUND_POLICY = NonRelayFilterPolicy.PRIVATE
-    ICE_INBOUND_POLICY = NonRelayFilterPolicy.PRIVATE
+def is_local_or_cgnat_ip(ip_str: str) -> bool:
+    """Return True for RFC1918, loopback, link-local, and CGNAT addresses."""
+
+    try:
+        ip = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+
+    is_cgnat = ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10")
+    return ip.is_private or ip.is_loopback or ip.is_link_local or is_cgnat
+
+
+def resolve_ice_filter_policies(
+    environment: str,
+    force_turn_relay: bool,
+    server_ip: str,
+) -> tuple[NonRelayFilterPolicy, NonRelayFilterPolicy]:
+    """Resolve outbound and inbound non-relay filtering for this deployment."""
+
+    private_lan_deployment = (
+        environment != Environment.LOCAL.value and is_local_or_cgnat_ip(server_ip)
+    )
+
+    if force_turn_relay:
+        # Relay-only diagnostics stay explicit. On private LAN deployments we
+        # must still accept inbound private candidates for relay<->host pairs.
+        outbound_policy = NonRelayFilterPolicy.ALL
+        inbound_policy = (
+            NonRelayFilterPolicy.NONE
+            if private_lan_deployment
+            else NonRelayFilterPolicy.PRIVATE
+        )
+        return outbound_policy, inbound_policy
+
+    if environment == Environment.LOCAL.value or private_lan_deployment:
+        return NonRelayFilterPolicy.NONE, NonRelayFilterPolicy.NONE
+
+    # Public remote deployment: drop private-IP host candidates to avoid
+    # coturn denied-peer-ip errors against Docker bridge and LAN interfaces.
+    return NonRelayFilterPolicy.PRIVATE, NonRelayFilterPolicy.PRIVATE
+
+
+ICE_OUTBOUND_POLICY, ICE_INBOUND_POLICY = resolve_ice_filter_policies(
+    ENVIRONMENT,
+    FORCE_TURN_RELAY,
+    os.getenv("SERVER_IP", ""),
+)
 
 
 def is_private_ip_candidate(candidate_str: str) -> bool:
@@ -92,9 +127,7 @@ def is_private_ip_candidate(candidate_str: str) -> bool:
         if "typ" in parts:
             typ_index = parts.index("typ")
             ip_str = parts[typ_index - 2]
-            ip = ipaddress.ip_address(ip_str)
-            is_cgnat = ip in ipaddress.ip_network("100.64.0.0/10")
-            return ip.is_private or is_cgnat
+            return is_local_or_cgnat_ip(ip_str)
     except (ValueError, IndexError):
         pass
     return False

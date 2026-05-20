@@ -15,16 +15,14 @@ import pytest
 
 from api.services.workflow.dto import (
     AgentNodeData,
-    AgentRFNode,
     EdgeDataDTO,
     EndCallNodeData,
-    EndCallRFNode,
     ExtractionVariableDTO,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
+    RFNodeDTO,
     StartCallNodeData,
-    StartCallRFNode,
     VariableType,
 )
 from api.services.workflow.workflow_graph import WorkflowGraph
@@ -270,8 +268,9 @@ def simple_workflow() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -290,8 +289,9 @@ def simple_workflow() -> WorkflowGraph:
                     ],
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=200),
                 data=EndCallNodeData(
                     name="End Call",
@@ -333,8 +333,9 @@ def three_node_workflow() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -353,8 +354,9 @@ def three_node_workflow() -> WorkflowGraph:
                     ],
                 ),
             ),
-            AgentRFNode(
+            RFNodeDTO(
                 id="agent",
+                type="agentNode",
                 position=Position(x=0, y=200),
                 data=AgentNodeData(
                     name="Collect Info",
@@ -372,8 +374,9 @@ def three_node_workflow() -> WorkflowGraph:
                     ],
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=400),
                 data=EndCallNodeData(
                     name="End Call",
@@ -424,8 +427,9 @@ def three_node_workflow_extraction_start_only() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -444,8 +448,9 @@ def three_node_workflow_extraction_start_only() -> WorkflowGraph:
                     ],
                 ),
             ),
-            AgentRFNode(
+            RFNodeDTO(
                 id="agent",
+                type="agentNode",
                 position=Position(x=0, y=200),
                 data=AgentNodeData(
                     name="Collect Info",
@@ -455,8 +460,9 @@ def three_node_workflow_extraction_start_only() -> WorkflowGraph:
                     extraction_enabled=False,  # Explicitly disabled for testing
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=400),
                 data=EndCallNodeData(
                     name="End Call",
@@ -503,8 +509,9 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
     """
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -515,8 +522,9 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            AgentRFNode(
+            RFNodeDTO(
                 id="agent",
+                type="agentNode",
                 position=Position(x=0, y=200),
                 data=AgentNodeData(
                     name="Collect Info",
@@ -526,8 +534,9 @@ def three_node_workflow_no_variable_extraction() -> WorkflowGraph:
                     extraction_enabled=False,  # Explicitly disabled for testing
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=400),
                 data=EndCallNodeData(
                     name="End Call",

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regenerate every file the SDKs derive from authoritative backend state:
 #
-#   1. Typed node dataclasses / TS interfaces (from node_specs registry)
+#   1. Typed node dataclasses / TS interfaces (from the model-backed
+#      node-spec registry)
 #   2. Filtered OpenAPI spec (routes tagged via @sdk_expose)
 #   3. Pydantic request/response models + TS interfaces (datamodel-codegen
 #      / openapi-typescript)
@@ -18,8 +19,9 @@
 #     is a devDependency of sdk/typescript; `npm install` in that dir is
 #     done for you if node_modules is missing.
 #
-# Invoked manually after editing any NodeSpec or after adding/removing an
-# `@sdk_expose` decorator. CI runs this and asserts the git diff is empty.
+# Invoked manually after editing workflow node models / node-spec metadata
+# or after adding/removing an `@sdk_expose` decorator. CI runs this and
+# asserts the git diff is empty.
 
 set -euo pipefail
 

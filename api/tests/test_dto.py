@@ -16,6 +16,37 @@ async def test_dto():
     assert dto is not None
 
 
+def test_dto_ignores_legacy_unknown_node_data_fields():
+    dto = ReactFlowDTO.model_validate(
+        {
+            "nodes": [
+                {
+                    "id": "n1",
+                    "type": "startCall",
+                    "position": {"x": 0, "y": 0},
+                    "data": {
+                        "name": "Start",
+                        "prompt": "Hello",
+                        "is_static": True,
+                        "detect_voicemail": True,
+                        "wait_for_user_response": False,
+                        "wait_for_user_response_timeout": 2.5,
+                        "legacy_field": "ignored",
+                    },
+                }
+            ],
+            "edges": [],
+        }
+    )
+
+    data = dto.nodes[0].data.model_dump()
+    assert "is_static" not in data
+    assert "detect_voicemail" not in data
+    assert "wait_for_user_response" not in data
+    assert "wait_for_user_response_timeout" not in data
+    assert "legacy_field" not in data
+
+
 def test_sanitize_strips_ui_runtime_fields():
     definition = {
         "viewport": {"x": 0, "y": 0, "zoom": 1},

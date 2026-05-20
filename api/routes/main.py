@@ -6,7 +6,6 @@ from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
 from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
-from api.routes.integration import router as integration_router
 from api.routes.knowledge_base import router as knowledge_base_router
 from api.routes.node_types import router as node_types_router
 from api.routes.organization import router as organization_router
@@ -26,6 +25,7 @@ from api.routes.webrtc_signaling import router as webrtc_signaling_router
 from api.routes.workflow import router as workflow_router
 from api.routes.workflow_embed import router as workflow_embed_router
 from api.routes.workflow_recording import router as workflow_recording_router
+from api.services.integrations import all_routers
 
 router = APIRouter(
     tags=["main"],
@@ -39,7 +39,6 @@ router.include_router(user_router)
 router.include_router(campaign_router)
 router.include_router(credentials_router)
 router.include_router(tool_router)
-router.include_router(integration_router)
 router.include_router(organization_router)
 router.include_router(s3_router)
 router.include_router(service_keys_router)
@@ -56,6 +55,9 @@ router.include_router(workflow_recording_router)
 router.include_router(auth_router)
 router.include_router(node_types_router)
 router.include_router(agent_stream_router)
+
+for _integration_router in all_routers():
+    router.include_router(_integration_router)
 
 
 class HealthResponse(BaseModel):

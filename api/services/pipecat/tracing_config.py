@@ -75,7 +75,10 @@ class _OrgRoutingExporter(SpanExporter):
         self._org_hosts[key] = normalized_host
         exporter = OTLPSpanExporter(
             endpoint=endpoint,
-            headers={"Authorization": f"Basic {auth}"},
+            headers={
+                "Authorization": f"Basic {auth}",
+                "x-langfuse-ingestion-version": "4",
+            },
         )
         self._org_exporters[key] = exporter
         logger.info(f"Registered OTEL exporter for org {org_id}")
@@ -158,7 +161,10 @@ def ensure_tracing() -> bool:
         ).decode()
         default_exporter = OTLPSpanExporter(
             endpoint=f"{LANGFUSE_HOST}/api/public/otel/v1/traces",
-            headers={"Authorization": f"Basic {langfuse_auth}"},
+            headers={
+                "Authorization": f"Basic {langfuse_auth}",
+                "x-langfuse-ingestion-version": "4",
+            },
         )
 
     _org_routing_exporter = _OrgRoutingExporter(default_exporter)

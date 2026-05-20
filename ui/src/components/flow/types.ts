@@ -5,11 +5,11 @@ export enum NodeType {
     GLOBAL_NODE = 'globalNode',
     TRIGGER = 'trigger',
     WEBHOOK = 'webhook',
-    QA = 'qa'
+    QA = 'qa',
 }
 
 export type FlowNodeData = {
-    prompt: string;
+    prompt?: string;
     name: string;
     is_start?: boolean;
     is_static?: boolean;
@@ -45,7 +45,6 @@ export type FlowNodeData = {
     payload_template?: Record<string, unknown>;
     // QA node specific
     qa_enabled?: boolean;
-    qa_analysis_provider?: string;
     qa_system_prompt?: string;
     qa_use_workflow_llm?: boolean;
     qa_provider?: string;
@@ -54,9 +53,6 @@ export type FlowNodeData = {
     qa_min_call_duration?: number;
     qa_voicemail_calls?: boolean;
     qa_sample_rate?: number;
-    tuner_agent_id?: string;
-    tuner_workspace_id?: string;
-    tuner_api_key?: string;
     // Tools - array of tool UUIDs that can be invoked by this node
     tool_uuids?: string[];
     // Per-node MCP function allowlist: { toolUuid: [raw MCP tool name, ...] }.
@@ -65,6 +61,7 @@ export type FlowNodeData = {
     mcp_tool_filters?: Record<string, string[]>;
     // Documents - array of knowledge base document UUIDs that can be referenced by this node
     document_uuids?: string[];
+    [key: string]: unknown;
 }
 
 export type FlowNode = {
@@ -139,4 +136,3 @@ export interface Credential {
     created_at: string;
     updated_at: string;
 }
-

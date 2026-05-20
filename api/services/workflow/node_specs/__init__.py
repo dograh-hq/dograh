@@ -1,10 +1,8 @@
 """Node specification registry.
 
-Adding a new node type:
-1. Create a new module under this package, define a `SPEC: NodeSpec`.
-2. Add it to the imports + REGISTRY below.
-3. The Pydantic discriminated-union variant in dto.py must use the same
-   `name` value as `SPEC.name`.
+Core node specs live in this package. Third-party integration node specs live
+under `api.services.integrations/<name>/` and register through the integration
+registry so they don't need edits here.
 """
 
 from __future__ import annotations
@@ -38,12 +36,21 @@ def register(spec: NodeSpec) -> NodeSpec:
 
 
 def get_spec(name: str) -> NodeSpec | None:
-    return REGISTRY.get(name)
+    if name in REGISTRY:
+        return REGISTRY[name]
+
+    from api.services.integrations import get_node_spec
+
+    return get_node_spec(name)
 
 
 def all_specs() -> list[NodeSpec]:
     """All registered specs, sorted by name for stable output."""
-    return [REGISTRY[name] for name in sorted(REGISTRY)]
+    from api.services.integrations import all_node_specs
+
+    specs = {spec.name: spec for spec in REGISTRY.values()}
+    specs.update({spec.name: spec for spec in all_node_specs()})
+    return [specs[name] for name in sorted(specs)]
 
 
 __all__ = [
@@ -77,6 +84,14 @@ from api.services.workflow.node_specs import (  # noqa: E402, F401
 )
 
 # Wire up registrations from the SPEC constants in each module.
-for _module in (start_call, agent, end_call, global_node, trigger, webhook, qa):
+for _module in (
+    start_call,
+    agent,
+    end_call,
+    global_node,
+    trigger,
+    webhook,
+    qa,
+):
     register(_module.SPEC)
 del _module

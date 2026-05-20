@@ -57,8 +57,6 @@ Return ONLY a valid JSON object (no markdown):
 
 If no tags apply, return an empty tags list. Always provide sentiment, score, and summary."""
 
-_DOGRAH = {"qa_analysis_provider": ["dograh"]}
-
 SPEC = NodeSpec(
     name="qa",
     display_name="QA Analysis",
@@ -89,18 +87,6 @@ SPEC = NodeSpec(
             default=True,
         ),
         PropertySpec(
-            name="qa_analysis_provider",
-            type=PropertyType.options,
-            display_name="QA Provider",
-            description="Which QA analysis service to use.",
-            default="dograh",
-            options=[
-                PropertyOption(value="dograh", label="Dograh"),
-                PropertyOption(value="tuner", label="Tuner"),
-            ],
-        ),
-        # ---- Dograh fields ----
-        PropertySpec(
             name="qa_system_prompt",
             type=PropertyType.string,
             display_name="System Prompt",
@@ -111,7 +97,6 @@ SPEC = NodeSpec(
             ),
             editor="textarea",
             default=DEFAULT_QA_SYSTEM_PROMPT,
-            display_options=DisplayOptions(show=_DOGRAH),
         ),
         PropertySpec(
             name="qa_min_call_duration",
@@ -120,7 +105,6 @@ SPEC = NodeSpec(
             description="Calls shorter than this are skipped.",
             default=15,
             min_value=0,
-            display_options=DisplayOptions(show=_DOGRAH),
         ),
         PropertySpec(
             name="qa_voicemail_calls",
@@ -128,7 +112,6 @@ SPEC = NodeSpec(
             display_name="Include Voicemail Calls",
             description="When false, calls flagged as voicemail are skipped.",
             default=False,
-            display_options=DisplayOptions(show=_DOGRAH),
         ),
         PropertySpec(
             name="qa_sample_rate",
@@ -141,7 +124,6 @@ SPEC = NodeSpec(
             default=100,
             min_value=1,
             max_value=100,
-            display_options=DisplayOptions(show=_DOGRAH),
         ),
         PropertySpec(
             name="qa_use_workflow_llm",
@@ -152,16 +134,13 @@ SPEC = NodeSpec(
                 "with. Set false to specify a separate provider/model."
             ),
             default=True,
-            display_options=DisplayOptions(show=_DOGRAH),
         ),
         PropertySpec(
             name="qa_provider",
             type=PropertyType.options,
             display_name="QA LLM Provider",
             description="LLM provider used for the QA pass.",
-            display_options=DisplayOptions(
-                show={**_DOGRAH, "qa_use_workflow_llm": [False]}
-            ),
+            display_options=DisplayOptions(show={"qa_use_workflow_llm": [False]}),
             options=[
                 PropertyOption(value="openai", label="OpenAI"),
                 PropertyOption(value="azure", label="Azure OpenAI"),
@@ -177,9 +156,7 @@ SPEC = NodeSpec(
                 "Model identifier (e.g., 'gpt-4o', 'claude-sonnet-4-6'). "
                 "Provider-specific."
             ),
-            display_options=DisplayOptions(
-                show={**_DOGRAH, "qa_use_workflow_llm": [False]}
-            ),
+            display_options=DisplayOptions(show={"qa_use_workflow_llm": [False]}),
             default="default",
         ),
         PropertySpec(
@@ -187,9 +164,7 @@ SPEC = NodeSpec(
             type=PropertyType.string,
             display_name="API Key",
             description="API key for the chosen provider.",
-            display_options=DisplayOptions(
-                show={**_DOGRAH, "qa_use_workflow_llm": [False]}
-            ),
+            display_options=DisplayOptions(show={"qa_use_workflow_llm": [False]}),
         ),
         PropertySpec(
             name="qa_endpoint",
@@ -197,33 +172,8 @@ SPEC = NodeSpec(
             display_name="Azure Endpoint",
             description="Required for the Azure provider.",
             display_options=DisplayOptions(
-                show={**_DOGRAH, "qa_use_workflow_llm": [False], "qa_provider": ["azure"]}
+                show={"qa_use_workflow_llm": [False], "qa_provider": ["azure"]}
             ),
-        ),
-        # ---- Tuner fields ----
-        PropertySpec(
-            name="tuner_agent_id",
-            type=PropertyType.string,
-            display_name="Tuner Agent ID",
-            description="The agent identifier registered in your Tuner workspace.",
-            required=True,
-            display_options=DisplayOptions(show={"qa_analysis_provider": ["tuner"]}),
-        ),
-        PropertySpec(
-            name="tuner_workspace_id",
-            type=PropertyType.string,
-            display_name="Tuner Workspace ID",
-            description="Your Tuner workspace ID (numeric).",
-            required=True,
-            display_options=DisplayOptions(show={"qa_analysis_provider": ["tuner"]}),
-        ),
-        PropertySpec(
-            name="tuner_api_key",
-            type=PropertyType.string,
-            display_name="Tuner API Key",
-            description="The API key used to authenticate with Tuner.",
-            required=True,
-            display_options=DisplayOptions(show={"qa_analysis_provider": ["tuner"]}),
         ),
     ],
     examples=[

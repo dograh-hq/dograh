@@ -4,10 +4,13 @@ from typing import Optional
 from fastapi import HTTPException
 from loguru import logger
 
-from api.constants import TUNER_BASE_URL
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.services.configuration.registry import ServiceProviders
+from api.services.integrations import (
+    IntegrationRuntimeContext,
+    create_runtime_sessions,
+)
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
@@ -46,9 +49,8 @@ from api.services.pipecat.tracing_config import (
 )
 from api.services.pipecat.transport_setup import create_webrtc_transport
 from api.services.pipecat.ws_sender_registry import get_ws_sender
-from api.services.storage import storage_fs
 from api.services.telephony import registry as telephony_registry
-from api.services.workflow.dto import NodeType, ReactFlowDTO
+from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
@@ -527,51 +529,17 @@ async def _run_pipeline(
     # Create pipeline components
     audio_buffer, context = create_pipeline_components(audio_config)
 
-    # Build Tuner observer if a QA node is configured to use Tuner
-    tuner_observer = None
-    qa_nodes = [n for n in workflow_graph.nodes.values() if n.node_type == NodeType.qa]
-    logger.info(f"[Tuner] Found {len(qa_nodes)} QA node(s) in workflow")
-    for node in qa_nodes:
-        qa_data = node.data
-        provider = getattr(qa_data, "qa_analysis_provider", "dograh")
-        logger.info(
-            f"[Tuner] QA node '{node.id}': provider={provider!r}, "
-            f"agent_id={qa_data.tuner_agent_id!r}, "
-            f"workspace_id={qa_data.tuner_workspace_id!r}, "
-            f"api_key={'set' if qa_data.tuner_api_key else 'missing'}"
+    integration_runtime_sessions = create_runtime_sessions(
+        IntegrationRuntimeContext(
+            workflow_run_id=workflow_run_id,
+            workflow_run=workflow_run,
+            workflow_graph=workflow_graph,
+            run_definition=run_definition,
+            user_config=user_config,
+            is_realtime=is_realtime,
+            context_messages_provider=lambda: context.messages,
         )
-        if (
-            provider == "tuner"
-            and qa_data.tuner_agent_id
-            and qa_data.tuner_workspace_id
-            and qa_data.tuner_api_key
-        ):
-            from tuner_pipecat_sdk import Observer as TunerObserver
-            recording_object_key = f"recordings/{workflow_run_id}.wav"
-            recording_url = await storage_fs.aget_signed_url(recording_object_key) or ""
-            logger.info(
-                f"[Tuner] Creating observer for workflow_run_id={workflow_run_id}, "
-                f"recording_url={recording_url!r}, "
-                f"asr={user_config.stt.provider}/{user_config.stt.model}, "
-                f"llm={user_config.llm.provider}/{user_config.llm.model}, "
-                f"tts={user_config.tts.provider}/{user_config.tts.model}"
-            )
-            tuner_observer = TunerObserver(
-                base_url=TUNER_BASE_URL,
-                api_key=qa_data.tuner_api_key,
-                workspace_id=int(qa_data.tuner_workspace_id),
-                agent_id=qa_data.tuner_agent_id,
-                recording_url=recording_url,
-                call_id=str(workflow_run_id),
-                asr_model=f"{user_config.stt.provider}/{user_config.stt.model}",
-                llm_model=f"{user_config.llm.provider}/{user_config.llm.model}",
-                tts_model=f"{user_config.tts.provider}/{user_config.tts.model}",
-            )
-            tuner_observer.attach_context(context)
-            logger.info("[Tuner] Observer created and context attached")
-            break
-    if tuner_observer is None:
-        logger.info("[Tuner] No Tuner observer created (no matching QA node)")
+    )
 
     # Set the context, audio_config, and audio_buffer after creation
     engine.set_context(context)
@@ -760,20 +728,18 @@ async def _run_pipeline(
             pipeline_metrics_aggregator,
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
-            tuner_observer=tuner_observer,
         )
 
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
 
-    if tuner_observer is not None:
-        logger.info("[Tuner] Attaching turn tracking observer")
-        tuner_observer.attach_turn_tracking_observer(task.turn_tracking_observer)
-        # Wire the tuner's internal latency observer into the pipeline task so it
-        # receives all frames and fires on_latency_breakdown (which populates
-        # llm_ms, tts_ms, and ttfb_ms). Without this the observer never sees frames.
-        task.add_observer(tuner_observer.latency_observer)
-        logger.info("[Tuner] Observer fully wired into pipeline")
+    for runtime_session in integration_runtime_sessions:
+        runtime_session.attach(task)
+        logger.info(
+            "[integrations] attached runtime session '{}' for workflow run {}",
+            runtime_session.name,
+            workflow_run_id,
+        )
 
     # Now set the task and transport output on the engine
     engine.set_task(task)
@@ -839,6 +805,7 @@ async def _run_pipeline(
         pre_call_fetch_task=pre_call_fetch_task,
         fetch_recording_audio=fetch_audio,
         user_provider_id=user_provider_id,
+        integration_runtime_sessions=integration_runtime_sessions,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

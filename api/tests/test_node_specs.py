@@ -14,7 +14,7 @@ import re
 
 import pytest
 
-from api.services.workflow.dto import NodeType, ReactFlowDTO
+from api.services.workflow.dto import ReactFlowDTO, all_node_type_names
 from api.services.workflow.node_specs import (
     NodeSpec,
     PropertySpec,
@@ -118,9 +118,9 @@ def test_fixed_collection_has_sub_properties(spec: NodeSpec):
 
 @pytest.mark.parametrize("spec", all_specs(), ids=lambda s: s.name)
 def test_spec_name_matches_dto_discriminator(spec: NodeSpec):
-    valid_names = {t.value for t in NodeType}
+    valid_names = all_node_type_names()
     assert spec.name in valid_names, (
-        f"NodeSpec {spec.name!r} doesn't match any NodeType discriminator. "
+        f"NodeSpec {spec.name!r} doesn't match any registered node type. "
         f"Valid: {sorted(valid_names)}"
     )
 
@@ -187,10 +187,8 @@ def test_examples_validate_against_dto(spec: NodeSpec):
 
 
 def test_all_dto_types_have_specs():
-    """Every NodeType discriminator value must have a registered NodeSpec —
-    catches the case where someone adds a new node type to dto.py but
-    forgets to author a spec."""
+    """Every registered node type must have a registered NodeSpec."""
     spec_names = {s.name for s in all_specs()}
-    type_values = {t.value for t in NodeType}
+    type_values = all_node_type_names()
     missing = type_values - spec_names
-    assert not missing, f"NodeType discriminators without specs: {sorted(missing)}"
+    assert not missing, f"Registered node types without specs: {sorted(missing)}"

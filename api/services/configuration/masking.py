@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional
 
 from api.schemas.user_configuration import UserConfiguration
 from api.services.configuration.registry import ServiceConfig
+from api.services.integrations import get_node_secret_fields
 
 VISIBLE_CHARS = 4  # number of trailing characters to reveal
 MASK_CHAR = "*"
@@ -129,14 +130,22 @@ def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Workflow definition helpers – mask / merge QA-node API keys
+# Workflow definition helpers – mask / merge node API keys
 # ---------------------------------------------------------------------------
 
-_QA_API_KEY_FIELD = "qa_api_key"
+_NODE_SECRET_FIELDS: dict[str, tuple[str, ...]] = {
+    "qa": ("qa_api_key",),
+}
+
+
+def _secret_fields_for_node_type(node_type: str | None) -> tuple[str, ...]:
+    if not node_type:
+        return ()
+    return _NODE_SECRET_FIELDS.get(node_type, ()) or get_node_secret_fields(node_type)
 
 
 def mask_workflow_definition(workflow_definition: Optional[Dict]) -> Optional[Dict]:
-    """Return a *shallow copy* of *workflow_definition* with QA-node API keys masked."""
+    """Return a copy of *workflow_definition* with node secret fields masked."""
     if not workflow_definition:
         return workflow_definition
 
@@ -144,47 +153,46 @@ def mask_workflow_definition(workflow_definition: Optional[Dict]) -> Optional[Di
 
     masked = copy.deepcopy(workflow_definition)
     for node in masked.get("nodes", []):
-        if node.get("type") != "qa":
+        secret_fields = _secret_fields_for_node_type(node.get("type"))
+        if not secret_fields:
             continue
         data = node.get("data", {})
-        raw_key = data.get(_QA_API_KEY_FIELD)
-        if raw_key:
-            data[_QA_API_KEY_FIELD] = mask_key(raw_key)
+        for field in secret_fields:
+            raw_key = data.get(field)
+            if raw_key:
+                data[field] = mask_key(raw_key)
     return masked
 
 
 def merge_workflow_api_keys(
     incoming_definition: Optional[Dict], existing_definition: Optional[Dict]
 ) -> Optional[Dict]:
-    """Preserve real QA-node API keys when the incoming value is a masked placeholder.
-
-    For each QA node in *incoming_definition*, if its ``qa_api_key`` equals
-    the masked form of the corresponding node in *existing_definition*, the
-    real key is restored so it is never lost.
-    """
+    """Preserve real node secret fields when the incoming value is masked."""
     if not incoming_definition or not existing_definition:
         return incoming_definition
 
-    # Build lookup: node-id → data for existing QA nodes
-    existing_qa: Dict[str, Dict] = {}
+    existing_nodes: Dict[str, Dict] = {}
     for node in existing_definition.get("nodes", []):
-        if node.get("type") == "qa":
-            existing_qa[node["id"]] = node.get("data", {})
+        if _secret_fields_for_node_type(node.get("type")):
+            existing_nodes[node["id"]] = node.get("data", {})
 
     for node in incoming_definition.get("nodes", []):
-        if node.get("type") != "qa":
+        secret_fields = _secret_fields_for_node_type(node.get("type"))
+        if not secret_fields:
             continue
         data = node.get("data", {})
-        incoming_key = data.get(_QA_API_KEY_FIELD)
-        if not incoming_key:
-            continue
 
-        old_data = existing_qa.get(node["id"])
+        old_data = existing_nodes.get(node["id"])
         if not old_data:
             continue
 
-        old_key = old_data.get(_QA_API_KEY_FIELD, "")
-        if old_key and is_mask_of(incoming_key, old_key):
-            data[_QA_API_KEY_FIELD] = old_key
+        for field in secret_fields:
+            incoming_key = data.get(field)
+            if not incoming_key:
+                continue
+
+            old_key = old_data.get(field, "")
+            if old_key and is_mask_of(incoming_key, old_key):
+                data[field] = old_key
 
     return incoming_definition

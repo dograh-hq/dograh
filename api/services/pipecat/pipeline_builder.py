@@ -37,7 +37,6 @@ def build_pipeline(
     pipeline_metrics_aggregator,
     voicemail_detector=None,
     recording_router=None,
-    tuner_observer=None,
 ):
     """Build the main pipeline with all components.
 
@@ -85,7 +84,6 @@ def build_pipeline(
             llm,  # LLM
             *post_llm,
             tts,  # TTS
-            *([tuner_observer] if tuner_observer else []),
             transport.output(),  # Transport bot output
             audio_buffer,  # AudioBufferProcessor - records both input and output audio
             assistant_context_aggregator,  # Assistant spoken responses

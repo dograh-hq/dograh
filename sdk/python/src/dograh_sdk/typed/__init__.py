@@ -10,6 +10,7 @@ from dograh_sdk.typed.global_node import GlobalNode
 from dograh_sdk.typed.qa import Qa
 from dograh_sdk.typed.start_call import StartCall
 from dograh_sdk.typed.trigger import Trigger
+from dograh_sdk.typed.tuner import Tuner
 from dograh_sdk.typed.webhook import Webhook
 from dograh_sdk.typed._base import TypedNode
 
@@ -20,6 +21,7 @@ __all__ = [
     "Qa",
     "StartCall",
     "Trigger",
+    "Tuner",
     "TypedNode",
     "Webhook",
 ]

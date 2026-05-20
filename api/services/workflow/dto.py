@@ -1,7 +1,12 @@
 from enum import Enum
-from typing import Annotated, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+
+from api.services.integrations import (
+    all_packages,
+    get_node_data_model as get_integration_node_data_model,
+)
 
 
 class NodeType(str, Enum):
@@ -129,7 +134,6 @@ class WebhookNodeData(_NodeDataBase):
 
 class QANodeData(_NodeDataBase):
     qa_enabled: bool = True
-    qa_analysis_provider: str = "dograh"
     qa_use_workflow_llm: bool = True
     qa_provider: Optional[str] = None
     qa_model: Optional[str] = None
@@ -139,9 +143,6 @@ class QANodeData(_NodeDataBase):
     qa_min_call_duration: int = 15
     qa_voicemail_calls: bool = False
     qa_sample_rate: int = 100
-    tuner_agent_id: Optional[str] = None
-    tuner_workspace_id: Optional[str] = None
-    tuner_api_key: Optional[str] = None
 
 
 # Union of every per-type data class — useful as a type annotation on
@@ -161,9 +162,9 @@ NodeDataDTO = Union[
 # ─────────────────────────────────────────────────────────────────────────
 # Per-type RF nodes.
 #
-# RFNodeDTO is a discriminated Union over `type`. Pydantic dispatches to
-# the right variant when validating wire JSON. Direct instantiation must
-# use the concrete per-type class (StartCallRFNode, AgentRFNode, ...).
+# Core node variants keep concrete helper classes for tests and type-aware
+# consumers. The persisted workflow DTO itself validates `type` dynamically
+# against the core registry plus any integration packages.
 # ─────────────────────────────────────────────────────────────────────────
 
 
@@ -233,18 +234,38 @@ class QARFNode(_RFNodeBase):
     data: QANodeData
 
 
-RFNodeDTO = Annotated[
-    Union[
-        StartCallRFNode,
-        AgentRFNode,
-        EndCallRFNode,
-        GlobalRFNode,
-        TriggerRFNode,
-        WebhookRFNode,
-        QARFNode,
-    ],
-    Field(discriminator="type"),
-]
+_PROMPT_REQUIRED_NODE_TYPES: dict[str, str] = {
+    NodeType.startNode.value: "start",
+    NodeType.agentNode.value: "agent",
+    NodeType.endNode.value: "end",
+    NodeType.globalNode.value: "global",
+}
+
+
+class RFNodeDTO(_RFNodeBase):
+    type: str = Field(..., min_length=1)
+    data: Any
+
+    @field_validator("type")
+    @classmethod
+    def _validate_type(cls, value: str) -> str:
+        if get_node_data_model(value) is None:
+            raise ValueError(f"Unknown node type: {value!r}")
+        return value
+
+    @model_validator(mode="after")
+    def _validate(self):
+        data_model = get_node_data_model(self.type)
+        if data_model is None:
+            raise ValueError(f"Unknown node type: {self.type!r}")
+
+        self.data = data_model.model_validate(self.data)
+
+        prompt_label = _PROMPT_REQUIRED_NODE_TYPES.get(self.type)
+        if prompt_label:
+            _require_prompt(self.data, prompt_label)
+
+        return self
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -298,9 +319,7 @@ class ReactFlowDTO(BaseModel):
         return self
 
 
-# Node type → per-type data class. Keeps sanitize_workflow_definition in
-# step with RFNodeDTO's discriminated union.
-_NODE_DATA_CLASSES: dict[str, type[BaseModel]] = {
+_CORE_NODE_DATA_CLASSES: dict[str, type[BaseModel]] = {
     NodeType.startNode.value: StartCallNodeData,
     NodeType.agentNode.value: AgentNodeData,
     NodeType.endNode.value: EndCallNodeData,
@@ -309,6 +328,18 @@ _NODE_DATA_CLASSES: dict[str, type[BaseModel]] = {
     NodeType.webhook.value: WebhookNodeData,
     NodeType.qa.value: QANodeData,
 }
+
+
+def get_node_data_model(type_name: str) -> type[BaseModel] | None:
+    return _CORE_NODE_DATA_CLASSES.get(type_name) or get_integration_node_data_model(
+        type_name
+    )
+
+
+def all_node_type_names() -> set[str]:
+    return set(_CORE_NODE_DATA_CLASSES) | {
+        node.type_name for package in all_packages() for node in package.nodes
+    }
 
 
 def sanitize_workflow_definition(definition: dict | None) -> dict | None:
@@ -337,7 +368,7 @@ def sanitize_workflow_definition(definition: dict | None) -> dict | None:
 def _sanitize_node(node):
     if not isinstance(node, dict):
         return node
-    data_cls = _NODE_DATA_CLASSES.get(node.get("type"))
+    data_cls = get_node_data_model(node.get("type"))
     raw_data = node.get("data")
     if not data_cls or not isinstance(raw_data, dict):
         return node

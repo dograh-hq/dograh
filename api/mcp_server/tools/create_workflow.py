@@ -12,10 +12,10 @@ Execution flow mirrors `save_workflow`:
     4. Persist via `db_client.create_workflow` — workflow row + v1
        published definition in a single transaction.
 
-Error codes surfaced to the LLM match `save_workflow`. An additional
-`missing_name` error is returned when the source omits
-`new Workflow({ name: "..." })` — the name is required and there is no
-prior workflow to fall back to.
+Each failure path returns an `error_code` via `_error_result`. Those
+codes and their meanings are documented in the `create_workflow`
+docstring (the description shipped to the LLM via `tools/list`); keep the
+two in sync — `test_mcp_instructions_drift.py` enforces it.
 """
 
 from __future__ import annotations
@@ -86,6 +86,22 @@ async def create_workflow(code: str) -> dict[str, Any]:
     On success the new workflow is published as version 1. Use
     `save_workflow(workflow_id, code)` for subsequent edits — those go to
     a draft.
+
+    On failure the result has `created: false`, a machine-readable
+    `error_code`, and a human-readable `error` (with file:line:column
+    where the problem is locatable). Resubmit the full corrected source —
+    patches are not accepted. Possible `error_code` values:
+    - `parse_error` — disallowed construct or malformed TypeScript.
+    - `validation_error` — node data failed spec validation (unknown
+      field, missing required, wrong type, option out of range).
+    - `schema_validation` — wire-format (DTO) rejection; rare.
+    - `graph_validation` — structural rule broken (e.g. no start node,
+      unreachable node, edge to/from the wrong node type).
+    - `missing_name` — `new Workflow({ name })` is absent or empty; the
+      name is required and there is no prior workflow to fall back to.
+    - `trigger_path_conflict` — a trigger node's path is already used by
+      another workflow in this organization; rename it and resubmit.
+    - `bridge_error` — internal/transient; retry once, then surface it.
     """
     user = await authenticate_mcp_request()
 

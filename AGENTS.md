@@ -25,21 +25,7 @@ dograh/
 
 ## Local Development
 
-### Starting Services
-
-```bash
-# Start infrastructure services (postgres, redis, minio)
-./scripts/start_services_dev.sh
-
-# Stop all services
-./scripts/stop_services.sh
-```
-
-On Windows (PowerShell):
-```powershell
-.\scripts\start_services_dev.ps1
-.\scripts\stop_services.ps1
-```
+Contributor setup and service startup are documented in `docs/contribution/setup.mdx`.
 
 ## Environment Configuration
 

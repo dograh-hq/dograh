@@ -160,7 +160,9 @@ class TunerCollector(BaseObserver):
         recording_url: str = TUNER_RECORDING_PLACEHOLDER,
     ) -> dict[str, Any] | None:
         if self._context_provider is None:
-            logger.warning("[tuner] no context provider attached; skipping payload snapshot")
+            logger.warning(
+                "[tuner] no context provider attached; skipping payload snapshot"
+            )
             return None
 
         transcript = list(self._context_provider())

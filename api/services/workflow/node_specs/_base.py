@@ -1,9 +1,9 @@
 """Spec schema for node definitions.
 
-A `NodeSpec` is the single source of truth for a node type. It drives:
-- Pydantic validation (the per-type DTOs in dto.py mirror these property types)
-- The generic UI renderer (frontend reads specs via /api/v1/node-types)
-- The LLM SDK (constructors and JSON-Schema derived from these specs)
+`NodeSpec` is the serialized contract exposed to the frontend, MCP tools, and
+SDKs. Core workflow node specs are generated from the DTO models plus
+model-attached metadata; integration packages may generate them the same way or
+register a prebuilt spec object.
 
 Every property's `description` is LLM-readable copy — treat it as production
 documentation, not internal notes. Spec lint enforces non-empty descriptions

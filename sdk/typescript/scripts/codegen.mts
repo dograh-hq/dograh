@@ -127,8 +127,8 @@ function renderSpecFile(spec: NodeSpec): string {
     const header = `// GENERATED — do not edit by hand.
 //
 // Regenerate with \`npm run codegen\` against the target Dograh backend.
-// Source of truth: each node's NodeSpec in the backend's
-// \`api/services/workflow/node_specs/\` directory.
+// Source of truth: the backend's model-backed node-spec catalog served
+// from \`/api/v1/node-types\`.
 `;
 
     const nested: string[] = [];

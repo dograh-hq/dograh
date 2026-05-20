@@ -192,3 +192,100 @@ def test_all_dto_types_have_specs():
     type_values = all_node_type_names()
     missing = type_values - spec_names
     assert not missing, f"Registered node types without specs: {sorted(missing)}"
+
+
+@pytest.mark.parametrize(
+    ("spec_name", "expected_order"),
+    [
+        (
+            "startCall",
+            [
+                "name",
+                "greeting_type",
+                "greeting",
+                "greeting_recording_id",
+                "prompt",
+                "allow_interrupt",
+                "add_global_prompt",
+                "delayed_start",
+                "delayed_start_duration",
+                "extraction_enabled",
+                "extraction_prompt",
+                "extraction_variables",
+                "tool_uuids",
+                "document_uuids",
+                "pre_call_fetch_enabled",
+                "pre_call_fetch_url",
+                "pre_call_fetch_credential_uuid",
+            ],
+        ),
+        (
+            "agentNode",
+            [
+                "name",
+                "prompt",
+                "allow_interrupt",
+                "add_global_prompt",
+                "extraction_enabled",
+                "extraction_prompt",
+                "extraction_variables",
+                "tool_uuids",
+                "document_uuids",
+            ],
+        ),
+        (
+            "endCall",
+            [
+                "name",
+                "prompt",
+                "add_global_prompt",
+                "extraction_enabled",
+                "extraction_prompt",
+                "extraction_variables",
+            ],
+        ),
+        ("globalNode", ["name", "prompt"]),
+        ("trigger", ["name", "enabled", "trigger_path"]),
+        (
+            "webhook",
+            [
+                "name",
+                "enabled",
+                "http_method",
+                "endpoint_url",
+                "credential_uuid",
+                "custom_headers",
+                "payload_template",
+            ],
+        ),
+        (
+            "qa",
+            [
+                "name",
+                "qa_enabled",
+                "qa_system_prompt",
+                "qa_min_call_duration",
+                "qa_voicemail_calls",
+                "qa_sample_rate",
+                "qa_use_workflow_llm",
+                "qa_provider",
+                "qa_model",
+                "qa_api_key",
+                "qa_endpoint",
+            ],
+        ),
+        (
+            "tuner",
+            [
+                "name",
+                "tuner_enabled",
+                "tuner_agent_id",
+                "tuner_workspace_id",
+                "tuner_api_key",
+            ],
+        ),
+    ],
+)
+def test_node_spec_property_order_stable(spec_name: str, expected_order: list[str]):
+    spec = next(spec for spec in all_specs() if spec.name == spec_name)
+    assert [prop.name for prop in spec.properties] == expected_order

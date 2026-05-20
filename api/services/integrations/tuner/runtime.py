@@ -66,7 +66,9 @@ class TunerRuntimeSession(IntegrationRuntimeSession):
         *,
         gathered_context: dict[str, Any],
     ) -> dict[str, Any] | None:
-        self._collector.set_disconnection_reason(gathered_context.get("call_disposition"))
+        self._collector.set_disconnection_reason(
+            gathered_context.get("call_disposition")
+        )
         payload = self._collector.build_payload_snapshot()
         if payload is None:
             return None

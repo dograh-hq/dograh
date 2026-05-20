@@ -12,7 +12,6 @@ export type FlowNodeData = {
     prompt?: string;
     name: string;
     is_start?: boolean;
-    is_static?: boolean;
     is_end?: boolean;
     invalid?: boolean;
     validationMessage?: string | null;
@@ -26,8 +25,6 @@ export type FlowNodeData = {
     greeting?: string;
     greeting_type?: 'text' | 'audio';
     greeting_recording_id?: string;
-    wait_for_user_greeting?: boolean;
-    detect_voicemail?: boolean;
     delayed_start?: boolean;
     delayed_start_duration?: number;
     // Pre-call data fetch (StartCall only)

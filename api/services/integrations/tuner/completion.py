@@ -19,9 +19,7 @@ def _build_recording_url(
 ) -> str | None:
     workflow_run = context.workflow_run
     if context.public_token:
-        base_url = (
-            f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{context.public_token}"
-        )
+        base_url = f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{context.public_token}"
         return f"{base_url}/recording" if workflow_run.recording_url else None
     return workflow_run.recording_url
 

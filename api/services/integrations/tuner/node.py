@@ -1,26 +1,119 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 
 from api.services.integrations.base import IntegrationNodeRegistration
 from api.services.workflow.node_specs._base import (
     GraphConstraints,
     NodeCategory,
     NodeExample,
-    NodeSpec,
-    PropertySpec,
     PropertyType,
+)
+from api.services.workflow.node_specs.model_spec import (
+    build_spec,
+    node_spec,
+    spec_field,
 )
 
 
+@node_spec(
+    name="tuner",
+    display_name="Tuner",
+    description="Export the completed call to Tuner for Agent Observability",
+    llm_hint=(
+        "Tuner is a post-call observability export. It does not participate in the "
+        "conversation graph and should not be connected to other nodes."
+    ),
+    category=NodeCategory.integration,
+    icon="Activity",
+    examples=[
+        NodeExample(
+            name="tuner_export",
+            data={
+                "name": "Primary Tuner Export",
+                "tuner_enabled": True,
+                "tuner_agent_id": "sales-bot-prod",
+                "tuner_workspace_id": 42,
+                "tuner_api_key": "tuner_live_xxxxxxxx",
+            },
+        )
+    ],
+    graph_constraints=GraphConstraints(
+        min_incoming=0,
+        max_incoming=0,
+        min_outgoing=0,
+        max_outgoing=0,
+    ),
+    property_order=(
+        "name",
+        "tuner_enabled",
+        "tuner_agent_id",
+        "tuner_workspace_id",
+        "tuner_api_key",
+    ),
+    field_overrides={
+        "name": {
+            "spec_default": "Tuner",
+            "description": "Short identifier for this Tuner export configuration.",
+        },
+        "tuner_enabled": {
+            "display_name": "Enabled",
+            "description": "When false, Dograh skips exporting this call to Tuner.",
+        },
+        "tuner_agent_id": {
+            "display_name": "Tuner Agent ID",
+            "description": "The agent identifier registered in your Tuner workspace.",
+            "required": True,
+        },
+        "tuner_workspace_id": {
+            "display_name": "Tuner Workspace ID",
+            "description": "Your numeric Tuner workspace ID.",
+            "required": True,
+            "min_value": 1,
+        },
+        "tuner_api_key": {
+            "display_name": "Tuner API Key",
+            "description": "Bearer token used when posting completed calls to Tuner.",
+            "required": True,
+        },
+    },
+)
 class TunerNodeData(BaseModel):
-    name: str = Field(..., min_length=1)
-    is_start: bool = False
-    is_end: bool = False
-    tuner_enabled: bool = True
-    tuner_agent_id: str | None = None
-    tuner_workspace_id: int | None = Field(default=None, gt=0)
-    tuner_api_key: str | None = None
+    name: str = spec_field(
+        ...,
+        min_length=1,
+        ui_type=PropertyType.string,
+        display_name="Name",
+        description="Short identifier for this Tuner export configuration.",
+        required=True,
+    )
+    is_start: bool = spec_field(default=False, spec_exclude=True)
+    is_end: bool = spec_field(default=False, spec_exclude=True)
+    tuner_enabled: bool = spec_field(
+        default=True,
+        ui_type=PropertyType.boolean,
+        display_name="Enabled",
+        description="When false, Dograh skips exporting this call to Tuner.",
+    )
+    tuner_agent_id: str | None = spec_field(
+        default=None,
+        ui_type=PropertyType.string,
+        display_name="Tuner Agent ID",
+        description="The agent identifier registered in your Tuner workspace.",
+    )
+    tuner_workspace_id: int | None = spec_field(
+        default=None,
+        gt=0,
+        ui_type=PropertyType.number,
+        display_name="Tuner Workspace ID",
+        description="Your numeric Tuner workspace ID.",
+    )
+    tuner_api_key: str | None = spec_field(
+        default=None,
+        ui_type=PropertyType.string,
+        display_name="Tuner API Key",
+        description="Bearer token used when posting completed calls to Tuner.",
+    )
 
     @model_validator(mode="after")
     def _validate_enabled_config(self):
@@ -37,80 +130,14 @@ class TunerNodeData(BaseModel):
 
         if missing:
             fields = ", ".join(missing)
-            raise ValueError(f"Tuner node is enabled but missing required fields: {fields}")
+            raise ValueError(
+                f"Tuner node is enabled but missing required fields: {fields}"
+            )
 
         return self
 
 
-SPEC = NodeSpec(
-    name="tuner",
-    display_name="Tuner",
-    description="Export the completed call to Tuner for Agent Observability",
-    llm_hint=(
-        "Tuner is a post-call observability export. It does not participate in the "
-        "conversation graph and should not be connected to other nodes."
-    ),
-    category=NodeCategory.integration,
-    icon="Activity",
-    properties=[
-        PropertySpec(
-            name="name",
-            type=PropertyType.string,
-            display_name="Name",
-            description="Short identifier for this Tuner export configuration.",
-            required=True,
-            min_length=1,
-            default="Tuner",
-        ),
-        PropertySpec(
-            name="tuner_enabled",
-            type=PropertyType.boolean,
-            display_name="Enabled",
-            description="When false, Dograh skips exporting this call to Tuner.",
-            default=True,
-        ),
-        PropertySpec(
-            name="tuner_agent_id",
-            type=PropertyType.string,
-            display_name="Tuner Agent ID",
-            description="The agent identifier registered in your Tuner workspace.",
-            required=True,
-        ),
-        PropertySpec(
-            name="tuner_workspace_id",
-            type=PropertyType.number,
-            display_name="Tuner Workspace ID",
-            description="Your numeric Tuner workspace ID.",
-            required=True,
-            min_value=1,
-        ),
-        PropertySpec(
-            name="tuner_api_key",
-            type=PropertyType.string,
-            display_name="Tuner API Key",
-            description="Bearer token used when posting completed calls to Tuner.",
-            required=True,
-        ),
-    ],
-    examples=[
-        NodeExample(
-            name="tuner_export",
-            data={
-                "name": "Primary Tuner Export",
-                "tuner_enabled": True,
-                "tuner_agent_id": "sales-bot-prod",
-                "tuner_workspace_id": 42,
-                "tuner_api_key": "tuner_live_xxxxxxxx",
-            },
-        ),
-    ],
-    graph_constraints=GraphConstraints(
-        min_incoming=0,
-        max_incoming=0,
-        min_outgoing=0,
-        max_outgoing=0,
-    ),
-)
+SPEC = build_spec(TunerNodeData)
 
 
 NODE = IntegrationNodeRegistration(

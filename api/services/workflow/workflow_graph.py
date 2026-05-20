@@ -75,7 +75,6 @@ class Node:
         # Type-specific fields — read with getattr so this works for every
         # node variant in the discriminated union.
         self.prompt = getattr(data, "prompt", None)
-        self.is_static = getattr(data, "is_static", False)
         self.allow_interrupt = getattr(data, "allow_interrupt", False)
         self.extraction_enabled = getattr(data, "extraction_enabled", False)
         self.extraction_prompt = getattr(data, "extraction_prompt", None)
@@ -84,7 +83,6 @@ class Node:
         self.greeting = getattr(data, "greeting", None)
         self.greeting_type = getattr(data, "greeting_type", None)
         self.greeting_recording_id = getattr(data, "greeting_recording_id", None)
-        self.detect_voicemail = getattr(data, "detect_voicemail", False)
         self.delayed_start = getattr(data, "delayed_start", False)
         self.delayed_start_duration = getattr(data, "delayed_start_duration", None)
         self.tool_uuids = getattr(data, "tool_uuids", None)
@@ -250,9 +248,7 @@ class WorkflowGraph:
     def _assert_global_node(self):
         errors: list[WorkflowError] = []
         global_node = [
-            n
-            for n in self.nodes.values()
-            if n.node_type == NodeType.globalNode.value
+            n for n in self.nodes.values() if n.node_type == NodeType.globalNode.value
         ]
         if not len(global_node) <= 1:
             errors.append(

@@ -1,8 +1,8 @@
 """GENERATED — do not edit by hand.
 
 Regenerate with `python -m dograh_sdk.codegen` against the target
-Dograh backend. Source of truth: each node's NodeSpec in the backend's
-`api/services/workflow/node_specs/` directory.
+Dograh backend. Source of truth: the backend's model-backed node-spec
+catalog served from `/api/v1/node-types`.
 """
 
 from __future__ import annotations
@@ -26,11 +26,11 @@ class EndCall_Extraction_variablesRow:
     """
     type: Literal['string', 'number', 'boolean'] = 'string'
     """
-    The data type of the extracted value.
+    Data type of the extracted value.
     """
     prompt: Optional[str] = None
     """
-    Per-variable hint describing what to look for in the conversation.
+    Per-variable hint describing what to look for.
     """
 
 @dataclass(kw_only=True)

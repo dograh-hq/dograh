@@ -12,8 +12,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
 import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } from '@/client/types.gen';
-import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { useNodeSpecs } from "@/components/flow/renderer";
+import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { WorkflowConfigurations } from '@/types/workflow-configurations';

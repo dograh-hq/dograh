@@ -1,8 +1,8 @@
 """Node specification registry.
 
-Core node specs live in this package. Third-party integration node specs live
-under `api.services.integrations/<name>/` and register through the integration
-registry so they don't need edits here.
+Core node specs are generated from the workflow DTO models. Third-party
+integration node specs live under `api.services.integrations/<name>/` and
+register through the integration registry so they don't need edits here.
 """
 
 from __future__ import annotations
@@ -19,8 +19,10 @@ from api.services.workflow.node_specs._base import (
     PropertyType,
     evaluate_display_options,
 )
+from api.services.workflow.node_specs.model_spec import build_spec
 
 REGISTRY: dict[str, NodeSpec] = {}
+_CORE_SPECS_LOADED = False
 
 
 def register(spec: NodeSpec) -> NodeSpec:
@@ -36,6 +38,7 @@ def register(spec: NodeSpec) -> NodeSpec:
 
 
 def get_spec(name: str) -> NodeSpec | None:
+    _ensure_core_registered()
     if name in REGISTRY:
         return REGISTRY[name]
 
@@ -46,6 +49,7 @@ def get_spec(name: str) -> NodeSpec | None:
 
 def all_specs() -> list[NodeSpec]:
     """All registered specs, sorted by name for stable output."""
+    _ensure_core_registered()
     from api.services.integrations import all_node_specs
 
     specs = {spec.name: spec for spec in REGISTRY.values()}
@@ -71,27 +75,15 @@ __all__ = [
 ]
 
 
-# Side-effect imports — each module's `register(SPEC)` call populates REGISTRY.
-# Keep at module bottom so the registry helpers are defined first.
-from api.services.workflow.node_specs import (  # noqa: E402, F401
-    agent,
-    end_call,
-    global_node,
-    qa,
-    start_call,
-    trigger,
-    webhook,
-)
+def _ensure_core_registered() -> None:
+    global _CORE_SPECS_LOADED
+    if _CORE_SPECS_LOADED:
+        return
 
-# Wire up registrations from the SPEC constants in each module.
-for _module in (
-    start_call,
-    agent,
-    end_call,
-    global_node,
-    trigger,
-    webhook,
-    qa,
-):
-    register(_module.SPEC)
-del _module
+    from api.services.workflow.dto import _CORE_NODE_DATA_CLASSES
+
+    for model_cls in _CORE_NODE_DATA_CLASSES.values():
+        if model_cls.__node_spec_metadata__.name in REGISTRY:
+            continue
+        register(build_spec(model_cls))
+    _CORE_SPECS_LOADED = True

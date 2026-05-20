@@ -3,7 +3,7 @@ from __future__ import annotations
 import importlib
 import pkgutil
 
-_INTERNAL_MODULES = {"base", "loader", "nango", "registry"}
+_INTERNAL_MODULES = {"base", "loader", "registry"}
 _loaded = False
 
 

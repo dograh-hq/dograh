@@ -137,28 +137,6 @@ export type AriConfigurationResponse = {
 };
 
 /**
- * AccessTokenResponse
- */
-export type AccessTokenResponse = {
-    /**
-     * Access Token
-     */
-    access_token: string | null;
-    /**
-     * Refresh Token
-     */
-    refresh_token: string | null;
-    /**
-     * Expires At
-     */
-    expires_at: string | null;
-    /**
-     * Connection Id
-     */
-    connection_id: string;
-};
-
-/**
  * AmbientNoiseUploadRequest
  */
 export type AmbientNoiseUploadRequest = {
@@ -1966,50 +1944,6 @@ export type InitiateCallRequest = {
 };
 
 /**
- * IntegrationResponse
- */
-export type IntegrationResponse = {
-    /**
-     * Id
-     */
-    id: number;
-    /**
-     * Integration Id
-     */
-    integration_id: string;
-    /**
-     * Organization Id
-     */
-    organization_id: number;
-    /**
-     * Created By
-     */
-    created_by: number | null;
-    /**
-     * Provider
-     */
-    provider: string;
-    /**
-     * Is Active
-     */
-    is_active: boolean;
-    /**
-     * Created At
-     */
-    created_at: string;
-    /**
-     * Action
-     */
-    action: string;
-    /**
-     * Provider Data
-     */
-    provider_data: {
-        [key: string]: unknown;
-    };
-};
-
-/**
  * ItemKind
  */
 export type ItemKind = 'node' | 'edge' | 'workflow';
@@ -3091,20 +3025,6 @@ export type ServiceKeyResponse = {
 };
 
 /**
- * SessionResponse
- */
-export type SessionResponse = {
-    /**
-     * Session Token
-     */
-    session_token: string;
-    /**
-     * Expires At
-     */
-    expires_at: string;
-};
-
-/**
  * SignupRequest
  */
 export type SignupRequest = {
@@ -3893,18 +3813,6 @@ export type UpdateCredentialRequest = {
     credential_data?: {
         [key: string]: unknown;
     } | null;
-};
-
-/**
- * UpdateIntegrationRequest
- */
-export type UpdateIntegrationRequest = {
-    /**
-     * Selected Files
-     */
-    selected_files: Array<{
-        [key: string]: unknown;
-    }>;
 };
 
 /**
@@ -7839,174 +7747,6 @@ export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses = {
 };
 
 export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponse = UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses[keyof UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses];
-
-export type GetIntegrationsApiV1IntegrationGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/v1/integration/';
-};
-
-export type GetIntegrationsApiV1IntegrationGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetIntegrationsApiV1IntegrationGetError = GetIntegrationsApiV1IntegrationGetErrors[keyof GetIntegrationsApiV1IntegrationGetErrors];
-
-export type GetIntegrationsApiV1IntegrationGetResponses = {
-    /**
-     * Response Get Integrations Api V1 Integration  Get
-     *
-     * Successful Response
-     */
-    200: Array<IntegrationResponse>;
-};
-
-export type GetIntegrationsApiV1IntegrationGetResponse = GetIntegrationsApiV1IntegrationGetResponses[keyof GetIntegrationsApiV1IntegrationGetResponses];
-
-export type CreateSessionApiV1IntegrationSessionPostData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path?: never;
-    query?: never;
-    url: '/api/v1/integration/session';
-};
-
-export type CreateSessionApiV1IntegrationSessionPostErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type CreateSessionApiV1IntegrationSessionPostError = CreateSessionApiV1IntegrationSessionPostErrors[keyof CreateSessionApiV1IntegrationSessionPostErrors];
-
-export type CreateSessionApiV1IntegrationSessionPostResponses = {
-    /**
-     * Successful Response
-     */
-    200: SessionResponse;
-};
-
-export type CreateSessionApiV1IntegrationSessionPostResponse = CreateSessionApiV1IntegrationSessionPostResponses[keyof CreateSessionApiV1IntegrationSessionPostResponses];
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutData = {
-    body: UpdateIntegrationRequest;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Integration Id
-         */
-        integration_id: number;
-    };
-    query?: never;
-    url: '/api/v1/integration/{integration_id}';
-};
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutError = UpdateIntegrationApiV1IntegrationIntegrationIdPutErrors[keyof UpdateIntegrationApiV1IntegrationIntegrationIdPutErrors];
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutResponses = {
-    /**
-     * Successful Response
-     */
-    200: IntegrationResponse;
-};
-
-export type UpdateIntegrationApiV1IntegrationIntegrationIdPutResponse = UpdateIntegrationApiV1IntegrationIntegrationIdPutResponses[keyof UpdateIntegrationApiV1IntegrationIntegrationIdPutResponses];
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetData = {
-    body?: never;
-    headers?: {
-        /**
-         * Authorization
-         */
-        authorization?: string | null;
-        /**
-         * X-Api-Key
-         */
-        'X-API-Key'?: string | null;
-    };
-    path: {
-        /**
-         * Integration Id
-         */
-        integration_id: number;
-    };
-    query?: never;
-    url: '/api/v1/integration/{integration_id}/access-token';
-};
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetErrors = {
-    /**
-     * Not found
-     */
-    404: unknown;
-    /**
-     * Validation Error
-     */
-    422: HttpValidationError;
-};
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetError = GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetErrors[keyof GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetErrors];
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses = {
-    /**
-     * Successful Response
-     */
-    200: AccessTokenResponse;
-};
-
-export type GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponse = GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses[keyof GetIntegrationAccessTokenApiV1IntegrationIntegrationIdAccessTokenGetResponses];
 
 export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetData = {
     body?: never;

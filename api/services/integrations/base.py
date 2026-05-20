@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Protocol
 
 from fastapi import APIRouter
-from pydantic import BaseModel
 
+from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs._base import NodeSpec
 
 
@@ -55,7 +55,7 @@ CompletionHandler = Callable[
 @dataclass(frozen=True)
 class IntegrationNodeRegistration:
     type_name: str
-    data_model: type[BaseModel]
+    data_model: type[BaseNodeData]
     node_spec: NodeSpec
     sensitive_fields: tuple[str, ...] = ()
 

@@ -9,6 +9,7 @@ from api.services.integrations import (
 from api.services.integrations import (
     get_node_data_model as get_integration_node_data_model,
 )
+from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs._base import (
     DisplayOptions,
     GraphConstraints,
@@ -92,25 +93,11 @@ class CustomHeaderDTO(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────
 # Per-type node data classes.
 #
-# Shared fields are factored out as Pydantic mixins; per-type classes
-# inherit only the mixins they need so mistyped fields raise at validation
-# time and downstream consumers get accurate types. `is_start` / `is_end`
-# live on every variant so the WorkflowGraph can identify boundary nodes
-# without dispatching on type.
+# Shared fields live on `BaseNodeData` in a neutral module so both core and
+# integration nodes can inherit the same workflow contract. Per-type classes
+# then add only the mixins they need so mistyped fields raise at validation
+# time and downstream consumers get accurate types.
 # ─────────────────────────────────────────────────────────────────────────
-
-
-class _NodeDataBase(BaseModel):
-    name: str = spec_field(
-        ...,
-        min_length=1,
-        ui_type=PropertyType.string,
-        display_name="Name",
-        description="Short identifier shown in the canvas and call logs.",
-        required=True,
-    )
-    is_start: bool = spec_field(default=False, spec_exclude=True)
-    is_end: bool = spec_field(default=False, spec_exclude=True)
 
 
 class _PromptedNodeDataMixin(BaseModel):
@@ -325,7 +312,7 @@ class _ToolDocumentRefsMixin(BaseModel):
     },
 )
 class StartCallNodeData(
-    _NodeDataBase,
+    BaseNodeData,
     _PromptedNodeDataMixin,
     _ExtractionNodeDataMixin,
     _ToolDocumentRefsMixin,
@@ -431,7 +418,7 @@ class StartCallNodeData(
     },
 )
 class AgentNodeData(
-    _NodeDataBase,
+    BaseNodeData,
     _PromptedNodeDataMixin,
     _ExtractionNodeDataMixin,
     _ToolDocumentRefsMixin,
@@ -513,7 +500,7 @@ class AgentNodeData(
     },
 )
 class EndCallNodeData(
-    _NodeDataBase,
+    BaseNodeData,
     _PromptedNodeDataMixin,
     _ExtractionNodeDataMixin,
 ):
@@ -580,7 +567,7 @@ class EndCallNodeData(
         "add_global_prompt": {"spec_exclude": True},
     },
 )
-class GlobalNodeData(_NodeDataBase, _PromptedNodeDataMixin):
+class GlobalNodeData(BaseNodeData, _PromptedNodeDataMixin):
     pass
 
 
@@ -634,7 +621,7 @@ class GlobalNodeData(_NodeDataBase, _PromptedNodeDataMixin):
         },
     },
 )
-class TriggerNodeData(_NodeDataBase):
+class TriggerNodeData(BaseNodeData):
     trigger_path: Optional[str] = spec_field(default=None, ui_type=PropertyType.string)
     enabled: bool = spec_field(default=True, ui_type=PropertyType.boolean)
 
@@ -734,7 +721,7 @@ class TriggerNodeData(_NodeDataBase):
         },
     },
 )
-class WebhookNodeData(_NodeDataBase):
+class WebhookNodeData(BaseNodeData):
     enabled: bool = spec_field(default=True, ui_type=PropertyType.boolean)
     http_method: Optional[str] = spec_field(default=None, ui_type=PropertyType.options)
     endpoint_url: Optional[str] = spec_field(default=None, ui_type=PropertyType.url)
@@ -870,7 +857,7 @@ class WebhookNodeData(_NodeDataBase):
         },
     },
 )
-class QANodeData(_NodeDataBase):
+class QANodeData(BaseNodeData):
     qa_enabled: bool = spec_field(default=True, ui_type=PropertyType.boolean)
     qa_use_workflow_llm: bool = spec_field(default=True, ui_type=PropertyType.boolean)
     qa_provider: Optional[str] = spec_field(default=None, ui_type=PropertyType.options)
@@ -1059,7 +1046,7 @@ class ReactFlowDTO(BaseModel):
         return self
 
 
-_CORE_NODE_DATA_CLASSES: dict[str, type[BaseModel]] = {
+_CORE_NODE_DATA_CLASSES: dict[str, type[BaseNodeData]] = {
     NodeType.startNode.value: StartCallNodeData,
     NodeType.agentNode.value: AgentNodeData,
     NodeType.endNode.value: EndCallNodeData,
@@ -1070,7 +1057,7 @@ _CORE_NODE_DATA_CLASSES: dict[str, type[BaseModel]] = {
 }
 
 
-def get_node_data_model(type_name: str) -> type[BaseModel] | None:
+def get_node_data_model(type_name: str) -> type[BaseNodeData] | None:
     return _CORE_NODE_DATA_CLASSES.get(type_name) or get_integration_node_data_model(
         type_name
     )

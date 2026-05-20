@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, model_validator
+from pydantic import model_validator
 
 from api.services.integrations.base import IntegrationNodeRegistration
+from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs._base import (
     GraphConstraints,
     NodeCategory,
@@ -78,17 +79,7 @@ from api.services.workflow.node_specs.model_spec import (
         },
     },
 )
-class TunerNodeData(BaseModel):
-    name: str = spec_field(
-        ...,
-        min_length=1,
-        ui_type=PropertyType.string,
-        display_name="Name",
-        description="Short identifier for this Tuner export configuration.",
-        required=True,
-    )
-    is_start: bool = spec_field(default=False, spec_exclude=True)
-    is_end: bool = spec_field(default=False, spec_exclude=True)
+class TunerNodeData(BaseNodeData):
     tuner_enabled: bool = spec_field(
         default=True,
         ui_type=PropertyType.boolean,

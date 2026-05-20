@@ -14,7 +14,12 @@ import re
 
 import pytest
 
-from api.services.workflow.dto import ReactFlowDTO, all_node_type_names
+from api.services.workflow.dto import (
+    ReactFlowDTO,
+    all_node_type_names,
+    get_node_data_model,
+)
+from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs import (
     NodeSpec,
     PropertySpec,
@@ -192,6 +197,15 @@ def test_all_dto_types_have_specs():
     type_values = all_node_type_names()
     missing = type_values - spec_names
     assert not missing, f"Registered node types without specs: {sorted(missing)}"
+
+
+def test_all_registered_node_models_inherit_base_node_data():
+    for type_name in sorted(all_node_type_names()):
+        data_model = get_node_data_model(type_name)
+        assert data_model is not None, f"{type_name}: missing node data model"
+        assert issubclass(data_model, BaseNodeData), (
+            f"{type_name}: node data model must inherit BaseNodeData"
+        )
 
 
 @pytest.mark.parametrize(

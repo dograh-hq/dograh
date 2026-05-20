@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Set
 
 from api.services.workflow.dto import EdgeDataDTO, NodeType, ReactFlowDTO
 from api.services.workflow.errors import ItemKind, WorkflowError
+from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs import get_spec
 
 # Regex for matching {{ variable }} template placeholders.
@@ -62,7 +63,7 @@ class Edge:
 
 
 class Node:
-    def __init__(self, id: str, node_type: str, data: Any):
+    def __init__(self, id: str, node_type: str, data: BaseNodeData):
         self.id, self.node_type, self.data = id, node_type, data
         self.out: Dict[str, "Node"] = {}  # forward nodes
         self.out_edges: List[Edge] = []  # forward edges with properties

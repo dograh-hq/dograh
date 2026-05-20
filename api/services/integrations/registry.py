@@ -4,9 +4,11 @@ from typing import Any
 
 from api.services.integrations.base import (
     IntegrationCompletionContext,
+    IntegrationNodeRegistration,
     IntegrationPackageSpec,
     IntegrationRuntimeContext,
 )
+from api.services.workflow.node_data import BaseNodeData
 
 _PACKAGE_REGISTRY: dict[str, IntegrationPackageSpec] = {}
 
@@ -37,7 +39,7 @@ def get_package(name: str) -> IntegrationPackageSpec | None:
     return _PACKAGE_REGISTRY.get(name)
 
 
-def get_node_registration(type_name: str):
+def get_node_registration(type_name: str) -> IntegrationNodeRegistration | None:
     _ensure_loaded()
     for package in _PACKAGE_REGISTRY.values():
         for node in package.nodes:
@@ -46,7 +48,7 @@ def get_node_registration(type_name: str):
     return None
 
 
-def get_node_data_model(type_name: str):
+def get_node_data_model(type_name: str) -> type[BaseNodeData] | None:
     registration = get_node_registration(type_name)
     return registration.data_model if registration else None
 

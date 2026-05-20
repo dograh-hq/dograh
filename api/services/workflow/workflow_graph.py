@@ -1,6 +1,6 @@
 import re
 from collections import Counter
-from typing import Any, Dict, List, Set
+from typing import Dict, List, Set
 
 from api.services.workflow.dto import EdgeDataDTO, NodeType, ReactFlowDTO
 from api.services.workflow.errors import ItemKind, WorkflowError

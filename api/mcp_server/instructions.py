@@ -16,6 +16,11 @@ You build and edit Dograh voice-AI workflows by emitting TypeScript that uses th
 
 ## Call order
 
+### Reading documentation
+1. `search_docs(query)` — use first for keyword or acronym lookup when the user is asking how Dograh works or how to configure something.
+2. `read_doc(path)` — fetch the full page once one result looks likely. Prefer this over reasoning from search summaries alone.
+3. `list_docs(path=None, depth=1)` — use when the user wants to browse a topic area or when search terms are too vague. Returned section paths feed back into `list_docs`; returned page paths feed into `read_doc`.
+
 ### Editing an existing workflow
 1. `list_workflows` — locate the target workflow.
 2. `get_workflow_code(workflow_id)` — fetch the current source.

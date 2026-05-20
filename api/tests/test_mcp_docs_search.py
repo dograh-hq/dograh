@@ -1,14 +1,4 @@
-"""Unit tests for the `search_docs` MCP tool.
-
-The tool reads the docs corpus from disk via ``_resolve_docs_root`` and
-caches it with ``functools.lru_cache``. These tests point the cache at
-a synthetic corpus per-test so the assertions don't depend on the real
-docs tree (which evolves) and the LRU cache doesn't leak state.
-
-`authenticate_mcp_request` is mocked so the tests don't need a live DB
-or a valid API key — mirroring the pattern in
-``test_mcp_save_workflow.py``.
-"""
+"""Unit tests for the MCP docs discovery tools."""
 
 from __future__ import annotations
 
@@ -17,71 +7,152 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 
 from api.mcp_server.tools import docs_search as docs_search_module
 from api.mcp_server.tools.docs_search import (
-    _docs_url_for,
+    _docs_index,
     _extract_page_title,
     _resolve_docs_root,
     _score_page,
     _strip_frontmatter,
     _tokenize_query,
+    list_docs,
+    read_doc,
     search_docs,
 )
 
 
-# ─── Fixtures ────────────────────────────────────────────────────────────
+def _clear_docs_caches() -> None:
+    docs_search_module._docs_index.cache_clear()
 
 
 @pytest.fixture
 def fake_docs_root(tmp_path: Path) -> Path:
-    """Build a minimal docs tree on disk and point the tool at it."""
     docs_root = tmp_path / "docs"
     docs_root.mkdir()
 
-    (docs_root / "configurations").mkdir()
-    (docs_root / "configurations" / "voice.mdx").write_text(
+    (docs_root / "getting-started").mkdir()
+    (docs_root / "getting-started" / "index.mdx").write_text(
         "---\n"
-        'title: "Voice"\n'
+        'title: "Getting started"\n'
+        'description: "Start using Dograh."\n'
         "---\n\n"
-        "# Voice configuration\n\n"
-        "Dograh supports ElevenLabs and Cartesia TTS providers.\n"
-        "Configure the ElevenLabs voice_id in your workspace settings.\n",
+        "# Getting started\n\n"
+        "Welcome to Dograh.\n",
         encoding="utf-8",
     )
-    (docs_root / "configurations" / "transcriber.mdx").write_text(
+
+    (docs_root / "voice-agent").mkdir()
+    (docs_root / "voice-agent" / "introduction.mdx").write_text(
         "---\n"
-        'title: "Transcriber"\n'
+        'title: "Voice Agent Builder"\n'
+        'description: "Build conversational workflows."\n'
         "---\n\n"
-        "# Speech-to-text\n\nDeepgram is the default transcriber.\n",
+        "# Voice Agent Builder\n\n"
+        "Build workflows with nodes and tools.\n",
+        encoding="utf-8",
+    )
+
+    (docs_root / "voice-agent" / "tools").mkdir()
+    (docs_root / "voice-agent" / "tools" / "mcp-tool.mdx").write_text(
+        "---\n"
+        'title: "MCP Tool"\n'
+        'description: "Connect external MCP servers."\n'
+        'llm_hint: "Use for MCP server setup, remote tools, or model context protocol questions."\n'
+        "aliases:\n"
+        '  - "model context protocol"\n'
+        "---\n\n"
+        "# MCP Tool\n\n"
+        "Connect an external MCP server to your voice agent.\n\n"
+        "## Authentication\n\n"
+        "Provide the MCP endpoint URL and headers.\n",
         encoding="utf-8",
     )
 
     (docs_root / "deployment").mkdir()
-    (docs_root / "deployment" / "turn-server.mdx").write_text(
+    (docs_root / "deployment" / "docker.mdx").write_text(
         "---\n"
-        'title: "TURN server setup"\n'
+        'title: "Docker"\n'
+        'description: "Deploy Dograh with Docker."\n'
+        'llm_hint: "Use for Docker deployment, local setup, remote setup, TURN server, coturn, or WebRTC connectivity questions."\n'
+        "aliases:\n"
+        '  - "coturn"\n'
+        '  - "turn server"\n'
         "---\n\n"
-        "# TURN server\n\n"
-        "WebRTC requires a TURN server for NAT traversal. Coturn is the "
-        "recommended choice for self-hosted deployments.\n",
+        "# Docker\n\n"
+        "Run Dograh with Docker.\n\n"
+        "## Troubleshooting WebRTC Connectivity\n\n"
+        "If audio fails or ICE fails, configure a TURN server. Coturn is the recommended choice.\n",
         encoding="utf-8",
     )
 
-    # A non-doc file that must be ignored by the corpus loader.
-    (docs_root / "docs.json").write_text('{"name":"Dograh"}', encoding="utf-8")
+    # Hidden/orphaned docs page: present on disk but not in docs.json, so it
+    # must not be indexed by the MCP tools.
+    (docs_root / "internal-only.mdx").write_text(
+        "---\n"
+        'title: "Internal TURN Notes"\n'
+        "---\n\n"
+        "# Internal TURN Notes\n\n"
+        "This page mentions zyxinternalturntoken but is not user-facing.\n",
+        encoding="utf-8",
+    )
 
-    # Reset the LRU cache and pin the resolver to our tmp tree.
-    docs_search_module._docs_corpus.cache_clear()
+    (docs_root / "AGENTS.md").write_text("# Internal instructions\n", encoding="utf-8")
+
+    (docs_root / "docs.json").write_text(
+        """{
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Getting started",
+            "pages": [
+              "getting-started/index"
+            ]
+          },
+          {
+            "group": "Voice Agent Builder",
+            "pages": [
+              "voice-agent/introduction",
+              {
+                "group": "Tools",
+                "pages": [
+                  "voice-agent/tools/mcp-tool"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Developer",
+        "groups": [
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
+""",
+        encoding="utf-8",
+    )
+
+    _clear_docs_caches()
     with patch.dict(os.environ, {"DOGRAH_DOCS_PATH": str(docs_root)}):
         yield docs_root
-    docs_search_module._docs_corpus.cache_clear()
+    _clear_docs_caches()
 
 
 @pytest.fixture
 def authed_user():
-    """Stub ``authenticate_mcp_request`` so tests skip the API-key path."""
-
     class _FakeUser:
         selected_organization_id = 1
         id = 42
@@ -93,18 +164,8 @@ def authed_user():
         yield _FakeUser()
 
 
-# ─── Pure helpers ────────────────────────────────────────────────────────
-
-
-def test_tokenize_query_strips_short_and_punct_terms():
-    """Punctuation and 1-char tokens must not bleed into the scorer.
-
-    A trailing `?` or stray `a` would otherwise match nearly every page
-    and flatten the relevance ranking.
-    """
-    assert _tokenize_query("How do I configure a TURN server?") == [
-        "how",
-        "do",
+def test_tokenize_query_dedupes_and_drops_stopwords():
+    assert _tokenize_query("How do I configure a TURN server TURN?") == [
         "configure",
         "turn",
         "server",
@@ -121,155 +182,92 @@ def test_strip_frontmatter_removes_yaml_block():
     assert _strip_frontmatter(body).startswith("# Heading")
 
 
-def test_strip_frontmatter_passes_through_when_missing():
-    body = "# Just a heading\nbody text\n"
-    assert _strip_frontmatter(body) == body
-
-
 def test_extract_page_title_prefers_frontmatter():
     body = '---\ntitle: "Front Title"\n---\n\n# Heading Title\n'
     assert _extract_page_title(body, fallback="x.mdx") == "Front Title"
 
 
 def test_extract_page_title_falls_back_to_first_heading():
-    """When frontmatter is missing the first ATX heading is the next best
-    signal — better than just returning the filename, which often is
-    a slug not a human-readable title."""
     body = "# Heading Title\nbody\n"
     assert _extract_page_title(body, fallback="x.mdx") == "Heading Title"
 
 
-def test_extract_page_title_falls_back_to_filename_when_nothing_matches():
-    body = "plain prose with no heading or frontmatter"
-    assert _extract_page_title(body, fallback="x.mdx") == "x.mdx"
-
-
-def test_docs_url_for_strips_extension_and_index():
-    assert (
-        _docs_url_for("configurations/voice.mdx")
-        == "https://docs.dograh.com/configurations/voice"
+def test_score_page_uses_llm_hint_and_aliases():
+    page = docs_search_module.DocPage(
+        path="deployment/docker",
+        file_path="deployment/docker.mdx",
+        title="Docker",
+        description="Deploy Dograh with Docker.",
+        llm_hint="Use for TURN server and coturn setup.",
+        aliases=("coturn",),
+        breadcrumb=("Developer", "Deployment"),
+        content="Docker deployment.",
+        sections=(
+            docs_search_module.DocSection(
+                title="Troubleshooting WebRTC Connectivity",
+                slug="troubleshooting-webrtc-connectivity",
+                level=2,
+                content="Configure a TURN server with coturn.",
+            ),
+        ),
+        order=0,
     )
-    assert (
-        _docs_url_for("getting-started/index.mdx")
-        == "https://docs.dograh.com/getting-started"
-    )
-
-
-def test_score_page_weights_title_above_body():
-    """Title hits must outweigh body hits — otherwise a long page that
-    incidentally mentions the term many times outranks the page whose
-    purpose IS the term."""
-    title_only = _score_page(
-        rel_path="other.mdx", title="TURN server", body="unrelated text", terms=["turn"]
-    )
-    body_only = _score_page(
-        rel_path="other.mdx",
-        title="Unrelated",
-        body="turn turn turn turn turn",
-        terms=["turn"],
-    )
-    assert title_only > body_only
-
-
-def test_score_page_returns_zero_when_no_terms_match():
-    assert (
-        _score_page(
-            rel_path="x.mdx", title="X", body="hello world", terms=["nonexistent"]
-        )
-        == 0
-    )
+    score, section = _score_page(page, ["coturn"])
+    assert score > 0
+    assert section is not None
+    assert section.slug == "troubleshooting-webrtc-connectivity"
 
 
 def test_resolve_docs_root_honors_env_override(tmp_path: Path):
     docs = tmp_path / "custom_docs"
     docs.mkdir()
+    (docs / "docs.json").write_text("{}", encoding="utf-8")
     with patch.dict(os.environ, {"DOGRAH_DOCS_PATH": str(docs)}):
         assert _resolve_docs_root() == docs.resolve()
 
 
-def test_resolve_docs_root_ignores_nonexistent_env_value(tmp_path: Path):
-    """A bogus env value must not crash the tool — fall back to discovery
-    (the real ``docs/`` in the repo) instead."""
-    with patch.dict(os.environ, {"DOGRAH_DOCS_PATH": str(tmp_path / "nope")}):
-        # Walk-up discovery should land somewhere (the repo's actual docs)
-        # but we don't assert the exact path because it depends on where
-        # the tests are run; we just assert no crash and either None or a dir.
-        resolved = _resolve_docs_root()
-        assert resolved is None or resolved.is_dir()
-
-
-# ─── End-to-end tool behaviour ───────────────────────────────────────────
-
-
 @pytest.mark.asyncio
-async def test_search_docs_ranks_turn_setup_first_for_turn_query(
+async def test_search_docs_ranks_turn_doc_and_uses_route_path(
     fake_docs_root, authed_user
 ):
-    """The page whose title and body are both about TURN must outrank
-    incidental mentions of related words on other pages."""
-    results = await search_docs("How do I set up a TURN server?")
-    assert results, "expected at least one result"
-    assert results[0]["path"] == "deployment/turn-server.mdx"
-    assert results[0]["url"] == "https://docs.dograh.com/deployment/turn-server"
-    assert "TURN server" in results[0]["title"]
-    assert "TURN" in results[0]["snippet"] or "turn" in results[0]["snippet"].lower()
+    results = await search_docs("How do I configure coturn for WebRTC?")
+    assert results
+    assert results[0]["path"] == "deployment/docker"
+    assert results[0]["section_slug"] == "troubleshooting-webrtc-connectivity"
+    assert "TURN server" in results[0]["llm_hint"]
+    assert "snippet" not in results[0]
+    assert "score" not in results[0]
+    assert "url" not in results[0]
 
 
 @pytest.mark.asyncio
-async def test_search_docs_excludes_non_doc_files(fake_docs_root, authed_user):
-    """``docs.json`` must not appear — the corpus loader filters to
-    .mdx/.md only."""
-    results = await search_docs("Dograh")
-    paths = [r["path"] for r in results]
-    assert "docs.json" not in paths
-
-
-@pytest.mark.asyncio
-async def test_search_docs_returns_empty_when_no_match(fake_docs_root, authed_user):
-    results = await search_docs("xyzzy unrelated zzz")
+async def test_search_docs_indexes_only_docs_json_pages(fake_docs_root, authed_user):
+    results = await search_docs("zyxinternalturntoken")
     assert results == []
 
 
 @pytest.mark.asyncio
 async def test_search_docs_respects_limit(fake_docs_root, authed_user):
-    """``limit=1`` must collapse the result list even if multiple pages
-    match."""
-    results = await search_docs("Dograh", limit=1)
+    results = await search_docs("dograh", limit=1)
     assert len(results) == 1
 
 
 @pytest.mark.asyncio
-async def test_search_docs_clamps_limit_to_hard_cap(fake_docs_root, authed_user):
-    """A pathological large limit must be clamped to
-    ``DOCS_SEARCH_MAX_LIMIT`` (=25) so the payload stays bounded."""
-    # Drop in extra docs so there's headroom to verify the clamp.
-    for i in range(30):
-        (fake_docs_root / f"extra-{i}.mdx").write_text(
-            f"# Page {i}\nThis Dograh page covers configurations topic {i}.\n",
-            encoding="utf-8",
-        )
-    docs_search_module._docs_corpus.cache_clear()
-    results = await search_docs("Dograh", limit=999)
-    assert len(results) <= 25
+async def test_search_docs_returns_empty_when_no_match(fake_docs_root, authed_user):
+    assert await search_docs("xyzzy unrelated zzz") == []
 
 
 @pytest.mark.asyncio
 async def test_search_docs_returns_empty_when_no_corpus(
     tmp_path, authed_user, monkeypatch
 ):
-    """If the docs directory doesn't exist on disk, the tool must
-    degrade to an empty list rather than raising — Docker images and
-    dev checkouts can disagree on layout."""
     nonexistent = tmp_path / "no-docs-here"
     monkeypatch.setenv("DOGRAH_DOCS_PATH", str(nonexistent))
-    # Also block the walk-up fallback by pointing the resolver at a
-    # tmp path with no `docs/` ancestor.
-    docs_search_module._docs_corpus.cache_clear()
+    _clear_docs_caches()
     with patch(
         "api.mcp_server.tools.docs_search._resolve_docs_root", return_value=None
     ):
-        results = await search_docs("anything")
-    assert results == []
+        assert await search_docs("anything") == []
 
 
 @pytest.mark.asyncio
@@ -279,16 +277,83 @@ async def test_search_docs_rejects_empty_query(fake_docs_root, authed_user):
 
 
 @pytest.mark.asyncio
-async def test_search_docs_rejects_query_with_no_real_terms(
+async def test_search_docs_rejects_query_with_only_stopwords(
     fake_docs_root, authed_user
 ):
-    """A query like `"???"` tokenizes to nothing — surface an actionable
-    error rather than silently returning every page."""
-    with pytest.raises(ValueError, match="2\\+ alphanumeric"):
-        await search_docs("?? // !!")
+    with pytest.raises(ValueError, match="non-stopword"):
+        await search_docs("how do I")
 
 
 @pytest.mark.asyncio
 async def test_search_docs_rejects_zero_limit(fake_docs_root, authed_user):
     with pytest.raises(ValueError, match="at least 1"):
         await search_docs("Dograh", limit=0)
+
+
+@pytest.mark.asyncio
+async def test_list_docs_returns_top_level_sections(fake_docs_root, authed_user):
+    results = await list_docs()
+    assert results[0]["kind"] == "section"
+    assert results[0]["path"] == "guides/getting-started"
+    assert results[1]["path"] == "guides/voice-agent-builder"
+
+
+@pytest.mark.asyncio
+async def test_list_docs_depth_expands_children(fake_docs_root, authed_user):
+    results = await list_docs("guides/voice-agent-builder", depth=2)
+    paths = [item["path"] for item in results]
+    assert "voice-agent/introduction" in paths
+    assert "guides/voice-agent-builder/tools" in paths
+    assert "voice-agent/tools/mcp-tool" in paths
+
+
+@pytest.mark.asyncio
+async def test_list_docs_rejects_unknown_section(fake_docs_root, authed_user):
+    with pytest.raises(HTTPException, match="Unknown docs section"):
+        await list_docs("nope")
+
+
+@pytest.mark.asyncio
+async def test_read_doc_returns_full_page_and_sections(fake_docs_root, authed_user):
+    result = await read_doc("deployment/docker")
+    assert result["path"] == "deployment/docker"
+    assert result["title"] == "Docker"
+    assert "url" not in result
+    section_slugs = [section["slug"] for section in result["sections"]]
+    assert "docker" in section_slugs
+    assert "troubleshooting-webrtc-connectivity" in section_slugs
+    assert "Coturn" in result["content"] or "coturn" in result["content"].lower()
+
+
+@pytest.mark.asyncio
+async def test_read_doc_can_target_section(fake_docs_root, authed_user):
+    result = await read_doc(
+        "deployment/docker",
+        section="troubleshooting-webrtc-connectivity",
+    )
+    assert result["section_slug"] == "troubleshooting-webrtc-connectivity"
+    assert "ICE fails" in result["content"] or "TURN server" in result["content"]
+    assert "Run Dograh with Docker." not in result["content"]
+
+
+@pytest.mark.asyncio
+async def test_read_doc_rejects_unknown_page(fake_docs_root, authed_user):
+    with pytest.raises(HTTPException, match="Unknown docs page"):
+        await read_doc("missing/page")
+
+
+@pytest.mark.asyncio
+async def test_read_doc_rejects_unknown_section(fake_docs_root, authed_user):
+    with pytest.raises(HTTPException, match="Unknown section"):
+        await read_doc("deployment/docker", section="missing-section")
+
+
+def test_docs_index_uses_docs_json_navigation(fake_docs_root):
+    index = _docs_index()
+    assert "internal-only" not in index.pages_by_path
+    assert "guides/voice-agent-builder/tools" in index.sections_by_path
+    assert index.pages_by_path["voice-agent/tools/mcp-tool"].breadcrumb == (
+        "Guides",
+        "Voice Agent Builder",
+        "Tools",
+    )

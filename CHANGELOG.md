@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.31.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.1...dograh-v1.31.0) (2026-05-21)
+
+
+### Features
+
+* add agent skills to review PR ([#320](https://github.com/dograh-hq/dograh/issues/320)) ([151bf77](https://github.com/dograh-hq/dograh/commit/151bf77e40476b63000c1e88d2f348d5d2791344))
+* add chat based testing for voice agent ([#308](https://github.com/dograh-hq/dograh/issues/308)) ([d97d1d7](https://github.com/dograh-hq/dograh/commit/d97d1d72cd1a414442b8b9f66d8312950c06978c))
+* add Review AGENTS.md Skill ([d93d7af](https://github.com/dograh-hq/dograh/commit/d93d7aff4d5308ee17c55855f0ffd1ed9f90449f))
+* add Tuner Integration to Dograh ([#311](https://github.com/dograh-hq/dograh/issues/311)) ([5f28c1b](https://github.com/dograh-hq/dograh/commit/5f28c1b2a9b17ed19f8a2b4118d1d4eb8c4249a7))
+* **mcp:** add search_docs tool over docs corpus (closes [#295](https://github.com/dograh-hq/dograh/issues/295)) ([#316](https://github.com/dograh-hq/dograh/issues/316)) ([5762095](https://github.com/dograh-hq/dograh/commit/5762095edfa585fa078ba70d486bc7af14708457))
+* **mcp:** generic MCP tool source with per-node function filtering ([#301](https://github.com/dograh-hq/dograh/issues/301)) ([75839f9](https://github.com/dograh-hq/dograh/commit/75839f9de5eb26ccc296235af36058e442d10d58))
+
+
+### Bug Fixes
+
+* **security:** bump python-multipart 0.0.20 -&gt; 0.0.27 ([#332](https://github.com/dograh-hq/dograh/issues/332)) ([332754a](https://github.com/dograh-hq/dograh/commit/332754a809ec14b9164c698fb3eff682b1d9d446))
+* **stt:** align Speechmatics language registry with official transcription codes ([#317](https://github.com/dograh-hq/dograh/issues/317)) ([afa78fe](https://github.com/dograh-hq/dograh/commit/afa78fe859e51d45b12dedd01613f2c24ffc7f65))
+* **webRTC:** LAN IP filtering ([#333](https://github.com/dograh-hq/dograh/issues/333)) ([af66372](https://github.com/dograh-hq/dograh/commit/af66372b655f05f4fc8e778ec58902e15ce25531))
+
+
+### Documentation
+
+* add Simplified Chinese translation of README ([#305](https://github.com/dograh-hq/dograh/issues/305)) ([5b1e398](https://github.com/dograh-hq/dograh/commit/5b1e3980b1982506aa334d19ab594db04ef9e19c))
+
 ## [1.30.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.0...dograh-v1.30.1) (2026-05-17)
 
 

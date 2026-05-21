@@ -23,7 +23,7 @@ from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.observers.turn_tracking_observer import TurnTrackingObserver
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.processors.frame_processor import FrameDirection
-from pipecat.utils.tracing.langfuse_helpers import strip_thought_ids_from_messages
+from pipecat.utils.context.message_sanitization import strip_thought_ids_from_messages
 from tuner_pipecat_sdk.accumulator import CallAccumulator
 from tuner_pipecat_sdk.payload_builder import build_payload
 
@@ -137,7 +137,9 @@ class TunerCollector(BaseObserver):
         # Convert to absolute ns so the accumulator's _rel_ms() works correctly.
         if self._pipeline_start_rel_ns is None:
             self._pipeline_start_rel_ns = data.timestamp
-        timestamp_ns = self._acc.call_start_abs_ns + (data.timestamp - self._pipeline_start_rel_ns)
+        timestamp_ns = self._acc.call_start_abs_ns + (
+            data.timestamp - self._pipeline_start_rel_ns
+        )
 
         if isinstance(frame, StartFrame):
             self._acc.on_start(timestamp_ns)

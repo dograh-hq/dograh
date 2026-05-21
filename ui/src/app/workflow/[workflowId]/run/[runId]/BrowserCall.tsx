@@ -4,16 +4,15 @@ import { useEffect, useState } from "react";
 
 import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from "@/client/sdk.gen";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConversationRailFrame, RealtimeFeedback } from "@/components/workflow/conversation";
 import { useAuth } from "@/lib/auth";
 
 import {
     ApiKeyErrorDialog,
     AudioControls,
     ConnectionStatus,
-    RealtimeFeedback,
     WorkflowConfigErrorDialog
 } from "./components";
-import { TranscriptRailFrame } from "./components/shared/TranscriptRailFrame";
 import { useWebSocketRTC } from "./hooks";
 
 const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
@@ -154,14 +153,14 @@ const BrowserCall = ({ workflowId, workflowRunId, initialContextVariables }: {
                 </div>
 
                 <div className="h-full min-h-0 w-[420px] shrink-0 border-l border-border bg-background p-5">
-                    <TranscriptRailFrame className="h-full">
+                    <ConversationRailFrame className="h-full">
                         <RealtimeFeedback
                             mode="live"
                             messages={feedbackMessages}
                             isCallActive={connectionActive}
                             isCallCompleted={isCompleted}
                         />
-                    </TranscriptRailFrame>
+                    </ConversationRailFrame>
                 </div>
             </div>
 

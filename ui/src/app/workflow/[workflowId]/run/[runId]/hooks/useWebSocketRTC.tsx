@@ -4,6 +4,7 @@ import { client } from "@/client/client.gen";
 import { getTurnCredentialsApiV1TurnCredentialsGet, validateUserConfigurationsApiV1UserConfigurationsUserValidateGet, validateWorkflowApiV1WorkflowWorkflowIdValidatePost } from "@/client/sdk.gen";
 import { TurnCredentialsResponse } from "@/client/types.gen";
 import { WorkflowValidationError } from "@/components/flow/types";
+import type { RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import logger from '@/lib/logger';
 
@@ -15,26 +16,6 @@ interface UseWebSocketRTCProps {
     workflowRunId: number;
     accessToken: string | null;
     initialContextVariables?: Record<string, string> | null;
-}
-
-export interface FeedbackMessage {
-    id: string;
-    type: 'user-transcription' | 'bot-text' | 'function-call' | 'node-transition' | 'ttfb-metric' | 'pipeline-error' | 'interrupt-warning';
-    text: string;
-    final?: boolean;
-    timestamp: string;
-    functionName?: string;
-    status?: 'running' | 'completed';
-    // Node transition fields
-    nodeName?: string;
-    previousNode?: string;
-    allowInterrupt?: boolean;
-    // TTFB metric fields
-    ttfbSeconds?: number;
-    processor?: string;
-    model?: string;
-    // Pipeline error fields
-    fatal?: boolean;
 }
 
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables }: UseWebSocketRTCProps) => {
@@ -379,18 +360,22 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                         }
 
                         case 'rtf-function-call-start': {
-                            const { function_name, tool_call_id } = message.payload;
+                            const { function_name, tool_call_id, arguments: toolArguments } = message.payload;
                             setFeedbackMessages(prev => {
                                 // Check if we already have this function call
-                                const existingId = `func-${tool_call_id}`;
+                                const existingId = tool_call_id
+                                    ? `func-${tool_call_id}`
+                                    : `func-${Date.now()}`;
                                 if (prev.some(msg => msg.id === existingId)) {
                                     return prev;
                                 }
                                 return [...prev, {
                                     id: existingId,
                                     type: 'function-call',
-                                    text: function_name,
-                                    functionName: function_name,
+                                    text: function_name ?? 'tool',
+                                    functionName: function_name ?? 'tool',
+                                    toolCallId: tool_call_id,
+                                    arguments: toolArguments,
                                     status: 'running',
                                     timestamp: new Date().toISOString(),
                                 }];
@@ -402,7 +387,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                             const { tool_call_id, result } = message.payload;
                             setFeedbackMessages(prev => prev.map(msg =>
                                 msg.id === `func-${tool_call_id}`
-                                    ? { ...msg, status: 'completed' as const, text: result || msg.text }
+                                    ? { ...msg, status: 'completed' as const, text: result || msg.text, result }
                                     : msg
                             ));
                             break;

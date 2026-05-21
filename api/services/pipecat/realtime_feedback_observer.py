@@ -276,6 +276,7 @@ class RealtimeFeedbackObserver(BaseObserver):
                 build_function_call_start_event(
                     function_name=frame.function_name,
                     tool_call_id=frame.tool_call_id,
+                    arguments=dict(frame.arguments or {}),
                 )
             )
         # Handle function call result

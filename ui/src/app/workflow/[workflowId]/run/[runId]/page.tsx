@@ -7,8 +7,6 @@ import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
 import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
-import { RealtimeFeedback, WorkflowRunLogs } from '@/app/workflow/[workflowId]/run/[runId]/components/RealtimeFeedback';
-import { TranscriptRailFrame } from '@/app/workflow/[workflowId]/run/[runId]/components/shared/TranscriptRailFrame';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import {
     createWorkflowRunApiV1WorkflowWorkflowIdRunsPost,
@@ -19,6 +17,7 @@ import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { ConversationRailFrame, RealtimeFeedback, WorkflowRunLogs } from '@/components/workflow/conversation';
 import { PostHogEvent } from '@/constants/posthog-events';
 import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOnboarding } from '@/context/OnboardingContext';
@@ -398,9 +397,9 @@ export default function WorkflowRunPage() {
                 </div>
 
                 <div className="h-full min-h-0 w-[420px] shrink-0 border-l border-border bg-background p-5">
-                    <TranscriptRailFrame className="h-full">
+                    <ConversationRailFrame className="h-full">
                         <RealtimeFeedback mode="historical" logs={workflowRun?.logs ?? null} />
-                    </TranscriptRailFrame>
+                    </ConversationRailFrame>
                 </div>
             </div>
         );

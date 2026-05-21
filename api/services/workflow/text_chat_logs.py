@@ -80,6 +80,7 @@ def build_text_chat_realtime_feedback_events(
                         build_function_call_start_event(
                             function_name=payload.get("function_name"),
                             tool_call_id=payload.get("tool_call_id"),
+                            arguments=payload.get("arguments"),
                         ),
                         timestamp=timestamp,
                         turn=turn_index,

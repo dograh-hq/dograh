@@ -23,6 +23,7 @@ from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.observers.turn_tracking_observer import TurnTrackingObserver
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.utils.context.message_sanitization import strip_thought_ids_from_messages
 from tuner_pipecat_sdk.accumulator import CallAccumulator
 from tuner_pipecat_sdk.payload_builder import build_payload
 
@@ -76,6 +77,7 @@ class TunerCollector(BaseObserver):
         self._agent_version = agent_version
         self._acc = CallAccumulator()
         self._acc.call_start_abs_ns = time.time_ns()
+        self._pipeline_start_rel_ns: int | None = None
         self._context_provider: Callable[[], list[dict[str, Any]]] | None = None
         self._processed_frames: set[int] = set()
         self._frame_history: deque[int] = deque(maxlen=max_frames)
@@ -130,7 +132,14 @@ class TunerCollector(BaseObserver):
             self._processed_frames = set(self._frame_history)
 
         frame = data.frame
-        timestamp_ns = data.timestamp
+
+        # data.timestamp is a pipeline-relative clock (ns since pipeline start).
+        # Convert to absolute ns so the accumulator's _rel_ms() works correctly.
+        if self._pipeline_start_rel_ns is None:
+            self._pipeline_start_rel_ns = data.timestamp
+        timestamp_ns = self._acc.call_start_abs_ns + (
+            data.timestamp - self._pipeline_start_rel_ns
+        )
 
         if isinstance(frame, StartFrame):
             self._acc.on_start(timestamp_ns)
@@ -165,7 +174,7 @@ class TunerCollector(BaseObserver):
             )
             return None
 
-        transcript = list(self._context_provider())
+        transcript = strip_thought_ids_from_messages(list(self._context_provider()))
         payload = build_payload(
             self._acc,
             _PayloadConfig(

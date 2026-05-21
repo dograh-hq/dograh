@@ -93,6 +93,63 @@ curl -k https://YOUR_SERVER_IP/api/v1/health      # remote
 curl http://localhost:8000/api/v1/health           # local
 ```
 
+If the health check fails after an update, confirm the database is running before debugging the API or UI:
+
+```bash
+docker compose ps postgres
+docker compose exec postgres pg_isready -U "${POSTGRES_USER:-postgres}"
+docker compose logs --tail=100 api
+```
+
+A stopped Postgres container causes `asyncpg` connection errors and can make login look broken even when the dashboard itself still loads.
+
+### Verify dashboard login behind a proxy
+
+Local dashboard login sets two auth cookies: `dograh_auth_token` and `dograh_auth_user`. If `/auth/login` loads but authenticated routes such as `/api/auth/oss` return `401` only through your public domain or reverse proxy, inspect the login response headers:
+
+```bash
+curl -k -i https://YOUR_DOMAIN/api/auth/session \
+  -H "content-type: application/json" \
+  --data '{"email":"you@example.com","password":"REDACTED"}' \
+  | grep -i '^set-cookie: dograh_auth_'
+```
+
+You should see separate `Set-Cookie` headers for both cookies. Custom proxies must forward repeated `Set-Cookie` response headers as separate headers; do not collapse response headers into a single key/value dictionary, or one cookie can overwrite the other before it reaches the browser.
+
+### Verify built-in agent apps
+
+Current builds include the built-in app catalog entries for Harvest and Neal:
+
+| App ID | Display name | Default realtime profile |
+|--------|--------------|--------------------------|
+| `harvest` | `Harvest Home Quote` | `gemini_live_phone` |
+| `neal_roofing` | `Neal Roofing` | `gemini_live_phone` |
+
+Verify the catalog from the updated API:
+
+```bash
+curl -fsS https://YOUR_DOMAIN/api/v1/workflow/agent-apps | jq 'keys'
+```
+
+Verify each generated template uses the current workflow graph shape:
+
+```bash
+curl -fsS https://YOUR_DOMAIN/api/v1/workflow/agent-apps/harvest/template \
+  | jq '.workflow_definition.nodes[].type'
+
+curl -fsS https://YOUR_DOMAIN/api/v1/workflow/agent-apps/neal_roofing/template \
+  | jq '.workflow_definition.nodes[].type'
+```
+
+Each template should include a `trigger` node connected to an `agentNode`. The trigger data should include `name`, `is_start`, `enabled`, and `trigger_path`, and the edge should include a `data` object. If you created a Harvest or Neal workflow from an older template that used a `conversation` node or omitted trigger/edge fields, recreate it from the current template or update the workflow definition, then publish and validate it:
+
+```bash
+curl -fsS -X POST https://YOUR_DOMAIN/api/v1/workflow/WORKFLOW_ID/validate \
+  -H "X-API-Key: dg_your_api_key"
+```
+
+For live phone routing, also verify the saved workflow and number mapping, because Twilio uses the published workflow record attached to the inbound number rather than the catalog default alone. The readback should show each active Twilio number pointing at the intended `inbound_workflow_id`, and the released workflow definition should have the expected realtime provider/model override before you place a live test call.
+
 ## Roll back
 
 `update_remote.sh` saves backups of every file it touched. To roll back, restore them and recreate the stack — the exact commands (including the timestamp it used) are printed at the end of the script's output. The generic form:

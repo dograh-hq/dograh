@@ -6,7 +6,6 @@ import { useParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
-import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
 import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
@@ -201,7 +200,7 @@ export default function WorkflowRunPage() {
 
     let returnValue = null;
     const isTextChatRun = workflowRun?.mode === WORKFLOW_RUN_MODES.TEXTCHAT;
-    const showHistoricalRunView = Boolean(workflowRun?.is_completed || isTextChatRun);
+    const showRunDetailsView = Boolean(workflowRun?.is_completed || isTextChatRun);
 
     if (isLoading) {
         returnValue = (
@@ -225,7 +224,7 @@ export default function WorkflowRunPage() {
             </div>
         );
     }
-    else if (showHistoricalRunView) {
+    else if (showRunDetailsView) {
         returnValue = (
             <div className={`flex ${RUN_SHELL_HEIGHT_CLASS} min-h-0 w-full overflow-hidden bg-background`}>
                 <div className="min-w-0 flex-1 overflow-y-auto">
@@ -366,23 +365,25 @@ export default function WorkflowRunPage() {
         );
     }
     else {
-        returnValue =
-            <BrowserCall
-                workflowId={Number(params.workflowId)}
-                workflowRunId={Number(params.runId)}
-                initialContextVariables={
-                    workflowRun?.initial_context
-                        ? Object.fromEntries(
-                            Object.entries(workflowRun.initial_context).map(([key, value]) => [
-                                key,
-                                typeof value === 'object' && value !== null
-                                    ? JSON.stringify(value)
-                                    : String(value)
-                            ])
-                        )
-                        : null
-                }
-            />
+        returnValue = (
+            <div className="flex h-full items-center justify-center p-6">
+                <Card className="w-full max-w-xl border-border">
+                    <CardHeader className="space-y-2">
+                        <CardTitle className="text-2xl">Run Details Unavailable</CardTitle>
+                        <p className="text-sm text-muted-foreground">
+                            This run does not have a details view yet. Go back to the workflow to continue testing or make changes.
+                        </p>
+                    </CardHeader>
+                    <CardFooter>
+                        <Button asChild className="gap-2">
+                            <Link href={`/workflow/${params.workflowId}`}>
+                                Customize Agent
+                            </Link>
+                        </Button>
+                    </CardFooter>
+                </Card>
+            </div>
+        );
     }
 
     return (
@@ -391,7 +392,7 @@ export default function WorkflowRunPage() {
             {dialog}
 
             {/* Onboarding Tooltip for Customize Workflow */}
-            {showHistoricalRunView && (
+            {showRunDetailsView && (
                 <OnboardingTooltip
                     title='Customize Your Workflow'
                     targetRef={customizeButtonRef}

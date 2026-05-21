@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from loguru import logger
 
 from api.db import db_client
@@ -73,57 +75,78 @@ async def _get_pricing_organization(workflow_run):
     return await db_client.get_organization_by_id(organization_id)
 
 
-async def build_workflow_run_cost_info(workflow_run) -> dict | None:
-    workflow_usage_info = workflow_run.usage_info
-    if not workflow_usage_info:
+async def _build_usage_cost_snapshot(
+    usage_info: dict | None,
+    *,
+    workflow_run=None,
+    include_telephony_cost: bool = False,
+    organization=None,
+    calculated_at: str | None = None,
+) -> dict | None:
+    if not usage_info:
         logger.warning("No usage info available for workflow run")
         return None
 
-    # Calculate cost breakdown
-    cost_breakdown = cost_calculator.calculate_total_cost(workflow_usage_info)
+    cost_breakdown = cost_calculator.calculate_total_cost(usage_info)
 
-    # Fetch telephony call cost
-    try:
-        telephony_cost = await _fetch_telephony_cost(workflow_run)
-        if telephony_cost:
-            telephony_cost_usd = telephony_cost["cost_usd"]
-            provider_name = telephony_cost["provider_name"]
-            cost_breakdown["telephony_call"] = telephony_cost_usd
-            cost_breakdown[f"{provider_name}_call"] = telephony_cost_usd
-            cost_breakdown["total"] = (
-                float(cost_breakdown["total"]) + telephony_cost_usd
-            )
-    except Exception as e:
-        logger.error(f"Failed to fetch telephony call cost: {e}")
-        # Don't fail the whole cost calculation if telephony API fails
+    if include_telephony_cost and workflow_run is not None:
+        try:
+            telephony_cost = await _fetch_telephony_cost(workflow_run)
+            if telephony_cost:
+                telephony_cost_usd = telephony_cost["cost_usd"]
+                provider_name = telephony_cost["provider_name"]
+                cost_breakdown["telephony_call"] = telephony_cost_usd
+                cost_breakdown[f"{provider_name}_call"] = telephony_cost_usd
+                cost_breakdown["total"] = (
+                    float(cost_breakdown["total"]) + telephony_cost_usd
+                )
+        except Exception as e:
+            logger.error(f"Failed to fetch telephony call cost: {e}")
+            # Don't fail the whole cost calculation if telephony API fails
 
-    # Convert USD to Dograh Tokens (1 cent = 1 token)
-    dograh_tokens = round(float(cost_breakdown["total"]) * 100, 2)
+    total_cost_usd = Decimal(str(cost_breakdown["total"]))
+    dograh_tokens = float(total_cost_usd * Decimal("100"))
 
-    # Get organization to check if it has USD pricing
-    org = await _get_pricing_organization(workflow_run)
+    if organization is None and workflow_run is not None:
+        organization = await _get_pricing_organization(workflow_run)
+
     charge_usd = None
-
-    # Calculate USD cost if organization has pricing configured
-    if org and org.price_per_second_usd:
-        duration_seconds = workflow_usage_info.get("call_duration_seconds", 0)
-        charge_usd = duration_seconds * org.price_per_second_usd
+    if organization and organization.price_per_second_usd:
+        duration_seconds = usage_info.get("call_duration_seconds", 0)
+        charge_usd = float(
+            Decimal(str(duration_seconds))
+            * Decimal(str(organization.price_per_second_usd))
+        )
 
     cost_info = {
-        **(workflow_run.cost_info or {}),
         "cost_breakdown": cost_breakdown,
-        "total_cost_usd": float(cost_breakdown["total"]),
+        "total_cost_usd": float(total_cost_usd),
         "dograh_token_usage": dograh_tokens,
-        "calculated_at": workflow_run.created_at.isoformat(),
-        "call_duration_seconds": workflow_usage_info.get("call_duration_seconds", 0),
+        "calculated_at": calculated_at
+        or (workflow_run.created_at.isoformat() if workflow_run is not None else None),
+        "call_duration_seconds": usage_info.get("call_duration_seconds", 0),
     }
 
-    # Add USD cost if available
     if charge_usd is not None:
         cost_info["charge_usd"] = charge_usd
-        cost_info["price_per_second_usd"] = org.price_per_second_usd
+        cost_info["price_per_second_usd"] = organization.price_per_second_usd
 
     return cost_info
+
+
+async def build_workflow_run_cost_info(workflow_run) -> dict | None:
+    cost_info = await _build_usage_cost_snapshot(
+        workflow_run.usage_info,
+        workflow_run=workflow_run,
+        include_telephony_cost=True,
+        calculated_at=workflow_run.created_at.isoformat(),
+    )
+    if cost_info is None:
+        return None
+    return {
+        **(workflow_run.cost_info or {}),
+        **cost_info,
+    }
 
 
 async def save_workflow_run_cost_info(
@@ -150,6 +173,26 @@ async def apply_workflow_run_usage_to_organization(
         float(cost_info.get("call_duration_seconds") or 0),
         cost_info.get("charge_usd"),
     )
+
+
+async def apply_usage_delta_to_organization(
+    workflow_run, usage_info: dict | None
+) -> dict | None:
+    org = await _get_pricing_organization(workflow_run)
+    if not org:
+        return None
+
+    cost_info = await _build_usage_cost_snapshot(usage_info, organization=org)
+    if cost_info is None:
+        return None
+
+    await _update_organization_usage(
+        org,
+        float(cost_info.get("dograh_token_usage") or 0),
+        float(cost_info.get("call_duration_seconds") or 0),
+        cost_info.get("charge_usd"),
+    )
+    return cost_info
 
 
 async def calculate_workflow_run_cost(workflow_run_id: int):

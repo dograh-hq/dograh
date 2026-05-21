@@ -153,6 +153,7 @@ async def initiate_call(
                 "telephony_configuration_id": telephony_configuration_id,
             },
             use_draft=True,
+            organization_id=user.selected_organization_id,
         )
         workflow_run_id = workflow_run.id
     else:

@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -968,3 +969,226 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
             f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}"
         )
         assert get_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_text_chat_session_creation_requires_selected_org_scope(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "You are a helpful assistant.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            }
+        ],
+        "edges": [],
+    }
+
+    org_a = OrganizationModel(provider_id="textchat-scope-a")
+    org_b = OrganizationModel(provider_id="textchat-scope-b")
+    async_session.add_all([org_a, org_b])
+    await async_session.flush()
+
+    user = UserModel(
+        provider_id="textchat-scope-user",
+        selected_organization_id=org_a.id,
+    )
+    async_session.add(user)
+    await async_session.flush()
+
+    await db_session.update_user_configuration(
+        user_id=user.id,
+        configuration=UserConfiguration.model_validate(USER_CONFIGURATION),
+    )
+
+    workflow = await db_session.create_workflow(
+        name="Cross-org workflow",
+        workflow_definition=workflow_definition,
+        user_id=user.id,
+        organization_id=org_b.id,
+    )
+
+    llm = MockLLMService(
+        mock_steps=[MockLLMService.create_text_chunks("Should never run.")],
+        chunk_delay=0.001,
+    )
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                return_value=llm,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={},
+            )
+
+    assert create_response.status_code == 404
+    _, total_count = await db_session.get_workflow_runs_by_workflow_id(
+        workflow.id,
+        organization_id=org_b.id,
+    )
+    assert total_count == 0
+
+
+@pytest.mark.asyncio
+async def test_text_chat_session_creation_rejects_quota_before_creating_run(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "You are a helpful assistant.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            }
+        ],
+        "edges": [],
+    }
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="quota-create",
+    )
+
+    async with test_client_factory(user) as client:
+        with patch(
+            "api.routes.workflow_text_chat.check_dograh_quota",
+            new=AsyncMock(
+                return_value=SimpleNamespace(
+                    has_quota=False,
+                    error_message="Quota exceeded",
+                )
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={},
+            )
+
+    assert create_response.status_code == 402
+    assert create_response.json()["detail"] == "Quota exceeded"
+    _, total_count = await db_session.get_workflow_runs_by_workflow_id(
+        workflow.id,
+        organization_id=workflow.organization_id,
+    )
+    assert total_count == 0
+
+
+@pytest.mark.asyncio
+async def test_text_chat_append_rejects_quota_without_mutating_session(
+    db_session,
+    async_session,
+    test_client_factory,
+):
+    workflow_definition = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {
+                    "name": "Start",
+                    "prompt": "You are a helpful assistant.",
+                    "is_start": True,
+                    "allow_interrupt": False,
+                    "add_global_prompt": False,
+                },
+            }
+        ],
+        "edges": [],
+    }
+
+    user, workflow = await _create_user_and_workflow(
+        db_session,
+        async_session,
+        workflow_definition=workflow_definition,
+        suffix="quota-append",
+    )
+
+    llm = MockLLMService(
+        mock_steps=[
+            MockLLMService.create_text_chunks("Hello from the workflow tester.")
+        ],
+        chunk_delay=0.001,
+    )
+
+    async with test_client_factory(user) as client:
+        with (
+            patch(
+                "api.routes.workflow_text_chat.check_dograh_quota",
+                new=AsyncMock(
+                    side_effect=[
+                        SimpleNamespace(has_quota=True, error_message=""),
+                        SimpleNamespace(
+                            has_quota=False,
+                            error_message="Quota exceeded on append",
+                        ),
+                    ]
+                ),
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                return_value=llm,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
+        ):
+            create_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
+                json={},
+            )
+            assert create_response.status_code == 200
+            created = create_response.json()
+
+            append_response = await client.post(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}/messages",
+                json={
+                    "text": "This should be rejected",
+                    "expected_revision": created["revision"],
+                },
+            )
+            assert append_response.status_code == 402
+
+            session_response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{created['workflow_run_id']}"
+            )
+            assert session_response.status_code == 200
+
+    session_payload = session_response.json()
+    assert append_response.json()["detail"] == "Quota exceeded on append"
+    assert session_payload["revision"] == created["revision"]
+    assert session_payload["session_data"]["turns"] == created["session_data"]["turns"]
+    assert (
+        session_payload["session_data"]["status"] == created["session_data"]["status"]
+    )

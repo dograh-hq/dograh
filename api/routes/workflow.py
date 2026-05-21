@@ -1081,7 +1081,12 @@ async def create_workflow_run(
         user: The user to create the workflow run for
     """
     run = await db_client.create_workflow_run(
-        request.name, workflow_id, request.mode, user.id, use_draft=True
+        request.name,
+        workflow_id,
+        request.mode,
+        user.id,
+        use_draft=True,
+        organization_id=user.selected_organization_id,
     )
     return {
         "id": run.id,

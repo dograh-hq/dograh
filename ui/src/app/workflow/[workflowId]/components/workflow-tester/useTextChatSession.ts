@@ -78,6 +78,8 @@ export function useTextChatSession({
             setSession(toTextChatSession(response.data));
             setDraft("");
         } catch (error) {
+            setSession(null);
+            setStarted(false);
             toast.error(getErrorMessage(error));
         } finally {
             setCreatingSession(false);

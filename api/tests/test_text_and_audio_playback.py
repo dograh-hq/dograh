@@ -419,8 +419,9 @@ class TestStartGreeting:
         """When a node has no greeting, the engine should queue initial LLM generation."""
         dto = ReactFlowDTO(
             nodes=[
-                StartCallRFNode(
+                RFNodeDTO(
                     id="start",
+                    type="startCall",
                     position=Position(x=0, y=0),
                     data=StartCallNodeData(
                         name="Start",
@@ -430,8 +431,9 @@ class TestStartGreeting:
                         extraction_enabled=False,
                     ),
                 ),
-                EndCallRFNode(
+                RFNodeDTO(
                     id="end",
+                    type="endCall",
                     position=Position(x=0, y=200),
                     data=EndCallNodeData(
                         name="End",

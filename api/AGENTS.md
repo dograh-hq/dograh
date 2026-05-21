@@ -6,35 +6,44 @@ FastAPI backend for the Dograh voice AI platform.
 
 ```
 api/
-├── app.py            # Application entry point, FastAPI setup
 ├── routes/           # API endpoint handlers
-├── services/         # Business logic and integrations
+├── services/         # Domain logic, runtime systems, and extension seams
 ├── db/               # Database models and data access
 ├── schemas/          # Pydantic request/response schemas
-├── tasks/            # Background jobs (ARQ)
-├── utils/            # Utility functions
+├── tasks/            # Background jobs and post-call work
+├── mcp_server/       # MCP surface exposed by the backend
+├── utils/            # Shared utilities
 ├── alembic/          # Database migrations
-├── constants.py      # Environment variables and constants
 └── tests/            # Test suite
 ```
 
 ## Where to Find Things
 
-| Looking for...         | Go to...                                                                 |
-| ---------------------- | ------------------------------------------------------------------------ |
-| API endpoints          | `routes/` - each file is a router module, aggregated in `routes/main.py` |
-| Business logic         | `services/` - organized by domain (telephony, workflow, campaign, etc.)  |
-| Database models        | `db/models.py`                                                           |
-| Database queries       | `db/*_client.py` files (repository pattern)                              |
-| Request/response types | `schemas/`                                                               |
-| Background tasks       | `tasks/` - uses ARQ for async job processing                             |
-| Environment config     | `constants.py`                                                           |
+| Looking for...               | Go to...                                                                      |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| API endpoints                | `routes/` - domain routers mounted under `/api/v1`                            |
+| Workflow graph and node data | `services/workflow/`                                                          |
+| Live pipeline runtime        | `services/pipecat/`                                                           |
+| Telephony providers/call flow| `services/telephony/`                                                         |
+| Third-party integrations     | `services/integrations/`                                                      |
+| Campaign and other domains   | `services/`                                                                   |
+| Database access              | `db/`                                                                         |
+| Request/response types       | `schemas/`                                                                    |
+| Background jobs              | `tasks/`                                                                      |
+| MCP backend surface          | `mcp_server/`                                                                 |
+| Tests                        | `tests/`                                                                      |
 
 ## API Structure
 
 - All routes are mounted at `/api/v1` prefix
-- Routes are organized by domain (workflow, telephony, campaign, user, etc.)
-- `routes/main.py` aggregates all routers
+- Routes are organized by domain under `routes/`
+- Workflow execution spans `services/workflow/`, `services/pipecat/`, and `tasks/`
+- Telephony is a full subsystem under `services/telephony/`, with provider-specific packages under `services/telephony/providers/`
+- Integrations extend through `services/integrations/`; package-specific rules should live in that subtree's own `AGENTS.md`
+
+## Routes vs Service Layer
+
+**Keep route handlers thin** — parse/validate the request, resolve auth and `organization_id`, delegate, shape the response. Domain logic (orchestration, business rules, external calls, computation) belongs in `services/`. Before adding logic to a handler, find its home: extend an existing `services/<domain>/` module that owns the concern (see *Where to Find Things*) before adding a focused new module; never a catch-all. Keep DB access in `db/` clients — routes call services, services call DB clients. Litmus test: if `tasks/`, `mcp_server/`, or another route could reuse it, it must live in `services/` to be importable.
 
 ## Database Migrations
 

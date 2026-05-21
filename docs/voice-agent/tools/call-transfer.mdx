@@ -7,7 +7,7 @@ The Call Transfer tool enables your AI agent to transfer active calls to phone n
 
 ## Supported Providers
 
-Call transfer is available for telephony calls using Twilio or Asterisk ARI providers. Web calls do not support transfer functionality.
+Call transfer is available for telephony calls using Twilio, Telnyx, or Asterisk ARI providers. Web calls do not support transfer functionality.
 
 ## How It Works
 
@@ -33,6 +33,10 @@ The Call Transfer tool performs **blind transfers** where no call context is sha
 - **Phone numbers**: E.164 format: `+1234567890`
 - Must be a valid reachable phone number
 
+**For Telnyx:**
+- **Phone numbers**: E.164 format: `+1234567890`
+- Must be a valid reachable phone number
+
 **For Asterisk ARI:**
 - **SIP endpoints only**: `PJSIP/extension` or `SIP/endpoint`
 - **Examples**: `PJSIP/sales-queue`, `SIP/1001`, `PJSIP/conference-room`
@@ -47,6 +51,7 @@ Asterisk ARI transfers only work with SIP endpoints configured on your Asterisk 
 2. **Tool Enablement**: Add the Call Transfer tool to your agent's available tools
 3. **Destination Validation**: 
    - **Twilio**: Verify phone numbers are reachable
+   - **Telnyx**: Verify phone numbers are reachable
    - **ARI**: Verify SIP endpoints exist on your Asterisk server
 4. **Testing**: Test transfers in your specific provider environment
 

@@ -1,8 +1,8 @@
 // GENERATED — do not edit by hand.
 //
 // Regenerate with `npm run codegen` against the target Dograh backend.
-// Source of truth: each node's NodeSpec in the backend's
-// `api/services/workflow/node_specs/` directory.
+// Source of truth: the backend's model-backed node-spec catalog served
+// from `/api/v1/node-types`.
 
 /**
  * Additional HTTP headers to include with the request.
@@ -55,10 +55,6 @@ export interface Webhook {
      * JSON body of the request. Values are Jinja-rendered against the run context — `{{workflow_run_id}}`, `{{gathered_context.foo}}`, `{{annotations.qa_xxx}}`, etc.
      */
     payload_template?: Record<string, unknown>;
-    /**
-     * Optional retry settings: `enabled` (bool), `max_retries` (int), `retry_delay_seconds` (int).
-     */
-    retry_config?: Record<string, unknown>;
 }
 
 /** Factory — sets `type` for you so you don't repeat the discriminator. */

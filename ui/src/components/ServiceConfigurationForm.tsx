@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { VoiceSelector } from "@/components/VoiceSelector";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
@@ -30,6 +31,7 @@ interface SchemaProperty {
     $ref?: string;
     description?: string;
     format?: string;
+    multiline?: boolean;
 }
 
 interface ProviderSchema {
@@ -501,18 +503,26 @@ export function ServiceConfigurationForm({
 
                 {currentProvider && providerSchema && configFields.length > 1 && (
                     <div className="grid grid-cols-2 gap-4">
-                        {configFields.slice(1).map((field) => (
-                            <div key={field} className="space-y-2">
-                                <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
-                                {renderField(service, field, providerSchema)}
-                            </div>
-                        ))}
+                        {configFields.slice(1).map((field) => {
+                            const fieldSchema = providerSchema.properties[field];
+                            const actualFieldSchema = fieldSchema?.$ref && providerSchema.$defs
+                                ? providerSchema.$defs[fieldSchema.$ref.split('/').pop() || '']
+                                : fieldSchema;
+                            const fullWidth = actualFieldSchema?.multiline;
+                            return (
+                                <div key={field} className={`space-y-2 ${fullWidth ? "col-span-2" : ""}`}>
+                                    <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
+                                    {renderField(service, field, providerSchema)}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
 
                 {currentProvider && providerSchema && providerSchema.properties.api_key && (
                     <div className="space-y-2">
                         <Label>{mode === 'override' ? 'API Key (leave empty to use global)' : 'API Key(s)'}</Label>
+                        {renderFieldDescription("api_key", providerSchema)}
                         {apiKeys[service].map((key, index) => (
                             <div key={index} className="flex gap-2">
                                 <Input
@@ -564,7 +574,28 @@ export function ServiceConfigurationForm({
         );
     };
 
+    const renderFieldDescription = (field: string, providerSchema: ProviderSchema) => {
+        const schema = providerSchema.properties[field];
+        if (!schema) return null;
+        const actualSchema = schema.$ref && providerSchema.$defs
+            ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
+            : schema;
+        if (!actualSchema?.description) return null;
+        return (
+            <p className="text-xs text-muted-foreground">{actualSchema.description}</p>
+        );
+    };
+
     const renderField = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
+        return (
+            <>
+                {renderFieldInput(service, field, providerSchema)}
+                {renderFieldDescription(field, providerSchema)}
+            </>
+        );
+    };
+
+    const renderFieldInput = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
         const schema = providerSchema.properties[field];
         const actualSchema = schema.$ref && providerSchema.$defs
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
@@ -696,6 +727,19 @@ export function ServiceConfigurationForm({
                         ))}
                     </SelectContent>
                 </Select>
+            );
+        }
+
+        if (actualSchema?.multiline) {
+            return (
+                <Textarea
+                    rows={6}
+                    className="font-mono text-xs"
+                    placeholder={`Enter ${field}`}
+                    {...register(`${service}_${field}`, {
+                        required: service !== "embeddings" && providerSchema.required?.includes(field),
+                    })}
+                />
             );
         }
 

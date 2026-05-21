@@ -71,7 +71,8 @@
                   {
                     "group": "Custom Tools",
                     "pages": [
-                      "voice-agent/tools/http-api"
+                      "voice-agent/tools/http-api",
+                      "voice-agent/tools/mcp-tool"
                     ]
                   }
                 ]
@@ -145,6 +146,7 @@
               "deployment/introduction",
               "deployment/docker",
               "deployment/custom-domain",
+              "deployment/scaling",
               "deployment/update",
               "deployment/heroku"
             ]

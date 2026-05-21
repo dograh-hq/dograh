@@ -75,9 +75,10 @@ It will automatically:
 - Verify DNS configuration
 - Install Certbot
 - Generate Let's Encrypt SSL certificates
-- Update nginx configuration
+- Update the canonical public host/base URL settings in `.env`
+- Validate the runtime config that `dograh-init` will render from `.env`
 - Configure automatic certificate renewal
-- Restart Dograh services
+- Restart Dograh services through the validated startup wrapper
 
 Once complete, your application will be available at `https://voice.yourcompany.com`.
 
@@ -130,7 +131,7 @@ Replace `voice.yourcompany.com` with your actual domain name.
 Certbot will:
 1. Verify that you control the domain
 2. Generate SSL certificates
-3. Store them in `/etc/letsencrypt/archive/voice.yourcompany.com/`
+3. Store them in `/etc/letsencrypt/live/voice.yourcompany.com/`
 
 <Note>
 You'll be prompted to enter an email address for renewal notifications and agree to the terms of service.
@@ -142,44 +143,31 @@ Copy the generated certificates to the dograh certs directory:
 
 ```bash
 cd dograh
-sudo cp /etc/letsencrypt/archive/voice.yourcompany.com/fullchain1.pem certs/local.crt
-sudo cp /etc/letsencrypt/archive/voice.yourcompany.com/privkey1.pem certs/local.key
+sudo cp /etc/letsencrypt/live/voice.yourcompany.com/fullchain.pem certs/local.crt
+sudo cp /etc/letsencrypt/live/voice.yourcompany.com/privkey.pem certs/local.key
 sudo chmod 644 certs/local.crt certs/local.key
 ```
 
-### Update nginx Configuration
+### Update Canonical Public URL Settings
 
-Update the nginx configuration to use your domain name. Open the nginx configuration file:
+Update `.env` so the canonical remote settings point at your domain:
 
 ```bash
-nano dograh/nginx.conf
+nano dograh/.env
 ```
 
-Update the `server_name` directive with your domain:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name voice.yourcompany.com;
-
-    ssl_certificate     /etc/nginx/certs/local.crt;
-    ssl_certificate_key /etc/nginx/certs/local.key;
-
-    # ... rest of the configuration remains the same
-}
+```bash
+PUBLIC_HOST=voice.yourcompany.com
+PUBLIC_BASE_URL=https://voice.yourcompany.com
 ```
-
-### Add environment variable
-
-Replace `BACKEND_API_ENDPOINT` environment variable the `docker-compose.yaml` with your custom domain with the scheme.
 
 ### Start Dograh Services
 
-Start Dograh with the updated configuration:
+Start Dograh through the validated startup wrapper so `dograh-init` regenerates nginx and coturn runtime config before Docker starts:
 
 ```bash
 cd dograh
-sudo docker compose --profile remote up -d --pull always
+./remote_up.sh
 ```
 
 ### Access Your Application
@@ -207,8 +195,8 @@ Add the following content (replace paths as needed):
 ```bash
 #!/bin/bash
 # Copy renewed certificates to dograh certs directory
-cp /etc/letsencrypt/archive/voice.yourcompany.com/fullchain1.pem /home/ubuntu/dograh/certs/local.crt
-cp /etc/letsencrypt/archive/voice.yourcompany.com/privkey1.pem /home/ubuntu/dograh/certs/local.key
+cp /etc/letsencrypt/live/voice.yourcompany.com/fullchain.pem /home/ubuntu/dograh/certs/local.crt
+cp /etc/letsencrypt/live/voice.yourcompany.com/privkey.pem /home/ubuntu/dograh/certs/local.key
 chmod 644 /home/ubuntu/dograh/certs/local.crt /home/ubuntu/dograh/certs/local.key
 
 # Restart nginx to load new certificates
@@ -243,7 +231,7 @@ If Certbot fails to generate certificates:
 If you see SSL errors after setup:
 
 1. Verify the certificates were copied correctly: `ls -la dograh/certs/`
-2. Check that `nginx.conf` points to `/etc/nginx/certs/local.crt` and `/etc/nginx/certs/local.key`
+2. Run `./remote_up.sh --preflight-only` in `dograh/` to verify the `dograh-init` runtime render matches `.env`
 3. Restart the nginx container: `sudo docker compose --profile remote restart nginx`
 
 ### WebRTC Connection Issues
@@ -251,5 +239,4 @@ If you see SSL errors after setup:
 If voice calls don't connect after domain setup:
 
 1. Ensure TCP/UDP ports 3478, 5349, and UDP 49152-49200 are still open
-2. Update the `.env` file with your domain name if needed for TURN server configuration
-
+2. Check that `PUBLIC_HOST` / `PUBLIC_BASE_URL` in `.env` match your domain, then re-run `./remote_up.sh`

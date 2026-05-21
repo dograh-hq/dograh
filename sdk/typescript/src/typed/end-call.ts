@@ -1,8 +1,8 @@
 // GENERATED — do not edit by hand.
 //
 // Regenerate with `npm run codegen` against the target Dograh backend.
-// Source of truth: each node's NodeSpec in the backend's
-// `api/services/workflow/node_specs/` directory.
+// Source of truth: the backend's model-backed node-spec catalog served
+// from `/api/v1/node-types`.
 
 /**
  * Each entry declares one variable to capture from the conversation, with its name, data type, and a per-variable extraction hint.
@@ -13,11 +13,11 @@ export interface EndCallExtraction_variablesRow {
      */
     name: string;
     /**
-     * The data type of the extracted value.
+     * Data type of the extracted value.
      */
     type: "string" | "number" | "boolean";
     /**
-     * Per-variable hint describing what to look for in the conversation.
+     * Per-variable hint describing what to look for.
      */
     prompt?: string;
 }

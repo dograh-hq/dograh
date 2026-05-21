@@ -1,0 +1,127 @@
+---
+title: "Scaling"
+description: "Run multiple FastAPI worker processes behind nginx for higher throughput"
+---
+
+By default, the Dograh API container runs a single uvicorn worker. For production traffic — especially with many concurrent voice calls (long-lived WebSockets) — you'll want multiple workers. Dograh ships with built-in support for this: nginx load-balances across N independent uvicorn processes using a `least_conn` strategy.
+
+This page covers how the multi-worker setup works, how to choose a worker count at install time, and how to change it on a running stack.
+
+<Warning>
+Multi-worker support requires **Dograh v1.29.0 or newer**. Earlier releases used `uvicorn --workers` and a different remote deployment layout. If your stack is older, [update first](/deployment/update) and then come back to this page.
+</Warning>
+
+## How it works
+
+The API container starts `FASTAPI_WORKERS` separate uvicorn processes, each bound to its own port (`8000`, `8001`, `8002`, …). nginx exposes a single upstream `dograh_api` that includes all worker ports and routes new requests to whichever worker currently has the **fewest active connections**.
+
+```
+                       ┌───────────────────────────────────┐
+                       │ api container                     │
+                       │  uvicorn worker 0  → :8000        │
+ browser ──► nginx ──► │  uvicorn worker 1  → :8001        │
+   (443)    (least_conn)  uvicorn worker 2  → :8002        │
+                       │  uvicorn worker 3  → :8003        │
+                       └───────────────────────────────────┘
+```
+
+<Note>
+This is intentionally **not** `uvicorn --workers N` (the built-in pre-fork mode). With pre-fork, the Linux kernel distributes new TCP connections across workers via `accept()` — fine for short HTTP requests, but long-lived WebSockets stick to whichever worker first accepted them. A handful of unlucky workers end up handling most of the streaming traffic while the others idle. Routing at the nginx layer with `least_conn` knows the actual per-worker connection count and distributes WebSockets evenly.
+</Note>
+
+The `ari_manager` and `campaign_orchestrator` processes inside the API container stay as **singletons** regardless of `FASTAPI_WORKERS` — they coordinate global state (Asterisk channels, campaign scheduling) and should not be duplicated. ARQ background workers are controlled separately via `ARQ_WORKERS`.
+
+## Choosing a worker count
+
+A safe starting point is **one worker per available vCPU**, capped at 8 unless you've profiled your workload. The [Remote Server Deployment prerequisites](/deployment/docker#prerequisites) ask for a minimum of 4 vCPUs, so:
+
+| vCPUs | Suggested `FASTAPI_WORKERS` |
+|-------|-----------------------------|
+| 4     | 4                            |
+| 8     | 6–8                          |
+| 16+   | profile first                |
+
+Each worker holds its own Python process and memory — budget roughly **300–500 MB RAM per worker** in addition to the postgres/redis/minio overhead. If you're near the 8 GB RAM minimum and see OOMs, drop the worker count before adding more.
+
+## Setting the worker count at install time
+
+`setup_remote.sh` prompts for the worker count alongside the other configuration:
+
+```
+Number of FastAPI workers (uvicorn processes nginx will load-balance):
+[4]:
+```
+
+Press Enter for the default (`4`) or enter a different positive integer. Non-interactive callers (cloud-init, CI, Terraform) can set the value via environment variable instead:
+
+```bash
+SERVER_IP=... TURN_SECRET=... FASTAPI_WORKERS=8 ./setup_remote.sh
+```
+
+The script stores the value in **`.env`** (`FASTAPI_WORKERS=N`). The supported startup path (`./remote_up.sh`) preflights the `dograh-init` render from that value before every remote start, so nginx and the API worker count stay aligned.
+
+## Changing the worker count on a running stack
+
+Once Dograh is running, increasing or decreasing the worker count is a one-file edit plus a restart. Change `.env`, then start through `./remote_up.sh` so `dograh-init` regenerates nginx runtime config before Docker starts the stack.
+
+### Steps
+
+All commands run from your `dograh/` directory (the one with `docker-compose.yaml`).
+
+**1. Edit `.env`** and change the `FASTAPI_WORKERS` line:
+
+```bash
+# Before
+FASTAPI_WORKERS=4
+
+# After
+FASTAPI_WORKERS=8
+```
+
+**2. Recreate the stack through the validated wrapper.** The simplest path — brief downtime, no surprises:
+
+```bash
+./remote_up.sh
+```
+
+If you want to avoid downtime and your stack is healthy, you can recreate only the `api` and `nginx` containers:
+
+```bash
+./remote_up.sh -- api nginx
+```
+
+`remote_up.sh` validates `.env`, runs the same `dograh-init` render that Compose will use at startup, runs `docker compose config -q`, and then starts the requested services.
+
+**3. Verify.** Confirm the right number of uvicorn processes are running. The API image is slim and doesn't include `ps`, so use Docker's host-side view instead:
+
+```bash
+sudo docker compose --profile remote top api | grep uvicorn
+```
+
+You should see one line per worker. To confirm the bound ports, check the startup logs — each worker logs an `Uvicorn running on http://0.0.0.0:800X` line on boot:
+
+```bash
+sudo docker compose --profile remote logs api | grep "Uvicorn running"
+```
+
+Then hit the API through nginx to confirm requests still flow:
+
+```bash
+curl -k https://YOUR_SERVER_IP/api/v1/health
+```
+
+### Why not just re-run `setup_remote.sh`?
+
+`setup_remote.sh` refuses to overwrite an existing install by design — re-running it would regenerate `OSS_JWT_SECRET` (logging everyone out), reset the TURN shared secret (breaking WebRTC auth on connected clients), and regenerate SSL certificates. The two-file edit above is the supported way to change worker count after install.
+
+If you genuinely want a clean reinstall, see the `DOGRAH_FORCE_OVERWRITE=1` escape hatch documented in the script.
+
+## What this does not scale
+
+Multi-worker mode scales the HTTP/WebSocket API surface. It does **not** scale:
+
+- **ARQ background workers** — controlled by `ARQ_WORKERS` (defaults to 1). Increase this in the API container's environment if your background job queue backs up.
+- **`ari_manager` / `campaign_orchestrator`** — singletons by design; they don't benefit from extra processes.
+- **Postgres, Redis, MinIO** — each runs as a single container in the stack. For production-scale Postgres you'd run a managed service and point `DATABASE_URL` at it; the same applies to Redis and S3-compatible storage.
+
+For multi-machine horizontal scaling (separate API containers across hosts), see the [Custom Domain](/deployment/custom-domain) guide for the load-balancer-in-front-of-multiple-hosts pattern — it's the same idea as the in-container `least_conn` upstream, just one layer higher.

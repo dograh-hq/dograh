@@ -30,7 +30,6 @@ import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../CampaignAdvancedSettings';
 import CsvUploadSelector from '../CsvUploadSelector';
-import GoogleSheetSelector from '../GoogleSheetSelector';
 
 export default function NewCampaignPage() {
     const { user, getAccessToken, redirectToLogin, loading } = useAuth();
@@ -39,12 +38,11 @@ export default function NewCampaignPage() {
     // Form state
     const [campaignName, setCampaignName] = useState('');
     const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('');
-    const [sourceType, setSourceType] = useState<'google-sheet' | 'csv'>('csv');
+    const [sourceType, setSourceType] = useState<'csv'>('csv');
     const [sourceId, setSourceId] = useState('');
     const [selectedFileName, setSelectedFileName] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
-    const [userAccessToken, setUserAccessToken] = useState<string>('');
 
     // Workflows state
     const [workflows, setWorkflows] = useState<WorkflowSummaryResponse[]>([]);
@@ -97,7 +95,6 @@ export default function NewCampaignPage() {
         if (!user) return;
         try {
             const accessToken = await getAccessToken();
-            setUserAccessToken(accessToken);
             const response = await getWorkflowsSummaryApiV1WorkflowSummaryGet({
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -342,12 +339,6 @@ export default function NewCampaignPage() {
         router.push('/campaigns');
     };
 
-    // Handle sheet selection
-    const handleSheetSelected = (sheetUrl: string) => {
-        setSourceId(sheetUrl);
-        setCreateError(null);
-    };
-
     // Handle CSV file upload
     const handleFileUploaded = (fileKey: string, fileName: string) => {
         setSourceId(fileKey);
@@ -481,7 +472,7 @@ export default function NewCampaignPage() {
                                 <Select
                                     value={sourceType}
                                     onValueChange={(value) => {
-                                        setSourceType(value as 'google-sheet' | 'csv');
+                                        setSourceType(value as 'csv');
                                         setSourceId('');
                                         setSelectedFileName('');
                                     }}
@@ -491,7 +482,6 @@ export default function NewCampaignPage() {
                                         <SelectValue placeholder="Select source type" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {/* <SelectItem value="google-sheet">Google Sheet</SelectItem> */}
                                         <SelectItem value="csv">CSV File</SelectItem>
                                     </SelectContent>
                                 </Select>
@@ -500,18 +490,10 @@ export default function NewCampaignPage() {
                                 </p>
                             </div>
 
-                            {sourceType === 'google-sheet' ? (
-                                <GoogleSheetSelector
-                                    accessToken={userAccessToken}
-                                    onSheetSelected={handleSheetSelected}
-                                    selectedSheetUrl={sourceId}
-                                />
-                            ) : (
-                                <CsvUploadSelector
-                                    onFileUploaded={handleFileUploaded}
-                                    selectedFileName={selectedFileName}
-                                />
-                            )}
+                            <CsvUploadSelector
+                                onFileUploaded={handleFileUploaded}
+                                selectedFileName={selectedFileName}
+                            />
 
                             {/* Advanced Settings */}
                             <Collapsible

@@ -9,6 +9,23 @@ const NODE_HEIGHT = 120;
 const VERTICAL_SPACING = 150; // Vertical spacing between stacked nodes
 const SECTION_HORIZONTAL_GAP = 500; // Horizontal gap between sections
 
+const WORKFLOW_NODE_TYPES = new Set([
+    NodeType.START_CALL,
+    NodeType.AGENT_NODE,
+    NodeType.END_CALL,
+]);
+
+function isRightRailNode(type: string): boolean {
+    if (type === NodeType.WEBHOOK || type === NodeType.QA) {
+        return true;
+    }
+    return (
+        !WORKFLOW_NODE_TYPES.has(type as NodeType) &&
+        type !== NodeType.TRIGGER &&
+        type !== NodeType.GLOBAL_NODE
+    );
+}
+
 export const layoutNodes = (
     nodes: FlowNode[],
     edges: FlowEdge[],
@@ -17,14 +34,9 @@ export const layoutNodes = (
 ) => {
     // Separate nodes by type
     const triggerNodes = nodes.filter(n => n.type === NodeType.TRIGGER);
-    const webhookNodes = nodes.filter(n => n.type === NodeType.WEBHOOK);
-    const qaNodes = nodes.filter(n => n.type === NodeType.QA);
     const globalNodes = nodes.filter(n => n.type === NodeType.GLOBAL_NODE);
-    const workflowNodes = nodes.filter(n =>
-        n.type === NodeType.START_CALL ||
-        n.type === NodeType.AGENT_NODE ||
-        n.type === NodeType.END_CALL
-    );
+    const workflowNodes = nodes.filter(n => WORKFLOW_NODE_TYPES.has(n.type as NodeType));
+    const rightSideNodes = nodes.filter(n => isRightRailNode(n.type));
 
     // If no workflow nodes, just return original nodes
     if (workflowNodes.length === 0) {
@@ -145,30 +157,19 @@ export const layoutNodes = (
         };
     });
 
-    // Position webhook nodes to the right of the workflow
     const webhookNodesX = workflowMaxX + SECTION_HORIZONTAL_GAP;
-    const positionedWebhookNodes = webhookNodes.map((node, index) => {
-        const totalHeight = webhookNodes.length * NODE_HEIGHT + (webhookNodes.length - 1) * VERTICAL_SPACING;
-        const startY = workflowCenterY - totalHeight / 2;
-        return {
-            ...node,
-            position: {
-                x: webhookNodesX,
-                y: startY + index * (NODE_HEIGHT + VERTICAL_SPACING)
-            }
-        };
-    });
-
-    // Position QA nodes below webhook nodes on the right side
-    const qaStartY = webhookNodes.length > 0
-        ? workflowCenterY - (webhookNodes.length * NODE_HEIGHT + (webhookNodes.length - 1) * VERTICAL_SPACING) / 2
-            + webhookNodes.length * (NODE_HEIGHT + VERTICAL_SPACING) + VERTICAL_SPACING
+    const rightSideStartY = rightSideNodes.length > 0
+        ? workflowCenterY - (
+            rightSideNodes.length * NODE_HEIGHT +
+            (rightSideNodes.length - 1) * VERTICAL_SPACING
+        ) / 2
         : workflowCenterY;
-    const positionedQaNodes = qaNodes.map((node, index) => ({
+
+    const positionedRightSideNodes = rightSideNodes.map((node, index) => ({
         ...node,
         position: {
             x: webhookNodesX,
-            y: qaStartY + index * (NODE_HEIGHT + VERTICAL_SPACING)
+            y: rightSideStartY + index * (NODE_HEIGHT + VERTICAL_SPACING)
         }
     }));
 
@@ -177,8 +178,7 @@ export const layoutNodes = (
         ...positionedTriggerNodes,
         ...positionedGlobalNodes,
         ...positionedWorkflowNodes,
-        ...positionedWebhookNodes,
-        ...positionedQaNodes
+        ...positionedRightSideNodes,
     ];
 
     // Create a map for quick lookup

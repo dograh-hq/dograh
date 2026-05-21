@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
 import type { DailyUsageBreakdownResponse, MpsCreditsResponse, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
+import { CallTypeCell } from '@/components/CallTypeCell';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
@@ -534,13 +535,7 @@ export default function UsagePage() {
                                                     </TableCell>
                                                     <TableCell>{run.workflow_name || 'Unknown'}</TableCell>
                                                     <TableCell>
-                                                        {run.call_type ? (
-                                                            <Badge variant={run.call_type === 'inbound' ? "secondary" : "default"}>
-                                                                {run.call_type === 'inbound' ? 'Inbound' : 'Outbound'}
-                                                            </Badge>
-                                                        ) : (
-                                                            <span className="text-sm text-muted-foreground">-</span>
-                                                        )}
+                                                        <CallTypeCell mode={run.mode} callType={run.call_type} />
                                                     </TableCell>
                                                     <TableCell className="text-sm">
                                                         {(run.call_type === 'inbound'
@@ -635,4 +630,3 @@ export default function UsagePage() {
         </div>
     );
 }
-

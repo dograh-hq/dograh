@@ -1,8 +1,8 @@
 """GENERATED — do not edit by hand.
 
 Regenerate with `python -m dograh_sdk.codegen` against the target
-Dograh backend. Source of truth: each node's NodeSpec in the backend's
-`api/services/workflow/node_specs/` directory.
+Dograh backend. Source of truth: the backend's model-backed node-spec
+catalog served from `/api/v1/node-types`.
 """
 
 from __future__ import annotations
@@ -74,11 +74,5 @@ class Webhook(TypedNode):
     JSON body of the request. Values are Jinja-rendered against the run
     context — `{{workflow_run_id}}`, `{{gathered_context.foo}}`,
     `{{annotations.qa_xxx}}`, etc.
-    """
-
-    retry_config: Optional[dict[str, Any]] = None
-    """
-    Optional retry settings: `enabled` (bool), `max_retries` (int),
-    `retry_delay_seconds` (int).
     """
 

@@ -140,6 +140,45 @@ class TestToolToFunctionSchema:
         assert "duration_minutes" in required
         assert "is_priority" not in required
 
+    def test_preset_parameters_are_not_exposed_to_llm_schema(self):
+        """Test that preset parameters are injected at runtime, not shown to the LLM."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-preset",
+            name="Lookup Customer",
+            description="Lookup a customer using contextual identifiers",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/customers/lookup",
+                    "parameters": [
+                        {
+                            "name": "customer_name",
+                            "type": "string",
+                            "description": "Customer name spoken by the caller",
+                            "required": True,
+                        }
+                    ],
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        schema = tool_to_function_schema(tool)
+        props = schema["function"]["parameters"]["properties"]
+
+        assert "customer_name" in props
+        assert "phone_number" not in props
+
     def test_tool_name_sanitization(self):
         """Test that tool names with special characters are sanitized."""
         tool = MockToolModel(
@@ -254,6 +293,108 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
             assert result["status_code"] == 201
             assert result["data"]["id"] == 123
+
+    @pytest.mark.asyncio
+    async def test_post_request_injects_preset_parameters(self):
+        """Test that preset parameters are resolved from runtime context."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-preset",
+            name="Create Lead",
+            description="Create a lead with caller context",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/leads",
+                    "timeout_ms": 5000,
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        },
+                        {
+                            "name": "customer_id",
+                            "type": "number",
+                            "value_template": "{{gathered_context.customer_id}}",
+                            "required": True,
+                        },
+                        {
+                            "name": "is_vip",
+                            "type": "boolean",
+                            "value_template": "{{initial_context.is_vip}}",
+                            "required": False,
+                        },
+                    ],
+                },
+            },
+        )
+
+        arguments = {"name": "John"}
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {"id": 123}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(
+                tool,
+                arguments,
+                call_context_vars={
+                    "phone_number": "+14155550123",
+                    "is_vip": "true",
+                },
+                gathered_context_vars={"customer_id": "42"},
+            )
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["json"] == {
+                "name": "John",
+                "phone_number": "+14155550123",
+                "customer_id": 42,
+                "is_vip": True,
+            }
+            assert result["status"] == "success"
+
+    @pytest.mark.asyncio
+    async def test_missing_required_preset_parameter_returns_error(self):
+        """Test that required preset parameters fail before the HTTP request."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-preset-error",
+            name="Create Lead",
+            description="Create a lead with caller context",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/leads",
+                    "timeout_ms": 5000,
+                    "preset_parameters": [
+                        {
+                            "name": "phone_number",
+                            "type": "string",
+                            "value_template": "{{initial_context.phone_number}}",
+                            "required": True,
+                        }
+                    ],
+                },
+            },
+        )
+
+        result = await execute_http_tool(tool, {"name": "John"}, call_context_vars={})
+
+        assert result["status"] == "error"
+        assert "phone_number" in result["error"]
 
     @pytest.mark.asyncio
     async def test_get_request_sends_query_params(self):

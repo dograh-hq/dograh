@@ -121,3 +121,67 @@ To use Gemini 3.1 Live with Dograh, you need a Google Gemini API key. Follow the
 <Note>
   When using a Realtime provider like Gemini Live, you do not need to configure separate TTS and STT services — the realtime model handles speech in and out. However, you **must** still configure an **LLM** under the LLM tab: it powers variable extraction and QA analysis, which the realtime service does not perform.
 </Note>
+
+## Gemini Live on Vertex AI
+
+If you want to run Gemini Live through your own Google Cloud project — for billing consolidation, VPC controls, regional residency, or enterprise IAM — Dograh also supports Gemini Live via **Vertex AI** as a separate provider (`google_vertex_realtime`). The default model is `google/gemini-live-2.5-flash-native-audio`.
+
+Unlike Google AI Studio (which uses a single Gemini API key), Vertex AI authenticates with a **service account** belonging to your Google Cloud project.
+
+### Prerequisites
+
+1. A Google Cloud project with billing enabled.
+2. The Vertex AI API enabled on that project:
+
+   ```bash
+   gcloud services enable aiplatform.googleapis.com --project=YOUR_PROJECT_ID
+   ```
+
+3. A service account with the **Vertex AI User** role (`roles/aiplatform.user`) on the project:
+
+   ```bash
+   gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+     --member="serviceAccount:YOUR_SA@YOUR_PROJECT_ID.iam.gserviceaccount.com" \
+     --role="roles/aiplatform.user"
+   ```
+
+4. A **JSON** key for that service account (P12 keys are not supported).
+
+### Creating the service account key
+
+1. In the GCP Console, go to **IAM & Admin → Service Accounts**.
+2. Pick an existing service account (or create a new one).
+3. Open the **Keys** tab → **Add Key → Create new key**.
+4. Choose **JSON** as the key type and click **Create**.
+5. The key file will download to your computer — store it securely and treat it as a secret.
+
+<Note>
+  Always pick **JSON**, not P12. The Vertex AI client libraries used by Dograh only accept service-account JSON keys; P12 is a legacy format retained for older Google Workspace integrations.
+</Note>
+
+### Configuring Vertex AI Realtime in Dograh
+
+1. Go to **Model Configurations** in your Dograh dashboard.
+2. Enable the **Realtime** toggle.
+3. Under the **Realtime** section, select `google_vertex_realtime` as the provider.
+4. Fill in the fields:
+
+   | Field | What to put in |
+   |---|---|
+   | **Model** | Vertex publisher/model id, e.g. `google/gemini-live-2.5-flash-native-audio` |
+   | **Voice** | One of the built-in voices (Puck, Charon, Kore, Fenrir, Aoede) |
+   | **Language** | BCP-47 code (e.g. `en-US`) |
+   | **Project Id** | The `project_id` value from your service-account JSON |
+   | **Location** | GCP region where the model is available (e.g. `us-east4`) |
+   | **Credentials** | Paste the **entire contents** of the service-account JSON file |
+   | **API Key** | Leave blank — Vertex AI does not use API keys |
+
+5. Save the configuration.
+
+<Note>
+  Paste the whole JSON file into the **Credentials** field — including `private_key`, `client_email`, and all other entries. Don't try to extract individual fields. If `Credentials` is left blank, Dograh falls back to **Application Default Credentials (ADC)** from the host environment, which is useful when running Dograh on a GCP VM or GKE pod with an attached service account.
+</Note>
+
+<Note>
+  IAM changes can take up to ~60 seconds to propagate. If you see `Permission 'aiplatform.endpoints.predict' denied`, wait a minute and retry — or double-check that the role was granted to the same service account whose JSON you pasted.
+</Note>

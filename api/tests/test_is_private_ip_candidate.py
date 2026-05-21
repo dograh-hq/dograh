@@ -1,4 +1,11 @@
-from api.routes.webrtc_signaling import is_private_ip_candidate
+from api.enums import Environment
+from api.routes.webrtc_signaling import (
+    NonRelayFilterPolicy,
+    _keep_candidate,
+    is_local_or_cgnat_ip,
+    is_private_ip_candidate,
+    resolve_ice_filter_policies,
+)
 
 
 class TestIsPrivateIpCandidate:
@@ -142,3 +149,76 @@ class TestIsPrivateIpCandidate:
             "candidate:999 1 tcp 1518280447 192.168.1.100 9 typ host tcptype active"
         )
         assert is_private_ip_candidate(candidate) is True
+
+
+class TestIsLocalOrCgnatIp:
+    def test_loopback_is_local(self):
+        assert is_local_or_cgnat_ip("127.0.0.1") is True
+
+    def test_link_local_is_local(self):
+        assert is_local_or_cgnat_ip("169.254.1.1") is True
+
+    def test_cgnat_is_local(self):
+        assert is_local_or_cgnat_ip("100.64.0.1") is True
+
+    def test_public_ipv4_is_not_local(self):
+        assert is_local_or_cgnat_ip("8.8.8.8") is False
+
+
+class TestKeepCandidate:
+    def test_private_relay_candidate_survives_private_policy(self):
+        candidate = "candidate:111 1 udp 41885439 192.168.1.50 50000 typ relay raddr 0.0.0.0 rport 0"
+        assert _keep_candidate(candidate, NonRelayFilterPolicy.PRIVATE) is True
+
+    def test_private_host_candidate_drops_under_private_policy(self):
+        candidate = (
+            "candidate:123 1 udp 2122260223 192.168.50.24 63603 typ host generation 0"
+        )
+        assert _keep_candidate(candidate, NonRelayFilterPolicy.PRIVATE) is False
+
+
+class TestResolveIceFilterPolicies:
+    def test_local_deployment_keeps_all_candidates(self):
+        outbound, inbound = resolve_ice_filter_policies(
+            Environment.LOCAL.value,
+            False,
+            "",
+        )
+        assert outbound == NonRelayFilterPolicy.NONE
+        assert inbound == NonRelayFilterPolicy.NONE
+
+    def test_private_lan_remote_keeps_all_candidates(self):
+        outbound, inbound = resolve_ice_filter_policies(
+            Environment.PRODUCTION.value,
+            False,
+            "192.168.50.24",
+        )
+        assert outbound == NonRelayFilterPolicy.NONE
+        assert inbound == NonRelayFilterPolicy.NONE
+
+    def test_public_remote_filters_private_candidates(self):
+        outbound, inbound = resolve_ice_filter_policies(
+            Environment.PRODUCTION.value,
+            False,
+            "8.8.8.8",
+        )
+        assert outbound == NonRelayFilterPolicy.PRIVATE
+        assert inbound == NonRelayFilterPolicy.PRIVATE
+
+    def test_force_turn_relay_stays_relay_only_on_private_lan(self):
+        outbound, inbound = resolve_ice_filter_policies(
+            Environment.PRODUCTION.value,
+            True,
+            "192.168.50.24",
+        )
+        assert outbound == NonRelayFilterPolicy.ALL
+        assert inbound == NonRelayFilterPolicy.NONE
+
+    def test_force_turn_relay_keeps_public_remote_private_filter(self):
+        outbound, inbound = resolve_ice_filter_policies(
+            Environment.PRODUCTION.value,
+            True,
+            "8.8.8.8",
+        )
+        assert outbound == NonRelayFilterPolicy.ALL
+        assert inbound == NonRelayFilterPolicy.PRIVATE

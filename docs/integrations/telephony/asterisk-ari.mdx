@@ -74,14 +74,14 @@ Replace `dograh` with the app name you configured in `ari.conf` and in Dograh.
 Dograh uses Asterisk's external media streaming to send and receive audio over WebSocket. Configure a WebSocket client connection that points to your Dograh instance:
 
 ```ini
-[dograh_staging]
+[dograh]
 type = websocket_client
-uri = ws://your-dograh-host:port/ws/audio
+uri = ws://your-dograh-host:port/api/v1/telephony/ws/ari
 protocols = audio
 ```
 
 <Note>
-The section name (e.g., `dograh_staging`) is the **WebSocket Client Name** you'll enter in the Dograh telephony configuration. This name tells Asterisk which WebSocket connection to use for external media streaming during calls.
+The section name (e.g., `dograh`) is the **WebSocket Client Name** you'll enter in the Dograh telephony configuration. This name tells Asterisk which WebSocket connection to use for external media streaming during calls.
 </Note>
 
 Refer to the [Asterisk WebSocket documentation](https://docs.asterisk.org/) for additional `websocket_client.conf` options and TLS configuration.
@@ -102,7 +102,7 @@ Configure the following fields:
 | **ARI Endpoint URL** | HTTP base URL of your Asterisk ARI server | `http://asterisk.example.com:8088` |
 | **Stasis App Name** | The ARI username configured in `ari.conf` | `dograh` |
 | **App Password** | The ARI password configured in `ari.conf` | `your_secure_password` |
-| **WebSocket Client Name** | The connection name from `websocket_client.conf` | `dograh_staging` |
+| **WebSocket Client Name** | The connection name from `websocket_client.conf` | `dograh` |
 | **From Extensions** | Optional SIP extensions or trunk numbers for outbound calls | `PJSIP/6001` or `6001` |
 
 ### Step 3: Save and Add Extensions

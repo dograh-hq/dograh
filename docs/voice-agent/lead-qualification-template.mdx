@@ -1,0 +1,69 @@
+---
+title: Lead Qualification Template
+description: Built-in starter workflow that greets callers, qualifies them, and routes the qualified ones to a handoff.
+---
+
+Dograh ships with a built-in **Lead Qualification (Inbound)** workflow
+template so you can go from a fresh install to a working voice agent in a
+single click — no MPS access required.
+
+## What the template does
+
+The template implements the inbound lead-qualification flow shown in the
+[Better Stack walkthrough](https://www.youtube.com/watch?v=xD9JEvfCH9k):
+
+1. **Greeting** (`startCall`) — Sarah introduces herself and asks what the
+   caller is looking to build. Extracts a `use_case` variable.
+2. **Qualify Lead** (`agentNode`) — Collects company name, industry,
+   approximate size, and monthly call-minutes / budget. Extracts
+   `company_name`, `industry`, `company_size`, and `monthly_minutes`.
+3. **Branching** — From the qualification node:
+   - **Qualified handoff** (`endCall`) → confirms email, promises a
+     specialist will reach out, ends the call.
+   - **Polite close** (`endCall`) → thanks the caller and points them at
+     the self-hosted docs.
+
+The qualification edge condition fires when the company has ≥ 20 employees
+**and** non-trivial monthly minutes or budget. Tune the threshold by
+editing the edge's `condition` text after duplicating the template.
+
+## Using the template
+
+1. Open `http://localhost:3010` after running `docker compose up`.
+2. From the **Workflows** page, choose **New from Template**.
+3. Pick **Lead Qualification (Inbound)** and give it a name.
+4. Click **Web Call** to talk to the bot directly — no telephony setup
+   required.
+
+The template seeds on first migration (Alembic revision
+`c41a9b2e7d10_seed_lead_qualification_template`) and is loaded via
+`GET /api/v1/workflow/templates`. You can also call
+`POST /api/v1/workflow/templates/duplicate` with the template id to
+materialise a workflow programmatically.
+
+## What you still need
+
+- **Provider credentials.** Out of the box, OSS deployments proxy to
+  Dograh's hosted MPS so the first Web Call works without keys. To bring
+  your own LLM / STT / TTS, configure them in **Settings → Provider
+  Configuration**. For an end-to-end live phone call, attach Twilio /
+  Telnyx / Vonage / Vobiz / Cloudonix / Plivo credentials under
+  **Settings → Telephony**.
+- **Optional global system prompt.** The template's three call nodes all
+  have `add_global_prompt: true`. If you add a Global node to the
+  workflow, its prompt is prepended at runtime — handy for compliance
+  language or persona reinforcement.
+
+## Extending the template
+
+The template is just a starting point. After duplicating it you can:
+
+- Add an **API tool** to write the qualified lead to your CRM. Wire it
+  into the `Qualify Lead` agent node's tools list.
+- Replace the qualified-handoff `endCall` with a **call transfer** to a
+  human queue.
+- Add a **QA** node to score post-call transcripts against your script.
+
+See [Voice Agent Builder → Introduction](/voice-agent/introduction) for the
+node catalogue and [Tools → HTTP API](/voice-agent/tools/http-api) for
+hooking up an external CRM.

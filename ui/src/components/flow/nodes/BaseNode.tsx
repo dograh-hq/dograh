@@ -10,9 +10,8 @@ export const BaseNode = forwardRef<
         selected_through_edge?: boolean;
         hovered_through_edge?: boolean;
         runtimeActive?: boolean;
-        runtimePulseNonce?: number;
     }
->(({ children, className, selected, invalid, selected_through_edge, hovered_through_edge, runtimeActive, runtimePulseNonce, ...props }, ref) => (
+>(({ children, className, selected, invalid, selected_through_edge, hovered_through_edge, runtimeActive, ...props }, ref) => (
     <div
         ref={ref}
         className={cn(
@@ -34,14 +33,6 @@ export const BaseNode = forwardRef<
         tabIndex={0}
         {...props}
     >
-        {runtimeActive ? (
-            <span
-                key={`runtime-pulse-${runtimePulseNonce ?? 0}`}
-                className="pointer-events-none absolute -inset-2 rounded-[18px] border-2 border-sky-400/55"
-                aria-hidden="true"
-                style={{ animation: "ping 900ms ease-out 2" }}
-            />
-        ) : null}
         {children}
     </div>
 ));

@@ -19,8 +19,8 @@ import { cn, getRandomId } from "@/lib/utils";
 import { AiSimulatorPlaceholder } from "./workflow-tester/AiSimulatorPlaceholder";
 import { EmbeddedVoiceTester } from "./workflow-tester/EmbeddedVoiceTester";
 import { ManualTextChatPanel } from "./workflow-tester/ManualTextChatPanel";
-import { ChatModeToggle, DisabledNotice, EmptyState, RuntimeFocusToggle } from "./workflow-tester/shared";
-import type { WorkflowRuntimeFocusMode, WorkflowRuntimeNodeTransition } from "./workflow-tester/types";
+import { ChatModeToggle, DisabledNotice, EmptyState } from "./workflow-tester/shared";
+import type { WorkflowRuntimeNodeTransition } from "./workflow-tester/types";
 import { extractSdkErrorMessage, getErrorMessage } from "./workflow-tester/utils";
 
 interface WorkflowTesterPanelProps {
@@ -32,8 +32,6 @@ interface WorkflowTesterPanelProps {
     isVisible?: boolean;
     className?: string;
     onClose?: () => void;
-    runtimeFocusMode: WorkflowRuntimeFocusMode;
-    onRuntimeFocusModeChange: (mode: WorkflowRuntimeFocusMode) => void;
     onRuntimeNodeTransition?: (transition: WorkflowRuntimeNodeTransition) => void;
 }
 
@@ -46,8 +44,6 @@ export function WorkflowTesterPanel({
     isVisible = true,
     className,
     onClose,
-    runtimeFocusMode,
-    onRuntimeFocusModeChange,
     onRuntimeNodeTransition,
 }: WorkflowTesterPanelProps) {
     const auth = useAuth();
@@ -177,13 +173,6 @@ export function WorkflowTesterPanel({
                                 <X className="h-4 w-4" />
                             </Button>
                         ) : null}
-                    </div>
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                        <p className="text-xs text-muted-foreground">Canvas sync</p>
-                        <RuntimeFocusToggle
-                            value={runtimeFocusMode}
-                            onChange={onRuntimeFocusModeChange}
-                        />
                     </div>
                 </div>
 

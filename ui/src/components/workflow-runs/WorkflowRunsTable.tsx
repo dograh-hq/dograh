@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, ExternalLin
 import { useState } from "react";
 
 import { WorkflowRunResponseSchema } from "@/client/types.gen";
+import { CallTypeCell } from "@/components/CallTypeCell";
 import { FilterBuilder } from "@/components/filters/FilterBuilder";
 import { MediaPreviewButton, MediaPreviewDialog } from "@/components/MediaPreviewDialog";
 import { Badge } from "@/components/ui/badge";
@@ -189,9 +190,7 @@ export function WorkflowRunsTable({
                                             </TableCell>
                                             <TableCell className="text-sm">{formatDate(run.created_at)}</TableCell>
                                             <TableCell>
-                                                <Badge variant={run.call_type === 'inbound' ? "secondary" : "default"}>
-                                                    {run.call_type === 'inbound' ? 'Inbound' : 'Outbound'}
-                                                </Badge>
+                                                <CallTypeCell mode={run.mode} callType={run.call_type} />
                                             </TableCell>
                                             <TableCell className="text-sm">
                                                 {typeof run.cost_info?.call_duration_seconds === 'number'

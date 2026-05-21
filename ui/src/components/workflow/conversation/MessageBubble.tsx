@@ -10,6 +10,7 @@ interface MessageBubbleProps {
     final?: boolean;
     tone?: "default" | "muted";
     reasoningDurationMs?: number;
+    containerClassName?: string;
 }
 
 export function MessageBubble({
@@ -18,12 +19,13 @@ export function MessageBubble({
     final = true,
     tone = "default",
     reasoningDurationMs,
+    containerClassName,
 }: MessageBubbleProps) {
     const isUser = role === "user";
     const isMuted = tone === "muted";
 
     return (
-        <div className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+        <div className={cn("flex", isUser ? "justify-end" : "justify-start", containerClassName)}>
             <div className="flex max-w-[85%] flex-col gap-1">
                 {!isUser && reasoningDurationMs !== undefined ? (
                     <div className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground">

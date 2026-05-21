@@ -609,7 +609,6 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                 selected_through_edge={data.selected_through_edge}
                 hovered_through_edge={data.hovered_through_edge}
                 runtimeActive={data.runtime_active}
-                runtimePulseNonce={data.runtime_pulse_nonce}
                 title={data.name || fallbackTitle}
                 icon={<Icon />}
                 badgeLabel={badge.label}

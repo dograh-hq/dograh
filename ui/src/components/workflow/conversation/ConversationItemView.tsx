@@ -15,15 +15,34 @@ interface ConversationItemViewProps {
 
 export function ConversationItemView({ item, actions }: ConversationItemViewProps) {
     if (item.kind === "message") {
+        const isUser = item.role === "user";
+        const bubble = (
+            <MessageBubble
+                role={item.role}
+                text={item.text}
+                final={item.final}
+                tone={item.tone}
+                reasoningDurationMs={item.reasoningDurationMs}
+                containerClassName={isUser && actions ? "min-w-0 flex-1 justify-end" : undefined}
+            />
+        );
+
+        if (isUser && actions) {
+            return (
+                <div className="group flex w-full justify-end">
+                    <div className="flex w-full items-end justify-end gap-2">
+                        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border/60 bg-background/95 px-1 py-0.5 shadow-sm">
+                            {actions}
+                        </div>
+                        {bubble}
+                    </div>
+                </div>
+            );
+        }
+
         return (
             <div className="group space-y-1">
-                <MessageBubble
-                    role={item.role}
-                    text={item.text}
-                    final={item.final}
-                    tone={item.tone}
-                    reasoningDurationMs={item.reasoningDurationMs}
-                />
+                {bubble}
                 {actions ? (
                     <div className="flex h-5 items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                         {actions}

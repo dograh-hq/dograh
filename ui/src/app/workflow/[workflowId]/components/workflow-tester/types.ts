@@ -47,8 +47,6 @@ export interface TurnActionState {
     type: "rewind" | "edit";
 }
 
-export type WorkflowRuntimeFocusMode = "pulse" | "follow";
-
 export type WorkflowRuntimeNodeTransition = ConversationNodeTransitionItem;
 
 export const EMPTY_TEXT_CHAT_TURNS: TextChatTurn[] = [];

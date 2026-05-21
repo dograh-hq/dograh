@@ -25,7 +25,7 @@ import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { GenericNode } from "../../../components/flow/nodes/GenericNode";
 import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { VersionHistoryPanel, WorkflowVersion } from './components/VersionHistoryPanel';
-import type { WorkflowRuntimeFocusMode, WorkflowRuntimeNodeTransition } from './components/workflow-tester/types';
+import type { WorkflowRuntimeNodeTransition } from './components/workflow-tester/types';
 import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
 import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
@@ -94,9 +94,7 @@ function RenderWorkflow({
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
-    const [runtimeFocusMode, setRuntimeFocusMode] = useState<WorkflowRuntimeFocusMode>("follow");
     const [activeRuntimeNodeId, setActiveRuntimeNodeId] = useState<string | null>(null);
-    const [runtimePulseNonce, setRuntimePulseNonce] = useState(0);
 
     const {
         rfInstance,
@@ -387,12 +385,11 @@ function RenderWorkflow({
                           data: {
                               ...node.data,
                               runtime_active: true,
-                              runtime_pulse_nonce: runtimePulseNonce,
                           },
                       }
                     : node,
             ),
-        [activeRuntimeNodeId, nodes, runtimePulseNonce],
+        [activeRuntimeNodeId, nodes],
     );
 
     const handleRuntimeNodeTransition = useCallback(
@@ -404,9 +401,8 @@ function RenderWorkflow({
             }
 
             setActiveRuntimeNodeId(nodeId);
-            setRuntimePulseNonce((value) => value + 1);
 
-            if (runtimeFocusMode !== "follow" || !instance.viewportInitialized) {
+            if (!instance.viewportInitialized) {
                 return;
             }
 
@@ -417,7 +413,7 @@ function RenderWorkflow({
                 maxZoom: 0.9,
             });
         },
-        [rfInstance, runtimeFocusMode],
+        [rfInstance],
     );
 
     // Guard saveWorkflow so it's a no-op when viewing a historical version.
@@ -669,8 +665,6 @@ function RenderWorkflow({
                                     showWebCallOnboarding={shouldShowWebCallOnboarding}
                                     isVisible={isDesktopViewport}
                                     onClose={() => setIsTesterRailOpen(false)}
-                                    runtimeFocusMode={runtimeFocusMode}
-                                    onRuntimeFocusModeChange={setRuntimeFocusMode}
                                     onRuntimeNodeTransition={handleRuntimeNodeTransition}
                                 />
                             </aside>
@@ -686,8 +680,6 @@ function RenderWorkflow({
                                 disabledReason={testerDisabledReason}
                                 showWebCallOnboarding={shouldShowWebCallOnboarding}
                                 isVisible={isTesterSheetOpen}
-                                runtimeFocusMode={runtimeFocusMode}
-                                onRuntimeFocusModeChange={setRuntimeFocusMode}
                                 onRuntimeNodeTransition={handleRuntimeNodeTransition}
                             />
                         </SheetContent>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, Download, Globe, MessageSquare, Phone } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Globe } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 
 import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
 import type { DailyUsageBreakdownResponse, MpsCreditsResponse, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
+import { CallTypeCell } from '@/components/CallTypeCell';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
@@ -23,7 +24,6 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useUserConfig } from '@/context/UserConfigContext';
 import { useAuth } from '@/lib/auth';
 import { usageFilterAttributes } from '@/lib/filterAttributes';
@@ -32,53 +32,6 @@ import { ActiveFilter, DateRangeValue } from '@/types/filters';
 
 // Get local timezone
 const getLocalTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-// Collapse a run's `mode` (from WorkflowRunMode in api/enums.py) into a coarse
-// channel. Telephony providers (twilio, plivo, telnyx, vonage, vobiz, cloudonix,
-// ari, ...) are phone calls; webrtc/smallwebrtc are browser web calls; textchat
-// is a text conversation. Anything unknown falls back to "phone".
-const WEB_CALL_MODES = new Set(['webrtc', 'smallwebrtc']);
-const TEXT_CHAT_MODES = new Set(['textchat']);
-
-const getCallChannel = (mode?: string | null): 'phone' | 'web' | 'chat' => {
-    if (mode && TEXT_CHAT_MODES.has(mode)) return 'chat';
-    if (mode && WEB_CALL_MODES.has(mode)) return 'web';
-    return 'phone';
-};
-
-// Render the call's channel (mode) and direction (call_type) as two compact
-// icons in a single cell, with a tooltip spelling out the full label. The
-// channel icon shows medium/how (phone / web / chat); the colored arrow shows
-// direction (inbound = incoming/emerald, outbound = outgoing/blue).
-const CallTypeCell = ({ mode, callType }: { mode?: string | null; callType?: string | null }) => {
-    if (!mode && !callType) {
-        return <span className="text-sm text-muted-foreground">-</span>;
-    }
-
-    const channel = getCallChannel(mode);
-    const ChannelIcon = channel === 'chat' ? MessageSquare : channel === 'web' ? Globe : Phone;
-    const channelLabel = channel === 'chat' ? 'Text chat' : channel === 'web' ? 'Web call' : 'Phone call';
-
-    const isInbound = callType === 'inbound';
-    const DirectionIcon = isInbound ? ArrowDownLeft : ArrowUpRight;
-    const directionLabel = isInbound ? 'Inbound' : 'Outbound';
-
-    return (
-        <Tooltip>
-            <TooltipTrigger asChild>
-                <span className="inline-flex items-center gap-1">
-                    <ChannelIcon className="h-4 w-4 text-muted-foreground" />
-                    <DirectionIcon
-                        className={`h-3.5 w-3.5 ${isInbound ? 'text-emerald-600' : 'text-blue-600'}`}
-                    />
-                </span>
-            </TooltipTrigger>
-            <TooltipContent sideOffset={4}>
-                {directionLabel} · {channelLabel}
-            </TooltipContent>
-        </Tooltip>
-    );
-};
 
 export default function UsagePage() {
     const router = useRouter();
@@ -677,4 +630,3 @@ export default function UsagePage() {
         </div>
     );
 }
-

@@ -11,7 +11,6 @@ interface NodeContentProps {
     selected_through_edge?: boolean;
     hovered_through_edge?: boolean;
     runtimeActive?: boolean;
-    runtimePulseNonce?: number;
     title: string;
     icon: ReactNode;
     badgeLabel?: string;
@@ -34,7 +33,6 @@ export const NodeContent = ({
     selected_through_edge,
     hovered_through_edge,
     runtimeActive,
-    runtimePulseNonce,
     title,
     icon,
     badgeLabel,
@@ -59,7 +57,6 @@ export const NodeContent = ({
             selected_through_edge={selected_through_edge}
             hovered_through_edge={hovered_through_edge}
             runtimeActive={runtimeActive}
-            runtimePulseNonce={runtimePulseNonce}
             className={`p-0 ${className}`}
             onDoubleClick={onDoubleClick}
         >

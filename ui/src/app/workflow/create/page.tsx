@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost, createWorkflowRunApiV1WorkflowWorkflowIdRunsPost } from '@/client/sdk.gen';
+import { createWorkflowFromTemplateApiV1WorkflowCreateTemplatePost } from '@/client/sdk.gen';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -18,10 +18,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
-import { getRandomId } from '@/lib/utils';
 
 export default function CreateWorkflowPage() {
     const router = useRouter();
@@ -76,36 +74,9 @@ export default function CreateWorkflowPage() {
         }
     };
 
-    const handleModalContinue = async () => {
-        if (!workflowId || !user) return;
-
-        try {
-            const accessToken = await getAccessToken();
-            const workflowRunName = `WR-${getRandomId()}`;
-
-            // Create a workflow run
-            const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({
-                path: {
-                    workflow_id: Number(workflowId),
-                },
-                body: {
-                    mode: WORKFLOW_RUN_MODES.SMALL_WEBRTC, // Same mode as "Web Call" button
-                    name: workflowRunName
-                },
-                headers: {
-                    'Authorization': `Bearer ${accessToken}`,
-                },
-            });
-
-            // Navigate to the workflow run page
-            if (response.data?.id) {
-                router.push(`/workflow/${workflowId}/run/${response.data.id}`);
-            }
-        } catch (err) {
-            logger.error(`Error creating workflow run: ${err}`);
-            // Fallback to workflow page if run creation fails
-            router.push(`/workflow/${workflowId}`);
-        }
+    const handleModalContinue = () => {
+        if (!workflowId) return;
+        router.push(`/workflow/${workflowId}?onboarding=web_call`);
     };
 
     return (
@@ -233,7 +204,7 @@ export default function CreateWorkflowPage() {
                                     The voice bot is pre-set to communicate in English with an American accent.
                                 </p>
                                 <p>
-                                    Next steps would be to test the voice bot using web call, and then modify it to suit your use case.
+                                    Next steps would be to test the voice bot in the editor, and then modify it to suit your use case.
                                 </p>
                             </div>
                         </DialogDescription>
@@ -243,7 +214,7 @@ export default function CreateWorkflowPage() {
                             onClick={handleModalContinue}
                             className="w-full"
                         >
-                            Start Web Call
+                            Open and Test Agent
                         </Button>
                     </DialogFooter>
                 </DialogContent>

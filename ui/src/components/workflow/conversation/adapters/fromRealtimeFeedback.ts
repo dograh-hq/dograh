@@ -62,7 +62,9 @@ function liveFeedbackItem(message: RealtimeFeedbackMessage, reasoningDurationMs?
             kind: "node-transition",
             id: message.id,
             timestamp: message.timestamp,
+            nodeId: message.nodeId,
             nodeName: message.nodeName ?? message.text,
+            previousNodeId: message.previousNodeId,
             previousNodeName: message.previousNode,
             allowInterrupt: message.allowInterrupt,
         };
@@ -241,7 +243,9 @@ export function conversationItemsFromRealtimeFeedbackEvents(events: RealtimeFeed
                 kind: "node-transition",
                 id: `node-${event.turn}-${index}`,
                 timestamp: event.timestamp,
+                nodeId: event.payload.node_id,
                 nodeName: event.payload.node_name ?? feedbackEventText(event) ?? "Node",
+                previousNodeId: event.payload.previous_node_id,
                 previousNodeName: event.payload.previous_node_name ?? event.payload.previous_node,
                 allowInterrupt: event.payload.allow_interrupt,
             });

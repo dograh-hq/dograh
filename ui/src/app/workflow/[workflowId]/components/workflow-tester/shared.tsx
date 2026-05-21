@@ -81,6 +81,42 @@ export function ChatModeToggle({
     );
 }
 
+export function RuntimeFocusToggle({
+    value,
+    onChange,
+}: {
+    value: "pulse" | "follow";
+    onChange: (next: "pulse" | "follow") => void;
+}) {
+    const options: Array<{ id: "pulse" | "follow"; label: string }> = [
+        { id: "pulse", label: "Pulse" },
+        { id: "follow", label: "Follow" },
+    ];
+
+    return (
+        <div className="inline-flex items-center gap-0.5 rounded-md border border-border/70 bg-muted/40 p-0.5">
+            {options.map((option) => {
+                const active = option.id === value;
+                return (
+                    <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => onChange(option.id)}
+                        className={cn(
+                            "rounded-[5px] px-2.5 py-1 text-xs font-medium transition",
+                            active
+                                ? "bg-background text-foreground shadow-xs"
+                                : "text-muted-foreground hover:text-foreground",
+                        )}
+                    >
+                        {option.label}
+                    </button>
+                );
+            })}
+        </div>
+    );
+}
+
 export function TypingIndicator() {
     return (
         <div className="flex justify-start">

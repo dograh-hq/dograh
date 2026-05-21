@@ -7,6 +7,7 @@ import { ConversationTimeline } from "@/components/workflow/conversation";
 import { ChatComposer } from "./ChatComposer";
 import { DisabledNotice, ManualChatEmptyState, TypingIndicator } from "./shared";
 import { TurnMessageActions } from "./TurnMessageActions";
+import type { WorkflowRuntimeNodeTransition } from "./types";
 import { useTextChatSession } from "./useTextChatSession";
 
 interface ManualTextChatPanelProps {
@@ -16,6 +17,7 @@ interface ManualTextChatPanelProps {
     disabled: boolean;
     disabledReason: string | null;
     onActiveChange?: (active: boolean) => void;
+    onNodeTransition?: (transition: WorkflowRuntimeNodeTransition) => void;
 }
 
 export function ManualTextChatPanel({
@@ -25,6 +27,7 @@ export function ManualTextChatPanel({
     disabled,
     disabledReason,
     onActiveChange,
+    onNodeTransition,
 }: ManualTextChatPanelProps) {
     const {
         session,
@@ -51,6 +54,7 @@ export function ManualTextChatPanel({
         initialContextVariables,
         disabled,
         onActiveChange,
+        onNodeTransition,
     });
 
     if (!started && !session) {
@@ -70,7 +74,7 @@ export function ManualTextChatPanel({
                 </div>
             ) : null}
 
-            <div className="min-h-0 flex-1">
+            <div className="flex min-h-0 flex-1 flex-col">
                 {creatingSession && !session ? (
                     <div className="space-y-3 py-1">
                         <Skeleton className="ml-auto h-9 w-2/3 rounded-2xl" />

@@ -20,7 +20,9 @@ export interface RealtimeFeedbackMessage {
     arguments?: unknown;
     result?: unknown;
     status?: "running" | "completed";
+    nodeId?: string;
     nodeName?: string;
+    previousNodeId?: string;
     previousNode?: string;
     allowInterrupt?: boolean;
     ttfbSeconds?: number;
@@ -40,7 +42,9 @@ export interface RealtimeFeedbackEvent {
         tool_call_id?: string;
         arguments?: unknown;
         result?: unknown;
+        node_id?: string;
         node_name?: string;
+        previous_node_id?: string;
         previous_node?: string;
         previous_node_name?: string;
         allow_interrupt?: boolean;
@@ -84,7 +88,9 @@ export interface ConversationToolCallItem extends ConversationItemBase {
 
 export interface ConversationNodeTransitionItem extends ConversationItemBase {
     kind: "node-transition";
+    nodeId?: string;
     nodeName: string;
+    previousNodeId?: string;
     previousNodeName?: string;
     allowInterrupt?: boolean;
 }

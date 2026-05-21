@@ -9,6 +9,7 @@ import { RealtimeFeedback } from "@/components/workflow/conversation";
 
 import { ApiKeyErrorDialog, ConnectionStatus, WorkflowConfigErrorDialog } from "../../run/[runId]/components";
 import { useWebSocketRTC } from "../../run/[runId]/hooks";
+import type { WorkflowRuntimeNodeTransition } from "./types";
 
 interface EmbeddedVoiceTesterProps {
     workflowId: number;
@@ -16,6 +17,7 @@ interface EmbeddedVoiceTesterProps {
     initialContextVariables?: Record<string, string>;
     accessToken: string;
     onReset: () => void;
+    onNodeTransition?: (transition: WorkflowRuntimeNodeTransition) => void;
 }
 
 export function EmbeddedVoiceTester({
@@ -24,6 +26,7 @@ export function EmbeddedVoiceTester({
     initialContextVariables,
     accessToken,
     onReset,
+    onNodeTransition,
 }: EmbeddedVoiceTesterProps) {
     const router = useRouter();
     const {
@@ -48,6 +51,7 @@ export function EmbeddedVoiceTester({
         workflowRunId,
         accessToken,
         initialContextVariables,
+        onNodeTransition,
     });
     const autoStartedRef = useRef(false);
 

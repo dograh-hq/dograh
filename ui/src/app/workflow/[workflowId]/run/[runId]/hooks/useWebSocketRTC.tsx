@@ -4,7 +4,7 @@ import { client } from "@/client/client.gen";
 import { getTurnCredentialsApiV1TurnCredentialsGet, validateUserConfigurationsApiV1UserConfigurationsUserValidateGet, validateWorkflowApiV1WorkflowWorkflowIdValidatePost } from "@/client/sdk.gen";
 import { TurnCredentialsResponse } from "@/client/types.gen";
 import { WorkflowValidationError } from "@/components/flow/types";
-import type { RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
+import type { ConversationNodeTransitionItem, RealtimeFeedbackMessage as FeedbackMessage } from "@/components/workflow/conversation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import logger from '@/lib/logger';
 
@@ -16,9 +16,10 @@ interface UseWebSocketRTCProps {
     workflowRunId: number;
     accessToken: string | null;
     initialContextVariables?: Record<string, string> | null;
+    onNodeTransition?: (transition: ConversationNodeTransitionItem) => void;
 }
 
-export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables }: UseWebSocketRTCProps) => {
+export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables, onNodeTransition }: UseWebSocketRTCProps) => {
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'failed'>('idle');
     const [connectionActive, setConnectionActive] = useState(false);
     const [isCompleted, setIsCompleted] = useState(false);
@@ -53,6 +54,11 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
     const timeStartRef = useRef<number | null>(null);
+    const onNodeTransitionRef = useRef(onNodeTransition);
+
+    useEffect(() => {
+        onNodeTransitionRef.current = onNodeTransition;
+    }, [onNodeTransition]);
 
     // Generate a cryptographically secure unique ID
     const generateSecureId = () => {
@@ -394,17 +400,37 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                         }
 
                         case 'rtf-node-transition': {
-                            const { node_name, previous_node_name, allow_interrupt } = message.payload;
+                            const {
+                                node_id,
+                                node_name,
+                                previous_node_id,
+                                previous_node_name,
+                                allow_interrupt,
+                            } = message.payload;
                             currentAllowInterruptRef.current = allow_interrupt;
-                            setFeedbackMessages(prev => [...prev, {
+                            const transitionTimestamp = new Date().toISOString();
+                            const transition: ConversationNodeTransitionItem = {
+                                kind: 'node-transition',
                                 id: `node-${Date.now()}`,
+                                timestamp: transitionTimestamp,
+                                nodeId: node_id,
+                                nodeName: node_name ?? 'Node',
+                                previousNodeId: previous_node_id,
+                                previousNodeName: previous_node_name,
+                                allowInterrupt: allow_interrupt,
+                            };
+                            setFeedbackMessages(prev => [...prev, {
+                                id: transition.id,
                                 type: 'node-transition',
-                                text: node_name,
-                                nodeName: node_name,
+                                text: transition.nodeName,
+                                nodeId: transition.nodeId,
+                                nodeName: transition.nodeName,
+                                previousNodeId: transition.previousNodeId,
                                 previousNode: previous_node_name,
                                 allowInterrupt: allow_interrupt,
-                                timestamp: new Date().toISOString(),
+                                timestamp: transitionTimestamp,
                             }]);
+                            onNodeTransitionRef.current?.(transition);
                             break;
                         }
 

@@ -53,7 +53,9 @@ function conversationItemsFromTextChatEvents(
                 id: `${turnId}-node-${index}`,
                 turnId,
                 timestamp,
+                nodeId: asString(payload.node_id),
                 nodeName,
+                previousNodeId: asString(payload.previous_node_id),
                 previousNodeName: asString(payload.previous_node_name),
                 allowInterrupt: typeof payload.allow_interrupt === "boolean" ? payload.allow_interrupt : undefined,
             });

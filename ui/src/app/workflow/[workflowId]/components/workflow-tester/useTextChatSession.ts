@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -16,6 +16,7 @@ import {
     type TextChatTurn,
     toTextChatSession,
     type TurnActionState,
+    type WorkflowRuntimeNodeTransition,
 } from "./types";
 import { extractSdkErrorMessage, getErrorMessage, getReplayCursorTurnId } from "./utils";
 
@@ -25,6 +26,7 @@ interface UseTextChatSessionProps {
     initialContextVariables?: Record<string, string>;
     disabled: boolean;
     onActiveChange?: (active: boolean) => void;
+    onNodeTransition?: (transition: WorkflowRuntimeNodeTransition) => void;
 }
 
 export function useTextChatSession({
@@ -33,6 +35,7 @@ export function useTextChatSession({
     initialContextVariables,
     disabled,
     onActiveChange,
+    onNodeTransition,
 }: UseTextChatSessionProps) {
     const [session, setSession] = useState<TextChatSession | null>(null);
     const [started, setStarted] = useState(false);
@@ -41,6 +44,7 @@ export function useTextChatSession({
     const [sendingMessage, setSendingMessage] = useState(false);
     const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
     const [activeTurnAction, setActiveTurnAction] = useState<TurnActionState | null>(null);
+    const lastNotifiedNodeTransitionIdRef = useRef<string | null>(null);
 
     const turns = session?.session_data.turns ?? EMPTY_TEXT_CHAT_TURNS;
     const editingTurn = editingTurnId
@@ -90,6 +94,26 @@ export function useTextChatSession({
     useEffect(() => {
         onActiveChange?.(started);
     }, [onActiveChange, started]);
+
+    useEffect(() => {
+        const latestNodeTransition = [...conversationItems]
+            .reverse()
+            .find(
+                (item): item is WorkflowRuntimeNodeTransition =>
+                    item.kind === "node-transition" && !!item.nodeId,
+            );
+
+        if (!latestNodeTransition?.nodeId) {
+            return;
+        }
+
+        if (lastNotifiedNodeTransitionIdRef.current === latestNodeTransition.id) {
+            return;
+        }
+
+        lastNotifiedNodeTransitionIdRef.current = latestNodeTransition.id;
+        onNodeTransition?.(latestNodeTransition);
+    }, [conversationItems, onNodeTransition]);
 
     useEffect(() => {
         if (!editingTurnId) {

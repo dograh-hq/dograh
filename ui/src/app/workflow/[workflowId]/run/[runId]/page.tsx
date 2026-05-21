@@ -1,17 +1,14 @@
 'use client';
 
-import { Check, Copy, ExternalLink, FileText, LoaderCircle, Phone, Video } from 'lucide-react';
+import { Check, Copy, ExternalLink, FileText, Video } from 'lucide-react';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import { useEffect, useRef, useState } from 'react';
 
 import BrowserCall from '@/app/workflow/[workflowId]/run/[runId]/BrowserCall';
 import WorkflowLayout from '@/app/workflow/WorkflowLayout';
-import {
-    createWorkflowRunApiV1WorkflowWorkflowIdRunsPost,
-    getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet,
-} from '@/client/sdk.gen';
+import { getWorkflowRunApiV1WorkflowWorkflowIdRunsRunIdGet } from '@/client/sdk.gen';
 import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPreviewDialog';
 import { OnboardingTooltip } from '@/components/onboarding/OnboardingTooltip';
 import { Button } from '@/components/ui/button';
@@ -23,7 +20,6 @@ import { WORKFLOW_RUN_MODES } from '@/constants/workflowRunModes';
 import { useOnboarding } from '@/context/OnboardingContext';
 import { useAuth } from '@/lib/auth';
 import { downloadFile } from '@/lib/files';
-import { getRandomId } from '@/lib/utils';
 
 interface WorkflowRunResponse {
     mode: string;
@@ -151,9 +147,7 @@ function ContextDisplay({ title, context }: { title: string; context: Record<str
 
 export default function WorkflowRunPage() {
     const params = useParams();
-    const router = useRouter();
     const [isLoading, setIsLoading] = useState(true);
-    const [startingCall, setStartingCall] = useState(false);
     const auth = useAuth();
     const [workflowRun, setWorkflowRun] = useState<WorkflowRunResponse | null>(null);
     const { hasSeenTooltip, markTooltipSeen } = useOnboarding();
@@ -205,24 +199,6 @@ export default function WorkflowRunPage() {
         fetchWorkflowRun();
     }, [params.workflowId, params.runId, auth]);
 
-    const handleTestAgain = async () => {
-        if (startingCall) return;
-        setStartingCall(true);
-        try {
-            const workflowId = Number(params.workflowId);
-            const workflowRunName = `WR-${getRandomId()}`;
-            const response = await createWorkflowRunApiV1WorkflowWorkflowIdRunsPost({
-                path: { workflow_id: workflowId },
-                body: { mode: WORKFLOW_RUN_MODES.SMALL_WEBRTC, name: workflowRunName },
-            });
-            if (response.data?.id) {
-                router.push(`/workflow/${workflowId}/run/${response.data.id}`);
-            }
-        } finally {
-            setStartingCall(false);
-        }
-    };
-
     let returnValue = null;
     const isTextChatRun = workflowRun?.mode === WORKFLOW_RUN_MODES.TEXTCHAT;
     const showHistoricalRunView = Boolean(workflowRun?.is_completed || isTextChatRun);
@@ -271,21 +247,6 @@ export default function WorkflowRunPage() {
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
-                                {!isTextChatRun && (
-                                    <Button
-                                        onClick={handleTestAgain}
-                                        disabled={startingCall}
-                                        variant="outline"
-                                        className="gap-2"
-                                    >
-                                        {startingCall ? (
-                                            <LoaderCircle className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                            <Phone className="h-4 w-4" />
-                                        )}
-                                        {startingCall ? 'Starting...' : 'Test Again'}
-                                    </Button>
-                                )}
                                 <Link href={`/workflow/${params.workflowId}`}>
                                     <Button
                                         ref={customizeButtonRef}

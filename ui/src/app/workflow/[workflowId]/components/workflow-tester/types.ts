@@ -1,4 +1,5 @@
 import type { WorkflowRunTextSessionResponse } from "@/client/types.gen";
+import type { ConversationNodeTransitionItem } from "@/components/workflow/conversation";
 
 export interface TextChatMessage {
     text: string;
@@ -45,6 +46,10 @@ export interface TurnActionState {
     turnId: string;
     type: "rewind" | "edit";
 }
+
+export type WorkflowRuntimeFocusMode = "pulse" | "follow";
+
+export type WorkflowRuntimeNodeTransition = ConversationNodeTransitionItem;
 
 export const EMPTY_TEXT_CHAT_TURNS: TextChatTurn[] = [];
 

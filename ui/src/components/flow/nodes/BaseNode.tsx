@@ -9,8 +9,10 @@ export const BaseNode = forwardRef<
         invalid?: boolean;
         selected_through_edge?: boolean;
         hovered_through_edge?: boolean;
+        runtimeActive?: boolean;
+        runtimePulseNonce?: number;
     }
->(({ className, selected, invalid, selected_through_edge, hovered_through_edge, ...props }, ref) => (
+>(({ children, className, selected, invalid, selected_through_edge, hovered_through_edge, runtimeActive, runtimePulseNonce, ...props }, ref) => (
     <div
         ref={ref}
         className={cn(
@@ -26,11 +28,22 @@ export const BaseNode = forwardRef<
             // Hovered through edge takes precedence over selected through edge
             hovered_through_edge ? "ring-2 ring-primary/60 shadow-[0_0_12px_rgba(96,165,250,0.3)]" : "",
             !hovered_through_edge && selected_through_edge ? "ring-1 ring-primary/50 shadow-[0_0_8px_rgba(59,130,246,0.2)]" : "",
+            runtimeActive ? "ring-2 ring-sky-400/60 shadow-[0_0_0_1px_rgba(56,189,248,0.18),0_0_24px_rgba(14,165,233,0.18)]" : "",
             !selected_through_edge && !hovered_through_edge && "hover:border-muted-foreground/50",
         )}
         tabIndex={0}
         {...props}
-    />
+    >
+        {runtimeActive ? (
+            <span
+                key={`runtime-pulse-${runtimePulseNonce ?? 0}`}
+                className="pointer-events-none absolute -inset-2 rounded-[18px] border-2 border-sky-400/55"
+                aria-hidden="true"
+                style={{ animation: "ping 900ms ease-out 2" }}
+            />
+        ) : null}
+        {children}
+    </div>
 ));
 
 BaseNode.displayName = "BaseNode";

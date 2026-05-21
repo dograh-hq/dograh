@@ -1,21 +1,26 @@
 "use client";
 
 import { Loader2, MessageSquareText, Mic, Phone, RefreshCw, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import posthog from "posthog-js";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { createWorkflowRunApiV1WorkflowWorkflowIdRunsPost } from "@/client/sdk.gen";
+import { OnboardingTooltip } from "@/components/onboarding/OnboardingTooltip";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PostHogEvent } from "@/constants/posthog-events";
 import { WORKFLOW_RUN_MODES } from "@/constants/workflowRunModes";
+import { useOnboarding } from "@/context/OnboardingContext";
 import { useAuth } from "@/lib/auth";
 import { cn, getRandomId } from "@/lib/utils";
 
 import { AiSimulatorPlaceholder } from "./workflow-tester/AiSimulatorPlaceholder";
 import { EmbeddedVoiceTester } from "./workflow-tester/EmbeddedVoiceTester";
 import { ManualTextChatPanel } from "./workflow-tester/ManualTextChatPanel";
-import { ChatModeToggle, DisabledNotice, EmptyState } from "./workflow-tester/shared";
+import { ChatModeToggle, DisabledNotice, EmptyState, RuntimeFocusToggle } from "./workflow-tester/shared";
+import type { WorkflowRuntimeFocusMode, WorkflowRuntimeNodeTransition } from "./workflow-tester/types";
 import { extractSdkErrorMessage, getErrorMessage } from "./workflow-tester/utils";
 
 interface WorkflowTesterPanelProps {
@@ -23,8 +28,13 @@ interface WorkflowTesterPanelProps {
     initialContextVariables?: Record<string, string>;
     disabled: boolean;
     disabledReason: string | null;
+    showWebCallOnboarding?: boolean;
+    isVisible?: boolean;
     className?: string;
     onClose?: () => void;
+    runtimeFocusMode: WorkflowRuntimeFocusMode;
+    onRuntimeFocusModeChange: (mode: WorkflowRuntimeFocusMode) => void;
+    onRuntimeNodeTransition?: (transition: WorkflowRuntimeNodeTransition) => void;
 }
 
 export function WorkflowTesterPanel({
@@ -32,10 +42,16 @@ export function WorkflowTesterPanel({
     initialContextVariables,
     disabled,
     disabledReason,
+    showWebCallOnboarding = false,
+    isVisible = true,
     className,
     onClose,
+    runtimeFocusMode,
+    onRuntimeFocusModeChange,
+    onRuntimeNodeTransition,
 }: WorkflowTesterPanelProps) {
     const auth = useAuth();
+    const { hasSeenTooltip, markTooltipSeen, markActionCompleted } = useOnboarding();
     const { isAuthenticated, loading: authLoading, getAccessToken } = auth;
     const [accessToken, setAccessToken] = useState<string | null>(null);
     const [activeMode, setActiveMode] = useState<"audio" | "text">("audio");
@@ -45,6 +61,7 @@ export function WorkflowTesterPanel({
     const [voiceRunId, setVoiceRunId] = useState<number | null>(null);
     const [creatingVoiceRun, setCreatingVoiceRun] = useState(false);
     const [tokenReady, setTokenReady] = useState(false);
+    const runTestButtonRef = useRef<HTMLButtonElement>(null);
 
     useEffect(() => {
         let ignore = false;
@@ -99,6 +116,13 @@ export function WorkflowTesterPanel({
                 throw new Error(extractSdkErrorMessage(response.error, "Failed to create browser test run"));
             }
 
+            markActionCompleted("web_call_started");
+            markTooltipSeen("web_call");
+            posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
+                workflow_id: workflowId,
+                workflow_run_id: response.data.id,
+                source: "workflow_editor",
+            });
             setVoiceRunId(response.data.id);
             setActiveMode("audio");
         } catch (error) {
@@ -106,13 +130,22 @@ export function WorkflowTesterPanel({
         } finally {
             setCreatingVoiceRun(false);
         }
-    }, [accessToken, disabled, workflowId]);
+    }, [accessToken, disabled, markActionCompleted, markTooltipSeen, workflowId]);
 
     const authUnavailableReason = tokenReady && !accessToken
         ? "Authentication is required before testing can start."
         : null;
     const effectiveDisabledReason = disabledReason ?? authUnavailableReason;
     const testerBlocked = disabled || authUnavailableReason !== null;
+    const showRunTestTooltip =
+        showWebCallOnboarding &&
+        isVisible &&
+        activeMode === "audio" &&
+        !voiceRunId &&
+        tokenReady &&
+        !!accessToken &&
+        !testerBlocked &&
+        !hasSeenTooltip("web_call");
 
     return (
         <div className={cn("flex h-full min-h-0 flex-col bg-background", className)}>
@@ -145,6 +178,13 @@ export function WorkflowTesterPanel({
                             </Button>
                         ) : null}
                     </div>
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                        <p className="text-xs text-muted-foreground">Canvas sync</p>
+                        <RuntimeFocusToggle
+                            value={runtimeFocusMode}
+                            onChange={onRuntimeFocusModeChange}
+                        />
+                    </div>
                 </div>
 
                 <TabsContent value="audio" className="min-h-0 flex-1 px-4 py-4">
@@ -165,6 +205,7 @@ export function WorkflowTesterPanel({
                                 initialContextVariables={initialContextVariables}
                                 accessToken={accessToken}
                                 onReset={() => setVoiceRunId(null)}
+                                onNodeTransition={onRuntimeNodeTransition}
                             />
                         ) : (
                             <>
@@ -174,7 +215,11 @@ export function WorkflowTesterPanel({
                                     title="Call this agent in the browser"
                                     description="Test the agent over a voice call. Some telephony-only tools, like call transfer, are not yet supported here."
                                     action={
-                                        <Button onClick={createVoiceRun} disabled={creatingVoiceRun || testerBlocked}>
+                                        <Button
+                                            ref={runTestButtonRef}
+                                            onClick={createVoiceRun}
+                                            disabled={creatingVoiceRun || testerBlocked}
+                                        >
                                             {creatingVoiceRun ? (
                                                 <>
                                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -221,6 +266,7 @@ export function WorkflowTesterPanel({
                                 disabled={testerBlocked}
                                 disabledReason={effectiveDisabledReason}
                                 onActiveChange={setChatActive}
+                                onNodeTransition={onRuntimeNodeTransition}
                             />
                         ) : (
                             <AiSimulatorPlaceholder disabledReason={effectiveDisabledReason} />
@@ -228,6 +274,15 @@ export function WorkflowTesterPanel({
                     </div>
                 </TabsContent>
             </Tabs>
+
+            <OnboardingTooltip
+                targetRef={runTestButtonRef}
+                title="Try Your First Web Call"
+                message="Start a browser call here to hear the agent, inspect the transcript, and validate the workflow before you customize it further."
+                onDismiss={() => markTooltipSeen("web_call")}
+                showNext={false}
+                isVisible={showRunTestTooltip}
+            />
         </div>
     );
 }

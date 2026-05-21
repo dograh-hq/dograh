@@ -17,6 +17,7 @@ import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useOnboarding } from '@/context/OnboardingContext';
 import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
 import AddNodePanel from "../../../components/flow/AddNodePanel";
@@ -24,6 +25,7 @@ import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { GenericNode } from "../../../components/flow/nodes/GenericNode";
 import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { VersionHistoryPanel, WorkflowVersion } from './components/VersionHistoryPanel';
+import type { WorkflowRuntimeFocusMode, WorkflowRuntimeNodeTransition } from './components/workflow-tester/types';
 import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
 import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
@@ -40,6 +42,8 @@ interface RenderWorkflowProps {
     initialWorkflowName: string;
     workflowId: number;
     workflowUuid?: string;
+    initialTotalRuns?: number | null;
+    openTesterOnLoad?: boolean;
     initialFlow?: {
         nodes: FlowNode[];
         edges: FlowEdge[];
@@ -56,18 +60,33 @@ interface RenderWorkflowProps {
     user: { id: string; email?: string };
 }
 
-function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
+function RenderWorkflow({
+    initialWorkflowName,
+    workflowId,
+    workflowUuid,
+    initialTotalRuns,
+    openTesterOnLoad = false,
+    initialFlow,
+    initialTemplateContextVariables,
+    initialWorkflowConfigurations,
+    initialVersionNumber,
+    initialVersionStatus,
+    user,
+}: RenderWorkflowProps) {
     const router = useRouter();
     const { specs } = useNodeSpecs();
+    const { hasCompletedAction } = useOnboarding();
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
     const [isTesterRailOpen, setIsTesterRailOpen] = useState(true);
     const [isTesterSheetOpen, setIsTesterSheetOpen] = useState(false);
+    const [isDesktopViewport, setIsDesktopViewport] = useState(false);
     const [versions, setVersions] = useState<WorkflowVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [versionsLoadingMore, setVersionsLoadingMore] = useState(false);
     const [versionsHasMore, setVersionsHasMore] = useState(false);
     const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
+    const hasAutoOpenedTester = useRef(false);
     // Version info that updates immediately from the GET/save/publish responses.
     const [currentVersionNumber, setCurrentVersionNumber] = useState<number | null>(initialVersionNumber ?? null);
     const [currentVersionStatus, setCurrentVersionStatus] = useState<string | null>(initialVersionStatus ?? null);
@@ -75,6 +94,9 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
+    const [runtimeFocusMode, setRuntimeFocusMode] = useState<WorkflowRuntimeFocusMode>("follow");
+    const [activeRuntimeNodeId, setActiveRuntimeNodeId] = useState<string | null>(null);
+    const [runtimePulseNonce, setRuntimePulseNonce] = useState(0);
 
     const {
         rfInstance,
@@ -208,6 +230,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         return true;
     }, [activeVersionId, versions, hasDraft]);
 
+    useEffect(() => {
+        if (!isViewingHistoricalVersion) {
+            return;
+        }
+        setActiveRuntimeNodeId(null);
+    }, [isViewingHistoricalVersion]);
+
     // Return to the draft version, creating one from published if needed
     const handleBackToDraft = useCallback(async () => {
         const existingDraft = versions.find((v) => v.status === "draft");
@@ -283,6 +312,29 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         setIsTesterSheetOpen(true);
     }, []);
 
+    const shouldShowWebCallOnboarding = useMemo(() => {
+        return (initialTotalRuns ?? 0) === 0 && !hasCompletedAction('web_call_started');
+    }, [hasCompletedAction, initialTotalRuns]);
+
+    useEffect(() => {
+        const syncViewport = () => {
+            setIsDesktopViewport(window.innerWidth >= 1280);
+        };
+
+        syncViewport();
+        window.addEventListener('resize', syncViewport);
+        return () => window.removeEventListener('resize', syncViewport);
+    }, []);
+
+    useEffect(() => {
+        if (hasAutoOpenedTester.current || !openTesterOnLoad || !shouldShowWebCallOnboarding || testerDisabledReason) {
+            return;
+        }
+
+        handleOpenTester();
+        hasAutoOpenedTester.current = true;
+    }, [handleOpenTester, openTesterOnLoad, shouldShowWebCallOnboarding, testerDisabledReason]);
+
     // Fetch documents, tools, and recordings once for the entire workflow
     useEffect(() => {
         const fetchData = async () => {
@@ -325,6 +377,48 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         animated: true,
         type: "custom"
     }), []);
+
+    const displayNodes = useMemo(
+        () =>
+            nodes.map((node) =>
+                node.id === activeRuntimeNodeId
+                    ? {
+                          ...node,
+                          data: {
+                              ...node.data,
+                              runtime_active: true,
+                              runtime_pulse_nonce: runtimePulseNonce,
+                          },
+                      }
+                    : node,
+            ),
+        [activeRuntimeNodeId, nodes, runtimePulseNonce],
+    );
+
+    const handleRuntimeNodeTransition = useCallback(
+        (transition: WorkflowRuntimeNodeTransition) => {
+            const nodeId = transition.nodeId;
+            const instance = rfInstance.current;
+            if (!nodeId || !instance) {
+                return;
+            }
+
+            setActiveRuntimeNodeId(nodeId);
+            setRuntimePulseNonce((value) => value + 1);
+
+            if (runtimeFocusMode !== "follow" || !instance.viewportInitialized) {
+                return;
+            }
+
+            void instance.fitView({
+                nodes: [{ id: nodeId }],
+                duration: 350,
+                padding: 0.45,
+                maxZoom: 0.9,
+            });
+        },
+        [rfInstance, runtimeFocusMode],
+    );
 
     // Guard saveWorkflow so it's a no-op when viewing a historical version.
     // This is the single safety net that covers every save path: header button,
@@ -418,7 +512,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
                         <div className="relative min-w-0 flex-1">
                             <ReactFlow
                                 key={activeVersionId ?? 'current'}
-                                nodes={nodes}
+                                nodes={displayNodes}
                                 edges={edges}
                                 onNodesChange={onNodesChange}
                                 onEdgesChange={onEdgesChange}
@@ -572,7 +666,12 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
                                     initialContextVariables={templateContextVariables}
                                     disabled={testerDisabledReason !== null}
                                     disabledReason={testerDisabledReason}
+                                    showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                    isVisible={isDesktopViewport}
                                     onClose={() => setIsTesterRailOpen(false)}
+                                    runtimeFocusMode={runtimeFocusMode}
+                                    onRuntimeFocusModeChange={setRuntimeFocusMode}
+                                    onRuntimeNodeTransition={handleRuntimeNodeTransition}
                                 />
                             </aside>
                         )}
@@ -585,6 +684,11 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
                                 initialContextVariables={templateContextVariables}
                                 disabled={testerDisabledReason !== null}
                                 disabledReason={testerDisabledReason}
+                                showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                isVisible={isTesterSheetOpen}
+                                runtimeFocusMode={runtimeFocusMode}
+                                onRuntimeFocusModeChange={setRuntimeFocusMode}
+                                onRuntimeNodeTransition={handleRuntimeNodeTransition}
                             />
                         </SheetContent>
                     </Sheet>

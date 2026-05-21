@@ -82,6 +82,15 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             # cut the bot off mid-utterance.
             self._reconnect_pending = True
         else:
+            # Discard session_resumption_handle before a node-transition
+            # reconnect. The handle is issued periodically by Gemini, not
+            # after every transcription — so resuming to it restores state
+            # from BEFORE the user's most recent message. The new session's
+            # LLM then doesn't see what the user just said and replies with
+            # "I haven't heard anything from you yet". Clearing the handle
+            # forces a fresh server-side session that _handle_session_ready
+            # will fully seed from self._context.
+            self._session_resumption_handle = None
             await self._reconnect()
         return {"system_instruction"}
 
@@ -110,6 +119,10 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             await self._run_pending_function_calls()
             if self._reconnect_pending:
                 self._reconnect_pending = False
+                # Same rationale as in _handle_changed_settings: discard the
+                # handle so the deferred node-transition reconnect uses a
+                # fresh session that we can fully seed.
+                self._session_resumption_handle = None
                 await self._reconnect()
 
     async def _run_pending_function_calls(self):
@@ -200,12 +213,20 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
             # initial response now.
             self._run_llm_when_session_ready = False
             await self._create_initial_response()
+        elif self._handled_initial_context and not self._session_resumption_handle:
+            # Reconnect without a session_resumption_handle (e.g. quick node
+            # transition before the server issued any handle): the new
+            # server-side session has zero conversation history. Seed it from
+            # self._context — otherwise the LLM thinks "I haven't heard
+            # anything from you yet" because the user's last message lives
+            # only client-side. Use for_reconnect=True so Gemini 3.x seeds
+            # without forcing inference; the function-call-result frame that
+            # follows in _handle_context will trigger the LLM's first turn
+            # against history-aware context.
+            await self._create_initial_response(for_reconnect=True)
         await self._drain_pending_tool_results()
-        # Otherwise: no automatic seed. Reconnect after a session-resumption
-        # update relies on the server-side restored state; reconnects without
-        # a handle (e.g. node transitions before any handle was issued) are
-        # followed by a function-call-result LLMContextFrame which feeds the
-        # updated-context branch in _handle_context.
+        # Reconnect after a session-resumption update relies on the
+        # server-side restored state and falls through both branches above.
 
     # ------------------------------------------------------------------
     # Transcription: broadcast (so downstream voicemail detector and

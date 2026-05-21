@@ -66,7 +66,14 @@ else
 fi
 
 if [[ "$MODE" == "build" ]]; then
-    exec "${COMPOSE_CMD[@]}" --profile remote up -d --build --force-recreate "${EXTRA_ARGS[@]}"
+    CMD=("${COMPOSE_CMD[@]}" --profile remote up -d --build --force-recreate)
 else
-    exec "${COMPOSE_CMD[@]}" --profile remote up -d --pull always --force-recreate "${EXTRA_ARGS[@]}"
+    CMD=("${COMPOSE_CMD[@]}" --profile remote up -d --pull always --force-recreate)
 fi
+
+# Bash 3.2 on macOS treats "${empty_array[@]}" as unbound under `set -u`.
+if (( ${#EXTRA_ARGS[@]} )); then
+    CMD+=("${EXTRA_ARGS[@]}")
+fi
+
+exec "${CMD[@]}"

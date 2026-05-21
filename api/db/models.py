@@ -484,6 +484,12 @@ class WorkflowRunModel(Base):
     queued_run_id = Column(Integer, ForeignKey("queued_runs.id"), nullable=True)
     queued_run = relationship("QueuedRunModel", foreign_keys=[queued_run_id])
     public_access_token = Column(String(36), nullable=True)
+    text_session = relationship(
+        "WorkflowRunTextSessionModel",
+        back_populates="workflow_run",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     # Indexes
     __table_args__ = (
@@ -501,6 +507,43 @@ class WorkflowRunModel(Base):
         Index("idx_workflow_runs_workflow_id", "workflow_id"),
         Index("idx_workflow_runs_campaign_id", "campaign_id"),
     )
+
+
+class WorkflowRunTextSessionModel(Base):
+    __tablename__ = "workflow_run_text_sessions"
+
+    workflow_run_id = Column(
+        Integer,
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    workflow_run = relationship("WorkflowRunModel", back_populates="text_session")
+    revision = Column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+    )
+    session_data = Column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::json"),
+    )
+    checkpoint = Column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::json"),
+    )
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (Index("ix_workflow_run_text_sessions_updated_at", "updated_at"),)
 
 
 class OrganizationUsageCycleModel(Base):

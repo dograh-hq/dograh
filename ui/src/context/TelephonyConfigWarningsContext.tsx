@@ -2,12 +2,8 @@
 
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
-import { client } from '@/client/client.gen';
+import { getTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGet } from '@/client/sdk.gen';
 import { useAuth } from '@/lib/auth';
-
-interface TelephonyConfigWarningsResponse {
-    telnyx_missing_webhook_public_key_count: number;
-}
 
 interface TelephonyConfigWarningsContextType {
     telnyxMissingWebhookPublicKeyCount: number;
@@ -34,11 +30,8 @@ export function TelephonyConfigWarningsProvider({ children }: { children: ReactN
     const doFetch = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await client.get<TelephonyConfigWarningsResponse>({
-                url: '/api/v1/organizations/telephony-config-warnings',
-            });
-            const data = res.data as TelephonyConfigWarningsResponse | undefined;
-            setCount(data?.telnyx_missing_webhook_public_key_count ?? 0);
+            const res = await getTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGet();
+            setCount(res.data?.telnyx_missing_webhook_public_key_count ?? 0);
         } catch {
             setCount(0);
         } finally {

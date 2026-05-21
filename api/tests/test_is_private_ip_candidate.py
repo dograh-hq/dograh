@@ -167,9 +167,7 @@ class TestIsLocalOrCgnatIp:
 
 class TestKeepCandidate:
     def test_private_relay_candidate_survives_private_policy(self):
-        candidate = (
-            "candidate:111 1 udp 41885439 192.168.1.50 50000 typ relay raddr 0.0.0.0 rport 0"
-        )
+        candidate = "candidate:111 1 udp 41885439 192.168.1.50 50000 typ relay raddr 0.0.0.0 rport 0"
         assert _keep_candidate(candidate, NonRelayFilterPolicy.PRIVATE) is True
 
     def test_private_host_candidate_drops_under_private_policy(self):

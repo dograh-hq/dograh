@@ -57,6 +57,7 @@ class WorkflowRunUsageResponse(BaseModel):
     caller_number: Optional[str] = None
     called_number: Optional[str] = None
     call_type: Optional[str] = None
+    mode: Optional[str] = None
     disposition: Optional[str] = None
     initial_context: Optional[Dict[str, Any]] = None
     gathered_context: Optional[Dict[str, Any]] = None

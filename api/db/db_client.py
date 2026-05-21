@@ -16,12 +16,14 @@ from api.db.webhook_credential_client import WebhookCredentialClient
 from api.db.workflow_client import WorkflowClient
 from api.db.workflow_recording_client import WorkflowRecordingClient
 from api.db.workflow_run_client import WorkflowRunClient
+from api.db.workflow_run_text_session_client import WorkflowRunTextSessionClient
 from api.db.workflow_template_client import WorkflowTemplateClient
 
 
 class DBClient(
     WorkflowClient,
     WorkflowRunClient,
+    WorkflowRunTextSessionClient,
     UserClient,
     OrganizationClient,
     OrganizationConfigurationClient,

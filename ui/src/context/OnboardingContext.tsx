@@ -2,15 +2,19 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 
-export type TooltipKey = 'web_call' | 'customize_workflow'; // Add more tooltip keys as needed
+export type TooltipKey = 'web_call' | 'customize_workflow';
+export type OnboardingActionKey = 'web_call_started';
 
 interface OnboardingState {
     seenTooltips: TooltipKey[];
+    completedActions: OnboardingActionKey[];
 }
 
 interface OnboardingContextType {
     hasSeenTooltip: (key: TooltipKey) => boolean;
     markTooltipSeen: (key: TooltipKey) => void;
+    hasCompletedAction: (key: OnboardingActionKey) => boolean;
+    markActionCompleted: (key: OnboardingActionKey) => void;
     resetOnboarding: () => void;
 }
 
@@ -18,6 +22,7 @@ const ONBOARDING_STORAGE_KEY = 'dograh_onboarding_state';
 
 const defaultState: OnboardingState = {
     seenTooltips: [],
+    completedActions: [],
 };
 
 const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
@@ -59,6 +64,19 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
         }));
     };
 
+    const hasCompletedAction = (key: OnboardingActionKey): boolean => {
+        return onboardingState.completedActions.includes(key);
+    };
+
+    const markActionCompleted = (key: OnboardingActionKey) => {
+        setOnboardingState(prev => ({
+            ...prev,
+            completedActions: prev.completedActions.includes(key)
+                ? prev.completedActions
+                : [...prev.completedActions, key]
+        }));
+    };
+
     const resetOnboarding = () => {
         setOnboardingState(defaultState);
         localStorage.removeItem(ONBOARDING_STORAGE_KEY);
@@ -69,6 +87,8 @@ export const OnboardingProvider = ({ children }: { children: React.ReactNode }) 
             value={{
                 hasSeenTooltip,
                 markTooltipSeen,
+                hasCompletedAction,
+                markActionCompleted,
                 resetOnboarding
             }}
         >

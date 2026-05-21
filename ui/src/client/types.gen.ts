@@ -179,6 +179,20 @@ export type AmbientNoiseUploadResponse = {
 };
 
 /**
+ * AppendTextChatMessageRequest
+ */
+export type AppendTextChatMessageRequest = {
+    /**
+     * Text
+     */
+    text: string;
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
+};
+
+/**
  * AuthResponse
  */
 export type AuthResponse = {
@@ -888,6 +902,28 @@ export type CreateServiceKeyResponse = {
      * Expires At
      */
     expires_at?: string | null;
+};
+
+/**
+ * CreateTextChatSessionRequest
+ */
+export type CreateTextChatSessionRequest = {
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Initial Context
+     */
+    initial_context?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Annotations
+     */
+    annotations?: {
+        [key: string]: unknown;
+    } | null;
 };
 
 /**
@@ -2933,6 +2969,20 @@ export type RetryConfigResponse = {
 };
 
 /**
+ * RewindTextChatSessionRequest
+ */
+export type RewindTextChatSessionRequest = {
+    /**
+     * Cursor Turn Id
+     */
+    cursor_turn_id?: string | null;
+    /**
+     * Expected Revision
+     */
+    expected_revision?: number | null;
+};
+
+/**
  * S3SignedUrlResponse
  */
 export type S3SignedUrlResponse = {
@@ -4494,6 +4544,78 @@ export type WorkflowRunResponseSchema = {
 };
 
 /**
+ * WorkflowRunTextSessionResponse
+ */
+export type WorkflowRunTextSessionResponse = {
+    /**
+     * Workflow Run Id
+     */
+    workflow_run_id: number;
+    /**
+     * Workflow Id
+     */
+    workflow_id: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Mode
+     */
+    mode: string;
+    /**
+     * State
+     */
+    state: string;
+    /**
+     * Is Completed
+     */
+    is_completed: boolean;
+    /**
+     * Revision
+     */
+    revision: number;
+    /**
+     * Initial Context
+     */
+    initial_context?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Gathered Context
+     */
+    gathered_context?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Annotations
+     */
+    annotations?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Session Data
+     */
+    session_data: {
+        [key: string]: unknown;
+    };
+    /**
+     * Checkpoint
+     */
+    checkpoint: {
+        [key: string]: unknown;
+    };
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at?: string | null;
+};
+
+/**
  * WorkflowRunUsageResponse
  */
 export type WorkflowRunUsageResponse = {
@@ -4553,6 +4675,10 @@ export type WorkflowRunUsageResponse = {
      * Call Type
      */
     call_type?: string | null;
+    /**
+     * Mode
+     */
+    mode?: string | null;
     /**
      * Disposition
      */
@@ -6244,6 +6370,194 @@ export type GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostRespon
 };
 
 export type GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponse = GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponses[keyof GetAmbientNoiseUploadUrlApiV1WorkflowAmbientNoiseUploadUrlPostResponses];
+
+export type CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostData = {
+    body: CreateTextChatSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions';
+};
+
+export type CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostError = CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostErrors[keyof CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostErrors];
+
+export type CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse;
+};
+
+export type CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostResponse = CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostResponses[keyof CreateTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsPostResponses];
+
+export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/{run_id}';
+};
+
+export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetError = GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetErrors[keyof GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetErrors];
+
+export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse;
+};
+
+export type GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponse = GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses[keyof GetTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdGetResponses];
+
+export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostData = {
+    body: AppendTextChatMessageRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/{run_id}/messages';
+};
+
+export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostError = AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostErrors[keyof AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostErrors];
+
+export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse;
+};
+
+export type AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponse = AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses[keyof AppendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPostResponses];
+
+export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostData = {
+    body: RewindTextChatSessionRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+        /**
+         * Run Id
+         */
+        run_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/text-chat/sessions/{run_id}/rewind';
+};
+
+export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostError = RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostErrors[keyof RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostErrors];
+
+export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowRunTextSessionResponse;
+};
+
+export type RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponse = RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponses[keyof RewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPostResponses];
 
 export type GetDefaultConfigurationsApiV1UserConfigurationsDefaultsGetData = {
     body?: never;

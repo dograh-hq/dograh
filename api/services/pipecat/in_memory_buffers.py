@@ -6,6 +6,10 @@ from typing import List, Optional
 
 from loguru import logger
 
+from api.services.pipecat.realtime_feedback_events import (
+    realtime_feedback_event_sort_key,
+    stamp_realtime_feedback_event,
+)
 from api.utils.transcript import generate_transcript_text as _generate_transcript_text
 from pipecat.utils.enums import RealtimeFeedbackType
 
@@ -98,16 +102,13 @@ class InMemoryLogsBuffer:
 
     async def append(self, event: dict):
         """Append a feedback event to the buffer with timestamp and current node."""
-        # Add timestamp, turn tracking, and current node
-        timestamped_event = {
-            **event,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "turn": self._turn_counter,
-        }
-        if self._current_node_id:
-            timestamped_event["node_id"] = self._current_node_id
-        if self._current_node_name:
-            timestamped_event["node_name"] = self._current_node_name
+        timestamped_event = stamp_realtime_feedback_event(
+            event,
+            timestamp=datetime.now(UTC).isoformat(),
+            turn=self._turn_counter,
+            node_id=self._current_node_id,
+            node_name=self._current_node_name,
+        )
         self._events.append(timestamped_event)
         logger.trace(
             f"Appended event {event.get('type')} to logs buffer for workflow {self._workflow_run_id}"
@@ -120,17 +121,12 @@ class InMemoryLogsBuffer:
             f"Incremented turn counter to {self._turn_counter} for workflow {self._workflow_run_id}"
         )
 
-    @staticmethod
-    def _event_sort_key(event: dict) -> str:
-        payload_ts = event.get("payload", {}).get("timestamp")
-        return payload_ts or event.get("timestamp", "")
-
     def _sorted_events(self) -> List[dict]:
         # Stable sort by the realtime (payload) timestamp when available, falling
         # back to the buffer-append timestamp. Python's sort is stable, so events
         # sharing a key retain their original insertion order — this keeps
         # consecutive bot-text chunks of a single turn contiguous.
-        return sorted(self._events, key=self._event_sort_key)
+        return sorted(self._events, key=realtime_feedback_event_sort_key)
 
     def get_events(self) -> List[dict]:
         """Get all events for final storage, ordered by realtime timestamp."""

@@ -15,7 +15,9 @@ import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } fr
 import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useOnboarding } from '@/context/OnboardingContext';
 import { WorkflowConfigurations } from '@/types/workflow-configurations';
 
 import AddNodePanel from "../../../components/flow/AddNodePanel";
@@ -23,7 +25,9 @@ import CustomEdge from "../../../components/flow/edges/CustomEdge";
 import { GenericNode } from "../../../components/flow/nodes/GenericNode";
 import { PhoneCallDialog } from './components/PhoneCallDialog';
 import { VersionHistoryPanel, WorkflowVersion } from './components/VersionHistoryPanel';
+import type { WorkflowRuntimeFocusMode, WorkflowRuntimeNodeTransition } from './components/workflow-tester/types';
 import { WorkflowEditorHeader } from "./components/WorkflowEditorHeader";
+import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
 import { layoutNodes } from './utils/layoutNodes';
@@ -38,6 +42,8 @@ interface RenderWorkflowProps {
     initialWorkflowName: string;
     workflowId: number;
     workflowUuid?: string;
+    initialTotalRuns?: number | null;
+    openTesterOnLoad?: boolean;
     initialFlow?: {
         nodes: FlowNode[];
         edges: FlowEdge[];
@@ -54,16 +60,33 @@ interface RenderWorkflowProps {
     user: { id: string; email?: string };
 }
 
-function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
+function RenderWorkflow({
+    initialWorkflowName,
+    workflowId,
+    workflowUuid,
+    initialTotalRuns,
+    openTesterOnLoad = false,
+    initialFlow,
+    initialTemplateContextVariables,
+    initialWorkflowConfigurations,
+    initialVersionNumber,
+    initialVersionStatus,
+    user,
+}: RenderWorkflowProps) {
     const router = useRouter();
     const { specs } = useNodeSpecs();
+    const { hasCompletedAction } = useOnboarding();
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
+    const [isTesterRailOpen, setIsTesterRailOpen] = useState(true);
+    const [isTesterSheetOpen, setIsTesterSheetOpen] = useState(false);
+    const [isDesktopViewport, setIsDesktopViewport] = useState(false);
     const [versions, setVersions] = useState<WorkflowVersion[]>([]);
     const [versionsLoading, setVersionsLoading] = useState(false);
     const [versionsLoadingMore, setVersionsLoadingMore] = useState(false);
     const [versionsHasMore, setVersionsHasMore] = useState(false);
     const [activeVersionId, setActiveVersionId] = useState<number | null>(null);
+    const hasAutoOpenedTester = useRef(false);
     // Version info that updates immediately from the GET/save/publish responses.
     const [currentVersionNumber, setCurrentVersionNumber] = useState<number | null>(initialVersionNumber ?? null);
     const [currentVersionStatus, setCurrentVersionStatus] = useState<string | null>(initialVersionStatus ?? null);
@@ -71,6 +94,9 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
     const [documents, setDocuments] = useState<DocumentResponseSchema[] | undefined>(undefined);
     const [tools, setTools] = useState<ToolResponse[] | undefined>(undefined);
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
+    const [runtimeFocusMode, setRuntimeFocusMode] = useState<WorkflowRuntimeFocusMode>("follow");
+    const [activeRuntimeNodeId, setActiveRuntimeNodeId] = useState<string | null>(null);
+    const [runtimePulseNonce, setRuntimePulseNonce] = useState(0);
 
     const {
         rfInstance,
@@ -80,6 +106,7 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         workflowName,
         isDirty,
         workflowValidationErrors,
+        templateContextVariables,
         setNodes,
         setEdges,
         setIsDirty,
@@ -91,7 +118,6 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         onConnect,
         onEdgesChange,
         onNodesChange,
-        onRun,
     } = useWorkflowState({
         initialWorkflowName,
         workflowId,
@@ -204,6 +230,13 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         return true;
     }, [activeVersionId, versions, hasDraft]);
 
+    useEffect(() => {
+        if (!isViewingHistoricalVersion) {
+            return;
+        }
+        setActiveRuntimeNodeId(null);
+    }, [isViewingHistoricalVersion]);
+
     // Return to the draft version, creating one from published if needed
     const handleBackToDraft = useCallback(async () => {
         const existingDraft = versions.find((v) => v.status === "draft");
@@ -258,6 +291,50 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         return undefined;
     }, [activeVersionId, versions, currentVersionNumber, currentVersionStatus]);
 
+    const testerDisabledReason = useMemo(() => {
+        if (isViewingHistoricalVersion) {
+            return "Return to the draft before starting a new test session.";
+        }
+        if (isDirty) {
+            return "Save the latest draft before testing so the session uses the workflow you are looking at.";
+        }
+        if (workflowValidationErrors.length > 0) {
+            return "Resolve the current validation errors before starting another test.";
+        }
+        return null;
+    }, [isDirty, isViewingHistoricalVersion, workflowValidationErrors.length]);
+
+    const handleOpenTester = useCallback(() => {
+        if (window.innerWidth >= 1280) {
+            setIsTesterRailOpen(true);
+            return;
+        }
+        setIsTesterSheetOpen(true);
+    }, []);
+
+    const shouldShowWebCallOnboarding = useMemo(() => {
+        return (initialTotalRuns ?? 0) === 0 && !hasCompletedAction('web_call_started');
+    }, [hasCompletedAction, initialTotalRuns]);
+
+    useEffect(() => {
+        const syncViewport = () => {
+            setIsDesktopViewport(window.innerWidth >= 1280);
+        };
+
+        syncViewport();
+        window.addEventListener('resize', syncViewport);
+        return () => window.removeEventListener('resize', syncViewport);
+    }, []);
+
+    useEffect(() => {
+        if (hasAutoOpenedTester.current || !openTesterOnLoad || !shouldShowWebCallOnboarding || testerDisabledReason) {
+            return;
+        }
+
+        handleOpenTester();
+        hasAutoOpenedTester.current = true;
+    }, [handleOpenTester, openTesterOnLoad, shouldShowWebCallOnboarding, testerDisabledReason]);
+
     // Fetch documents, tools, and recordings once for the entire workflow
     useEffect(() => {
         const fetchData = async () => {
@@ -300,6 +377,48 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         animated: true,
         type: "custom"
     }), []);
+
+    const displayNodes = useMemo(
+        () =>
+            nodes.map((node) =>
+                node.id === activeRuntimeNodeId
+                    ? {
+                          ...node,
+                          data: {
+                              ...node.data,
+                              runtime_active: true,
+                              runtime_pulse_nonce: runtimePulseNonce,
+                          },
+                      }
+                    : node,
+            ),
+        [activeRuntimeNodeId, nodes, runtimePulseNonce],
+    );
+
+    const handleRuntimeNodeTransition = useCallback(
+        (transition: WorkflowRuntimeNodeTransition) => {
+            const nodeId = transition.nodeId;
+            const instance = rfInstance.current;
+            if (!nodeId || !instance) {
+                return;
+            }
+
+            setActiveRuntimeNodeId(nodeId);
+            setRuntimePulseNonce((value) => value + 1);
+
+            if (runtimeFocusMode !== "follow" || !instance.viewportInitialized) {
+                return;
+            }
+
+            void instance.fitView({
+                nodes: [{ id: nodeId }],
+                duration: 350,
+                padding: 0.45,
+                maxZoom: 0.9,
+            });
+        },
+        [rfInstance, runtimeFocusMode],
+    );
 
     // Guard saveWorkflow so it's a no-op when viewing a historical version.
     // This is the single safety net that covers every save path: header button,
@@ -372,12 +491,12 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
                     isDirty={isDirty}
                     workflowValidationErrors={workflowValidationErrors}
                     rfInstance={rfInstance}
-                    onRun={onRun}
                     workflowId={workflowId}
                     workflowUuid={workflowUuid}
                     saveWorkflow={guardedSaveWorkflow}
                     user={user}
                     onPhoneCallClick={() => setIsPhoneCallDialogOpen(true)}
+                    onTestAgentClick={handleOpenTester}
                     onHistoryClick={handleOpenVersionPanel}
                     activeVersionLabel={activeVersionLabel}
                     isViewingHistoricalVersion={isViewingHistoricalVersion}
@@ -388,158 +507,191 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
                 />
 
                 {/* Workflow Canvas */}
-                <div className="flex-1 relative">
-                    <ReactFlow
-                        key={activeVersionId ?? 'current'}
-                        nodes={nodes}
-                        edges={edges}
-                        onNodesChange={onNodesChange}
-                        onEdgesChange={onEdgesChange}
-                        nodeTypes={nodeTypes}
-                        edgeTypes={edgeTypes}
-                        onConnect={isViewingHistoricalVersion ? undefined : onConnect}
-                        minZoom={0.4}
-                        onInit={(instance) => {
-                            rfInstance.current = instance;
-                            // Center the workflow on load
-                            setTimeout(() => {
-                                instance.fitView({ padding: 0.2, duration: 200, maxZoom: 0.75 });
-                            }, 0);
-                        }}
-                        defaultEdgeOptions={defaultEdgeOptions}
-                        defaultViewport={initialFlow?.viewport}
-                        nodesDraggable={!isViewingHistoricalVersion}
-                        nodesConnectable={!isViewingHistoricalVersion}
-                        edgesReconnectable={!isViewingHistoricalVersion}
-                        zoomOnDoubleClick={false}
-                        deleteKeyCode={isViewingHistoricalVersion ? null : "Backspace"}
-                    >
-                        <Background
-                            variant={BackgroundVariant.Dots}
-                            gap={16}
-                            size={1}
-                            color="#94a3b8"
-                        />
+                <div className="flex-1 min-h-0">
+                    <div className="flex h-full min-w-0">
+                        <div className="relative min-w-0 flex-1">
+                            <ReactFlow
+                                key={activeVersionId ?? 'current'}
+                                nodes={displayNodes}
+                                edges={edges}
+                                onNodesChange={onNodesChange}
+                                onEdgesChange={onEdgesChange}
+                                nodeTypes={nodeTypes}
+                                edgeTypes={edgeTypes}
+                                onConnect={isViewingHistoricalVersion ? undefined : onConnect}
+                                minZoom={0.4}
+                                onInit={(instance) => {
+                                    rfInstance.current = instance;
+                                    // Center the workflow on load
+                                    setTimeout(() => {
+                                        instance.fitView({ padding: 0.2, duration: 200, maxZoom: 0.75 });
+                                    }, 0);
+                                }}
+                                defaultEdgeOptions={defaultEdgeOptions}
+                                defaultViewport={initialFlow?.viewport}
+                                nodesDraggable={!isViewingHistoricalVersion}
+                                nodesConnectable={!isViewingHistoricalVersion}
+                                edgesReconnectable={!isViewingHistoricalVersion}
+                                zoomOnDoubleClick={false}
+                                deleteKeyCode={isViewingHistoricalVersion ? null : "Backspace"}
+                            >
+                                <Background
+                                    variant={BackgroundVariant.Dots}
+                                    gap={16}
+                                    size={1}
+                                    color="#94a3b8"
+                                />
 
-                        {/* Top-right controls - vertical layout (hidden when viewing history) */}
-                        {!isViewingHistoricalVersion && (
-                            <Panel position="top-right">
+                                {/* Top-right controls - vertical layout (hidden when viewing history) */}
+                                {!isViewingHistoricalVersion && (
+                                    <Panel position="top-right">
+                                        <TooltipProvider>
+                                            <div className="flex flex-col gap-2">
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="default"
+                                                            size="icon"
+                                                            onClick={() => setIsAddNodePanelOpen(true)}
+                                                            className="shadow-md hover:shadow-lg"
+                                                        >
+                                                            <Plus className="h-4 w-4" />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="left">
+                                                        <p>Add node</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+
+                                                <Tooltip>
+                                                    <TooltipTrigger asChild>
+                                                        <Button
+                                                            variant="outline"
+                                                            size="icon"
+                                                            onClick={() => router.push(`/workflow/${workflowId}/settings`)}
+                                                            className="bg-white shadow-sm hover:shadow-md"
+                                                        >
+                                                            <Settings className="h-4 w-4" />
+                                                        </Button>
+                                                    </TooltipTrigger>
+                                                    <TooltipContent side="left">
+                                                        <p>Workflow settings</p>
+                                                    </TooltipContent>
+                                                </Tooltip>
+                                            </div>
+                                        </TooltipProvider>
+                                    </Panel>
+                                )}
+                            </ReactFlow>
+
+                            {/* Bottom-left controls - horizontal layout with custom buttons */}
+                            <div className="absolute bottom-12 left-8 z-10 flex gap-2">
                                 <TooltipProvider>
-                                    <div className="flex flex-col gap-2">
-                                        <Tooltip>
-                                            <TooltipTrigger asChild>
-                                                <Button
-                                                    variant="default"
-                                                    size="icon"
-                                                    onClick={() => setIsAddNodePanelOpen(true)}
-                                                    className="shadow-md hover:shadow-lg"
-                                                >
-                                                    <Plus className="h-4 w-4" />
-                                                </Button>
-                                            </TooltipTrigger>
-                                            <TooltipContent side="left">
-                                                <p>Add node</p>
-                                            </TooltipContent>
-                                        </Tooltip>
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                onClick={() => rfInstance.current?.zoomIn()}
+                                                className="bg-white shadow-sm hover:shadow-md h-8 w-8"
+                                            >
+                                                <Plus className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top">
+                                            <p>Zoom in</p>
+                                        </TooltipContent>
+                                    </Tooltip>
 
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                onClick={() => rfInstance.current?.zoomOut()}
+                                                className="bg-white shadow-sm hover:shadow-md h-8 w-8"
+                                            >
+                                                <Minus className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top">
+                                            <p>Zoom out</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                variant="outline"
+                                                size="icon"
+                                                onClick={() => rfInstance.current?.fitView()}
+                                                className="bg-white shadow-sm hover:shadow-md h-8 w-8"
+                                            >
+                                                <Maximize2 className="h-4 w-4" />
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent side="top">
+                                            <p>Fit view</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+
+                                    {!isViewingHistoricalVersion && (
                                         <Tooltip>
                                             <TooltipTrigger asChild>
                                                 <Button
                                                     variant="outline"
                                                     size="icon"
-                                                    onClick={() => router.push(`/workflow/${workflowId}/settings`)}
-                                                    className="bg-white shadow-sm hover:shadow-md"
+                                                    onClick={() => {
+                                                        setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
+                                                        setIsDirty(true);
+                                                    }}
+                                                    className="bg-white shadow-sm hover:shadow-md h-8 w-8"
                                                 >
-                                                    <Settings className="h-4 w-4" />
+                                                    <BrushCleaning className="h-4 w-4" />
                                                 </Button>
                                             </TooltipTrigger>
-                                            <TooltipContent side="left">
-                                                <p>Workflow settings</p>
+                                            <TooltipContent side="top">
+                                                <p>Tidy Up</p>
                                             </TooltipContent>
                                         </Tooltip>
-                                    </div>
+                                    )}
                                 </TooltipProvider>
-                            </Panel>
+                            </div>
+                        </div>
+
+                        {isTesterRailOpen && (
+                            <aside className="hidden h-full w-[420px] shrink-0 border-l border-border xl:block">
+                                <WorkflowTesterPanel
+                                    workflowId={workflowId}
+                                    initialContextVariables={templateContextVariables}
+                                    disabled={testerDisabledReason !== null}
+                                    disabledReason={testerDisabledReason}
+                                    showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                    isVisible={isDesktopViewport}
+                                    onClose={() => setIsTesterRailOpen(false)}
+                                    runtimeFocusMode={runtimeFocusMode}
+                                    onRuntimeFocusModeChange={setRuntimeFocusMode}
+                                    onRuntimeNodeTransition={handleRuntimeNodeTransition}
+                                />
+                            </aside>
                         )}
-                    </ReactFlow>
-
-                    {/* Bottom-left controls - horizontal layout with custom buttons */}
-                    <div className="absolute bottom-12 left-8 z-10 flex gap-2">
-                        <TooltipProvider>
-                            {/* Zoom In */}
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        onClick={() => rfInstance.current?.zoomIn()}
-                                        className="bg-white shadow-sm hover:shadow-md h-8 w-8"
-                                    >
-                                        <Plus className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">
-                                    <p>Zoom in</p>
-                                </TooltipContent>
-                            </Tooltip>
-
-                            {/* Zoom Out */}
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        onClick={() => rfInstance.current?.zoomOut()}
-                                        className="bg-white shadow-sm hover:shadow-md h-8 w-8"
-                                    >
-                                        <Minus className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">
-                                    <p>Zoom out</p>
-                                </TooltipContent>
-                            </Tooltip>
-
-                            {/* Fit View */}
-                            <Tooltip>
-                                <TooltipTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        size="icon"
-                                        onClick={() => rfInstance.current?.fitView()}
-                                        className="bg-white shadow-sm hover:shadow-md h-8 w-8"
-                                    >
-                                        <Maximize2 className="h-4 w-4" />
-                                    </Button>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">
-                                    <p>Fit view</p>
-                                </TooltipContent>
-                            </Tooltip>
-
-                            {/* Tidy/Arrange Nodes (hidden when viewing history) */}
-                            {!isViewingHistoricalVersion && (
-                                <Tooltip>
-                                    <TooltipTrigger asChild>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            onClick={() => {
-                                                setNodes(layoutNodes(nodes, edges, 'TB', rfInstance));
-                                                setIsDirty(true);
-                                            }}
-                                            className="bg-white shadow-sm hover:shadow-md h-8 w-8"
-                                        >
-                                            <BrushCleaning className="h-4 w-4" />
-                                        </Button>
-                                    </TooltipTrigger>
-                                    <TooltipContent side="top">
-                                        <p>Tidy Up</p>
-                                    </TooltipContent>
-                                </Tooltip>
-                            )}
-                        </TooltipProvider>
                     </div>
+
+                    <Sheet open={isTesterSheetOpen} onOpenChange={setIsTesterSheetOpen}>
+                        <SheetContent side="right" className="w-full max-w-none p-0 sm:max-w-xl xl:hidden">
+                            <WorkflowTesterPanel
+                                workflowId={workflowId}
+                                initialContextVariables={templateContextVariables}
+                                disabled={testerDisabledReason !== null}
+                                disabledReason={testerDisabledReason}
+                                showWebCallOnboarding={shouldShowWebCallOnboarding}
+                                isVisible={isTesterSheetOpen}
+                                runtimeFocusMode={runtimeFocusMode}
+                                onRuntimeFocusModeChange={setRuntimeFocusMode}
+                                onRuntimeNodeTransition={handleRuntimeNodeTransition}
+                            />
+                        </SheetContent>
+                    </Sheet>
                 </div>
 
                 <AddNodePanel

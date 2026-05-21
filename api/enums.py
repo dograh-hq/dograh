@@ -27,6 +27,7 @@ class WorkflowRunMode(Enum):
     TELNYX = "telnyx"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
+    TEXTCHAT = "textchat"
 
     # Historical, not used anymore. Don't
     # use and don't remove

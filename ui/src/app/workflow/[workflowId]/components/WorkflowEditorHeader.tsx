@@ -1,9 +1,8 @@
 "use client";
 
 import { ReactFlowInstance } from "@xyflow/react";
-import { AlertCircle, ArrowLeft, ChevronDown, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone, Rocket } from "lucide-react";
+import { AlertCircle, ArrowLeft, Bot, Clipboard, Copy, Download, Eye, History, LoaderCircle, Menu, MoreVertical, Pencil, Phone, Rocket } from "lucide-react";
 import { useRouter } from "next/navigation";
-import posthog from "posthog-js";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -28,20 +27,18 @@ import {
     PopoverTrigger,
 } from "@/components/ui/popover";
 import { useSidebar } from "@/components/ui/sidebar";
-import { PostHogEvent } from "@/constants/posthog-events";
-import { WORKFLOW_RUN_MODES } from "@/constants/workflowRunModes";
 
 interface WorkflowEditorHeaderProps {
     workflowName: string;
     isDirty: boolean;
     workflowValidationErrors: WorkflowError[];
     rfInstance: React.RefObject<ReactFlowInstance<FlowNode, FlowEdge> | null>;
-    onRun: (mode: string) => Promise<void>;
     workflowId: number;
     workflowUuid?: string;
     saveWorkflow: (updateWorkflowDefinition?: boolean) => Promise<void>;
     user: { id: string; email?: string };
     onPhoneCallClick: () => void;
+    onTestAgentClick: () => void;
     onHistoryClick: () => void;
     activeVersionLabel?: string;
     isViewingHistoricalVersion: boolean;
@@ -57,8 +54,8 @@ export const WorkflowEditorHeader = ({
     workflowValidationErrors,
     rfInstance,
     saveWorkflow,
-    onRun,
     onPhoneCallClick,
+    onTestAgentClick,
     onHistoryClick,
     activeVersionLabel,
     isViewingHistoricalVersion,
@@ -301,7 +298,7 @@ export const WorkflowEditorHeader = ({
                 </div>
             </div>
 
-            {/* Right section: Version + Unsaved indicator + Call button + Save button */}
+            {/* Right section: Version + status + tester/call actions + save */}
             <div className="flex items-center gap-3">
                 {/* Read-only banner when viewing a historical version */}
                 {isViewingHistoricalVersion && (
@@ -388,68 +385,6 @@ export const WorkflowEditorHeader = ({
                     </Popover>
                 )}
 
-                {/* Call button with dropdown (hidden when viewing history) */}
-                {!isViewingHistoricalVersion && (
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant="outline"
-                                className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
-                                disabled={isCallDisabled}
-                            >
-                                <Phone className="w-4 h-4" />
-                                Call
-                                <ChevronDown className="w-4 h-4" />
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-[#1a1a1a] border-[#3a3a3a]">
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    posthog.capture(PostHogEvent.WEB_CALL_INITIATED, {
-                                        workflow_id: workflowId,
-                                        workflow_name: workflowName,
-                                    });
-                                    onRun(WORKFLOW_RUN_MODES.SMALL_WEBRTC);
-                                }}
-                                className="text-white hover:bg-[#2a2a2a] cursor-pointer"
-                            >
-                                <Phone className="w-4 h-4 mr-2" />
-                                Web Call
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                                onClick={() => {
-                                    // Delay opening dialog to next event cycle to allow DropdownMenu
-                                    // to clean up first, preventing pointer-events: none stuck on body
-                                    // See: https://github.com/radix-ui/primitives/issues/1241
-                                    setTimeout(onPhoneCallClick, 0);
-                                }}
-                                className="text-white hover:bg-[#2a2a2a] cursor-pointer"
-                            >
-                                <Phone className="w-4 h-4 mr-2" />
-                                Phone Call
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                )}
-
-                {/* Save button (only shown when editing the draft) */}
-                {!isViewingHistoricalVersion && (
-                    <Button
-                        onClick={handleSave}
-                        disabled={!isDirty || savingWorkflow}
-                        className="bg-teal-600 hover:bg-teal-700 text-white px-4"
-                    >
-                        {savingWorkflow ? (
-                            <>
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Saving...
-                            </>
-                        ) : (
-                            "Save"
-                        )}
-                    </Button>
-                )}
-
                 {/* Publish button (only when on draft with no unsaved changes) */}
                 {!isViewingHistoricalVersion && hasDraft && (
                     <Button
@@ -468,6 +403,45 @@ export const WorkflowEditorHeader = ({
                                 <Rocket className="w-4 h-4 mr-2" />
                                 Publish
                             </>
+                        )}
+                    </Button>
+                )}
+
+                {!isViewingHistoricalVersion && (
+                    <Button
+                        variant="outline"
+                        className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
+                        disabled={isCallDisabled}
+                        onClick={onPhoneCallClick}
+                    >
+                        <Phone className="w-4 h-4" />
+                        Phone Call
+                    </Button>
+                )}
+
+                <Button
+                    variant="outline"
+                    className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
+                    onClick={onTestAgentClick}
+                >
+                    <Bot className="w-4 h-4" />
+                    Test Agent
+                </Button>
+
+                {/* Save button (only shown when editing the draft) */}
+                {!isViewingHistoricalVersion && (
+                    <Button
+                        onClick={handleSave}
+                        disabled={!isDirty || savingWorkflow}
+                        className="bg-teal-600 hover:bg-teal-700 text-white px-4"
+                    >
+                        {savingWorkflow ? (
+                            <>
+                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
+                                Saving...
+                            </>
+                        ) : (
+                            "Save"
                         )}
                     </Button>
                 )}

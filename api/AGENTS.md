@@ -41,6 +41,10 @@ api/
 - Telephony is a full subsystem under `services/telephony/`, with provider-specific packages under `services/telephony/providers/`
 - Integrations extend through `services/integrations/`; package-specific rules should live in that subtree's own `AGENTS.md`
 
+## Routes vs Service Layer
+
+**Keep route handlers thin** — parse/validate the request, resolve auth and `organization_id`, delegate, shape the response. Domain logic (orchestration, business rules, external calls, computation) belongs in `services/`. Before adding logic to a handler, find its home: extend an existing `services/<domain>/` module that owns the concern (see *Where to Find Things*) before adding a focused new module; never a catch-all. Keep DB access in `db/` clients — routes call services, services call DB clients. Litmus test: if `tasks/`, `mcp_server/`, or another route could reuse it, it must live in `services/` to be importable.
+
 ## Database Migrations
 
 ```bash

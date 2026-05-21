@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -28,6 +29,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
@@ -39,6 +41,10 @@ from api.services.pipecat.pipeline_metrics_aggregator import (
 )
 from api.services.pipecat.recording_audio_cache import create_recording_audio_fetcher
 from api.services.pipecat.service_factory import create_llm_service
+from api.services.pipecat.tracing_config import (
+    build_remote_parent_context,
+    get_trace_url,
+)
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
@@ -47,6 +53,19 @@ TEXT_CHAT_CHECKPOINT_VERSION = 1
 TEXT_CHAT_TURN_TIMEOUT_SECONDS = 60.0
 TEXT_CHAT_IDLE_SETTLE_SECONDS = 0.2
 TEXT_CHAT_INTERNAL_CANCEL_REASON = "text_chat_turn_complete"
+
+
+def text_chat_trace_id(workflow_run_id: int) -> str:
+    """Deterministic Langfuse trace id for a text-chat session.
+
+    Each turn runs in its own short-lived pipeline, so there is no single
+    long-running task to own the trace the way a voice call does. Deriving the
+    id from the run id means every turn re-creates the *same* trace id and all
+    per-turn spans land in one shared trace — without persisting extra state
+    across the otherwise stateless turn requests.
+    """
+    digest = hashlib.sha256(f"dograh-text-chat:{workflow_run_id}".encode()).hexdigest()
+    return digest[:32]
 
 
 def default_text_chat_checkpoint() -> dict[str, Any]:
@@ -379,6 +398,12 @@ async def execute_text_chat_pending_turn(
     if workflow is None:
         raise ValueError("Workflow not found for text chat execution")
 
+    # Stamp the async context so OTEL spans are tagged with this org and routed
+    # to its Langfuse project (the voice paths do this in run_pipeline /
+    # webrtc_signaling; the text path previously skipped it, so its spans never
+    # reached org-specific exporters).
+    set_current_org_id(workflow.organization_id)
+
     run_definition = workflow_run.definition
     run_configs = run_definition.workflow_configurations or {}
 
@@ -482,6 +507,17 @@ async def execute_text_chat_pending_turn(
     audio_config = create_audio_config(WorkflowRunMode.SMALLWEBRTC.value)
     pipeline_metrics_aggregator = PipelineMetricsAggregator()
 
+    # Stitch every per-turn pipeline of this session into one Langfuse trace by
+    # handing each task the same remote parent context (derived from the run id).
+    trace_id = text_chat_trace_id(workflow_run_id)
+    conversation_parent_context = build_remote_parent_context(trace_id)
+    # The stitched trace has no real root span (each per-turn conversation span
+    # hangs off a synthetic remote parent), so Langfuse can't infer a name and
+    # shows "Unnamed trace". Name it explicitly via the conversation span.
+    trace_span_attributes = {
+        "langfuse.trace.name": workflow_run.name or f"text-chat-{workflow_run_id}"
+    }
+
     pipeline = Pipeline(
         [
             llm,
@@ -490,7 +526,14 @@ async def execute_text_chat_pending_turn(
             pipeline_metrics_aggregator,
         ]
     )
-    task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+    task = create_pipeline_task(
+        pipeline,
+        workflow_run_id,
+        audio_config,
+        conversation_parent_context=conversation_parent_context,
+        conversation_type="text",
+        additional_span_attributes=trace_span_attributes,
+    )
     runner = PipelineRunner(handle_sigint=False, handle_sigterm=False)
     runner_task = asyncio.create_task(runner.run(task))
 
@@ -511,7 +554,10 @@ async def execute_text_chat_pending_turn(
 
         current_node_id = base_checkpoint.get("current_node_id")
         target_node_id = current_node_id or workflow_graph.start_node_id
-        await engine.set_node(target_node_id)
+        await engine.set_node(
+            target_node_id,
+            emit_transition_event=current_node_id is None,
+        )
 
         opening_marker = capture_processor.activity_count
         opening_expects_llm = pending_user_message is None and (
@@ -581,13 +627,18 @@ async def execute_text_chat_pending_turn(
         "tool_state": jsonable_encoder(base_checkpoint.get("tool_state") or {}),
     }
 
+    encoded_gathered_context = jsonable_encoder(gathered_context)
+    trace_url = get_trace_url(trace_id, org_id=workflow.organization_id)
+    if trace_url:
+        encoded_gathered_context = {**encoded_gathered_context, "trace_url": trace_url}
+
     return TextChatTurnExecutionResult(
         assistant_text=assistant_text,
         assistant_created_at=assistant_created_at,
         events=jsonable_encoder(capture_processor.events),
         usage=jsonable_encoder(usage),
         checkpoint=updated_checkpoint,
-        gathered_context=jsonable_encoder(gathered_context),
+        gathered_context=encoded_gathered_context,
         initial_context=jsonable_encoder(initial_context),
         state=(
             WorkflowRunState.COMPLETED.value

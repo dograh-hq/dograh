@@ -254,6 +254,44 @@ async def handle_langfuse_sync(event):
         unregister_org_langfuse_credentials(org_id)
 
 
+def build_remote_parent_context(trace_id: str | None):
+    """Build an OTEL context whose active span carries ``trace_id``.
+
+    Spans started under the returned context join the Langfuse trace identified
+    by ``trace_id`` (Langfuse groups observations by trace id). The parent span
+    id is a non-existent placeholder, so spans created under it attach at the
+    trace root rather than nesting under a real parent span.
+
+    This is the shared primitive behind both post-call QA tracing and text-chat
+    trace stitching. Returns the context, or ``None`` when tracing is
+    unavailable or ``trace_id`` is missing/invalid.
+    """
+    if not trace_id:
+        return None
+    if not ensure_tracing():
+        return None
+    try:
+        from opentelemetry.trace import (
+            NonRecordingSpan,
+            SpanContext,
+            TraceFlags,
+            set_span_in_context,
+        )
+
+        parent_span_context = SpanContext(
+            trace_id=int(trace_id, 16),
+            span_id=0x1,
+            is_remote=True,
+            trace_flags=TraceFlags(0x01),
+        )
+        return set_span_in_context(NonRecordingSpan(parent_span_context))
+    except Exception as e:
+        logger.warning(
+            f"Failed to build remote parent context for trace {trace_id}: {e}"
+        )
+        return None
+
+
 def get_trace_url(trace_id: str, org_id=None) -> str | None:
     """Build a Langfuse trace URL, using org-specific host when available."""
     if org_id is None:

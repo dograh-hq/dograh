@@ -534,7 +534,7 @@ class PipecatEngine:
         )
         await self._update_llm_context(system_prompt, functions)
 
-    async def set_node(self, node_id: str):
+    async def set_node(self, node_id: str, emit_transition_event: bool = True):
         """
         Simplified set_node implementation according to v2 PRD.
         """
@@ -557,7 +557,7 @@ class PipecatEngine:
             nodes_visited.append(node.name)
 
         # Send node transition event if callback is provided
-        if self._node_transition_callback:
+        if emit_transition_event and self._node_transition_callback:
             try:
                 await self._node_transition_callback(
                     node_id,

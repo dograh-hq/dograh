@@ -27,6 +27,7 @@ import { downloadFile } from '@/lib/files';
 import { getRandomId } from '@/lib/utils';
 
 interface WorkflowRunResponse {
+    mode: string;
     is_completed: boolean;
     transcript_url: string | null;
     recording_url: string | null;
@@ -183,6 +184,7 @@ export default function WorkflowRunPage() {
             });
             setIsLoading(false);
             const runData = {
+                mode: response.data?.mode ?? '',
                 is_completed: response.data?.is_completed ?? false,
                 transcript_url: response.data?.transcript_url ?? null,
                 recording_url: response.data?.recording_url ?? null,
@@ -223,6 +225,8 @@ export default function WorkflowRunPage() {
     };
 
     let returnValue = null;
+    const isTextChatRun = workflowRun?.mode === WORKFLOW_RUN_MODES.TEXTCHAT;
+    const showHistoricalRunView = Boolean(workflowRun?.is_completed || isTextChatRun);
 
     if (isLoading) {
         returnValue = (
@@ -246,7 +250,7 @@ export default function WorkflowRunPage() {
             </div>
         );
     }
-    else if (workflowRun?.is_completed) {
+    else if (showHistoricalRunView) {
         returnValue = (
             <div className={`flex ${RUN_SHELL_HEIGHT_CLASS} min-h-0 w-full overflow-hidden bg-background`}>
                 <div className="min-w-0 flex-1 overflow-y-auto">
@@ -254,27 +258,35 @@ export default function WorkflowRunPage() {
                     <Card className="border-border">
                         <CardHeader className="flex flex-row items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <CardTitle className="text-2xl">Agent Run Completed</CardTitle>
-                                <div className="h-8 w-8 bg-emerald-500/20 rounded-full flex items-center justify-center">
-                                    <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                                    </svg>
+                                <CardTitle className="text-2xl">
+                                    {isTextChatRun ? 'Text Chat Session' : 'Agent Run Completed'}
+                                </CardTitle>
+                                <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-sky-500/15' : 'bg-emerald-500/20'}`}>
+                                    {isTextChatRun ? (
+                                        <FileText className="h-5 w-5 text-sky-500" />
+                                    ) : (
+                                        <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    )}
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
-                                <Button
-                                    onClick={handleTestAgain}
-                                    disabled={startingCall}
-                                    variant="outline"
-                                    className="gap-2"
-                                >
-                                    {startingCall ? (
-                                        <LoaderCircle className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                        <Phone className="h-4 w-4" />
-                                    )}
-                                    {startingCall ? 'Starting...' : 'Test Again'}
-                                </Button>
+                                {!isTextChatRun && (
+                                    <Button
+                                        onClick={handleTestAgain}
+                                        disabled={startingCall}
+                                        variant="outline"
+                                        className="gap-2"
+                                    >
+                                        {startingCall ? (
+                                            <LoaderCircle className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <Phone className="h-4 w-4" />
+                                        )}
+                                        {startingCall ? 'Starting...' : 'Test Again'}
+                                    </Button>
+                                )}
                                 <Link href={`/workflow/${params.workflowId}`}>
                                     <Button
                                         ref={customizeButtonRef}
@@ -294,41 +306,49 @@ export default function WorkflowRunPage() {
                             </div>
                         </CardHeader>
                         <CardContent>
-                            <p className="text-muted-foreground mb-8">Your voice agent run has been completed successfully. You can preview or download the transcript and recording.</p>
+                            <p className="text-muted-foreground mb-8">
+                                {isTextChatRun
+                                    ? 'Review the conversation history, metrics, and context captured for this text session.'
+                                    : 'Your voice agent run has been completed successfully. You can preview or download the transcript and recording.'}
+                            </p>
 
                             <div className="flex flex-wrap gap-4">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm text-muted-foreground">Preview:</span>
-                                    <MediaPreviewButton
-                                        recordingUrl={workflowRun?.recording_url}
-                                        transcriptUrl={workflowRun?.transcript_url}
-                                        runId={Number(params.runId)}
-                                        onOpenPreview={openPreview}
-                                    />
-                                </div>
-                                <div className="flex items-center gap-2 border-l border-border pl-4">
-                                    <span className="text-sm text-muted-foreground">Download:</span>
-                                    <Button
-                                        onClick={() => downloadFile(workflowRun?.transcript_url)}
-                                        disabled={!workflowRun?.transcript_url || !auth.isAuthenticated}
-                                        size="sm"
-                                        className="gap-2"
-                                    >
-                                        <FileText className="h-4 w-4" />
-                                        Transcript
-                                    </Button>
-                                    <Button
-                                        onClick={() => downloadFile(workflowRun?.recording_url)}
-                                        disabled={!workflowRun?.recording_url || !auth.isAuthenticated}
-                                        size="sm"
-                                        className="gap-2"
-                                    >
-                                        <Video className="h-4 w-4" />
-                                        Recording
-                                    </Button>
-                                </div>
+                                {!isTextChatRun && (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm text-muted-foreground">Preview:</span>
+                                            <MediaPreviewButton
+                                                recordingUrl={workflowRun?.recording_url}
+                                                transcriptUrl={workflowRun?.transcript_url}
+                                                runId={Number(params.runId)}
+                                                onOpenPreview={openPreview}
+                                            />
+                                        </div>
+                                        <div className="flex items-center gap-2 border-l border-border pl-4">
+                                            <span className="text-sm text-muted-foreground">Download:</span>
+                                            <Button
+                                                onClick={() => downloadFile(workflowRun?.transcript_url ?? null)}
+                                                disabled={!workflowRun?.transcript_url || !auth.isAuthenticated}
+                                                size="sm"
+                                                className="gap-2"
+                                            >
+                                                <FileText className="h-4 w-4" />
+                                                Transcript
+                                            </Button>
+                                            <Button
+                                                onClick={() => downloadFile(workflowRun?.recording_url ?? null)}
+                                                disabled={!workflowRun?.recording_url || !auth.isAuthenticated}
+                                                size="sm"
+                                                className="gap-2"
+                                            >
+                                                <Video className="h-4 w-4" />
+                                                Recording
+                                            </Button>
+                                        </div>
+                                    </>
+                                )}
                                 {workflowRun?.gathered_context?.trace_url && (
-                                    <div className="flex items-center gap-2 border-l border-border pl-4">
+                                    <div className={`flex items-center gap-2 ${isTextChatRun ? '' : 'border-l border-border pl-4'}`}>
                                         <span className="text-sm text-muted-foreground">Trace:</span>
                                         <Button
                                             asChild
@@ -352,19 +372,19 @@ export default function WorkflowRunPage() {
                     </Card>
 
                         <RunMetricsSection
-                            costInfo={workflowRun?.cost_info}
-                            logs={workflowRun?.logs}
-                            gatheredContext={workflowRun?.gathered_context}
+                            costInfo={workflowRun?.cost_info ?? null}
+                            logs={workflowRun?.logs ?? null}
+                            gatheredContext={workflowRun?.gathered_context ?? null}
                         />
 
                         <div className="grid gap-6 md:grid-cols-2">
                             <ContextDisplay
                                 title="Initial Context"
-                                context={workflowRun?.initial_context}
+                                context={workflowRun?.initial_context ?? null}
                             />
                             <ContextDisplay
                                 title="Gathered Context"
-                                context={workflowRun?.gathered_context}
+                                context={workflowRun?.gathered_context ?? null}
                             />
                         </div>
 
@@ -379,7 +399,7 @@ export default function WorkflowRunPage() {
 
                 <div className="h-full min-h-0 w-[420px] shrink-0 border-l border-border bg-background p-5">
                     <TranscriptRailFrame className="h-full">
-                        <RealtimeFeedback mode="historical" logs={workflowRun?.logs} />
+                        <RealtimeFeedback mode="historical" logs={workflowRun?.logs ?? null} />
                     </TranscriptRailFrame>
                 </div>
             </div>
@@ -411,7 +431,7 @@ export default function WorkflowRunPage() {
             {dialog}
 
             {/* Onboarding Tooltip for Customize Workflow */}
-            {workflowRun?.is_completed && (
+            {showHistoricalRunView && (
                 <OnboardingTooltip
                     title='Customize Your Workflow'
                     targetRef={customizeButtonRef}

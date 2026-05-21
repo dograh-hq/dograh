@@ -1,7 +1,7 @@
 """add workflow_run_text_sessions
 
 Revision ID: 2f638891cbb6
-Revises: 4c1f1e3e8ef2
+Revises: 19d2a4b6c8ef
 Create Date: 2026-05-18 12:58:58.573381
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "2f638891cbb6"
-down_revision: Union[str, None] = "4c1f1e3e8ef2"
+down_revision: Union[str, None] = "19d2a4b6c8ef"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

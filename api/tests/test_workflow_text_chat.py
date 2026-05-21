@@ -8,6 +8,15 @@ from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
 
+def _log_texts(logs: dict | None, event_type: str) -> list[str]:
+    events = (logs or {}).get("realtime_feedback_events") or []
+    return [
+        event.get("payload", {}).get("text", "")
+        for event in events
+        if event.get("type") == event_type
+    ]
+
+
 async def _create_user_and_workflow(
     db_session,
     async_session,
@@ -115,6 +124,11 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
             )
             assert create_response.status_code == 200
             created = create_response.json()
+            run_response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/runs/{created['workflow_run_id']}"
+            )
+            assert run_response.status_code == 200
+            run_payload = run_response.json()
 
     turns = created["session_data"]["turns"]
     assert created["revision"] == 2
@@ -127,6 +141,16 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
     assert created["checkpoint"]["current_node_id"] == "start"
     assert created["state"] == "running"
     assert "Start" in (created["gathered_context"] or {}).get("nodes_visited", [])
+    workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
+    assert workflow_run is not None
+    assert workflow_run.cost_info[
+        "call_duration_seconds"
+    ] == workflow_run.usage_info.get("call_duration_seconds", 0)
+    assert "cost_breakdown" in workflow_run.cost_info
+    assert "dograh_token_usage" in workflow_run.cost_info
+    assert _log_texts(run_payload["logs"], "rtf-bot-text") == [
+        "Hello from the workflow tester."
+    ]
 
 
 @pytest.mark.asyncio
@@ -217,6 +241,11 @@ async def test_text_chat_message_executes_assistant_turn(
                 },
             )
             assert message_response.status_code == 200
+            run_response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/runs/{created['workflow_run_id']}"
+            )
+            assert run_response.status_code == 200
+            run_payload = run_response.json()
 
     payload = message_response.json()
     turns = payload["session_data"]["turns"]
@@ -232,6 +261,18 @@ async def test_text_chat_message_executes_assistant_turn(
     assert payload["checkpoint"]["current_node_id"] == "start"
     assert payload["state"] == "running"
     assert "Start" in (payload["gathered_context"] or {}).get("nodes_visited", [])
+    workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
+    assert workflow_run is not None
+    assert workflow_run.cost_info[
+        "call_duration_seconds"
+    ] == workflow_run.usage_info.get("call_duration_seconds", 0)
+    assert "cost_breakdown" in workflow_run.cost_info
+    assert "dograh_token_usage" in workflow_run.cost_info
+    assert _log_texts(run_payload["logs"], "rtf-user-transcription") == ["Hi there"]
+    assert _log_texts(run_payload["logs"], "rtf-bot-text") == [
+        "Welcome to the workflow tester.",
+        "Hello from the workflow tester.",
+    ]
 
 
 @pytest.mark.asyncio
@@ -330,8 +371,13 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
                 },
             )
             assert message_response.status_code == 200
+            run_response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/runs/{session['workflow_run_id']}"
+            )
+            assert run_response.status_code == 200
 
     payload = message_response.json()
+    run_payload = run_response.json()
     assistant_text = payload["session_data"]["turns"][1]["assistant_message"]["text"]
 
     assert "Let me transfer you." in assistant_text
@@ -342,6 +388,21 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
         and event["payload"]["function_name"] == "go_to_agent_one"
         for event in payload["session_data"]["turns"][1]["events"]
     )
+    node_transition_names = [
+        event["payload"]["node_name"]
+        for event in run_payload["logs"]["realtime_feedback_events"]
+        if event["type"] == "rtf-node-transition"
+    ]
+    assert node_transition_names == ["Start", "Agent One"]
+    function_call_event_names = [
+        event["type"]
+        for event in run_payload["logs"]["realtime_feedback_events"]
+        if event["type"] in {"rtf-function-call-start", "rtf-function-call-end"}
+    ]
+    assert function_call_event_names == [
+        "rtf-function-call-start",
+        "rtf-function-call-end",
+    ]
 
 
 @pytest.mark.asyncio
@@ -773,6 +834,11 @@ async def test_text_chat_rewind_reuses_checkpoint_snapshot(
             assert rewind_response.status_code == 200
             rewound = rewind_response.json()
             assert rewound["session_data"]["cursor_turn_id"] == first_turn_id
+            rewound_run_response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/runs/{session['workflow_run_id']}"
+            )
+            assert rewound_run_response.status_code == 200
+            rewound_run_payload = rewound_run_response.json()
 
             third_message = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{session['workflow_run_id']}/messages",
@@ -782,6 +848,11 @@ async def test_text_chat_rewind_reuses_checkpoint_snapshot(
                 },
             )
             assert third_message.status_code == 200
+            final_run_response = await client.get(
+                f"/api/v1/workflow/{workflow.id}/runs/{session['workflow_run_id']}"
+            )
+            assert final_run_response.status_code == 200
+            final_run_payload = final_run_response.json()
 
     payload = third_message.json()
     assert payload["checkpoint"]["current_node_id"] == "agent1"
@@ -792,6 +863,24 @@ async def test_text_chat_rewind_reuses_checkpoint_snapshot(
         payload["session_data"]["turns"][2]["assistant_message"]["text"]
         == "Back in agent one."
     )
+    assert _log_texts(rewound_run_payload["logs"], "rtf-user-transcription") == [
+        "First turn"
+    ]
+    assert "Second turn" not in _log_texts(
+        rewound_run_payload["logs"], "rtf-user-transcription"
+    )
+    assert "Agent two here." not in _log_texts(
+        rewound_run_payload["logs"], "rtf-bot-text"
+    )
+    assert _log_texts(final_run_payload["logs"], "rtf-user-transcription") == [
+        "First turn",
+        "Third turn after rewind",
+    ]
+    assert _log_texts(final_run_payload["logs"], "rtf-bot-text") == [
+        "Welcome to the rewind test.",
+        "Agent one here.",
+        "Back in agent one.",
+    ]
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,9 @@ from api.services.pipecat.pipeline_engine_callbacks_processor import (
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.pre_call_fetch import execute_pre_call_fetch
+from api.services.pipecat.realtime_feedback_events import (
+    build_node_transition_event,
+)
 from api.services.pipecat.realtime_feedback_observer import (
     RealtimeFeedbackObserver,
     register_turn_log_handlers,
@@ -465,16 +468,13 @@ async def _run_pipeline(
         # Update current node on the buffer so subsequent events are tagged
         in_memory_logs_buffer.set_current_node(node_id, node_name)
 
-        message = {
-            "type": RealtimeFeedbackType.NODE_TRANSITION.value,
-            "payload": {
-                "node_id": node_id,
-                "node_name": node_name,
-                "previous_node_id": previous_node_id,
-                "previous_node_name": previous_node_name,
-                "allow_interrupt": allow_interrupt,
-            },
-        }
+        message = build_node_transition_event(
+            node_id=node_id,
+            node_name=node_name,
+            previous_node_id=previous_node_id,
+            previous_node_name=previous_node_name,
+            allow_interrupt=allow_interrupt,
+        )
         # Send via WebSocket if available
         if ws_sender:
             try:

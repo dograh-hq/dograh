@@ -4676,6 +4676,10 @@ export type WorkflowRunUsageResponse = {
      */
     call_type?: string | null;
     /**
+     * Mode
+     */
+    mode?: string | null;
+    /**
      * Disposition
      */
     disposition?: string | null;

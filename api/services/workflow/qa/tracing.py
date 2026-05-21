@@ -6,7 +6,10 @@ import re
 from loguru import logger
 
 from api.db.models import WorkflowRunModel
-from api.services.pipecat.tracing_config import get_trace_url
+from api.services.pipecat.tracing_config import (
+    build_remote_parent_context,
+    get_trace_url,
+)
 
 
 def extract_trace_id(gathered_context: dict) -> str | None:
@@ -33,36 +36,12 @@ def setup_langfuse_parent_context(workflow_run: WorkflowRunModel):
 
     Returns the parent context object, or None if tracing is unavailable.
     """
-    try:
-        from opentelemetry.trace import (
-            NonRecordingSpan,
-            SpanContext,
-            TraceFlags,
-            set_span_in_context,
-        )
-
-        from api.services.pipecat.tracing_config import ensure_tracing
-
-        if not ensure_tracing():
-            return None
-
-        gathered_context = workflow_run.gathered_context or {}
-        trace_id = extract_trace_id(gathered_context)
-        if not trace_id:
-            logger.debug("No trace_id found, skipping Langfuse tracing")
-            return None
-
-        parent_span_ctx = SpanContext(
-            trace_id=int(trace_id, 16),
-            span_id=0x1,
-            is_remote=True,
-            trace_flags=TraceFlags(0x01),
-        )
-        return set_span_in_context(NonRecordingSpan(parent_span_ctx))
-
-    except Exception as e:
-        logger.warning(f"Failed to set up Langfuse parent context: {e}")
+    gathered_context = workflow_run.gathered_context or {}
+    trace_id = extract_trace_id(gathered_context)
+    if not trace_id:
+        logger.debug("No trace_id found, skipping Langfuse tracing")
         return None
+    return build_remote_parent_context(trace_id)
 
 
 def add_qa_span_to_trace(

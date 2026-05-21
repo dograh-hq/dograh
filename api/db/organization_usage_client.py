@@ -354,6 +354,7 @@ class OrganizationUsageClient(BaseDBClient):
                     "caller_number": caller_number,
                     "called_number": called_number,
                     "call_type": run.call_type,
+                    "mode": run.mode,
                     "disposition": disposition,
                     "initial_context": run.initial_context,
                     "gathered_context": run.gathered_context,

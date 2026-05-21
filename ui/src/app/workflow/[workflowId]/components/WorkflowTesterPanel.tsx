@@ -74,6 +74,12 @@ type TextChatSession = Omit<WorkflowRunTextSessionResponse, "session_data" | "ch
     checkpoint: TextChatCheckpoint;
 };
 
+interface TextChatToolEvent {
+    kind: "start" | "result";
+    functionName: string;
+    resultText?: string;
+}
+
 function toTextChatSession(response: WorkflowRunTextSessionResponse): TextChatSession {
     return {
         ...response,
@@ -176,6 +182,66 @@ function TypingBubble() {
                     <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.3s]" />
                     <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60 [animation-delay:-0.15s]" />
                     <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/60" />
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function stringifyToolResult(result: unknown) {
+    if (result == null) return "No result";
+    if (typeof result === "string") return result;
+    try {
+        return JSON.stringify(result);
+    } catch {
+        return String(result);
+    }
+}
+
+function extractToolEvents(events: Array<Record<string, unknown>>): TextChatToolEvent[] {
+    return events.reduce<TextChatToolEvent[]>((acc, event) => {
+        const eventType = event.type;
+        const payload = event.payload;
+        if (!payload || typeof payload !== "object") {
+            return acc;
+        }
+        const typedPayload = payload as Record<string, unknown>;
+
+        const functionName = typeof typedPayload.function_name === "string"
+            ? typedPayload.function_name
+            : "tool";
+
+        if (eventType === "tool_call_started") {
+            acc.push({ kind: "start", functionName });
+            return acc;
+        }
+
+        if (eventType === "tool_call_result") {
+            acc.push({
+                kind: "result",
+                functionName,
+                resultText: stringifyToolResult(typedPayload.result),
+            });
+            return acc;
+        }
+
+        return acc;
+    }, []);
+}
+
+function ToolEventBubble({ event }: { event: TextChatToolEvent }) {
+    return (
+        <div className="flex justify-start">
+            <div className="max-w-[85%] rounded-2xl rounded-bl-md border border-border/70 bg-background px-3.5 py-2 text-sm leading-6 text-foreground">
+                <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="h-5 px-1.5 text-[10px] uppercase tracking-[0.14em]">
+                        {event.kind === "start" ? "Tool" : "Result"}
+                    </Badge>
+                    <span className="font-mono text-xs text-muted-foreground">
+                        {event.kind === "start"
+                            ? `${event.functionName}()`
+                            : `${event.functionName} -> ${event.resultText ?? "No result"}`}
+                    </span>
                 </div>
             </div>
         </div>
@@ -357,14 +423,17 @@ function ManualTextChat({
     initialContextVariables,
     disabled,
     disabledReason,
+    onActiveChange,
 }: {
     workflowId: number;
     ready: boolean;
     initialContextVariables?: Record<string, string>;
     disabled: boolean;
     disabledReason: string | null;
+    onActiveChange?: (active: boolean) => void;
 }) {
     const [session, setSession] = useState<TextChatSession | null>(null);
+    const [started, setStarted] = useState(false);
     const [draft, setDraft] = useState("");
     const [creatingSession, setCreatingSession] = useState(false);
     const [sendingMessage, setSendingMessage] = useState(false);
@@ -403,11 +472,15 @@ function ManualTextChat({
     }, [disabled, initialContextVariables, workflowId]);
 
     useEffect(() => {
-        if (creatingSession || session || !ready || disabled) {
+        if (!started || creatingSession || session || !ready || disabled) {
             return;
         }
         void createSession();
-    }, [createSession, creatingSession, disabled, ready, session]);
+    }, [createSession, creatingSession, disabled, ready, session, started]);
+
+    useEffect(() => {
+        onActiveChange?.(started);
+    }, [onActiveChange, started]);
 
     const sendMessage = useCallback(async () => {
         if (!session || !draft.trim() || disabled) return;
@@ -460,6 +533,25 @@ function ManualTextChat({
 
     const inputDisabled = disabled || !session;
 
+    if (!started && !session) {
+        return (
+            <div className="flex h-full min-h-0 flex-col gap-3">
+                {disabledReason ? <DisabledNotice reason={disabledReason} /> : null}
+                <EmptyState
+                    icon={<MessageSquareText className="h-7 w-7" />}
+                    title="Chat with this agent"
+                    description="Test the agent over a text conversation. Send messages and see how it responds, with tool calls and rewind support."
+                    action={
+                        <Button onClick={() => setStarted(true)} disabled={disabled || !ready}>
+                            <MessageSquareText className="h-4 w-4" />
+                            Start Test
+                        </Button>
+                    }
+                />
+            </div>
+        );
+    }
+
     return (
         <div className="flex min-h-0 flex-1 flex-col">
             {disabledReason ? (
@@ -484,11 +576,19 @@ function ManualTextChat({
                     </div>
                 ) : (
                     <div className="space-y-3 py-1">
-                        {turns.map((turn) => (
+                        {turns.map((turn) => {
+                            const toolEvents = extractToolEvents(turn.events);
+                            return (
                             <div key={turn.id} className="group space-y-1.5">
                                 {turn.user_message ? (
                                     <MessageBubble role="user" text={turn.user_message.text} />
                                 ) : null}
+                                {toolEvents.map((event, index) => (
+                                    <ToolEventBubble
+                                        key={`${turn.id}-${event.kind}-${event.functionName}-${index}`}
+                                        event={event}
+                                    />
+                                ))}
                                 {turn.assistant_message ? (
                                     <MessageBubble role="agent" text={turn.assistant_message.text} />
                                 ) : turn.status === "failed" ? (
@@ -510,7 +610,8 @@ function ManualTextChat({
                                     </button>
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                         {sendingMessage ? <TypingBubble /> : null}
                         <div ref={scrollEndRef} />
                     </div>
@@ -634,6 +735,7 @@ export function WorkflowTesterPanel({
     const [activeMode, setActiveMode] = useState<"audio" | "text">("audio");
     const [chatMode, setChatMode] = useState<"manual" | "simulated">("manual");
     const [chatSessionKey, setChatSessionKey] = useState(0);
+    const [chatActive, setChatActive] = useState(false);
     const [voiceRunId, setVoiceRunId] = useState<number | null>(null);
     const [creatingVoiceRun, setCreatingVoiceRun] = useState(false);
     const [tokenReady, setTokenReady] = useState(false);
@@ -788,7 +890,7 @@ export function WorkflowTesterPanel({
                     <div className="flex h-full min-h-0 flex-col gap-3">
                         <div className="flex items-center justify-between gap-2">
                             <ChatModeToggle value={chatMode} onChange={setChatMode} />
-                            {chatMode === "manual" ? (
+                            {chatMode === "manual" && chatActive ? (
                                 <Button
                                     variant="ghost"
                                     size="sm"
@@ -810,6 +912,7 @@ export function WorkflowTesterPanel({
                                 initialContextVariables={initialContextVariables}
                                 disabled={testerBlocked}
                                 disabledReason={effectiveDisabledReason}
+                                onActiveChange={setChatActive}
                             />
                         ) : (
                             <AiSimulatorPlaceholder disabledReason={effectiveDisabledReason} />

@@ -385,45 +385,6 @@ export const WorkflowEditorHeader = ({
                     </Popover>
                 )}
 
-                <Button
-                    variant="outline"
-                    className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
-                    onClick={onTestAgentClick}
-                >
-                    <Bot className="w-4 h-4" />
-                    Test Agent
-                </Button>
-
-                {!isViewingHistoricalVersion && (
-                    <Button
-                        variant="outline"
-                        className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
-                        disabled={isCallDisabled}
-                        onClick={onPhoneCallClick}
-                    >
-                        <Phone className="w-4 h-4" />
-                        Phone Call
-                    </Button>
-                )}
-
-                {/* Save button (only shown when editing the draft) */}
-                {!isViewingHistoricalVersion && (
-                    <Button
-                        onClick={handleSave}
-                        disabled={!isDirty || savingWorkflow}
-                        className="bg-teal-600 hover:bg-teal-700 text-white px-4"
-                    >
-                        {savingWorkflow ? (
-                            <>
-                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
-                                Saving...
-                            </>
-                        ) : (
-                            "Save"
-                        )}
-                    </Button>
-                )}
-
                 {/* Publish button (only when on draft with no unsaved changes) */}
                 {!isViewingHistoricalVersion && hasDraft && (
                     <Button
@@ -442,6 +403,45 @@ export const WorkflowEditorHeader = ({
                                 <Rocket className="w-4 h-4 mr-2" />
                                 Publish
                             </>
+                        )}
+                    </Button>
+                )}
+
+                {!isViewingHistoricalVersion && (
+                    <Button
+                        variant="outline"
+                        className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
+                        disabled={isCallDisabled}
+                        onClick={onPhoneCallClick}
+                    >
+                        <Phone className="w-4 h-4" />
+                        Phone Call
+                    </Button>
+                )}
+
+                <Button
+                    variant="outline"
+                    className="flex items-center gap-2 bg-transparent border-[#3a3a3a] hover:bg-[#2a2a2a] text-white"
+                    onClick={onTestAgentClick}
+                >
+                    <Bot className="w-4 h-4" />
+                    Test Agent
+                </Button>
+
+                {/* Save button (only shown when editing the draft) */}
+                {!isViewingHistoricalVersion && (
+                    <Button
+                        onClick={handleSave}
+                        disabled={!isDirty || savingWorkflow}
+                        className="bg-teal-600 hover:bg-teal-700 text-white px-4"
+                    >
+                        {savingWorkflow ? (
+                            <>
+                                <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
+                                Saving...
+                            </>
+                        ) : (
+                            "Save"
                         )}
                     </Button>
                 )}

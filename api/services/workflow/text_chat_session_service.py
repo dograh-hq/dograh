@@ -103,7 +103,7 @@ async def initialize_text_chat_session(
             actual_revision=e.actual_revision,
         ) from e
 
-    return await _reload_text_chat_session(run_id, text_session)
+    return await _reload_text_chat_session(run_id)
 
 
 async def append_text_chat_user_message(
@@ -138,7 +138,7 @@ async def append_text_chat_user_message(
             actual_revision=e.actual_revision,
         ) from e
 
-    return await _reload_text_chat_session(run_id, text_session)
+    return await _reload_text_chat_session(run_id)
 
 
 async def rewind_text_chat_session_state(
@@ -175,7 +175,7 @@ async def rewind_text_chat_session_state(
         },
     )
 
-    return await _reload_text_chat_session(run_id, text_session)
+    return await _reload_text_chat_session(run_id)
 
 
 async def execute_pending_text_chat_turn(
@@ -262,7 +262,7 @@ async def execute_pending_text_chat_turn(
         if cost_info is not None:
             await db_client.update_workflow_run(run_id, cost_info=cost_info)
 
-    return await _reload_text_chat_session(run_id, text_session)
+    return await _reload_text_chat_session(run_id)
 
 
 def validate_text_chat_turn_cursor(
@@ -361,11 +361,12 @@ async def _mark_pending_turn_failed(
         return
 
 
-async def _reload_text_chat_session(
-    run_id: int,
-    text_session: WorkflowRunTextSessionModel,
-) -> WorkflowRunTextSessionModel:
-    organization_id = text_session.workflow_run.workflow.organization_id
+async def _reload_text_chat_session(run_id: int) -> WorkflowRunTextSessionModel:
+    organization_id = await db_client.get_organization_id_by_workflow_run_id(run_id)
+    if organization_id is None:
+        raise TextChatSessionExecutionError(
+            "Workflow run organization not found after update"
+        )
     updated_text_session = await db_client.get_workflow_run_text_session(
         run_id,
         organization_id=organization_id,

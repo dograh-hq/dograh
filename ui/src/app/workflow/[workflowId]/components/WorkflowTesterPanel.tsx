@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, ArrowUpRight, Loader2, MessageSquareText, Mic, Phone, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
+import { AlertCircle, Loader2, MessageSquareText, Mic, Pencil, Phone, RefreshCw, RotateCcw, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -79,6 +79,13 @@ interface TextChatToolEvent {
     functionName: string;
     resultText?: string;
 }
+
+interface TurnActionState {
+    turnId: string;
+    type: "rewind" | "edit";
+}
+
+const EMPTY_TEXT_CHAT_TURNS: TextChatTurn[] = [];
 
 function toTextChatSession(response: WorkflowRunTextSessionResponse): TextChatSession {
     return {
@@ -229,6 +236,14 @@ function extractToolEvents(events: Array<Record<string, unknown>>): TextChatTool
     }, []);
 }
 
+function getReplayCursorTurnId(turns: TextChatTurn[], turnId: string): string | null {
+    const turnIndex = turns.findIndex((turn) => turn.id === turnId);
+    if (turnIndex < 0) {
+        throw new Error("Turn not found");
+    }
+    return turns[turnIndex - 1]?.id ?? null;
+}
+
 function ToolEventBubble({ event }: { event: TextChatToolEvent }) {
     return (
         <div className="flex justify-start">
@@ -320,30 +335,6 @@ function EmbeddedVoiceTester({
     return (
         <>
             <div className="min-h-0 flex flex-1 flex-col overflow-hidden rounded-xl border border-border/70 bg-background">
-                <div className="flex items-start justify-between gap-3 border-b border-border/70 px-4 py-3">
-                    <div className="space-y-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="outline" className="font-medium">
-                                Run {workflowRunId}
-                            </Badge>
-                            <Badge variant="outline" className="font-medium">
-                                Browser voice test
-                            </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                            The call starts as soon as this test run is created.
-                        </p>
-                    </div>
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push(`/workflow/${workflowId}/run/${workflowRunId}`)}
-                    >
-                        <ArrowUpRight className="h-4 w-4" />
-                        Open Run
-                    </Button>
-                </div>
-
                 <div className="min-h-0 flex-1 overflow-hidden bg-muted/15">
                     <RealtimeFeedback
                         mode="live"
@@ -437,10 +428,15 @@ function ManualTextChat({
     const [draft, setDraft] = useState("");
     const [creatingSession, setCreatingSession] = useState(false);
     const [sendingMessage, setSendingMessage] = useState(false);
-    const [rewindingTurnId, setRewindingTurnId] = useState<string | null>(null);
+    const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
+    const [activeTurnAction, setActiveTurnAction] = useState<TurnActionState | null>(null);
     const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
-    const turns = session?.session_data.turns ?? [];
+    const turns = session?.session_data.turns ?? EMPTY_TEXT_CHAT_TURNS;
+    const editingTurn = editingTurnId
+        ? turns.find((turn) => turn.id === editingTurnId) ?? null
+        : null;
+    const composerId = `workflow-tester-compose-${workflowId}`;
 
     const createSession = useCallback(async () => {
         if (disabled) return;
@@ -482,15 +478,43 @@ function ManualTextChat({
         onActiveChange?.(started);
     }, [onActiveChange, started]);
 
-    const sendMessage = useCallback(async () => {
-        if (!session || !draft.trim() || disabled) return;
+    const submitMessage = useCallback(async (
+        messageText: string,
+        replayOptions?: TurnActionState,
+    ) => {
+        const trimmedText = messageText.trim();
+        if (!session || !trimmedText || disabled) return;
         setSendingMessage(true);
+        if (replayOptions) {
+            setActiveTurnAction(replayOptions);
+        }
         try {
+            let activeSession = session;
+
+            if (replayOptions) {
+                const rewindResponse = await rewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPost({
+                    path: { workflow_id: workflowId, run_id: activeSession.workflow_run_id },
+                    body: {
+                        cursor_turn_id: getReplayCursorTurnId(
+                            activeSession.session_data.turns,
+                            replayOptions.turnId,
+                        ),
+                        expected_revision: activeSession.revision,
+                    },
+                });
+                if (rewindResponse.error || !rewindResponse.data) {
+                    throw new Error(extractSdkErrorMessage(rewindResponse.error, "Failed to rewind session"));
+                }
+
+                activeSession = toTextChatSession(rewindResponse.data);
+                setSession(activeSession);
+            }
+
             const response = await appendTextChatMessageApiV1WorkflowWorkflowIdTextChatSessionsRunIdMessagesPost({
-                path: { workflow_id: workflowId, run_id: session.workflow_run_id },
+                path: { workflow_id: workflowId, run_id: activeSession.workflow_run_id },
                 body: {
-                    text: draft.trim(),
-                    expected_revision: session.revision,
+                    text: trimmedText,
+                    expected_revision: activeSession.revision,
                 },
             });
             if (response.error || !response.data) {
@@ -498,38 +522,59 @@ function ManualTextChat({
             }
             setSession(toTextChatSession(response.data));
             setDraft("");
+            setEditingTurnId(null);
         } catch (error) {
             toast.error(getErrorMessage(error));
         } finally {
             setSendingMessage(false);
-        }
-    }, [disabled, draft, session, workflowId]);
-
-    const rewindToTurn = useCallback(async (turnId: string) => {
-        if (!session || disabled) return;
-        setRewindingTurnId(turnId);
-        try {
-            const response = await rewindTextChatSessionApiV1WorkflowWorkflowIdTextChatSessionsRunIdRewindPost({
-                path: { workflow_id: workflowId, run_id: session.workflow_run_id },
-                body: {
-                    cursor_turn_id: turnId,
-                    expected_revision: session.revision,
-                },
-            });
-            if (response.error || !response.data) {
-                throw new Error(extractSdkErrorMessage(response.error, "Failed to rewind session"));
-            }
-            setSession(toTextChatSession(response.data));
-        } catch (error) {
-            toast.error(getErrorMessage(error));
-        } finally {
-            setRewindingTurnId(null);
+            setActiveTurnAction(null);
         }
     }, [disabled, session, workflowId]);
 
+    const rewindTurn = useCallback(async (turn: TextChatTurn) => {
+        if (!turn.user_message) return;
+        await submitMessage(turn.user_message.text, { turnId: turn.id, type: "rewind" });
+    }, [submitMessage]);
+
+    const startEditingTurn = useCallback((turn: TextChatTurn) => {
+        if (!turn.user_message) return;
+        const nextText = turn.user_message.text;
+
+        setEditingTurnId(turn.id);
+        setDraft(nextText);
+        requestAnimationFrame(() => {
+            const textarea = document.getElementById(composerId) as HTMLTextAreaElement | null;
+            textarea?.focus();
+            textarea?.setSelectionRange(nextText.length, nextText.length);
+        });
+    }, [composerId]);
+
+    const cancelEditingTurn = useCallback(() => {
+        setEditingTurnId(null);
+        setDraft("");
+    }, []);
+
+    const submitComposer = useCallback(async () => {
+        if (editingTurnId) {
+            await submitMessage(draft, { turnId: editingTurnId, type: "edit" });
+            return;
+        }
+        await submitMessage(draft);
+    }, [draft, editingTurnId, submitMessage]);
+
+    useEffect(() => {
+        if (!editingTurnId) {
+            return;
+        }
+        if (!turns.some((turn) => turn.id === editingTurnId)) {
+            setEditingTurnId(null);
+            setDraft("");
+        }
+    }, [editingTurnId, turns]);
+
     useEffect(() => {
         scrollEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [turns.length, sendingMessage]);
+    }, [session?.revision, sendingMessage, turns.length]);
 
     const inputDisabled = disabled || !session;
 
@@ -578,38 +623,60 @@ function ManualTextChat({
                     <div className="space-y-3 py-1">
                         {turns.map((turn) => {
                             const toolEvents = extractToolEvents(turn.events);
+                            const rewindingThisTurn = activeTurnAction?.turnId === turn.id && activeTurnAction.type === "rewind";
+                            const rerunningEditedTurn = activeTurnAction?.turnId === turn.id && activeTurnAction.type === "edit";
                             return (
-                            <div key={turn.id} className="group space-y-1.5">
-                                {turn.user_message ? (
-                                    <MessageBubble role="user" text={turn.user_message.text} />
-                                ) : null}
-                                {toolEvents.map((event, index) => (
-                                    <ToolEventBubble
-                                        key={`${turn.id}-${event.kind}-${event.functionName}-${index}`}
-                                        event={event}
-                                    />
-                                ))}
-                                {turn.assistant_message ? (
-                                    <MessageBubble role="agent" text={turn.assistant_message.text} />
-                                ) : turn.status === "failed" ? (
-                                    <MessageBubble role="agent" state="muted" text="Agent turn failed" />
-                                ) : null}
-                                <div className="flex h-4 items-center justify-end opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                                    <button
-                                        type="button"
-                                        onClick={() => rewindToTurn(turn.id)}
-                                        disabled={disabled || rewindingTurnId === turn.id}
-                                        className="inline-flex items-center gap-1 rounded text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                                    >
-                                        {rewindingTurnId === turn.id ? (
-                                            <Loader2 className="h-3 w-3 animate-spin" />
-                                        ) : (
-                                            <RotateCcw className="h-3 w-3" />
-                                        )}
-                                        Rewind here
-                                    </button>
+                                <div key={turn.id} className="group space-y-1.5">
+                                    {turn.user_message ? (
+                                        <div className="space-y-1">
+                                            <MessageBubble role="user" text={turn.user_message.text} />
+                                            <div className="flex h-5 items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void rewindTurn(turn)}
+                                                    disabled={disabled || sendingMessage}
+                                                    aria-label="Rerun this turn"
+                                                    title="Rerun this turn"
+                                                    className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+                                                >
+                                                    {rewindingThisTurn ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <RotateCcw className="h-3.5 w-3.5" />
+                                                    )}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => startEditingTurn(turn)}
+                                                    disabled={disabled || sendingMessage}
+                                                    aria-label="Edit and rerun this turn"
+                                                    title="Edit and rerun this turn"
+                                                    className={cn(
+                                                        "inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50",
+                                                        editingTurnId === turn.id && "bg-muted text-foreground",
+                                                    )}
+                                                >
+                                                    {rerunningEditedTurn ? (
+                                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                    ) : (
+                                                        <Pencil className="h-3.5 w-3.5" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : null}
+                                    {toolEvents.map((event, index) => (
+                                        <ToolEventBubble
+                                            key={`${turn.id}-${event.kind}-${event.functionName}-${index}`}
+                                            event={event}
+                                        />
+                                    ))}
+                                    {turn.assistant_message ? (
+                                        <MessageBubble role="agent" text={turn.assistant_message.text} />
+                                    ) : turn.status === "failed" ? (
+                                        <MessageBubble role="agent" state="muted" text="Agent turn failed" />
+                                    ) : null}
                                 </div>
-                            </div>
                             );
                         })}
                         {sendingMessage ? <TypingBubble /> : null}
@@ -619,11 +686,25 @@ function ManualTextChat({
             </div>
 
             <div className="pt-3">
+                {editingTurn ? (
+                    <div className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs text-muted-foreground">
+                        <span>Edit the selected user message, then press Enter to rerun from that point.</span>
+                        <button
+                            type="button"
+                            onClick={cancelEditingTurn}
+                            className="inline-flex items-center gap-1 rounded text-foreground hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                        >
+                            <X className="h-3.5 w-3.5" />
+                            Cancel
+                        </button>
+                    </div>
+                ) : null}
                 <div className="relative">
                     <Textarea
+                        id={composerId}
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
-                        placeholder={ready ? "Send a message…" : "Preparing chat…"}
+                        placeholder={ready ? (editingTurn ? "Edit and rerun this message…" : "Send a message…") : "Preparing chat…"}
                         rows={1}
                         className="min-h-11! resize-none pr-20 text-sm leading-6"
                         disabled={inputDisabled}
@@ -631,24 +712,24 @@ function ManualTextChat({
                             if (event.key === "Enter" && !event.shiftKey) {
                                 event.preventDefault();
                                 if (sendingMessage) return;
-                                void sendMessage();
+                                void submitComposer();
                             }
                         }}
                     />
                     <Button
                         type="button"
                         size="sm"
-                        onClick={sendMessage}
+                        onClick={() => void submitComposer()}
                         disabled={inputDisabled || sendingMessage || !draft.trim()}
                         className="absolute bottom-1.5 right-1.5 h-8 px-4"
                     >
                         {sendingMessage ? (
                             <>
                                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                Sending
+                                {editingTurn ? "Rerunning" : "Sending"}
                             </>
                         ) : (
-                            "Send"
+                            editingTurn ? "Rerun" : "Send"
                         )}
                     </Button>
                 </div>

@@ -49,14 +49,7 @@ if ! dograh_is_ipv4 "$SERVER_IP"; then
     dograh_fail "Invalid IP address format"
 fi
 
-if [[ -z "${FORCE_TURN_RELAY:-}" ]]; then
-    if dograh_is_local_ipv4 "$SERVER_IP"; then
-        FORCE_TURN_RELAY=true
-        dograh_warn "Detected a local/private server IP; enabling FORCE_TURN_RELAY=true."
-    else
-        FORCE_TURN_RELAY=false
-    fi
-fi
+FORCE_TURN_RELAY="${FORCE_TURN_RELAY:-false}"
 
 # Get the TURN secret (skip prompt if TURN_SECRET is already set)
 if [[ -z "${TURN_SECRET:-}" ]]; then
@@ -260,7 +253,7 @@ echo -e "${BLUE}[4/$TOTAL] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
-# Change environment from local to production so that coturn filters local IPs
+# Remote deployments run with production signaling and HTTPS defaults
 ENVIRONMENT=production
 
 # Canonical public host/base URL for this install.
@@ -277,6 +270,7 @@ MINIO_PUBLIC_ENDPOINT=https://$SERVER_IP
 # TURN Server Configuration (time-limited credentials via TURN REST API)
 TURN_HOST=$SERVER_IP
 TURN_SECRET=$TURN_SECRET
+# Relay-only ICE candidates for explicit TURN diagnostics
 FORCE_TURN_RELAY=$FORCE_TURN_RELAY
 
 # JWT secret for OSS authentication

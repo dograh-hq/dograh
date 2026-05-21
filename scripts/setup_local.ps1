@@ -167,6 +167,7 @@ if ([string]::IsNullOrEmpty($env:ENABLE_COTURN)) {
 $UseCoturn = Test-IsEnabled $EnableCoturn
 $TurnHost = $env:TURN_HOST
 $TurnSecret = $env:TURN_SECRET
+$ForceTurnRelay = if ([string]::IsNullOrEmpty($env:FORCE_TURN_RELAY)) { 'false' } else { $env:FORCE_TURN_RELAY }
 
 if ($UseCoturn) {
     $defaultTurnHost = Get-DefaultLanIPv4
@@ -208,6 +209,7 @@ Write-Host "  Coturn:        $EnableCoturn" -ForegroundColor Blue
 if ($UseCoturn) {
     Write-Host "  TURN Host:     $TurnHost" -ForegroundColor Blue
     Write-Host '  TURN Secret:   ********' -ForegroundColor Blue
+    Write-Host "  Force relay:   $ForceTurnRelay" -ForegroundColor Blue
 }
 Write-Host "  Telemetry:     $EnableTelemetry" -ForegroundColor Blue
 Write-Host "  Registry:      $Registry" -ForegroundColor Blue
@@ -251,6 +253,9 @@ $envLines = @(
     ''
     '# Telemetry (set to false to disable)'
     "ENABLE_TELEMETRY=$EnableTelemetry"
+    ''
+    '# Relay-only ICE candidates for explicit TURN diagnostics'
+    "FORCE_TURN_RELAY=$ForceTurnRelay"
 )
 
 if ($UseCoturn) {

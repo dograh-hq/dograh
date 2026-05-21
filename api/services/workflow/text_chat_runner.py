@@ -12,14 +12,13 @@ from pipecat.frames.frames import (
     EndFrame,
     FunctionCallInProgressFrame,
     FunctionCallResultFrame,
-    LLMContextFrame,
     LLMAssistantPushAggregationFrame,
+    LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    TTSSpeakFrame,
-    TTSTextFrame,
-    TTSStoppedFrame,
     TextFrame,
+    TTSSpeakFrame,
+    TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -174,9 +173,7 @@ class _TextChatCaptureProcessor(FrameProcessor):
         if isinstance(frame, TTSSpeakFrame):
             text_frame = TextFrame(frame.text)
             text_frame.append_to_context = (
-                frame.append_to_context
-                if frame.append_to_context is not None
-                else True
+                frame.append_to_context if frame.append_to_context is not None else True
             )
             await self.push_frame(text_frame, direction)
             await self.push_frame(LLMAssistantPushAggregationFrame(), direction)
@@ -196,7 +193,10 @@ class _TextChatCaptureProcessor(FrameProcessor):
         ):
             self._response_window.note_llm_start()
 
-        if isinstance(frame, LLMFullResponseEndFrame) and direction is FrameDirection.DOWNSTREAM:
+        if (
+            isinstance(frame, LLMFullResponseEndFrame)
+            and direction is FrameDirection.DOWNSTREAM
+        ):
             self._response_window.note_llm_end()
             await self.push_frame(frame, direction)
             # Text chat has no TTS/output transport, so mixed text+tool responses
@@ -254,9 +254,7 @@ def _merge_usage_info(
             + int(value.get("completion_tokens") or 0),
             "total_tokens": int(current.get("total_tokens") or 0)
             + int(value.get("total_tokens") or 0),
-            "cache_read_input_tokens": int(
-                current.get("cache_read_input_tokens") or 0
-            )
+            "cache_read_input_tokens": int(current.get("cache_read_input_tokens") or 0)
             + int(value.get("cache_read_input_tokens") or 0),
             "cache_creation_input_tokens": int(
                 current.get("cache_creation_input_tokens") or 0
@@ -271,9 +269,9 @@ def _merge_usage_info(
             merged_section[key] = float(merged_section.get(key) or 0) + float(value)
         merged[section] = merged_section
 
-    merged["call_duration_seconds"] = int(merged.get("call_duration_seconds") or 0) + int(
-        delta.get("call_duration_seconds") or 0
-    )
+    merged["call_duration_seconds"] = int(
+        merged.get("call_duration_seconds") or 0
+    ) + int(delta.get("call_duration_seconds") or 0)
 
     return merged
 
@@ -331,9 +329,11 @@ async def _wait_for_quiescence(
             await asyncio.sleep(0.05)
             continue
 
-        if response_window.frontier_is_idle and (
-            time.monotonic() - capture_processor.last_activity_at
-        ) >= TEXT_CHAT_IDLE_SETTLE_SECONDS:
+        if (
+            response_window.frontier_is_idle
+            and (time.monotonic() - capture_processor.last_activity_at)
+            >= TEXT_CHAT_IDLE_SETTLE_SECONDS
+        ):
             return
 
         await asyncio.sleep(0.05)
@@ -514,12 +514,9 @@ async def execute_text_chat_pending_turn(
         await engine.set_node(target_node_id)
 
         opening_marker = capture_processor.activity_count
-        opening_expects_llm = (
-            pending_user_message is None
-            and (
-                current_node_id == target_node_id
-                or engine.get_node_greeting(target_node_id) is None
-            )
+        opening_expects_llm = pending_user_message is None and (
+            current_node_id == target_node_id
+            or engine.get_node_greeting(target_node_id) is None
         )
         if opening_expects_llm:
             response_window.note_direct_context_request()

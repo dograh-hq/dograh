@@ -53,9 +53,9 @@ router = APIRouter(prefix="/ws")
 class NonRelayFilterPolicy(Enum):
     """What to filter from non-relay ICE candidates. Relay candidates always pass."""
 
-    NONE = "none"        # filter nothing — pass all candidates
+    NONE = "none"  # filter nothing — pass all candidates
     PRIVATE = "private"  # filter non-relay candidates with private/CGNAT IPs
-    ALL = "all"          # filter all non-relay candidates (relay-only mode)
+    ALL = "all"  # filter all non-relay candidates (relay-only mode)
 
 
 def is_local_or_cgnat_ip(ip_str: str) -> bool:

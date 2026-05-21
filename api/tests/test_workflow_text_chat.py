@@ -1,11 +1,11 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from pipecat.tests import MockLLMService
 
 from api.db.models import OrganizationModel, UserModel
 from api.schemas.user_configuration import UserConfiguration
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
+from pipecat.tests import MockLLMService
 
 
 async def _create_user_and_workflow(
@@ -92,17 +92,22 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
     )
 
     llm = MockLLMService(
-        mock_steps=[MockLLMService.create_text_chunks("Hello from the workflow tester.")],
+        mock_steps=[
+            MockLLMService.create_text_chunks("Hello from the workflow tester.")
+        ],
         chunk_delay=0.001,
     )
 
     async with test_client_factory(user) as client:
-        with patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            return_value=llm,
-        ), patch(
-            "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
-            new=AsyncMock(return_value=False),
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                return_value=llm,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             create_response = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
@@ -179,18 +184,23 @@ async def test_text_chat_message_executes_assistant_turn(
     llm_responses = [
         MockLLMService(mock_steps=[], chunk_delay=0.001),
         MockLLMService(
-            mock_steps=[MockLLMService.create_text_chunks("Hello from the workflow tester.")],
+            mock_steps=[
+                MockLLMService.create_text_chunks("Hello from the workflow tester.")
+            ],
             chunk_delay=0.001,
         ),
     ]
 
     async with test_client_factory(user) as client:
-        with patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=llm_responses,
-        ), patch(
-            "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
-            new=AsyncMock(return_value=False),
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             create_response = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
@@ -295,12 +305,15 @@ async def test_text_chat_executes_deferred_tool_calls_after_text_response(
     ]
 
     async with test_client_factory(user) as client:
-        with patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=llm_responses,
-        ), patch(
-            "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
-            new=AsyncMock(return_value=False),
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             create_response = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
@@ -428,12 +441,15 @@ async def test_text_chat_chains_multiple_follow_up_completions_in_one_turn(
     ]
 
     async with test_client_factory(user) as client:
-        with patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=llm_responses,
-        ), patch(
-            "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
-            new=AsyncMock(return_value=False),
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             create_response = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
@@ -458,11 +474,14 @@ async def test_text_chat_chains_multiple_follow_up_completions_in_one_turn(
     assert "Moving to agent two." in assistant_text
     assert "Agent two here." in assistant_text
     assert payload["checkpoint"]["current_node_id"] == "agent2"
-    assert sum(
-        1
-        for event in payload["session_data"]["turns"][1]["events"]
-        if event["type"] == "tool_call_started"
-    ) == 2
+    assert (
+        sum(
+            1
+            for event in payload["session_data"]["turns"][1]["events"]
+            if event["type"] == "tool_call_started"
+        )
+        == 2
+    )
 
 
 @pytest.mark.asyncio
@@ -530,12 +549,15 @@ async def test_text_chat_greeting_only_plays_on_fresh_node_entry(
     ]
 
     async with test_client_factory(user) as client:
-        with patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=llm_responses,
-        ), patch(
-            "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
-            new=AsyncMock(return_value=False),
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             create_response = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
@@ -543,7 +565,9 @@ async def test_text_chat_greeting_only_plays_on_fresh_node_entry(
             )
             assert create_response.status_code == 200
             session = create_response.json()
-            opening_text = session["session_data"]["turns"][0]["assistant_message"]["text"]
+            opening_text = session["session_data"]["turns"][0]["assistant_message"][
+                "text"
+            ]
 
             first_message = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions/{session['workflow_run_id']}/messages",
@@ -565,9 +589,9 @@ async def test_text_chat_greeting_only_plays_on_fresh_node_entry(
             assert second_message.status_code == 200
 
     first_text = first_payload["session_data"]["turns"][1]["assistant_message"]["text"]
-    second_text = second_message.json()["session_data"]["turns"][2]["assistant_message"][
-        "text"
-    ]
+    second_text = second_message.json()["session_data"]["turns"][2][
+        "assistant_message"
+    ]["text"]
 
     assert opening_text == "Welcome to the workflow tester."
     assert "Welcome to the workflow tester." not in first_text
@@ -699,12 +723,15 @@ async def test_text_chat_rewind_reuses_checkpoint_snapshot(
     ]
 
     async with test_client_factory(user) as client:
-        with patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            side_effect=llm_responses,
-        ), patch(
-            "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
-            new=AsyncMock(return_value=False),
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                side_effect=llm_responses,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             create_response = await client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",
@@ -825,15 +852,20 @@ async def test_text_chat_session_is_not_accessible_from_another_org(
 
     async with test_client_factory(owner_user) as owner_client:
         llm = MockLLMService(
-            mock_steps=[MockLLMService.create_text_chunks("Hello from the workflow tester.")],
+            mock_steps=[
+                MockLLMService.create_text_chunks("Hello from the workflow tester.")
+            ],
             chunk_delay=0.001,
         )
-        with patch(
-            "api.services.workflow.text_chat_runner.create_llm_service",
-            return_value=llm,
-        ), patch(
-            "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
-            new=AsyncMock(return_value=False),
+        with (
+            patch(
+                "api.services.workflow.text_chat_runner.create_llm_service",
+                return_value=llm,
+            ),
+            patch(
+                "api.services.workflow.text_chat_runner.db_client.has_active_recordings",
+                new=AsyncMock(return_value=False),
+            ),
         ):
             create_response = await owner_client.post(
                 f"/api/v1/workflow/{workflow.id}/text-chat/sessions",

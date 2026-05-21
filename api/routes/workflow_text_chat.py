@@ -214,9 +214,7 @@ async def _load_text_session_or_404(
     user: UserModel,
 ) -> WorkflowRunTextSessionModel:
     if user.selected_organization_id is None:
-        raise HTTPException(
-            status_code=403, detail="Organization context is required"
-        )
+        raise HTTPException(status_code=403, detail="Organization context is required")
     text_session = await db_client.get_workflow_run_text_session(
         run_id, organization_id=user.selected_organization_id
     )

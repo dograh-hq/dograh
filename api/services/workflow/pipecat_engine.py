@@ -1,5 +1,4 @@
-from typing import TYPE_CHECKING, Awaitable, Callable, Literal, Optional, Union
-from typing import TYPE_CHECKING, Awaitable, Callable, Dict, Optional, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Dict, Literal, Optional, Union
 
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.frames.frames import (
@@ -683,7 +682,11 @@ class PipecatEngine:
                     )
                     return "greeting"
 
-        if generate_if_no_greeting and self.llm is not None and self.context is not None:
+        if (
+            generate_if_no_greeting
+            and self.llm is not None
+            and self.context is not None
+        ):
             logger.debug("Queueing initial LLM generation for node opening")
             # Queue after the voicemail detector in the live pipeline so the
             # detector can gate initial generations when needed.

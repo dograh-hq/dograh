@@ -18,7 +18,9 @@ async def authenticate_mcp_request() -> UserModel:
     the `langfuse.user.id` / `langfuse.session.id` attributes make the
     span filterable in the Langfuse UI.
     """
-    headers = get_http_headers()
+    # FastMCP strips Authorization by default unless explicitly included.
+    # Preserve it here so Bearer API keys work for MCP tool invocations.
+    headers = get_http_headers(include={"authorization"})
     api_key = headers.get("x-api-key")
     if not api_key:
         auth = headers.get("authorization", "")

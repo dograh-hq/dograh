@@ -18,7 +18,8 @@
 
 <p align="center">
   <a href="https://docs.dograh.com">📖 Docs</a> &nbsp;·&nbsp;
-  <a href="LICENSE">📜 BSD 2-Clause</a>
+  <a href="LICENSE">📜 BSD 2-Clause</a> &nbsp;·&nbsp;
+  <a href="README.zh-CN.md">🌐 中文</a>
 </p>
 
 <p align="center">

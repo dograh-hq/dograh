@@ -7,6 +7,10 @@ from loguru import logger
 from api.db import db_client
 from api.enums import WorkflowRunMode
 from api.services.configuration.registry import ServiceProviders
+from api.services.integrations import (
+    IntegrationRuntimeContext,
+    create_runtime_sessions,
+)
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
@@ -525,6 +529,18 @@ async def _run_pipeline(
     # Create pipeline components
     audio_buffer, context = create_pipeline_components(audio_config)
 
+    integration_runtime_sessions = create_runtime_sessions(
+        IntegrationRuntimeContext(
+            workflow_run_id=workflow_run_id,
+            workflow_run=workflow_run,
+            workflow_graph=workflow_graph,
+            run_definition=run_definition,
+            user_config=user_config,
+            is_realtime=is_realtime,
+            context_messages_provider=lambda: context.messages,
+        )
+    )
+
     # Set the context, audio_config, and audio_buffer after creation
     engine.set_context(context)
     engine.set_audio_config(audio_config)
@@ -717,6 +733,14 @@ async def _run_pipeline(
     # Create pipeline task with audio configuration
     task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
 
+    for runtime_session in integration_runtime_sessions:
+        runtime_session.attach(task)
+        logger.info(
+            "[integrations] attached runtime session '{}' for workflow run {}",
+            runtime_session.name,
+            workflow_run_id,
+        )
+
     # Now set the task and transport output on the engine
     engine.set_task(task)
     engine.set_transport_output(transport.output())
@@ -780,6 +804,7 @@ async def _run_pipeline(
         audio_config=audio_config,
         pre_call_fetch_task=pre_call_fetch_task,
         user_provider_id=user_provider_id,
+        integration_runtime_sessions=integration_runtime_sessions,
     )
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)

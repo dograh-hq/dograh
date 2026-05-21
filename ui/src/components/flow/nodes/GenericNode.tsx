@@ -31,7 +31,8 @@ type NodeStyleVariant =
     | "global"
     | "trigger"
     | "webhook"
-    | "qa";
+    | "qa"
+    | "integration";
 
 const STYLE_VARIANT_BY_SPEC: Record<string, NodeStyleVariant> = {
     startCall: "start",
@@ -98,6 +99,70 @@ function buildTriggerEndpoints(
         production: `${backendUrl}/api/v1/public/agent/${triggerPath}`,
         test: `${backendUrl}/api/v1/public/agent/test/${triggerPath}`,
     };
+}
+
+function resolveIntegrationEnabled(
+    spec: NodeSpec,
+    data: FlowNodeData,
+): boolean {
+    for (const prop of spec.properties) {
+        if (!prop.name.endsWith("enabled")) continue;
+        const value = data[prop.name];
+        if (typeof value === "boolean") return value;
+    }
+    return true;
+}
+
+function resolveIntegrationSummary(
+    spec: NodeSpec,
+    data: FlowNodeData,
+): string {
+    for (const prop of spec.properties) {
+        if (
+            prop.name === "name" ||
+            prop.name.endsWith("enabled") ||
+            /api[_-]?key|token|secret/i.test(prop.name)
+        ) {
+            continue;
+        }
+
+        const value = data[prop.name];
+        if (typeof value === "string" && value.trim().length > 0) {
+            return value.length > 30 ? `${value.slice(0, 30)}...` : value;
+        }
+        if (typeof value === "number") {
+            return String(value);
+        }
+    }
+    return "Not configured";
+}
+
+function getBadgeForSpec(
+    spec: NodeSpec | undefined,
+    variant: NodeStyleVariant,
+): { label: string; className: string } {
+    if (!spec) {
+        return { label: "Node", className: "bg-zinc-500 text-white" };
+    }
+
+    switch (variant) {
+        case "start":
+            return { label: "Start Node", className: "bg-emerald-500 text-white" };
+        case "agent":
+            return { label: "Agent Node", className: "bg-blue-500 text-white" };
+        case "end":
+            return { label: "End Node", className: "bg-rose-500 text-white" };
+        case "global":
+            return { label: "Global Node", className: "bg-amber-500 text-white" };
+        case "trigger":
+            return { label: "API Trigger", className: "bg-purple-500 text-white" };
+        case "webhook":
+            return { label: "Webhook", className: "bg-indigo-500 text-white" };
+        case "qa":
+            return { label: "QA Analysis", className: "bg-teal-500 text-white" };
+        case "integration":
+            return { label: spec.display_name, className: "bg-cyan-600 text-white" };
+    }
 }
 
 // ─── Canvas preview dispatch ──────────────────────────────────────────────
@@ -188,6 +253,21 @@ function CanvasPreview({
         );
     }
 
+    if (spec.category === "integration") {
+        const enabled = resolveIntegrationEnabled(spec, data);
+        const destination = resolveIntegrationSummary(spec, data);
+        return (
+            <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded">
+                        {destination}
+                    </span>
+                </div>
+                <StatusDot enabled={enabled} />
+            </div>
+        );
+    }
+
     // Default: prompt preview + tool/document badges (when spec declares them).
     const hasToolRefs = spec.properties.some((p) => p.type === "tool_refs");
     const hasDocRefs = spec.properties.some((p) => p.type === "document_refs");
@@ -205,6 +285,7 @@ function CanvasPreview({
                     <ToolBadges
                         toolUuids={data.tool_uuids}
                         onStaleUuidsDetected={onStaleTools}
+                        mcpToolFilters={data.mcp_tool_filters}
                     />
                 </div>
             )}
@@ -396,14 +477,22 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     const spec = bySpecName.get(type);
 
     // ── Form state ─────────────────────────────────────────────────────
-    const [values, setValues] = useState<Record<string, unknown>>(() =>
-        spec ? seedValues(data, spec) : {},
+    // mcp_tool_filters is not a spec property, so seedValues won't carry it;
+    // seed merges it back in alongside the spec-derived values.
+    const seed = useCallback(
+        () =>
+            spec
+                ? { ...seedValues(data, spec), mcp_tool_filters: data.mcp_tool_filters }
+                : {},
+        [data, spec],
     );
+
+    const [values, setValues] = useState<Record<string, unknown>>(seed);
 
     // Re-seed once the spec arrives (initial fetch race).
     useEffect(() => {
         if (spec && Object.keys(values).length === 0) {
-            setValues(seedValues(data, spec));
+            setValues(seed());
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [spec]);
@@ -464,7 +553,11 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     const isDirty = useMemo(() => {
         if (!spec) return false;
         const baseline = seedValues(data, spec);
-        return propertyNames.some((n) => values[n] !== baseline[n]);
+        if (propertyNames.some((n) => values[n] !== baseline[n])) return true;
+        return (
+            JSON.stringify(values.mcp_tool_filters ?? {}) !==
+            JSON.stringify(data.mcp_tool_filters ?? {})
+        );
     }, [values, data, spec, propertyNames]);
 
     const handleSave = async () => {
@@ -478,20 +571,30 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
     };
 
     const handleOpenChange = (newOpen: boolean) => {
-        if (newOpen && spec) setValues(seedValues(data, spec));
+        if (newOpen && spec) setValues(seed());
         setOpen(newOpen);
     };
 
     useEffect(() => {
-        if (open && spec) setValues(seedValues(data, spec));
+        if (open && spec) setValues(seed());
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data, open]);
 
     // ── Render ──────────────────────────────────────────────────────────
-    const styleVariant = STYLE_VARIANT_BY_SPEC[type];
-    const handles = HANDLES_BY_SPEC[type] ?? { source: true, target: true };
+    const styleVariant =
+        STYLE_VARIANT_BY_SPEC[type] ??
+        (spec?.category === "integration" ? "integration" : "agent");
+    const handles =
+        HANDLES_BY_SPEC[type] ??
+        (spec?.category === "integration"
+            ? { source: false, target: false }
+            : { source: true, target: true });
+    const badge = getBadgeForSpec(spec, styleVariant);
     const Icon = spec ? resolveIcon(spec.icon) : Circle;
     const docUrl = DOC_URL_BY_SPEC[type];
+    const contentLabel = spec?.properties.some((p) => p.name === "prompt")
+        ? "Prompt"
+        : "Details";
 
     // Edit dialog title: "Edit {display_name}". Webhook keeps the original
     // "Edit Webhook" wording — display_name is "Webhook" so it works out.
@@ -507,7 +610,9 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                 hovered_through_edge={data.hovered_through_edge}
                 title={data.name || fallbackTitle}
                 icon={<Icon />}
-                nodeType={styleVariant}
+                badgeLabel={badge.label}
+                badgeClassName={badge.className}
+                contentLabel={contentLabel}
                 hasSourceHandle={handles.source}
                 hasTargetHandle={handles.target}
                 onDoubleClick={() => setOpen(true)}
@@ -562,6 +667,18 @@ export const GenericNode = memo(({ data, selected, id, type }: GenericNodeProps)
                                 tools: tools ?? [],
                                 documents: documents ?? [],
                                 recordings: recordings ?? [],
+                                mcpToolFilters:
+                                    (values.mcp_tool_filters as
+                                        | Record<string, string[]>
+                                        | undefined) ?? {},
+                                onMcpToolFiltersChange: (next) =>
+                                    setValues((prev) => ({
+                                        ...prev,
+                                        mcp_tool_filters:
+                                            Object.keys(next).length > 0
+                                                ? next
+                                                : undefined,
+                                    })),
                             }}
                         />
                         {type === "trigger" && (

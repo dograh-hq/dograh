@@ -7,6 +7,14 @@ handling, hard constraints). Design-level per-field guidance belongs in
 each `PropertySpec.llm_hint`; it flows out through `get_node_type` and
 doesn't need to be repeated here.
 
+Tool names, parameters, and per-tool `error_code` values are NOT
+authoritative here — they reach the model dynamically via `tools/list`
+from each tool's own signature and docstring. Reference tools by bare
+name and describe orchestration; do not restate signatures (they drift)
+or re-enumerate error codes (document those on the tool itself).
+`test_mcp_instructions_drift.py` fails if this guide names a tool that
+is not registered, or if a tool's error codes aren't in its docstring.
+
 Extend based on real LLM failures — every bullet below ideally maps to a
 mistake the system has seen at least once.
 """
@@ -16,18 +24,23 @@ You build and edit Dograh voice-AI workflows by emitting TypeScript that uses th
 
 ## Call order
 
+### Reading documentation
+1. `search_docs` — use first for keyword or acronym lookup when the user is asking how Dograh works or how to configure something.
+2. `read_doc` — fetch the full page once one result looks likely. Prefer this over reasoning from search summaries alone.
+3. `list_docs` — use when the user wants to browse a topic area or when search terms are too vague. Call it with no arguments for the top-level sections; returned section paths feed back into `list_docs`, returned page paths feed into `read_doc`.
+
 ### Editing an existing workflow
 1. `list_workflows` — locate the target workflow.
-2. `get_workflow_code(workflow_id)` — fetch the current source.
-3. (optional) `list_node_types` / `get_node_type(name)` — consult before adding or editing a node type whose fields aren't already visible in the current code.
+2. `get_workflow_code` — fetch the current source for that workflow.
+3. (optional) `list_node_types` / `get_node_type` — consult before adding or editing a node type whose fields aren't already visible in the current code.
 4. Mutate the code in place. Preserve existing nodes, edges, and variable names unless the task requires removing or renaming them.
-5. `save_workflow(workflow_id, code)` — persist as a new draft. The published version is untouched.
+5. `save_workflow` — persist as a new draft. The published version is untouched.
 
 ### Creating a new workflow
 1. Create a simple 1-node workflow with only `startCall`. The user can iteratively add complexity by editing it.
-2. `list_node_types` / `get_node_type(name)` — consult to learn the fields available on the node types you intend to use.
+2. `list_node_types` / `get_node_type` — consult to learn the fields available on the node types you intend to use.
 3. Author SDK TypeScript from scratch. The `new Workflow({ name: "..." })` call is required — `name` becomes the workflow's display name.
-4. `create_workflow(code)` — persists a new workflow as version 1 (published). Returns the new `workflow_id`. For subsequent edits use `save_workflow(workflow_id, code)` (which writes a draft).
+4. `create_workflow` — persists a new workflow as version 1 (published). Returns the new `workflow_id`. For subsequent edits use `save_workflow` (which writes a draft).
 
 ## Allowed source shape
 
@@ -68,14 +81,7 @@ Example:
 
 ## Iterating on errors
 
-`save_workflow` and `create_workflow` return one of:
-- `parse_error` — Disallowed construct (see grammar above) or malformed TypeScript.
-- `validation_error` — Node data failed spec validation (unknown field, missing required, wrong type, bad `options` value).
-- `graph_validation` — Structural rule broken (missing startCall, unreachable node, edge to/from wrong node type).
-- `missing_name` — (`create_workflow` only) `new Workflow({ name })` is absent or empty.
-- `bridge_error` — Internal; retry once, then surface to the user.
-
-Every error carries `line` and `column`. Fix at that location and resubmit the **complete source** — this tool does not accept patches.
+A failed `save_workflow` / `create_workflow` returns a result with `saved`/`created` set to false, a machine-readable `error_code`, and a human-readable `error` message — carrying `line` and `column` when the problem is locatable in your source. The full set of `error_code` values and their meanings is documented on each tool (visible in its description). Read the `error` message, fix at the reported location, and resubmit the **complete source** — these tools do not accept patches. If a failure looks internal or transient rather than a problem with your code, retry once before surfacing it to the user.
 
 ## Field conventions
 

@@ -70,8 +70,7 @@ type SidebarNavSection = {
   items: SidebarNavItem[];
 };
 
-const TELEPHONY_WARNING_DEADLINE = "15 May 2026";
-const TELEPHONY_WARNING_COPY = `Action required before ${TELEPHONY_WARNING_DEADLINE}`;
+const TELEPHONY_WARNING_COPY = "Action required";
 
 const NAV_SECTIONS: SidebarNavSection[] = [
   {
@@ -206,7 +205,7 @@ export function AppSidebar() {
     };
     const warningIndicator = (
       <AlertTriangle
-        aria-label={`Action required on a telephony configuration before ${TELEPHONY_WARNING_DEADLINE}`}
+        aria-label="Action required on a telephony configuration"
         className={cn(
           "text-amber-500",
           isCollapsed ? "absolute -right-0.5 -top-0.5 h-3 w-3" : "ml-auto h-3.5 w-3.5"

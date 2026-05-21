@@ -34,12 +34,11 @@ from api.services.pipecat.recording_audio_cache import RecordingAudio
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
-    EndCallRFNode,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
+    RFNodeDTO,
     StartCallNodeData,
-    StartCallRFNode,
 )
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
@@ -65,8 +64,9 @@ def text_workflow() -> WorkflowGraph:
     """Start->End workflow with text greeting and text transition speech."""
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -79,8 +79,9 @@ def text_workflow() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=200),
                 data=EndCallNodeData(
                     name="End Call",
@@ -114,8 +115,9 @@ def audio_workflow() -> WorkflowGraph:
     """Start->End workflow with audio greeting and audio transition speech."""
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -128,8 +130,9 @@ def audio_workflow() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=200),
                 data=EndCallNodeData(
                     name="End Call",
@@ -290,8 +293,9 @@ class TestStartGreeting:
         """No greeting configured should return None."""
         dto = ReactFlowDTO(
             nodes=[
-                StartCallRFNode(
+                RFNodeDTO(
                     id="start",
+                    type="startCall",
                     position=Position(x=0, y=0),
                     data=StartCallNodeData(
                         name="Start",
@@ -301,8 +305,9 @@ class TestStartGreeting:
                         extraction_enabled=False,
                     ),
                 ),
-                EndCallRFNode(
+                RFNodeDTO(
                     id="end",
+                    type="endCall",
                     position=Position(x=0, y=200),
                     data=EndCallNodeData(
                         name="End",
@@ -333,8 +338,9 @@ class TestStartGreeting:
         """Text greeting with {{variable}} placeholders should be rendered."""
         dto = ReactFlowDTO(
             nodes=[
-                StartCallRFNode(
+                RFNodeDTO(
                     id="start",
+                    type="startCall",
                     position=Position(x=0, y=0),
                     data=StartCallNodeData(
                         name="Start",
@@ -346,8 +352,9 @@ class TestStartGreeting:
                         extraction_enabled=False,
                     ),
                 ),
-                EndCallRFNode(
+                RFNodeDTO(
                     id="end",
+                    type="endCall",
                     position=Position(x=0, y=200),
                     data=EndCallNodeData(
                         name="End",

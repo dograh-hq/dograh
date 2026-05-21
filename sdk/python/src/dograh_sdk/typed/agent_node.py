@@ -1,8 +1,8 @@
 """GENERATED — do not edit by hand.
 
 Regenerate with `python -m dograh_sdk.codegen` against the target
-Dograh backend. Source of truth: each node's NodeSpec in the backend's
-`api/services/workflow/node_specs/` directory.
+Dograh backend. Source of truth: the backend's model-backed node-spec
+catalog served from `/api/v1/node-types`.
 """
 
 from __future__ import annotations
@@ -16,8 +16,8 @@ from dograh_sdk.typed._base import TypedNode
 @dataclass(kw_only=True)
 class AgentNode_Extraction_variablesRow:
     """
-    Each entry declares one variable to capture from the conversation, with
-    its name, type, and per-variable hint.
+    Each entry declares one variable to capture, with its name, data type,
+    and extraction hint.
     """
 
     name: str
@@ -70,8 +70,7 @@ class AgentNode(TypedNode):
 
     extraction_enabled: bool = False
     """
-    When true, runs an LLM extraction pass on transition out of this node to
-    capture variables from the conversation.
+    When true, runs an LLM extraction pass for this node.
     """
 
     extraction_prompt: Optional[str] = None
@@ -81,8 +80,8 @@ class AgentNode(TypedNode):
 
     extraction_variables: list[AgentNode_Extraction_variablesRow] = field(default_factory=list)
     """
-    Each entry declares one variable to capture from the conversation, with
-    its name, type, and per-variable hint.
+    Each entry declares one variable to capture, with its name, data type,
+    and extraction hint.
     """
 
     tool_uuids: list[str] = field(default_factory=list)

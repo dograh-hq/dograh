@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowVersionsApiV1WorkflowWorkflowIdVersionsGet, listDocumentsApiV1KnowledgeBaseDocumentsGet, listRecordingsApiV1WorkflowRecordingsGet, listToolsApiV1ToolsGet } from '@/client';
 import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } from '@/client/types.gen';
+import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
@@ -28,14 +29,6 @@ import { WorkflowTesterPanel } from './components/WorkflowTesterPanel';
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { useWorkflowState } from "./hooks/useWorkflowState";
 import { layoutNodes } from './utils/layoutNodes';
-
-// Single generic component for every node type. The spec catalog
-// (`/api/v1/node-types`) drives form rendering, canvas preview, handles,
-// and defaults. Adding a new node type means adding a Python NodeSpec —
-// no React changes required.
-const nodeTypes = Object.fromEntries(
-    Object.values(NodeType).map((t) => [t, GenericNode]),
-);
 
 const edgeTypes = {
     custom: CustomEdge,
@@ -65,6 +58,7 @@ interface RenderWorkflowProps {
 
 function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initialFlow, initialTemplateContextVariables, initialWorkflowConfigurations, initialVersionNumber, initialVersionStatus, user }: RenderWorkflowProps) {
     const router = useRouter();
+    const { specs } = useNodeSpecs();
     const [isPhoneCallDialogOpen, setIsPhoneCallDialogOpen] = useState(false);
     const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
     const [isTesterRailOpen, setIsTesterRailOpen] = useState(true);
@@ -110,6 +104,22 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         initialWorkflowConfigurations,
         user,
     });
+
+    // Single generic component for every node type. Seed with core node types
+    // so the initial render is stable before specs load, then merge in any
+    // spec-defined or already-present node types so plugin integrations like
+    // Tuner render without extra React registrations.
+    const nodeTypes = useMemo(() => {
+        const typeNames = new Set<string>([
+            ...Object.values(NodeType),
+            ...specs.map((spec) => spec.name),
+            ...nodes.map((node) => node.type),
+            ...(initialFlow?.nodes ?? []).map((node) => node.type),
+        ]);
+        return Object.fromEntries(
+            Array.from(typeNames).map((typeName) => [typeName, GenericNode]),
+        );
+    }, [initialFlow?.nodes, nodes, specs]);
 
     // Derive hasDraft from the current version status
     const hasDraft = currentVersionStatus === "draft";
@@ -350,14 +360,33 @@ function RenderWorkflow({ initialWorkflowName, workflowId, workflowUuid, initial
         await saveWorkflowConfigurations(workflowConfigurations, newName);
     }, [saveWorkflowConfigurations, workflowConfigurations]);
 
+    const updateTool = useCallback(
+        (toolUuid: string, updater: (tool: ToolResponse) => ToolResponse) => {
+            setTools((prev) =>
+                prev?.map((tool) =>
+                    tool.tool_uuid === toolUuid ? updater(tool) : tool,
+                ),
+            );
+        },
+        [],
+    );
+
     // Memoize the context value to prevent unnecessary re-renders
     const workflowContextValue = useMemo(() => ({
         saveWorkflow: guardedSaveWorkflow,
         documents,
         tools,
+        updateTool,
         recordings,
         readOnly: isViewingHistoricalVersion,
-    }), [guardedSaveWorkflow, documents, tools, recordings, isViewingHistoricalVersion]);
+    }), [
+        guardedSaveWorkflow,
+        documents,
+        tools,
+        updateTool,
+        recordings,
+        isViewingHistoricalVersion,
+    ]);
 
     return (
         <WorkflowProvider value={workflowContextValue}>

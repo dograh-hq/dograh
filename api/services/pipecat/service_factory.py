@@ -494,31 +494,13 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
 
     if provider == ServiceProviders.OPENAI_REALTIME.value:
         from api.services.pipecat.realtime.openai_realtime import (
-            DograhOpenAIRealtimeLLMService,
-        )
-        from pipecat.services.openai.realtime.events import (
-            AudioConfiguration,
-            AudioInput,
-            AudioOutput,
-            InputAudioTranscription,
-            SessionProperties,
+            create_openai_realtime_llm_service,
         )
 
-        return DograhOpenAIRealtimeLLMService(
+        return create_openai_realtime_llm_service(
             api_key=api_key,
-            settings=DograhOpenAIRealtimeLLMService.Settings(
-                model=model,
-                session_properties=SessionProperties(
-                    audio=AudioConfiguration(
-                        input=AudioInput(
-                            transcription=InputAudioTranscription(),
-                        ),
-                        output=AudioOutput(
-                            voice=voice or "alloy",
-                        ),
-                    ),
-                ),
-            ),
+            model=model,
+            voice=voice,
         )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:
         from api.services.pipecat.realtime.gemini_live import (

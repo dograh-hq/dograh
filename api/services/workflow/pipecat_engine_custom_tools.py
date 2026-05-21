@@ -269,7 +269,9 @@ class CustomToolManager:
                     function_name,
                     handler,
                     timeout_secs=timeout_secs,
+                    cancel_on_interruption=not self._should_register_async(tool),
                 )
+                self._engine.ensure_async_tool_cancellation_enabled()
 
                 logger.debug(
                     f"Registered custom tool handler: {function_name} "
@@ -278,6 +280,13 @@ class CustomToolManager:
 
         except Exception as e:
             logger.error(f"Failed to register custom tool handlers: {e}")
+
+    def _should_register_async(self, tool: Any) -> bool:
+        """Only non-terminal HTTP tools may run in the background."""
+        return (
+            self._engine.supports_async_tools
+            and tool.category == ToolCategory.HTTP_API.value
+        )
 
     def _create_handler(self, tool: Any, function_name: str):
         """Create a handler function for a tool based on its category.

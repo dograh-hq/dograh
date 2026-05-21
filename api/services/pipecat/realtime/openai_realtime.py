@@ -16,6 +16,9 @@ Adds:
 - **finalized=True on TranscriptionFrame** for parity with the Gemini
   service (every OpenAI transcription via the ``completed`` event is
   final by construction).
+- **Async tool result workaround** so Dograh still emits the OpenAI Realtime
+  ``function_call_output`` payload shape expected by the API until Pipecat's
+  upstream serialization matches it.
 """
 
 import json
@@ -47,6 +50,7 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
     """OpenAI Realtime with Dograh engine integration quirks. See module docstring."""
 
     def __init__(self, **kwargs):
+        kwargs.setdefault("enable_async_tool_cancellation", True)
         super().__init__(**kwargs)
         self._user_is_muted: bool = False
         # Dograh pre-populates self._context via the engine before the first
@@ -272,3 +276,48 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             finalized=True,
         )
         await self._handle_user_transcription(evt.transcript, True, Language.EN)
+
+    async def _send_tool_result(self, tool_call_id: str, result: str):
+        await self.send_client_event(
+            events.ConversationItemCreateEvent(
+                item=events.ConversationItem(
+                    type="function_call_output",
+                    call_id=tool_call_id,
+                    output=result,
+                )
+            )
+        )
+
+
+def create_openai_realtime_llm_service(
+    *,
+    api_key: str,
+    model: str,
+    voice: str | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: str | None = None,
+) -> DograhOpenAIRealtimeLLMService:
+    """Build a Dograh OpenAI realtime service with the expected session config."""
+
+    session_kwargs: dict[str, object] = {
+        "audio": events.AudioConfiguration(
+            input=events.AudioInput(
+                transcription=events.InputAudioTranscription(),
+            ),
+            output=events.AudioOutput(
+                voice=voice or "alloy",
+            ),
+        ),
+    }
+
+    if tools:
+        session_kwargs["tools"] = tools
+        session_kwargs["tool_choice"] = tool_choice or "auto"
+
+    return DograhOpenAIRealtimeLLMService(
+        api_key=api_key,
+        settings=DograhOpenAIRealtimeLLMService.Settings(
+            model=model,
+            session_properties=events.SessionProperties(**session_kwargs),
+        ),
+    )

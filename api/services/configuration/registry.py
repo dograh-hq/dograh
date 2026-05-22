@@ -341,6 +341,12 @@ class MiniMaxLLMConfiguration(BaseLLMConfiguration):
         default="https://api.minimax.io/v1",
         description="MiniMax OpenAI-compatible API endpoint.",
     )
+    temperature: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=2.0,
+        description="Sampling temperature. MiniMax requires > 0.",
+    )
 
 
 OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
@@ -829,6 +835,15 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
         default="English_Graceful_Lady",
         description="MiniMax voice ID.",
         json_schema_extra={"examples": MINIMAX_TTS_VOICES, "allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default="https://api.minimax.io/v1/t2a_v2",
+        description=(
+            "MiniMax TTS API endpoint (must include the /v1/t2a_v2 path). "
+            "Defaults to the global endpoint; override with "
+            "https://api.minimaxi.chat/v1/t2a_v2 (mainland China) or "
+            "https://api-uw.minimax.io/v1/t2a_v2 (US-West)."
+        ),
     )
     speed: float = Field(
         default=1.0, ge=0.5, le=2.0, description="Speech speed (0.5 to 2.0)."

@@ -57,6 +57,7 @@ class ServiceProviders(str, Enum):
     ASSEMBLYAI = "assemblyai"
     GLADIA = "gladia"
     RIME = "rime"
+    MINIMAX = "minimax"
     OPENAI_REALTIME = "openai_realtime"
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
@@ -77,6 +78,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.ASSEMBLYAI,
         ServiceProviders.GLADIA,
         ServiceProviders.RIME,
+        ServiceProviders.MINIMAX,
         ServiceProviders.OPENAI_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
@@ -395,6 +397,32 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+MINIMAX_MODELS = [
+    "MiniMax-M2.7",
+    "MiniMax-M2.7-highspeed",
+]
+
+
+@register_llm
+class MiniMaxLLMConfiguration(BaseLLMConfiguration):
+    provider: Literal[ServiceProviders.MINIMAX] = ServiceProviders.MINIMAX
+    model: str = Field(
+        default="MiniMax-M2.7",
+        description="MiniMax chat model.",
+        json_schema_extra={"examples": MINIMAX_MODELS, "allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default="https://api.minimax.io/v1",
+        description="MiniMax OpenAI-compatible API endpoint.",
+    )
+    temperature: float = Field(
+        default=1.0,
+        gt=0.0,
+        le=2.0,
+        description="Sampling temperature. MiniMax requires > 0.",
+    )
+
+
 OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
 OPENAI_REALTIME_VOICES = [
     "alloy",
@@ -533,6 +561,7 @@ LLMConfig = Annotated[
         DograhLLMService,
         AWSBedrockLLMConfiguration,
         SpeachesLLMConfiguration,
+        MiniMaxLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -822,6 +851,47 @@ class SpeachesTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+MINIMAX_TTS_MODELS = ["speech-2.8-hd", "speech-2.8-turbo"]
+MINIMAX_TTS_VOICES = [
+    "English_Graceful_Lady",
+    "English_Insightful_Speaker",
+    "English_radiant_girl",
+    "English_Persuasive_Man",
+    "English_Lucky_Robot",
+    "English_expressive_narrator",
+]
+
+
+@register_tts
+class MiniMaxTTSConfiguration(BaseTTSConfiguration):
+    provider: Literal[ServiceProviders.MINIMAX] = ServiceProviders.MINIMAX
+    model: str = Field(
+        default="speech-2.8-hd",
+        description="MiniMax TTS model.",
+        json_schema_extra={"examples": MINIMAX_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="English_Graceful_Lady",
+        description="MiniMax voice ID.",
+        json_schema_extra={"examples": MINIMAX_TTS_VOICES, "allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default="https://api.minimax.io/v1/t2a_v2",
+        description=(
+            "MiniMax TTS API endpoint (must include the /v1/t2a_v2 path). "
+            "Defaults to the global endpoint; override with "
+            "https://api.minimaxi.chat/v1/t2a_v2 (mainland China) or "
+            "https://api-uw.minimax.io/v1/t2a_v2 (US-West)."
+        ),
+    )
+    speed: float = Field(
+        default=1.0, ge=0.5, le=2.0, description="Speech speed (0.5 to 2.0)."
+    )
+    group_id: str = Field(
+        description="MiniMax Group ID (found in your MiniMax dashboard under Account → Group).",
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -834,6 +904,7 @@ TTSConfig = Annotated[
         CambTTSConfiguration,
         RimeTTSConfiguration,
         SpeachesTTSConfiguration,
+        MiniMaxTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]

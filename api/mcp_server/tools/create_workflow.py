@@ -34,6 +34,10 @@ from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.posthog_client import capture_event
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
+from api.services.workflow.trigger_paths import (
+    extract_trigger_paths,
+    validate_trigger_paths,
+)
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 
@@ -51,20 +55,6 @@ def _format_errors(errors: list[dict[str, Any]]) -> str:
             loc = f" (line {line}" + (f", col {col}" if col is not None else "") + ")"
         parts.append(f"{e.get('message', '')}{loc}")
     return "\n".join(parts)
-
-
-def _extract_trigger_paths(workflow_definition: dict) -> list[str]:
-    """Mirror of `routes.workflow.extract_trigger_paths` — kept local so the
-    MCP layer doesn't depend on the route module."""
-    if not workflow_definition:
-        return []
-    paths: list[str] = []
-    for node in workflow_definition.get("nodes") or []:
-        if node.get("type") == "trigger":
-            trigger_path = (node.get("data") or {}).get("trigger_path")
-            if trigger_path:
-                paths.append(trigger_path)
-    return paths
 
 
 @traced_tool
@@ -129,6 +119,12 @@ async def create_workflow(code: str) -> dict[str, Any]:
     # 1b. New workflow — no prior version to reconcile against; layout
     # places new nodes adjacent to their first incoming neighbor.
     payload = reconcile_positions(payload, None)
+    trigger_path_issues = validate_trigger_paths(payload)
+    if trigger_path_issues:
+        return _error_result(
+            "validation_error",
+            "\n".join(issue.message for issue in trigger_path_issues),
+        )
 
     # 2. Pydantic shape check (defence in depth — parser is spec-driven).
     try:
@@ -144,7 +140,7 @@ async def create_workflow(code: str) -> dict[str, Any]:
 
     # 4. Reject upfront if any trigger path collides with another workflow's
     # trigger in this org so we don't leave an orphan workflow record.
-    trigger_paths = _extract_trigger_paths(payload)
+    trigger_paths = extract_trigger_paths(payload)
     if trigger_paths:
         try:
             await db_client.assert_trigger_paths_available(

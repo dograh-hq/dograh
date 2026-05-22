@@ -32,6 +32,7 @@ from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
+from api.services.workflow.trigger_paths import validate_trigger_paths
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 
@@ -129,6 +130,12 @@ async def save_workflow(workflow_id: int, code: str) -> dict[str, Any]:
     # here we fill them back in from what was there before, and pick
     # approximate placements for newly-introduced nodes.
     payload = reconcile_positions(payload, await _previous_workflow_json(workflow))
+    trigger_path_issues = validate_trigger_paths(payload)
+    if trigger_path_issues:
+        return _error_result(
+            "validation_error",
+            "\n".join(issue.message for issue in trigger_path_issues),
+        )
 
     # 2. Pydantic shape check (defence in depth — parser is spec-driven).
     try:

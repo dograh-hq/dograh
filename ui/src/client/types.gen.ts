@@ -865,6 +865,16 @@ export type CreateCredentialRequest = {
 };
 
 /**
+ * CreateFolderRequest
+ */
+export type CreateFolderRequest = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * CreateServiceKeyRequest
  */
 export type CreateServiceKeyRequest = {
@@ -1719,6 +1729,24 @@ export type FileMetadataResponse = {
 };
 
 /**
+ * FolderResponse
+ */
+export type FolderResponse = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
  * GraphConstraints
  *
  * Per-node-type graph rules. WorkflowGraph enforces these at validation.
@@ -2163,6 +2191,18 @@ export type McpToolDefinition = {
      * MCP server configuration
      */
     config: McpToolConfig;
+};
+
+/**
+ * MoveWorkflowToFolderRequest
+ *
+ * Move a workflow into a folder, or to "Uncategorized" when null.
+ */
+export type MoveWorkflowToFolderRequest = {
+    /**
+     * Folder Id
+     */
+    folder_id?: number | null;
 };
 
 /**
@@ -3866,6 +3906,16 @@ export type UpdateCredentialRequest = {
 };
 
 /**
+ * UpdateFolderRequest
+ */
+export type UpdateFolderRequest = {
+    /**
+     * Name
+     */
+    name: string;
+};
+
+/**
  * UpdateToolRequest
  *
  * Request schema for updating a tool.
@@ -4359,6 +4409,10 @@ export type WorkflowListResponse = {
      * Total Runs
      */
     total_runs: number;
+    /**
+     * Folder Id
+     */
+    folder_id?: number | null;
 };
 
 /**
@@ -5961,6 +6015,50 @@ export type UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutResponses = {
 };
 
 export type UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutResponse = UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutResponses[keyof UpdateWorkflowStatusApiV1WorkflowWorkflowIdStatusPutResponses];
+
+export type MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutData = {
+    body: MoveWorkflowToFolderRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Workflow Id
+         */
+        workflow_id: number;
+    };
+    query?: never;
+    url: '/api/v1/workflow/{workflow_id}/folder';
+};
+
+export type MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutError = MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutErrors[keyof MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutErrors];
+
+export type MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: WorkflowListResponse;
+};
+
+export type MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutResponse = MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutResponses[keyof MoveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPutResponses];
 
 export type UpdateWorkflowApiV1WorkflowWorkflowIdPutData = {
     body: UpdateWorkflowRequest;
@@ -10679,6 +10777,178 @@ export type TranscribeAudioApiV1WorkflowRecordingsTranscribePostResponses = {
      */
     200: unknown;
 };
+
+export type ListFoldersApiV1FolderGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/folder/';
+};
+
+export type ListFoldersApiV1FolderGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListFoldersApiV1FolderGetError = ListFoldersApiV1FolderGetErrors[keyof ListFoldersApiV1FolderGetErrors];
+
+export type ListFoldersApiV1FolderGetResponses = {
+    /**
+     * Response List Folders Api V1 Folder  Get
+     *
+     * Successful Response
+     */
+    200: Array<FolderResponse>;
+};
+
+export type ListFoldersApiV1FolderGetResponse = ListFoldersApiV1FolderGetResponses[keyof ListFoldersApiV1FolderGetResponses];
+
+export type CreateFolderApiV1FolderPostData = {
+    body: CreateFolderRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/folder/';
+};
+
+export type CreateFolderApiV1FolderPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateFolderApiV1FolderPostError = CreateFolderApiV1FolderPostErrors[keyof CreateFolderApiV1FolderPostErrors];
+
+export type CreateFolderApiV1FolderPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: FolderResponse;
+};
+
+export type CreateFolderApiV1FolderPostResponse = CreateFolderApiV1FolderPostResponses[keyof CreateFolderApiV1FolderPostResponses];
+
+export type DeleteFolderApiV1FolderFolderIdDeleteData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Folder Id
+         */
+        folder_id: number;
+    };
+    query?: never;
+    url: '/api/v1/folder/{folder_id}';
+};
+
+export type DeleteFolderApiV1FolderFolderIdDeleteErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteFolderApiV1FolderFolderIdDeleteError = DeleteFolderApiV1FolderFolderIdDeleteErrors[keyof DeleteFolderApiV1FolderFolderIdDeleteErrors];
+
+export type DeleteFolderApiV1FolderFolderIdDeleteResponses = {
+    /**
+     * Response Delete Folder Api V1 Folder  Folder Id  Delete
+     *
+     * Successful Response
+     */
+    200: {
+        [key: string]: boolean;
+    };
+};
+
+export type DeleteFolderApiV1FolderFolderIdDeleteResponse = DeleteFolderApiV1FolderFolderIdDeleteResponses[keyof DeleteFolderApiV1FolderFolderIdDeleteResponses];
+
+export type RenameFolderApiV1FolderFolderIdPutData = {
+    body: UpdateFolderRequest;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path: {
+        /**
+         * Folder Id
+         */
+        folder_id: number;
+    };
+    query?: never;
+    url: '/api/v1/folder/{folder_id}';
+};
+
+export type RenameFolderApiV1FolderFolderIdPutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RenameFolderApiV1FolderFolderIdPutError = RenameFolderApiV1FolderFolderIdPutErrors[keyof RenameFolderApiV1FolderFolderIdPutErrors];
+
+export type RenameFolderApiV1FolderFolderIdPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: FolderResponse;
+};
+
+export type RenameFolderApiV1FolderFolderIdPutResponse = RenameFolderApiV1FolderFolderIdPutResponses[keyof RenameFolderApiV1FolderFolderIdPutResponses];
 
 export type SignupApiV1AuthSignupPostData = {
     body: SignupRequest;

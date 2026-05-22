@@ -1,12 +1,32 @@
 'use client';
 
-import { Archive, Pencil, RotateCcw } from 'lucide-react';
+import {
+    Archive,
+    Check,
+    Folder as FolderIcon,
+    FolderInput,
+    Inbox,
+    Pencil,
+    RotateCcw,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
 
-import { updateWorkflowStatusApiV1WorkflowWorkflowIdStatusPut } from '@/client/sdk.gen';
+import {
+    moveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPut,
+    updateWorkflowStatusApiV1WorkflowWorkflowIdStatusPut,
+} from '@/client/sdk.gen';
+import type { FolderResponse } from '@/client/types.gen';
 import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
     Table,
     TableBody,
@@ -21,17 +41,31 @@ interface Workflow {
     status: string;
     created_at: string;
     total_runs?: number | null;
+    folder_id?: number | null;
 }
 
 interface WorkflowTableProps {
     workflows: Workflow[];
     showArchived: boolean;
+    /**
+     * When provided, each row gets a "Move to folder" action listing these
+     * folders. Omit it (e.g. for the archived list) to hide the control.
+     */
+    folders?: FolderResponse[];
+    /** The folder this table is rendered under; null means "Uncategorized". */
+    currentFolderId?: number | null;
 }
 
-export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
+export function WorkflowTable({
+    workflows,
+    showArchived,
+    folders,
+    currentFolderId = null,
+}: WorkflowTableProps) {
     const router = useRouter();
     const [isPending, startTransition] = useTransition();
     const [loadingWorkflowId, setLoadingWorkflowId] = useState<number | null>(null);
+    const [movingWorkflowId, setMovingWorkflowId] = useState<number | null>(null);
 
     const handleEdit = (id: number) => {
         router.push(`/workflow/${id}`);
@@ -64,6 +98,30 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
             toast.error(`Failed to ${action.toLowerCase()} workflow`);
         } finally {
             setLoadingWorkflowId(null);
+        }
+    };
+
+    const handleMove = async (id: number, folderId: number | null) => {
+        setMovingWorkflowId(id);
+        try {
+            const response = await moveWorkflowToFolderApiV1WorkflowWorkflowIdFolderPut({
+                path: { workflow_id: id },
+                body: { folder_id: folderId },
+            });
+            if (response.error) {
+                throw new Error('Failed to move agent');
+            }
+            toast.success(
+                folderId === null ? 'Moved to Uncategorized' : 'Agent moved',
+            );
+            startTransition(() => {
+                router.refresh();
+            });
+        } catch (error) {
+            console.error('Error moving workflow:', error);
+            toast.error('Failed to move agent');
+        } finally {
+            setMovingWorkflowId(null);
         }
     };
 
@@ -114,6 +172,52 @@ export function WorkflowTable({ workflows, showArchived }: WorkflowTableProps) {
                                         <Pencil size={16} />
                                         Edit
                                     </Button>
+                                    {folders && (
+                                        <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={movingWorkflowId === workflow.id || isPending}
+                                                    className="flex items-center gap-2"
+                                                >
+                                                    {movingWorkflowId === workflow.id ? (
+                                                        <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                                    ) : (
+                                                        <FolderInput size={16} />
+                                                    )}
+                                                    Move
+                                                </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="w-52">
+                                                <DropdownMenuLabel>Move to folder</DropdownMenuLabel>
+                                                <DropdownMenuSeparator />
+                                                <DropdownMenuItem
+                                                    disabled={currentFolderId === null}
+                                                    onClick={() => handleMove(workflow.id, null)}
+                                                >
+                                                    <Inbox size={14} className="mr-2" />
+                                                    Uncategorized
+                                                    {currentFolderId === null && (
+                                                        <Check size={14} className="ml-auto" />
+                                                    )}
+                                                </DropdownMenuItem>
+                                                {folders.map((folder) => (
+                                                    <DropdownMenuItem
+                                                        key={folder.id}
+                                                        disabled={folder.id === currentFolderId}
+                                                        onClick={() => handleMove(workflow.id, folder.id)}
+                                                    >
+                                                        <FolderIcon size={14} className="mr-2" />
+                                                        <span className="truncate">{folder.name}</span>
+                                                        {folder.id === currentFolderId && (
+                                                            <Check size={14} className="ml-auto shrink-0" />
+                                                        )}
+                                                    </DropdownMenuItem>
+                                                ))}
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
+                                    )}
                                     <Button
                                         variant={showArchived ? "default" : "outline"}
                                         size="sm"

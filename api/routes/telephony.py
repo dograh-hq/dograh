@@ -305,7 +305,9 @@ async def _validate_inbound_request(
     """
     from api.services.telephony import registry as telephony_registry
 
-    workflow = await db_client.get_workflow(workflow_id)
+    # System lookup: inbound routing only has the workflow_id and derives the
+    # org/user from the workflow itself, so use the explicit unscoped variant.
+    workflow = await db_client.get_workflow_by_id(workflow_id)
     if not workflow:
         return False, TelephonyError.WORKFLOW_NOT_FOUND, {}, None
 
@@ -528,8 +530,9 @@ async def _handle_telephony_websocket(
             await websocket.close(code=4404, reason="Workflow run not found")
             return
 
-        # Get workflow for organization info
-        workflow = await db_client.get_workflow(workflow_id)
+        # Get workflow for organization info. System lookup keyed only on the
+        # workflow_id (org is derived below) — use the explicit unscoped variant.
+        workflow = await db_client.get_workflow_by_id(workflow_id)
         if not workflow:
             logger.error(f"Workflow {workflow_id} not found")
             await websocket.close(code=4404, reason="Workflow not found")

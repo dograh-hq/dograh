@@ -46,10 +46,10 @@ class Trigger(TypedNode):
 
     trigger_path: Optional[str] = None
     """
-    Auto-generated UUID-style path segment that uniquely identifies this
-    trigger. Used in both URLs:   • Production:
-    `/api/v1/public/agent/<trigger_path>` — executes the published agent.
-    • Test: `/api/v1/public/agent/test/<trigger_path>` — executes the latest
-    draft. Do not edit manually.
+    Path segment that uniquely identifies this trigger. Used in both URLs:
+    • Production: `/api/v1/public/agent/<trigger_path>` — executes the
+    published agent.   • Test: `/api/v1/public/agent/test/<trigger_path>` —
+    executes the latest draft. Can be customized to a descriptive value up
+    to 36 characters using letters, numbers, hyphens, or underscores.
     """
 

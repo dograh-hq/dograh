@@ -45,6 +45,7 @@
               "configurations/voice",
               "configurations/transcriber",
               "configurations/api-keys",
+              "configurations/agent-uuid",
               "configurations/interruption",
               "configurations/tracing"
             ]
@@ -204,6 +205,7 @@
                 "pages": [
                   "api-reference/calls",
                   "api-reference/calls/trigger",
+                  "api-reference/calls/trigger-workflow",
                   "api-reference/calls/get-run",
                   "api-reference/calls/list-runs",
                   "api-reference/calls/download",

@@ -1,12 +1,14 @@
 ---
-title: "Trigger an Outbound Call by API Trigger Node"
-description: "Initiate an outbound call using an API Trigger node UUID"
-openapi: "POST /api/v1/public/agent/{uuid}"
+title: "Trigger an Outbound Call by Workflow UUID"
+description: "Initiate an outbound call using a workflow's stable Agent UUID"
+openapi: "POST /api/v1/public/agent/workflow/{workflow_uuid}"
 ---
 
-Use this endpoint when you want to execute a workflow through an [API Trigger node](/voice-agent/api-trigger).
+Use this endpoint when you want to execute a workflow directly by its stable Agent UUID instead of through an API Trigger node.
 
-The `uuid` comes from the API Trigger node in your agent. Add the node to your workflow and copy its auto-generated `trigger_path`.
+The `workflow_uuid` is the workflow's Agent UUID. It is different from an API Trigger node's `trigger_path`.
+
+To find and copy the Agent UUID in the UI, see [Agent UUID](/configurations/agent-uuid).
 
 Use `workflow_run_id` from the response to later [retrieve call details](/api-reference/calls/get-run), recordings, and transcripts.
 
@@ -15,7 +17,7 @@ Pass `initial_context` to inject runtime data as template variables into the age
 Pass `telephony_configuration_id` to route the call through a specific telephony configuration instead of your organization's default. The id is shown on each row in **Telephony configurations** (`https://app.dograh.com/telephony-configurations` for hosted or `http://localhost:3010/telephony-configurations` for local).
 
 <Note>
-This route expects an API Trigger node UUID (`trigger_path`). Do not pass a workflow UUID here. If you want to execute by workflow UUID, use [Trigger an outbound call by workflow UUID](/api-reference/calls/trigger-workflow) instead.
+This route expects a workflow UUID. Do not pass an API Trigger node UUID here. If you want to execute via an API Trigger node, use [Trigger an outbound call](/api-reference/calls/trigger) instead.
 </Note>
 
 <Note>

@@ -28,6 +28,7 @@ from api.services.configuration.options import (
     SARVAM_V3_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
 )
+from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
 
 
 class ServiceType(Enum):
@@ -58,7 +59,9 @@ class ServiceProviders(str, Enum):
     GLADIA = "gladia"
     RIME = "rime"
     MINIMAX = "minimax"
+    GOOGLE_VERTEX = "google_vertex"
     OPENAI_REALTIME = "openai_realtime"
+    GROK_REALTIME = "grok_realtime"
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
 
@@ -79,7 +82,9 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GLADIA,
         ServiceProviders.RIME,
         ServiceProviders.MINIMAX,
+        ServiceProviders.GOOGLE_VERTEX,
         ServiceProviders.OPENAI_REALTIME,
+        ServiceProviders.GROK_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         # ServiceProviders.SARVAM,
@@ -206,7 +211,9 @@ OPENROUTER_PROVIDER_MODEL_CONFIG = provider_model_config("Open Router")
 AZURE_OPENAI_PROVIDER_MODEL_CONFIG = provider_model_config("Azure OpenAI")
 DOGRAH_PROVIDER_MODEL_CONFIG = provider_model_config("Dograh")
 AWS_BEDROCK_PROVIDER_MODEL_CONFIG = provider_model_config("AWS Bedrock")
+GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG = provider_model_config("Google Vertex")
 OPENAI_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI Realtime")
+GROK_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Grok Realtime")
 GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Google Realtime")
 GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Google Vertex Realtime"
@@ -239,6 +246,7 @@ OPENAI_MODELS = [
     "gpt-5-nano",
     "gpt-3.5-turbo",
 ]
+
 GROQ_MODELS = [
     "llama-3.3-70b-versatile",
     "deepseek-r1-distill-llama-70b",
@@ -289,6 +297,40 @@ class GoogleLLMService(BaseLLMConfiguration):
         default="gemini-2.0-flash",
         description="Gemini model on Google AI Studio (not Vertex).",
         json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
+    )
+
+
+@register_llm
+class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
+    model_config = GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GOOGLE_VERTEX] = ServiceProviders.GOOGLE_VERTEX
+    model: str = Field(
+        default="gemini-2.5-flash",
+        description="Gemini model on Vertex AI.",
+        json_schema_extra={
+            "examples": GOOGLE_VERTEX_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
+    location: str = Field(
+        default="global",
+        description="GCP region for the Vertex AI endpoint (e.g. 'global').",
+    )
+    credentials: str | None = Field(
+        default=None,
+        description=(
+            "Paste the entire service-account JSON file contents. If omitted, "
+            "falls back to Application Default Credentials (ADC)."
+        ),
+        json_schema_extra={"multiline": True},
+    )
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description=(
+            "Not used for Vertex AI — authentication is via the service account "
+            "in `credentials` (or ADC). Leave blank."
+        ),
     )
 
 
@@ -460,6 +502,32 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+GROK_REALTIME_MODELS = ["grok-voice-think-fast-1.0"]
+GROK_REALTIME_VOICES = ["Ara", "Rex", "Sal", "Eve", "Leo"]
+
+
+@register_service(ServiceType.REALTIME)
+class GrokRealtimeLLMConfiguration(BaseLLMConfiguration):
+    model_config = GROK_REALTIME_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GROK_REALTIME] = ServiceProviders.GROK_REALTIME
+    model: str = Field(
+        default="grok-voice-think-fast-1.0",
+        description="Grok realtime voice-agent model.",
+        json_schema_extra={
+            "examples": GROK_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="Ara",
+        description="Voice the model speaks in.",
+        json_schema_extra={
+            "examples": GROK_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+
+
 @register_service(ServiceType.REALTIME)
 class GoogleRealtimeLLMConfiguration(BaseLLMConfiguration):
     model_config = GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG
@@ -524,8 +592,8 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
     project_id: str = Field(description="Google Cloud project ID for Vertex AI.")
     location: str = Field(
-        default="us-east4",
-        description="GCP region for the Vertex AI endpoint (e.g. 'us-east4').",
+        default="global",
+        description="GCP region for the Vertex AI endpoint (e.g. 'global').",
     )
     credentials: str | None = Field(
         default=None,
@@ -546,6 +614,7 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
+    ServiceProviders.GROK_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
     ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
 }
@@ -554,6 +623,7 @@ REALTIME_PROVIDERS = {
 LLMConfig = Annotated[
     Union[
         OpenAILLMService,
+        GoogleVertexLLMConfiguration,
         GroqLLMService,
         OpenRouterLLMConfiguration,
         GoogleLLMService,
@@ -569,6 +639,7 @@ LLMConfig = Annotated[
 RealtimeConfig = Annotated[
     Union[
         OpenAIRealtimeLLMConfiguration,
+        GrokRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,
         GoogleVertexRealtimeLLMConfiguration,
     ],

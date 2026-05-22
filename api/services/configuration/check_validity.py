@@ -47,7 +47,9 @@ class UserConfigurationValidator:
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
             ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
+            ServiceProviders.GOOGLE_VERTEX.value: self._check_google_vertex_llm_api_key,
             ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
+            ServiceProviders.GROK_REALTIME.value: self._check_grok_realtime_api_key,
             ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
             ServiceProviders.GOOGLE_VERTEX_REALTIME.value: self._check_google_vertex_realtime_api_key,
             ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,
@@ -124,6 +126,20 @@ class UserConfigurationValidator:
                 if not self._check_google_vertex_realtime_api_key(
                     provider, service_config
                 ):
+                    return [
+                        {
+                            "model": service_name,
+                            "message": f"Invalid {provider} configuration",
+                        }
+                    ]
+            except ValueError as e:
+                return [{"model": service_name, "message": str(e)}]
+            return []
+
+        # Vertex LLM uses service-account credentials (or ADC) instead of api_key
+        if provider == ServiceProviders.GOOGLE_VERTEX.value:
+            try:
+                if not self._check_google_vertex_llm_api_key(provider, service_config):
                     return [
                         {
                             "model": service_name,
@@ -236,6 +252,9 @@ class UserConfigurationValidator:
     def _check_openrouter_api_key(self, model: str, api_key: str) -> bool:
         return True
 
+    def _check_grok_realtime_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
     def _check_speechmatics_api_key(self, model: str, api_key: str) -> bool:
         return True
 
@@ -252,6 +271,13 @@ class UserConfigurationValidator:
             raise ValueError("project_id is required for Google Vertex Realtime")
         if not getattr(service_config, "location", None):
             raise ValueError("location is required for Google Vertex Realtime")
+        return True
+
+    def _check_google_vertex_llm_api_key(self, model: str, service_config) -> bool:
+        if not getattr(service_config, "project_id", None):
+            raise ValueError("project_id is required for Google Vertex")
+        if not getattr(service_config, "location", None):
+            raise ValueError("location is required for Google Vertex")
         return True
 
     def _check_aws_bedrock_api_key(self, model: str, service_config) -> bool:

@@ -30,7 +30,13 @@ from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
 from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
 from pipecat.services.google.tts import GoogleTTSService, GoogleTTSSettings
+from pipecat.services.google.vertex.llm import (
+    GoogleVertexLLMService,
+    GoogleVertexLLMSettings,
+)
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
+from pipecat.services.minimax.llm import MiniMaxLLMService
+from pipecat.services.minimax.tts import MiniMaxTTSSettings
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import (
@@ -40,8 +46,6 @@ from pipecat.services.openai.stt import (
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
-from pipecat.services.minimax.llm import MiniMaxLLMService
-from pipecat.services.minimax.tts import MiniMaxHttpTTSService, MiniMaxTTSSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
@@ -482,13 +486,16 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
 def create_llm_service_from_provider(
     provider: str,
     model: str,
-    api_key: str,
+    api_key: str | None,
     *,
     base_url: str | None = None,
     endpoint: str | None = None,
     aws_access_key: str | None = None,
     aws_secret_key: str | None = None,
     aws_region: str | None = None,
+    project_id: str | None = None,
+    location: str | None = None,
+    credentials: str | None = None,
     temperature: float | None = None,
 ):
     """Create an LLM service from explicit provider/model/api_key.
@@ -527,6 +534,13 @@ def create_llm_service_from_provider(
         return GoogleLLMService(
             api_key=api_key,
             settings=GoogleLLMSettings(model=model, temperature=0.1),
+        )
+    elif provider == ServiceProviders.GOOGLE_VERTEX.value:
+        return GoogleVertexLLMService(
+            credentials=credentials,
+            project_id=project_id,
+            location=location or "us-east4",
+            settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.AZURE.value:
         return AzureLLMService(
@@ -611,6 +625,21 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 ),
             ),
         )
+    elif provider == ServiceProviders.GROK_REALTIME.value:
+        from api.services.pipecat.realtime.grok_realtime import (
+            DograhGrokRealtimeLLMService,
+        )
+        from pipecat.services.xai.realtime.events import SessionProperties
+
+        return DograhGrokRealtimeLLMService(
+            api_key=api_key,
+            settings=DograhGrokRealtimeLLMService.Settings(
+                model=model,
+                session_properties=SessionProperties(
+                    voice=voice or "Ara",
+                ),
+            ),
+        )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:
         from api.services.pipecat.realtime.gemini_live import (
             DograhGeminiLiveLLMService,
@@ -672,6 +701,10 @@ def create_llm_service(user_config):
         kwargs["aws_access_key"] = user_config.llm.aws_access_key
         kwargs["aws_secret_key"] = user_config.llm.aws_secret_key
         kwargs["aws_region"] = user_config.llm.aws_region
+    elif provider == ServiceProviders.GOOGLE_VERTEX.value:
+        kwargs["project_id"] = user_config.llm.project_id
+        kwargs["location"] = user_config.llm.location
+        kwargs["credentials"] = user_config.llm.credentials
     elif provider == ServiceProviders.MINIMAX.value:
         kwargs["base_url"] = user_config.llm.base_url
         kwargs["temperature"] = user_config.llm.temperature

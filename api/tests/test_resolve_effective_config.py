@@ -14,6 +14,8 @@ from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
     ElevenlabsTTSConfiguration,
     GoogleRealtimeLLMConfiguration,
+    GoogleVertexLLMConfiguration,
+    GrokRealtimeLLMConfiguration,
     OpenAILLMService,
 )
 from api.services.configuration.resolve import resolve_effective_config
@@ -164,6 +166,23 @@ class TestProviderChange:
         assert result.tts.provider == "elevenlabs"
         assert result.stt.provider == "deepgram"
 
+    def test_override_llm_to_google_vertex(self, global_config):
+        result = resolve_effective_config(
+            global_config,
+            {
+                "llm": {
+                    "provider": "google_vertex",
+                    "model": "gemini-2.5-flash",
+                    "project_id": "demo-project",
+                    "location": "us-east4",
+                    "credentials": '{"type":"service_account"}',
+                }
+            },
+        )
+        assert isinstance(result.llm, GoogleVertexLLMConfiguration)
+        assert result.llm.provider == "google_vertex"
+        assert result.llm.project_id == "demo-project"
+
 
 # ---------------------------------------------------------------------------
 # API key inheritance
@@ -225,6 +244,22 @@ class TestRealtimeOverride:
         assert result.realtime.voice == "Kore"
         assert result.realtime.provider == "google_realtime"  # inherited
         assert result.realtime.api_key == "goog-global-rt"  # inherited
+
+    def test_switch_realtime_provider_to_grok(self, global_config_realtime):
+        result = resolve_effective_config(
+            global_config_realtime,
+            {
+                "realtime": {
+                    "provider": "grok_realtime",
+                    "api_key": "xai-key",
+                    "model": "grok-voice-think-fast-1.0",
+                    "voice": "Sal",
+                }
+            },
+        )
+        assert isinstance(result.realtime, GrokRealtimeLLMConfiguration)
+        assert result.realtime.provider == "grok_realtime"
+        assert result.realtime.voice == "Sal"
 
     def test_override_is_realtime_only_without_realtime_section(self, global_config):
         """Override is_realtime=True but provide no realtime config.

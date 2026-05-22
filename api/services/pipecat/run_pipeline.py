@@ -120,6 +120,16 @@ def _create_realtime_user_turn_config(provider: str):
             ),
             None,
         )
+    if provider == ServiceProviders.GROK_REALTIME.value:
+        # Grok Voice Agent emits server-side speech-start/stop and
+        # interruption signals, so local VAD should stay out of the way.
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[ExternalUserTurnStopStrategy()],
+            ),
+            None,
+        )
 
     return (
         UserTurnStrategies(

@@ -7,7 +7,10 @@ stored, while honouring masked API keys.
 from typing import Dict
 
 from api.schemas.user_configuration import UserConfiguration
-from api.services.configuration.masking import resolve_masked_api_keys
+from api.services.configuration.masking import (
+    SERVICE_SECRET_FIELDS,
+    resolve_masked_api_keys,
+)
 
 SERVICE_FIELDS = ("llm", "tts", "stt", "embeddings", "realtime")
 
@@ -45,18 +48,16 @@ def merge_user_configurations(
             and incoming_cfg.get("provider") != old_cfg.get("provider")
         )
 
-        incoming_api_key = incoming_cfg.get("api_key")
-
         if not provider_changed:
-            # conditional preservation of api_key
-            if incoming_api_key is not None:
-                if old_cfg and "api_key" in old_cfg:
-                    incoming_cfg["api_key"] = resolve_masked_api_keys(
-                        incoming_api_key, old_cfg["api_key"]
-                    )
-            else:
-                if "api_key" in old_cfg:
-                    incoming_cfg["api_key"] = old_cfg["api_key"]
+            for secret_field in SERVICE_SECRET_FIELDS:
+                incoming_secret = incoming_cfg.get(secret_field)
+                if incoming_secret is not None:
+                    if old_cfg and secret_field in old_cfg:
+                        incoming_cfg[secret_field] = resolve_masked_api_keys(
+                            incoming_secret, old_cfg[secret_field]
+                        )
+                elif secret_field in old_cfg:
+                    incoming_cfg[secret_field] = old_cfg[secret_field]
 
         merged[service_name] = incoming_cfg
 

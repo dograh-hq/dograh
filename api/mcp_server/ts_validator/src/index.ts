@@ -11,6 +11,7 @@ interface GenerateRequest {
     command: "generate";
     workflow: WireWorkflow;
     specs: NodeSpec[];
+    edgeFieldNames: string[];
     workflowName?: string;
 }
 
@@ -18,6 +19,7 @@ interface ParseRequest {
     command: "parse";
     code: string;
     specs: NodeSpec[];
+    edgeFieldNames: string[];
 }
 
 type Request = GenerateRequest | ParseRequest;
@@ -49,11 +51,16 @@ async function main(): Promise<void> {
     }
 
     if (req.command === "generate") {
-        writeResult(generateCode(req.workflow, req.specs, { workflowName: req.workflowName }));
+        writeResult(
+            generateCode(req.workflow, req.specs, {
+                workflowName: req.workflowName,
+                edgeFieldNames: req.edgeFieldNames,
+            }),
+        );
         return;
     }
     if (req.command === "parse") {
-        writeResult(parseCode(req.code, req.specs));
+        writeResult(parseCode(req.code, req.specs, req.edgeFieldNames));
         return;
     }
     writeResult({

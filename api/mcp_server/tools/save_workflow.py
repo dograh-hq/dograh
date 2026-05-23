@@ -28,6 +28,9 @@ from pydantic import ValidationError as PydanticValidationError
 
 from api.db import db_client
 from api.mcp_server.auth import authenticate_mcp_request
+from api.mcp_server.tools._workflow_projection import (
+    select_workflow_projection_source,
+)
 from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.workflow.dto import ReactFlowDTO
@@ -37,20 +40,9 @@ from api.services.workflow.workflow_graph import WorkflowGraph
 
 
 async def _previous_workflow_json(workflow: Any) -> dict[str, Any] | None:
-    """Same selection priority as `get_workflow_code` — the version the
-    LLM saw is the version we reconcile against.
-
-    `current_definition` (is_current=True) is the published row, so the
-    draft must be fetched explicitly. If no draft exists (e.g. the last
-    draft was just published), fall through to `released_definition`.
-    """
-    draft = await db_client.get_draft_version(workflow.id)
-    if draft is not None and draft.workflow_json:
-        return draft.workflow_json
-    released = workflow.released_definition
-    if released is not None and released.workflow_json:
-        return released.workflow_json
-    return workflow.workflow_definition or None
+    """Match the agent-facing read tools' source selection."""
+    source = await select_workflow_projection_source(workflow)
+    return source.payload
 
 
 def _error_result(code: str, message: str, **extra: Any) -> dict[str, Any]:

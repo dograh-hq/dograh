@@ -17,6 +17,7 @@ from api.services.configuration.registry import (
     GoogleVertexLLMConfiguration,
     GrokRealtimeLLMConfiguration,
     OpenAILLMService,
+    UltravoxRealtimeLLMConfiguration,
 )
 from api.services.configuration.resolve import resolve_effective_config
 
@@ -260,6 +261,22 @@ class TestRealtimeOverride:
         assert isinstance(result.realtime, GrokRealtimeLLMConfiguration)
         assert result.realtime.provider == "grok_realtime"
         assert result.realtime.voice == "Sal"
+
+    def test_switch_realtime_provider_to_ultravox(self, global_config_realtime):
+        result = resolve_effective_config(
+            global_config_realtime,
+            {
+                "realtime": {
+                    "provider": "ultravox_realtime",
+                    "api_key": "ultra-key",
+                    "model": "ultravox-v0.7",
+                    "voice": "Mark",
+                }
+            },
+        )
+        assert isinstance(result.realtime, UltravoxRealtimeLLMConfiguration)
+        assert result.realtime.provider == "ultravox_realtime"
+        assert result.realtime.voice == "Mark"
 
     def test_override_is_realtime_only_without_realtime_section(self, global_config):
         """Override is_realtime=True but provide no realtime config.

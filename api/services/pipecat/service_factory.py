@@ -640,6 +640,24 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 ),
             ),
         )
+    elif provider == ServiceProviders.ULTRAVOX_REALTIME.value:
+        from api.services.pipecat.realtime.ultravox_realtime import (
+            DograhUltravoxOneShotInputParams,
+            DograhUltravoxRealtimeLLMService,
+        )
+
+        return DograhUltravoxRealtimeLLMService(
+            params=DograhUltravoxOneShotInputParams(
+                api_key=api_key,
+                model=model,
+                voice=voice,
+                output_medium="voice",
+            ),
+            settings=DograhUltravoxRealtimeLLMService.Settings(
+                model=model,
+                output_medium="voice",
+            ),
+        )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:
         from api.services.pipecat.realtime.gemini_live import (
             DograhGeminiLiveLLMService,

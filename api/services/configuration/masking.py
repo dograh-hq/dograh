@@ -38,7 +38,11 @@ def check_for_masked_keys(config: "UserConfiguration") -> None:
         for secret_field in SERVICE_SECRET_FIELDS:
             if not hasattr(service, secret_field):
                 continue
-            if contains_masked_key(getattr(service, secret_field, None)):
+            if secret_field == "api_key" and hasattr(service, "get_all_api_keys"):
+                secret_value = service.get_all_api_keys()
+            else:
+                secret_value = getattr(service, secret_field, None)
+            if contains_masked_key(secret_value):
                 raise ValueError(
                     f"The {field} {secret_field} appears to be masked. "
                     "Please provide the actual value, not the masked value."

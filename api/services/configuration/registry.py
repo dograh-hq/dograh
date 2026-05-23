@@ -62,6 +62,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_VERTEX = "google_vertex"
     OPENAI_REALTIME = "openai_realtime"
     GROK_REALTIME = "grok_realtime"
+    ULTRAVOX_REALTIME = "ultravox_realtime"
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
 
@@ -85,6 +86,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE_VERTEX,
         ServiceProviders.OPENAI_REALTIME,
         ServiceProviders.GROK_REALTIME,
+        ServiceProviders.ULTRAVOX_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         # ServiceProviders.SARVAM,
@@ -214,6 +216,7 @@ AWS_BEDROCK_PROVIDER_MODEL_CONFIG = provider_model_config("AWS Bedrock")
 GOOGLE_VERTEX_PROVIDER_MODEL_CONFIG = provider_model_config("Google Vertex")
 OPENAI_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("OpenAI Realtime")
 GROK_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Grok Realtime")
+ULTRAVOX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Ultravox Realtime")
 GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Google Realtime")
 GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Google Vertex Realtime"
@@ -504,6 +507,7 @@ class OpenAIRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 GROK_REALTIME_MODELS = ["grok-voice-think-fast-1.0"]
 GROK_REALTIME_VOICES = ["Ara", "Rex", "Sal", "Eve", "Leo"]
+ULTRAVOX_REALTIME_MODELS = ["ultravox-v0.7", "fixie-ai/ultravox"]
 
 
 @register_service(ServiceType.REALTIME)
@@ -525,6 +529,26 @@ class GrokRealtimeLLMConfiguration(BaseLLMConfiguration):
             "examples": GROK_REALTIME_VOICES,
             "allow_custom_input": True,
         },
+    )
+
+
+@register_service(ServiceType.REALTIME)
+class UltravoxRealtimeLLMConfiguration(BaseLLMConfiguration):
+    model_config = ULTRAVOX_REALTIME_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.ULTRAVOX_REALTIME] = (
+        ServiceProviders.ULTRAVOX_REALTIME
+    )
+    model: str = Field(
+        default="ultravox-v0.7",
+        description="Ultravox realtime voice-agent model.",
+        json_schema_extra={
+            "examples": ULTRAVOX_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    voice: str = Field(
+        default="Mark",
+        description="Ultravox voice name or voice ID.",
     )
 
 
@@ -615,6 +639,7 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
     ServiceProviders.GROK_REALTIME.value,
+    ServiceProviders.ULTRAVOX_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
     ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
 }
@@ -640,6 +665,7 @@ RealtimeConfig = Annotated[
     Union[
         OpenAIRealtimeLLMConfiguration,
         GrokRealtimeLLMConfiguration,
+        UltravoxRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,
         GoogleVertexRealtimeLLMConfiguration,
     ],

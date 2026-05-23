@@ -5,9 +5,8 @@ provider registry — see ProviderSpec.router.
 """
 
 import json
-from typing import Optional
 
-from fastapi import APIRouter, Header, Request
+from fastapi import APIRouter, Request
 from loguru import logger
 from pipecat.utils.run_context import set_current_run_id
 from starlette.responses import HTMLResponse
@@ -18,7 +17,6 @@ from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
 )
-from api.utils.common import get_backend_endpoints
 
 router = APIRouter()
 
@@ -26,9 +24,6 @@ router = APIRouter()
 async def _handle_plivo_status_callback(
     workflow_run_id: int,
     request: Request,
-    x_plivo_signature_v3: Optional[str],
-    x_plivo_signature_ma_v3: Optional[str],
-    x_plivo_signature_v3_nonce: Optional[str],
 ):
     set_current_run_id(workflow_run_id)
 
@@ -52,19 +47,14 @@ async def _handle_plivo_status_callback(
         workflow_run, workflow.organization_id
     )
 
-    signature = x_plivo_signature_v3 or x_plivo_signature_ma_v3
-    if signature:
-        backend_endpoint, _ = await get_backend_endpoints()
-        callback_kind = request.url.path.split("/")[-2]
-        full_url = f"{backend_endpoint}/api/v1/telephony/plivo/{callback_kind}/{workflow_run_id}"
-        is_valid = await provider.verify_inbound_signature(
-            full_url,
-            callback_data,
-            dict(request.headers),
-        )
-        if not is_valid:
-            logger.warning(f"[run {workflow_run_id}] Invalid Plivo webhook signature")
-            return {"status": "error", "reason": "invalid_signature"}
+    is_valid = await provider.verify_inbound_signature(
+        str(request.url),
+        callback_data,
+        dict(request.headers),
+    )
+    if not is_valid:
+        logger.warning(f"[run {workflow_run_id}] Invalid Plivo webhook signature")
+        return {"status": "error", "reason": "invalid_signature"}
 
     parsed_data = provider.parse_status_callback(callback_data)
     status_update = StatusCallbackRequest(
@@ -88,9 +78,6 @@ async def handle_plivo_xml_webhook(
     workflow_run_id: int,
     organization_id: int,
     request: Request,
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
 ):
     """
     Handle initial webhook from Plivo when an outbound call is answered.
@@ -103,26 +90,16 @@ async def handle_plivo_xml_webhook(
     form_data = await request.form()
     callback_data = dict(form_data)
 
-    signature = x_plivo_signature_v3 or x_plivo_signature_ma_v3
-    if signature:
-        backend_endpoint, _ = await get_backend_endpoints()
-        full_url = (
-            f"{backend_endpoint}/api/v1/telephony/plivo-xml"
-            f"?workflow_id={workflow_id}"
-            f"&user_id={user_id}"
-            f"&workflow_run_id={workflow_run_id}"
-            f"&organization_id={organization_id}"
+    is_valid = await provider.verify_inbound_signature(
+        str(request.url), callback_data, dict(request.headers)
+    )
+    if not is_valid:
+        logger.warning(
+            f"[run {workflow_run_id}] Invalid Plivo signature on answer webhook"
         )
-        is_valid = await provider.verify_inbound_signature(
-            full_url, callback_data, dict(request.headers)
+        return provider.generate_error_response(
+            "invalid_signature", "Invalid webhook signature."
         )
-        if not is_valid:
-            logger.warning(
-                f"[run {workflow_run_id}] Invalid Plivo signature on answer webhook"
-            )
-            return provider.generate_error_response(
-                "invalid_signature", "Invalid webhook signature."
-            )
 
     call_id = callback_data.get("CallUUID") or callback_data.get("RequestUUID")
     if call_id:
@@ -142,33 +119,15 @@ async def handle_plivo_xml_webhook(
 async def handle_plivo_hangup_callback(
     workflow_run_id: int,
     request: Request,
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
 ):
     """Handle Plivo hangup callbacks."""
-    return await _handle_plivo_status_callback(
-        workflow_run_id,
-        request,
-        x_plivo_signature_v3,
-        x_plivo_signature_ma_v3,
-        x_plivo_signature_v3_nonce,
-    )
+    return await _handle_plivo_status_callback(workflow_run_id, request)
 
 
 @router.post("/plivo/ring-callback/{workflow_run_id}")
 async def handle_plivo_ring_callback(
     workflow_run_id: int,
     request: Request,
-    x_plivo_signature_v3: Optional[str] = Header(None),
-    x_plivo_signature_ma_v3: Optional[str] = Header(None),
-    x_plivo_signature_v3_nonce: Optional[str] = Header(None),
 ):
     """Handle Plivo ring callbacks."""
-    return await _handle_plivo_status_callback(
-        workflow_run_id,
-        request,
-        x_plivo_signature_v3,
-        x_plivo_signature_ma_v3,
-        x_plivo_signature_v3_nonce,
-    )
+    return await _handle_plivo_status_callback(workflow_run_id, request)

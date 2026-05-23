@@ -296,7 +296,6 @@ class CampaignCallDispatcher:
                 f"?workflow_id={campaign.workflow_id}"
                 f"&user_id={campaign.created_by}"
                 f"&workflow_run_id={workflow_run.id}"
-                f"&campaign_id={campaign.id}"
                 f"&organization_id={campaign.organization_id}"
             )
 

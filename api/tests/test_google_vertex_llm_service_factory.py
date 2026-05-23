@@ -19,7 +19,7 @@ class TestGoogleVertexLLMConfiguration:
         config = GoogleVertexLLMConfiguration(project_id="demo-project")
         assert config.provider == ServiceProviders.GOOGLE_VERTEX
         assert config.model == "gemini-2.5-flash"
-        assert config.location == "us-east4"
+        assert config.location == "global"
         assert config.credentials is None
         assert config.api_key is None
 

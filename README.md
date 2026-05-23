@@ -132,6 +132,11 @@ Visit [https://www.dograh.com](https://www.dograh.com/) for our managed cloud of
 
 You can go to [https://docs.dograh.com](https://docs.dograh.com/) for our documentation.
 
+## 📦 SDKs
+
+- **Python SDK** — [pypi.org/project/dograh-sdk](https://pypi.org/project/dograh-sdk/)
+- **Node SDK** — [npmjs.com/package/@dograh/sdk](https://www.npmjs.com/package/@dograh/sdk)
+
 ## 🤝Community & Support
 
 > 👋 **Coming from the Better Stack video?** Drop your use case in our [pinned GitHub Discussion](https://github.com/orgs/dograh-hq/discussions/291) — we read every reply and the founders personally onboard early adopters.

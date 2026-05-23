@@ -25,7 +25,7 @@ from api.enums import CallType, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
-from api.services.quota_service import check_dograh_quota, check_dograh_quota_by_user_id
+from api.services.quota_service import check_dograh_quota_by_user_id
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
@@ -58,6 +58,15 @@ class InitiateCallRequest(BaseModel):
     # Optional caller-ID phone number to dial out from. Must belong to the
     # resolved telephony configuration; otherwise the provider picks one.
     from_phone_number_id: int | None = None
+
+
+def _get_execution_user_id(workflow) -> int:
+    if workflow.user_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Workflow has no execution owner",
+        )
+    return workflow.user_id
 
 
 @router.post(
@@ -107,15 +116,6 @@ async def initiate_call(
             detail="telephony_not_configured",
         )
 
-    # Check Dograh quota before initiating the call (apply per-workflow
-    # model_overrides so the keys we will actually use are the ones checked).
-    quota_result = await check_dograh_quota(user, workflow_id=request.workflow_id)
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
-
-    # Determine the workflow run mode based on provider type
-    workflow_run_mode = provider.PROVIDER_NAME
-
     phone_number = request.phone_number or user_configuration.test_phone_number
 
     if not phone_number:
@@ -125,25 +125,38 @@ async def initiate_call(
             "configuration",
         )
 
+    workflow = await db_client.get_workflow(
+        request.workflow_id, organization_id=user.selected_organization_id
+    )
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    execution_user_id = _get_execution_user_id(workflow)
+
+    # Check Dograh quota before initiating the call (apply per-workflow
+    # model_overrides so the keys we will actually use are the ones checked).
+    quota_result = await check_dograh_quota_by_user_id(
+        execution_user_id, workflow_id=workflow.id
+    )
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
+
+    # Determine the workflow run mode based on provider type
+    workflow_run_mode = provider.PROVIDER_NAME
+
     workflow_run_id = request.workflow_run_id
 
     if not workflow_run_id:
-        # Fetch workflow to merge template context variables (e.g. caller_number,
-        # called_number set in workflow settings for testing pre-call data fetch)
-        workflow = await db_client.get_workflow(
-            request.workflow_id, organization_id=user.selected_organization_id
-        )
-        if not workflow:
-            raise HTTPException(status_code=404, detail="Workflow not found")
+        # Merge template context variables (e.g. caller_number, called_number
+        # set in workflow settings for testing pre-call data fetch).
         template_vars = workflow.template_context_variables or {}
 
         numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
         workflow_run_name = f"WR-TEL-OUT-{numeric_suffix:08d}"
         workflow_run = await db_client.create_workflow_run(
             workflow_run_name,
-            request.workflow_id,
+            workflow.id,
             workflow_run_mode,
-            user_id=user.id,
+            user_id=execution_user_id,
             call_type=CallType.OUTBOUND,
             initial_context={
                 **template_vars,
@@ -157,9 +170,16 @@ async def initiate_call(
         )
         workflow_run_id = workflow_run.id
     else:
-        workflow_run = await db_client.get_workflow_run(workflow_run_id, user.id)
+        workflow_run = await db_client.get_workflow_run(
+            workflow_run_id, organization_id=user.selected_organization_id
+        )
         if not workflow_run:
             raise HTTPException(status_code=400, detail="Workflow run not found")
+        if workflow_run.workflow_id != workflow.id:
+            raise HTTPException(
+                status_code=400,
+                detail="workflow_run_workflow_mismatch",
+            )
         workflow_run_name = workflow_run.name
 
     # Construct webhook URL based on provider type
@@ -169,13 +189,13 @@ async def initiate_call(
 
     webhook_url = (
         f"{backend_endpoint}/api/v1/telephony/{webhook_endpoint}"
-        f"?workflow_id={request.workflow_id}"
-        f"&user_id={user.id}"
+        f"?workflow_id={workflow.id}"
+        f"&user_id={execution_user_id}"
         f"&workflow_run_id={workflow_run_id}"
         f"&organization_id={user.selected_organization_id}"
     )
 
-    keywords = {"workflow_id": request.workflow_id, "user_id": user.id}
+    keywords = {"workflow_id": workflow.id, "user_id": execution_user_id}
 
     # Resolve optional caller-ID. The config has already been validated against
     # the user's organization, so filtering by config_id is sufficient for
@@ -293,6 +313,7 @@ async def _detect_provider(webhook_data: dict, headers: dict):
 
 async def _validate_inbound_request(
     workflow_id: int,
+    webhook_url: str,
     provider_class,
     normalized_data,
     webhook_data: dict,
@@ -364,8 +385,6 @@ async def _validate_inbound_request(
     # Verify webhook signature using the matched config's credentials. The
     # provider extracts its own signature/timestamp/nonce headers from the
     # dict, so this dispatcher stays generic.
-    backend_endpoint, _ = await get_backend_endpoints()
-    webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/{workflow_id}"
     provider_instance = await get_telephony_provider_by_id(
         telephony_configuration_id, organization_id
     )
@@ -701,13 +720,11 @@ async def handle_inbound_run(request: Request):
         user_id = workflow.user_id
 
         # 3. Verify webhook signature against the matched config's credentials.
-        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
-        webhook_url = f"{backend_endpoint}/api/v1/telephony/inbound/run"
         provider_instance = await get_telephony_provider_by_id(
             telephony_configuration_id, config.organization_id
         )
         signature_valid = await provider_instance.verify_inbound_signature(
-            webhook_url, webhook_data, headers, raw_body
+            str(request.url), webhook_data, headers, raw_body
         )
         if not signature_valid:
             logger.warning(
@@ -740,6 +757,7 @@ async def handle_inbound_run(request: Request):
             from_phone_number_id=phone_row.id,
         )
 
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         websocket_url = (
             f"{wss_backend_endpoint}/api/v1/telephony/ws/"
             f"{workflow_id}/{user_id}/{workflow_run_id}"
@@ -840,6 +858,7 @@ async def handle_inbound_telephony(
             provider_instance,
         ) = await _validate_inbound_request(
             workflow_id,
+            str(request.url),
             provider_class,
             normalized_data,
             webhook_data,

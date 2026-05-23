@@ -34,12 +34,11 @@ from api.services.pipecat.recording_audio_cache import RecordingAudio
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
-    EndCallRFNode,
     Position,
     ReactFlowDTO,
     RFEdgeDTO,
+    RFNodeDTO,
     StartCallNodeData,
-    StartCallRFNode,
 )
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_custom_tools import CustomToolManager
@@ -65,8 +64,9 @@ def text_workflow() -> WorkflowGraph:
     """Start->End workflow with text greeting and text transition speech."""
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -79,8 +79,9 @@ def text_workflow() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=200),
                 data=EndCallNodeData(
                     name="End Call",
@@ -114,8 +115,9 @@ def audio_workflow() -> WorkflowGraph:
     """Start->End workflow with audio greeting and audio transition speech."""
     dto = ReactFlowDTO(
         nodes=[
-            StartCallRFNode(
+            RFNodeDTO(
                 id="start",
+                type="startCall",
                 position=Position(x=0, y=0),
                 data=StartCallNodeData(
                     name="Start Call",
@@ -128,8 +130,9 @@ def audio_workflow() -> WorkflowGraph:
                     extraction_enabled=False,
                 ),
             ),
-            EndCallRFNode(
+            RFNodeDTO(
                 id="end",
+                type="endCall",
                 position=Position(x=0, y=200),
                 data=EndCallNodeData(
                     name="End Call",
@@ -290,8 +293,9 @@ class TestStartGreeting:
         """No greeting configured should return None."""
         dto = ReactFlowDTO(
             nodes=[
-                StartCallRFNode(
+                RFNodeDTO(
                     id="start",
+                    type="startCall",
                     position=Position(x=0, y=0),
                     data=StartCallNodeData(
                         name="Start",
@@ -301,8 +305,9 @@ class TestStartGreeting:
                         extraction_enabled=False,
                     ),
                 ),
-                EndCallRFNode(
+                RFNodeDTO(
                     id="end",
+                    type="endCall",
                     position=Position(x=0, y=200),
                     data=EndCallNodeData(
                         name="End",
@@ -333,8 +338,9 @@ class TestStartGreeting:
         """Text greeting with {{variable}} placeholders should be rendered."""
         dto = ReactFlowDTO(
             nodes=[
-                StartCallRFNode(
+                RFNodeDTO(
                     id="start",
+                    type="startCall",
                     position=Position(x=0, y=0),
                     data=StartCallNodeData(
                         name="Start",
@@ -346,8 +352,9 @@ class TestStartGreeting:
                         extraction_enabled=False,
                     ),
                 ),
-                EndCallRFNode(
+                RFNodeDTO(
                     id="end",
+                    type="endCall",
                     position=Position(x=0, y=200),
                     data=EndCallNodeData(
                         name="End",
@@ -374,6 +381,105 @@ class TestStartGreeting:
         )
         result = engine.get_start_greeting()
         assert result == ("text", "Hello Alice!")
+
+    @pytest.mark.asyncio
+    async def test_queue_node_opening_queues_text_greeting(
+        self, text_workflow: WorkflowGraph
+    ):
+        """Fresh node entry with a greeting should queue TTS and skip LLM bootstrap."""
+        llm = Mock()
+        llm.queue_frame = AsyncMock()
+        task = Mock()
+        task.queue_frame = AsyncMock()
+
+        engine = PipecatEngine(
+            llm=llm,
+            context=LLMContext(),
+            workflow=text_workflow,
+            call_context_vars={},
+            workflow_run_id=1,
+        )
+        engine.set_task(task)
+
+        result = await engine.queue_node_opening(
+            node_id=text_workflow.start_node_id,
+            previous_node_id=None,
+            generate_if_no_greeting=True,
+        )
+
+        assert result == "greeting"
+        llm.queue_frame.assert_not_awaited()
+        queued_frame = task.queue_frame.await_args.args[0]
+        assert isinstance(queued_frame, TTSSpeakFrame)
+        assert queued_frame.text == TEXT_GREETING
+        assert queued_frame.append_to_context is True
+
+    @pytest.mark.asyncio
+    async def test_queue_node_opening_falls_back_to_llm_without_greeting(self):
+        """When a node has no greeting, the engine should queue initial LLM generation."""
+        dto = ReactFlowDTO(
+            nodes=[
+                RFNodeDTO(
+                    id="start",
+                    type="startCall",
+                    position=Position(x=0, y=0),
+                    data=StartCallNodeData(
+                        name="Start",
+                        prompt="Prompt",
+                        is_start=True,
+                        add_global_prompt=False,
+                        extraction_enabled=False,
+                    ),
+                ),
+                RFNodeDTO(
+                    id="end",
+                    type="endCall",
+                    position=Position(x=0, y=200),
+                    data=EndCallNodeData(
+                        name="End",
+                        prompt="End",
+                        is_end=True,
+                        add_global_prompt=False,
+                        extraction_enabled=False,
+                    ),
+                ),
+            ],
+            edges=[
+                RFEdgeDTO(
+                    id="e",
+                    source="start",
+                    target="end",
+                    data=EdgeDataDTO(label="End", condition="End"),
+                ),
+            ],
+        )
+        workflow = WorkflowGraph(dto)
+        context = LLMContext()
+        llm = Mock()
+        llm.queue_frame = AsyncMock()
+        task = Mock()
+        task.queue_frame = AsyncMock()
+
+        engine = PipecatEngine(
+            llm=llm,
+            context=context,
+            workflow=workflow,
+            call_context_vars={},
+            workflow_run_id=1,
+        )
+        engine.set_task(task)
+
+        result = await engine.queue_node_opening(
+            node_id=workflow.start_node_id,
+            previous_node_id=None,
+            generate_if_no_greeting=True,
+        )
+
+        assert result == "llm"
+        task.queue_frame.assert_not_awaited()
+        queued_frame = llm.queue_frame.await_args.args[0]
+        assert isinstance(queued_frame, LLMContextFrame)
+        assert queued_frame.context is context
 
 
 # ─── Tests: Transition Speech (Pipeline) ────────────────────────

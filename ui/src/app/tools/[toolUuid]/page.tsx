@@ -9,10 +9,25 @@ import {
     listRecordingsApiV1WorkflowRecordingsGet,
     updateToolApiV1ToolsToolUuidPut,
 } from "@/client/sdk.gen";
-import type { RecordingResponseSchema, ToolResponse, TransferCallConfig as APITransferCallConfig } from "@/client/types.gen";
-import type { EndCallConfig } from "@/client/types.gen";
-import { type HttpMethod, type KeyValueItem, type ToolParameter, validateUrl } from "@/components/http";
+import type {
+    EndCallConfig,
+    HttpApiToolDefinition,
+    RecordingResponseSchema,
+    ToolResponse,
+    TransferCallConfig as APITransferCallConfig,
+    UpdateToolRequest,
+} from "@/client/types.gen";
+import {
+    CredentialSelector,
+    type HttpMethod,
+    type KeyValueItem,
+    type ParameterType,
+    type PresetToolParameter,
+    type ToolParameter,
+    validateUrl,
+} from "@/components/http";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
     Dialog,
     DialogContent,
@@ -20,29 +35,33 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAuth } from "@/lib/auth";
 
 import {
+    createMcpDefinition,
     DEFAULT_END_CALL_REASON_DESCRIPTION,
     type EndCallMessageType,
     getCategoryConfig,
     getToolTypeLabel,
+    MCP_URL_PATTERN,
     renderToolIcon,
     type ToolCategory,
 } from "../config";
 import { BuiltinToolConfig, EndCallToolConfig, HttpApiToolConfig, TransferCallToolConfig } from "./components";
 
-// Extended HttpApiConfig with parameters (until client types are regenerated)
-interface HttpApiConfigWithParams {
-    method?: string;
-    url?: string;
-    headers?: Record<string, string>;
-    credential_uuid?: string;
-    parameters?: ToolParameter[];
-    timeout_ms?: number;
-    customMessage?: string;
+function normalizeParameterType(value: string | null | undefined): ParameterType {
+    switch (value) {
+        case "number":
+        case "boolean":
+            return value;
+        default:
+            return "string";
+    }
 }
 
 export default function ToolDetailPage() {
@@ -70,6 +89,7 @@ export default function ToolDetailPage() {
     const [credentialUuid, setCredentialUuid] = useState("");
     const [headers, setHeaders] = useState<KeyValueItem[]>([]);
     const [parameters, setParameters] = useState<ToolParameter[]>([]);
+    const [presetParameters, setPresetParameters] = useState<PresetToolParameter[]>([]);
     const [timeoutMs, setTimeoutMs] = useState(5000);
 
     // End Call form state
@@ -94,6 +114,11 @@ export default function ToolDetailPage() {
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
     const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
+
+    // MCP form state
+    const [mcpUrl, setMcpUrl] = useState("");
+    const [mcpCredentialUuid, setMcpCredentialUuid] = useState("");
+    const [mcpToolsFilter, setMcpToolsFilter] = useState("");
 
     // Org-level recordings for audio dropdowns
     const [recordings, setRecordings] = useState<RecordingResponseSchema[]>([]);
@@ -142,8 +167,7 @@ export default function ToolDetailPage() {
             if (config) {
                 setEndCallMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setAudioRecordingId((config as any).audioRecordingId || "");
+                setAudioRecordingId(config.audioRecordingId || "");
                 setEndCallReason(config.endCallReason ?? false);
                 setEndCallReasonDescription(config.endCallReasonDescription || "");
             } else {
@@ -160,8 +184,7 @@ export default function ToolDetailPage() {
                 setTransferDestination(config.destination || "");
                 setTransferMessageType(config.messageType || "none");
                 setCustomMessage(config.customMessage || "");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setTransferAudioRecordingId((config as any).audioRecordingId || "");
+                setTransferAudioRecordingId(config.audioRecordingId || "");
                 setTransferTimeout(config.timeout ?? 30);
             } else {
                 setTransferDestination("");
@@ -170,19 +193,35 @@ export default function ToolDetailPage() {
                 setTransferAudioRecordingId("");
                 setTransferTimeout(30);
             }
+        } else if (tool.category === "mcp") {
+            // Populate MCP specific fields
+            const config = tool.definition?.config as
+                | { url?: string; credential_uuid?: string | null; tools_filter?: string[] }
+                | undefined;
+            if (config) {
+                setMcpUrl(config.url || "");
+                setMcpCredentialUuid(config.credential_uuid || "");
+                setMcpToolsFilter(
+                    Array.isArray(config.tools_filter)
+                        ? config.tools_filter.join(", ")
+                        : ""
+                );
+            } else {
+                setMcpUrl("");
+                setMcpCredentialUuid("");
+                setMcpToolsFilter("");
+            }
         } else {
             // Populate HTTP API specific fields
-            const config = tool.definition?.config as HttpApiConfigWithParams | undefined;
+            const config = tool.definition?.config as HttpApiToolDefinition["config"] | undefined;
             if (config) {
                 setHttpMethod((config.method as HttpMethod) || "POST");
                 setUrl(config.url || "");
                 setCredentialUuid(config.credential_uuid || "");
                 setTimeoutMs(config.timeout_ms || 5000);
                 setCustomMessage(config.customMessage || "");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setCustomMessageType((config as any).customMessageType || "text");
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setCustomMessageRecordingId((config as any).customMessageRecordingId || "");
+                setCustomMessageType(config.customMessageType || "text");
+                setCustomMessageRecordingId(config.customMessageRecordingId || "");
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -199,15 +238,28 @@ export default function ToolDetailPage() {
                 // Load parameters
                 if (config.parameters && Array.isArray(config.parameters)) {
                     setParameters(
-                        config.parameters.map((p: ToolParameter) => ({
+                        config.parameters.map((p) => ({
                             name: p.name || "",
-                            type: p.type || "string",
+                            type: normalizeParameterType(p.type),
                             description: p.description || "",
                             required: p.required ?? true,
                         }))
                     );
                 } else {
                     setParameters([]);
+                }
+
+                if (config.preset_parameters && Array.isArray(config.preset_parameters)) {
+                    setPresetParameters(
+                        config.preset_parameters.map((p) => ({
+                            name: p.name || "",
+                            type: normalizeParameterType(p.type),
+                            valueTemplate: p.value_template || "",
+                            required: p.required ?? true,
+                        }))
+                    );
+                } else {
+                    setPresetParameters([]);
                 }
             }
         }
@@ -249,6 +301,16 @@ export default function ToolDetailPage() {
                 setError("Please enter a valid phone number (E.164 format) or SIP endpoint (e.g., PJSIP/1234)");
                 return;
             }
+        } else if (tool.category === "mcp") {
+            // Validate MCP server URL (must be http(s))
+            if (!mcpUrl.trim()) {
+                setError("Please enter the MCP server URL");
+                return;
+            }
+            if (!MCP_URL_PATTERN.test(mcpUrl.trim())) {
+                setError("MCP server URL must start with http:// or https://");
+                return;
+            }
         } else if (tool.category !== "end_call") {
             // Validate URL for HTTP API tools
             const urlValidation = validateUrl(url);
@@ -263,6 +325,14 @@ export default function ToolDetailPage() {
                 setError("All parameters must have a name");
                 return;
             }
+
+            const invalidPresetParams = presetParameters.filter(
+                (p) => !p.name.trim() || !p.valueTemplate.trim()
+            );
+            if (invalidPresetParams.length > 0) {
+                setError("All preset parameters must have a name and a value");
+                return;
+            }
         }
 
         try {
@@ -271,7 +341,7 @@ export default function ToolDetailPage() {
             setSaveSuccess(false);
             const accessToken = await getAccessToken();
 
-            let requestBody;
+            let requestBody: UpdateToolRequest;
 
             if (tool.category === "calculator") {
                 // Built-in tool - only name/description, no config
@@ -317,6 +387,12 @@ export default function ToolDetailPage() {
                         },
                     },
                 };
+            } else if (tool.category === "mcp") {
+                requestBody = {
+                    name,
+                    description: description || undefined,
+                    definition: createMcpDefinition(mcpUrl, mcpCredentialUuid, mcpToolsFilter),
+                };
             } else {
                 // Build HTTP API request body
                 const headersObject: Record<string, string> = {};
@@ -325,6 +401,9 @@ export default function ToolDetailPage() {
                 });
 
                 const validParameters = parameters.filter((p) => p.name.trim());
+                const validPresetParameters = presetParameters.filter(
+                    (p) => p.name.trim() && p.valueTemplate.trim()
+                );
 
                 requestBody = {
                     name,
@@ -342,6 +421,15 @@ export default function ToolDetailPage() {
                                     : undefined,
                             parameters:
                                 validParameters.length > 0 ? validParameters : undefined,
+                            preset_parameters:
+                                validPresetParameters.length > 0
+                                    ? validPresetParameters.map((p) => ({
+                                        name: p.name,
+                                        type: p.type,
+                                        value_template: p.valueTemplate,
+                                        required: p.required,
+                                    }))
+                                    : undefined,
                             timeout_ms: timeoutMs,
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
@@ -353,8 +441,7 @@ export default function ToolDetailPage() {
 
             const response = await updateToolApiV1ToolsToolUuidPut({
                 path: { tool_uuid: toolUuid },
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                body: requestBody as any,
+                body: requestBody,
                 headers: {
                     Authorization: `Bearer ${accessToken}`,
                 },
@@ -394,8 +481,20 @@ export default function ToolDetailPage() {
                 exampleBody[p.name] = `<${p.name}>`;
             }
         });
+        presetParameters.forEach((p) => {
+            if (p.type === "number") {
+                exampleBody[p.name] = p.valueTemplate || 0;
+            } else if (p.type === "boolean") {
+                exampleBody[p.name] = p.valueTemplate || true;
+            } else {
+                exampleBody[p.name] = p.valueTemplate || `<${p.name}>`;
+            }
+        });
 
-        const hasBody = httpMethod !== "GET" && httpMethod !== "DELETE" && parameters.length > 0;
+        const hasBody =
+            httpMethod !== "GET" &&
+            httpMethod !== "DELETE" &&
+            (parameters.length > 0 || presetParameters.length > 0);
 
         return `// ${tool.name}
 // ${tool.description || "HTTP API Tool"}
@@ -452,6 +551,7 @@ const data = await response.json();`;
     const isEndCallTool = tool.category === "end_call";
     const isTransferCallTool = tool.category === "transfer_call";
     const isBuiltinTool = tool.category === "calculator";
+    const isMcpTool = tool.category === "mcp";
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
     return (
@@ -487,7 +587,7 @@ const data = await response.json();`;
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            {!isEndCallTool && !isTransferCallTool && !isBuiltinTool && (
+                            {!isEndCallTool && !isTransferCallTool && !isBuiltinTool && !isMcpTool && (
                                 <Button
                                     variant="outline"
                                     onClick={() => setShowCodeDialog(true)}
@@ -555,6 +655,79 @@ const data = await response.json();`;
                             timeout={transferTimeout}
                             onTimeoutChange={setTransferTimeout}
                         />
+                    ) : isMcpTool ? (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>MCP Server Configuration</CardTitle>
+                                <CardDescription>
+                                    Configure the MCP server endpoint. Its tools become available to the agent.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-name">Tool Name</Label>
+                                    <Input
+                                        id="mcp-name"
+                                        value={name}
+                                        onChange={(e) => setName(e.target.value)}
+                                        placeholder="e.g., Customer MCP Server"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-description">Description</Label>
+                                    <p className="text-xs text-muted-foreground">
+                                        Provide a description which makes it easy for LLM to understand what this tool does
+                                    </p>
+                                    <Textarea
+                                        id="mcp-description"
+                                        value={description}
+                                        onChange={(e) => setDescription(e.target.value)}
+                                        placeholder="What does this MCP server provide?"
+                                        rows={3}
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-url">MCP Server URL</Label>
+                                    <Input
+                                        id="mcp-url"
+                                        value={mcpUrl}
+                                        onChange={(e) => setMcpUrl(e.target.value)}
+                                        placeholder="https://your-mcp-server.example.com/mcp"
+                                    />
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Transport</Label>
+                                    <Input
+                                        value="Streamable HTTP"
+                                        disabled
+                                        readOnly
+                                    />
+                                </div>
+
+                                <CredentialSelector
+                                    value={mcpCredentialUuid}
+                                    onChange={setMcpCredentialUuid}
+                                    label="Credential (Optional)"
+                                    description="Select a credential for authenticating with the MCP server, or leave empty for no auth."
+                                />
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="mcp-tools-filter">Tools Filter (Optional)</Label>
+                                    <Input
+                                        id="mcp-tools-filter"
+                                        value={mcpToolsFilter}
+                                        onChange={(e) => setMcpToolsFilter(e.target.value)}
+                                        placeholder="e.g., tool_one, tool_two"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Comma-separated list of tool names to allow. Leave empty to expose all tools from the server.
+                                    </p>
+                                </div>
+                            </CardContent>
+                        </Card>
                     ) : (
                         <HttpApiToolConfig
                             name={name}
@@ -571,6 +744,8 @@ const data = await response.json();`;
                             onHeadersChange={setHeaders}
                             parameters={parameters}
                             onParametersChange={setParameters}
+                            presetParameters={presetParameters}
+                            onPresetParametersChange={setPresetParameters}
                             timeoutMs={timeoutMs}
                             onTimeoutMsChange={setTimeoutMs}
                             customMessage={customMessage}

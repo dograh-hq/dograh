@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { ExternalLink, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { VoiceSelector } from "@/components/VoiceSelector";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
@@ -30,9 +31,14 @@ interface SchemaProperty {
     $ref?: string;
     description?: string;
     format?: string;
+    multiline?: boolean;
+    docs_url?: string;
 }
 
 interface ProviderSchema {
+    title?: string;
+    description?: string;
+    provider_docs_url?: string;
     properties: Record<string, SchemaProperty>;
     required?: string[];
     $defs?: Record<string, SchemaProperty>;
@@ -86,12 +92,24 @@ export interface ServiceConfigurationFormProps {
     submitLabel?: string;
 }
 
-function getGlobalSummary(config: Record<string, unknown> | null | undefined): string {
+function getProviderDisplayName(
+    provider: string | undefined,
+    providerSchema: ProviderSchema | undefined,
+): string | undefined {
+    if (!provider) return provider;
+    return providerSchema?.title || provider;
+}
+
+function getGlobalSummary(
+    config: Record<string, unknown> | null | undefined,
+    providerSchema: ProviderSchema | undefined,
+): string {
     if (!config) return "Not configured";
     const provider = config.provider as string | undefined;
     const model = config.model as string | undefined;
     if (!provider) return "Not configured";
-    return model ? `${provider} / ${model}` : provider;
+    const providerLabel = getProviderDisplayName(provider, providerSchema);
+    return model ? `${providerLabel} / ${model}` : providerLabel || provider;
 }
 
 export function ServiceConfigurationForm({
@@ -484,11 +502,26 @@ export function ServiceConfigurationForm({
                             <SelectContent>
                                 {availableProviders.map((provider) => (
                                     <SelectItem key={provider} value={provider}>
-                                        {provider}
+                                        {getProviderDisplayName(provider, schemas?.[service]?.[provider])}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
+                        {(providerSchema?.description || providerSchema?.provider_docs_url) && (
+                            <p className="text-xs text-muted-foreground">
+                                {providerSchema?.description}{" "}
+                                {providerSchema?.provider_docs_url && (
+                                    <a
+                                        href={providerSchema.provider_docs_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-0.5 underline"
+                                    >
+                                        Learn more <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                )}
+                            </p>
+                        )}
                     </div>
 
                     {currentProvider && providerSchema && configFields[0] && (
@@ -501,18 +534,26 @@ export function ServiceConfigurationForm({
 
                 {currentProvider && providerSchema && configFields.length > 1 && (
                     <div className="grid grid-cols-2 gap-4">
-                        {configFields.slice(1).map((field) => (
-                            <div key={field} className="space-y-2">
-                                <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
-                                {renderField(service, field, providerSchema)}
-                            </div>
-                        ))}
+                        {configFields.slice(1).map((field) => {
+                            const fieldSchema = providerSchema.properties[field];
+                            const actualFieldSchema = fieldSchema?.$ref && providerSchema.$defs
+                                ? providerSchema.$defs[fieldSchema.$ref.split('/').pop() || '']
+                                : fieldSchema;
+                            const fullWidth = actualFieldSchema?.multiline;
+                            return (
+                                <div key={field} className={`space-y-2 ${fullWidth ? "col-span-2" : ""}`}>
+                                    <Label className="capitalize">{field.replace(/_/g, ' ')}</Label>
+                                    {renderField(service, field, providerSchema)}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
 
                 {currentProvider && providerSchema && providerSchema.properties.api_key && (
                     <div className="space-y-2">
                         <Label>{mode === 'override' ? 'API Key (leave empty to use global)' : 'API Key(s)'}</Label>
+                        {renderFieldDescription("api_key", providerSchema)}
                         {apiKeys[service].map((key, index) => (
                             <div key={index} className="flex gap-2">
                                 <Input
@@ -564,7 +605,40 @@ export function ServiceConfigurationForm({
         );
     };
 
+    const renderFieldDescription = (field: string, providerSchema: ProviderSchema) => {
+        const schema = providerSchema.properties[field];
+        if (!schema) return null;
+        const actualSchema = schema.$ref && providerSchema.$defs
+            ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
+            : schema;
+        if (!actualSchema?.description && !actualSchema?.docs_url) return null;
+        return (
+            <p className="text-xs text-muted-foreground">
+                {actualSchema?.description}{" "}
+                {actualSchema?.docs_url && (
+                    <a
+                        href={actualSchema.docs_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 underline"
+                    >
+                        Supported languages <ExternalLink className="h-3 w-3" />
+                    </a>
+                )}
+            </p>
+        );
+    };
+
     const renderField = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
+        return (
+            <>
+                {renderFieldInput(service, field, providerSchema)}
+                {renderFieldDescription(field, providerSchema)}
+            </>
+        );
+    };
+
+    const renderFieldInput = (service: ServiceSegment, field: string, providerSchema: ProviderSchema) => {
         const schema = providerSchema.properties[field];
         const actualSchema = schema.$ref && providerSchema.$defs
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
@@ -699,6 +773,19 @@ export function ServiceConfigurationForm({
             );
         }
 
+        if (actualSchema?.multiline) {
+            return (
+                <Textarea
+                    rows={6}
+                    className="font-mono text-xs"
+                    placeholder={`Enter ${field}`}
+                    {...register(`${service}_${field}`, {
+                        required: service !== "embeddings" && providerSchema.required?.includes(field),
+                    })}
+                />
+            );
+        }
+
         return (
             <Input
                 type={actualSchema?.type === "number" ? "number" : "text"}
@@ -719,6 +806,8 @@ export function ServiceConfigurationForm({
     const renderOverrideToggle = (service: ServiceSegment, label: string) => {
         const globalVal = (userConfig as Record<string, unknown> | null)?.[service] as Record<string, unknown> | null | undefined;
         const isEnabled = enabledOverrides[service];
+        const globalProvider = globalVal?.provider as string | undefined;
+        const globalProviderSchema = globalProvider ? schemas?.[service]?.[globalProvider] : undefined;
 
         return (
             <div className="flex items-center justify-between p-3 border rounded-md bg-muted/20 mb-4">
@@ -728,7 +817,7 @@ export function ServiceConfigurationForm({
                     </Label>
                     {!isEnabled && (
                         <p className="text-xs text-muted-foreground">
-                            Using global: {getGlobalSummary(globalVal)}
+                            Using global: {getGlobalSummary(globalVal, globalProviderSchema)}
                         </p>
                     )}
                 </div>

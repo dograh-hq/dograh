@@ -45,6 +45,7 @@
               "configurations/voice",
               "configurations/transcriber",
               "configurations/api-keys",
+              "configurations/agent-uuid",
               "configurations/interruption",
               "configurations/tracing"
             ]
@@ -71,7 +72,8 @@
                   {
                     "group": "Custom Tools",
                     "pages": [
-                      "voice-agent/tools/http-api"
+                      "voice-agent/tools/http-api",
+                      "voice-agent/tools/mcp-tool"
                     ]
                   }
                 ]
@@ -113,7 +115,8 @@
             "group": "Integrations",
             "tag": "NEW",
             "pages": [
-              "integrations/mcp"
+              "integrations/mcp",
+              "integrations/tuner"
             ]
           }
         ]
@@ -203,6 +206,7 @@
                 "pages": [
                   "api-reference/calls",
                   "api-reference/calls/trigger",
+                  "api-reference/calls/trigger-workflow",
                   "api-reference/calls/get-run",
                   "api-reference/calls/list-runs",
                   "api-reference/calls/download",

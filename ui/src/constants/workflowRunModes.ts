@@ -9,6 +9,7 @@ export const WORKFLOW_RUN_MODES = {
     CLOUDONIX: 'cloudonix',
     WEBRTC: 'webrtc',
     SMALL_WEBRTC: 'smallwebrtc',
+    TEXTCHAT: 'textchat',
     ARI: 'ari',
     TELNYX: 'telnyx',
     PLIVO: 'plivo'

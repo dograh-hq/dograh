@@ -79,7 +79,7 @@ async def _validate_and_extract_workflow_run_id(
 
     Args:
         key: S3 object key
-        allow_special_paths: If True, allows looptalk/voicemail paths
+        allow_special_paths: If True, allows voicemail paths
 
     Returns:
         workflow_run_id if found, None for special paths (when allowed)
@@ -91,10 +91,7 @@ async def _validate_and_extract_workflow_run_id(
         run_id_str = key[len("transcripts/") : -4]  # strip prefix & suffix
     elif key.startswith("recordings/") and key.endswith(".wav"):
         run_id_str = key[len("recordings/") : -4]
-    elif allow_special_paths and (
-        key.startswith("looptalk/") or key.startswith("voicemail_detections/")
-    ):
-        # Allow looptalk and voicemail paths for debugging (only if explicitly allowed)
+    elif allow_special_paths and key.startswith("voicemail_detections/"):
         return None  # Skip validation for these paths
     else:
         raise HTTPException(status_code=400, detail="Invalid key format")
@@ -258,7 +255,7 @@ async def get_file_metadata(
                 f"METADATA: Using stored {backend} for metadata request - key: {key}"
             )
         else:
-            # Fallback to current storage for legacy records or looptalk/voicemail files
+            # Fallback to current storage for legacy records or voicemail files
             storage = storage_fs
             current_backend = StorageBackend.get_current_backend()
             logger.warning(

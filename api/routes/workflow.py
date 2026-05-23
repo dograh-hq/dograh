@@ -32,98 +32,15 @@ from api.services.storage import storage_fs
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
+from api.services.workflow.trigger_paths import (
+    TriggerPathIssue,
+    ensure_trigger_paths,
+    extract_trigger_paths,
+    regenerate_trigger_uuids,
+    trigger_path_to_node_id,
+    validate_trigger_paths,
+)
 from api.services.workflow.workflow_graph import WorkflowGraph
-
-
-def extract_trigger_paths(workflow_definition: dict) -> List[str]:
-    """Extract trigger UUIDs from workflow definition.
-
-    Args:
-        workflow_definition: The workflow definition JSON
-
-    Returns:
-        List of trigger UUIDs found in the workflow
-    """
-    if not workflow_definition:
-        return []
-
-    nodes = workflow_definition.get("nodes", [])
-    trigger_paths = []
-
-    for node in nodes:
-        if node.get("type") == "trigger":
-            trigger_path = node.get("data", {}).get("trigger_path")
-            if trigger_path:
-                trigger_paths.append(trigger_path)
-
-    return trigger_paths
-
-
-def _trigger_path_to_node_id(workflow_definition: dict) -> dict[str, str]:
-    """Map each trigger node's trigger_path to its node id."""
-    if not workflow_definition:
-        return {}
-    out: dict[str, str] = {}
-    for node in workflow_definition.get("nodes", []):
-        if node.get("type") == "trigger":
-            tp = node.get("data", {}).get("trigger_path")
-            if tp:
-                out[tp] = node.get("id")
-    return out
-
-
-def regenerate_trigger_uuids(workflow_definition: dict) -> dict:
-    """Regenerate UUIDs for all trigger nodes in a workflow definition.
-
-    This should be called when creating a new workflow from a template or
-    duplicating a workflow to avoid trigger UUID conflicts.
-
-    Args:
-        workflow_definition: The workflow definition JSON
-
-    Returns:
-        Updated workflow definition with new trigger UUIDs
-    """
-    if not workflow_definition:
-        return workflow_definition
-
-    # Deep copy to avoid modifying the original
-    import copy
-
-    updated_definition = copy.deepcopy(workflow_definition)
-
-    nodes = updated_definition.get("nodes", [])
-    for node in nodes:
-        if node.get("type") == "trigger":
-            # Generate a new UUID for this trigger
-            if "data" not in node:
-                node["data"] = {}
-            node["data"]["trigger_path"] = str(uuid.uuid4())
-
-    return updated_definition
-
-
-def ensure_trigger_paths(workflow_definition: Optional[dict]) -> Optional[dict]:
-    """Mint a UUID for any trigger node that's missing ``data.trigger_path``.
-
-    Trigger nodes that already carry a non-empty trigger_path are left
-    untouched so stable IDs survive edits. The input is not mutated; the
-    returned dict is what should be persisted and echoed in the response.
-    """
-    if not workflow_definition:
-        return workflow_definition
-
-    import copy
-
-    out = copy.deepcopy(workflow_definition)
-    for node in out.get("nodes") or []:
-        if node.get("type") != "trigger":
-            continue
-        data = node.setdefault("data", {})
-        if not data.get("trigger_path"):
-            data["trigger_path"] = str(uuid.uuid4())
-    return out
-
 
 router = APIRouter(prefix="/workflow")
 
@@ -139,7 +56,7 @@ def _trigger_conflict_http_exception(
     """Build a 409 with the same detail shape as validate's 422 so the editor
     can highlight the offending trigger node(s) using the same code path."""
     path_to_node = (
-        _trigger_path_to_node_id(workflow_definition) if workflow_definition else {}
+        trigger_path_to_node_id(workflow_definition) if workflow_definition else {}
     )
     errors: list[WorkflowError] = [
         WorkflowError(
@@ -155,6 +72,24 @@ def _trigger_conflict_http_exception(
     ]
     return HTTPException(
         status_code=409,
+        detail=ValidateWorkflowResponse(is_valid=False, errors=errors).model_dump(),
+    )
+
+
+def _trigger_path_validation_http_exception(
+    issues: list[TriggerPathIssue],
+) -> HTTPException:
+    errors = [
+        WorkflowError(
+            kind=ItemKind.node,
+            id=issue.node_id,
+            field="data.trigger_path",
+            message=issue.message,
+        )
+        for issue in issues
+    ]
+    return HTTPException(
+        status_code=422,
         detail=ValidateWorkflowResponse(is_valid=False, errors=errors).model_dump(),
     )
 
@@ -187,6 +122,17 @@ async def _validate_workflow_definition(
     except ValueError as e:
         errors.extend(e.args[0])
 
+    # ----------- Trigger Path Format Check ------------
+    for issue in validate_trigger_paths(workflow_definition):
+        errors.append(
+            WorkflowError(
+                kind=ItemKind.node,
+                id=issue.node_id,
+                field="data.trigger_path",
+                message=issue.message,
+            )
+        )
+
     # ----------- Trigger Path Conflict Check ------------
     trigger_paths = extract_trigger_paths(workflow_definition)
     if trigger_paths:
@@ -195,7 +141,7 @@ async def _validate_workflow_definition(
             exclude_workflow_id=exclude_workflow_id,
         )
         if conflicts:
-            path_to_node = _trigger_path_to_node_id(workflow_definition)
+            path_to_node = trigger_path_to_node_id(workflow_definition)
             for conflicting_path in conflicts:
                 errors.append(
                     WorkflowError(
@@ -251,6 +197,14 @@ class WorkflowListResponse(BaseModel):
     status: str
     created_at: datetime
     total_runs: int
+    folder_id: int | None = None
+    workflow_uuid: str | None = None
+
+
+class MoveWorkflowToFolderRequest(BaseModel):
+    """Move a workflow into a folder, or to "Uncategorized" when null."""
+
+    folder_id: int | None = None
 
 
 class WorkflowCountResponse(BaseModel):
@@ -404,6 +358,9 @@ async def create_workflow(
     # Auto-mint trigger_path for any trigger node that didn't ship one so
     # clients don't need to generate UUIDs themselves.
     workflow_definition = ensure_trigger_paths(request.workflow_definition)
+    trigger_path_issues = validate_trigger_paths(workflow_definition)
+    if trigger_path_issues:
+        raise _trigger_path_validation_http_exception(trigger_path_issues)
 
     # Validate trigger path uniqueness BEFORE creating the workflow so we
     # don't leave an orphaned workflow record when the trigger conflicts.
@@ -641,6 +598,8 @@ async def get_workflows(
             status=workflow.status,
             created_at=workflow.created_at,
             total_runs=run_counts.get(workflow.id, 0),
+            folder_id=workflow.folder_id,
+            workflow_uuid=workflow.workflow_uuid,
         )
         for workflow in workflows
     ]
@@ -883,6 +842,48 @@ async def update_workflow_status(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.put("/{workflow_id}/folder")
+async def move_workflow_to_folder(
+    workflow_id: int,
+    request: MoveWorkflowToFolderRequest,
+    user: UserModel = Depends(get_user),
+) -> WorkflowListResponse:
+    """Move a workflow into a folder, or to "Uncategorized" (folder_id=null).
+
+    Validates that the target folder belongs to the caller's organization —
+    the FK alone proves the folder exists, not that the caller may use it.
+    """
+    # Validate target folder ownership (tenant isolation) unless un-filing.
+    if request.folder_id is not None:
+        folder = await db_client.get_folder(
+            request.folder_id, organization_id=user.selected_organization_id
+        )
+        if folder is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Folder with id {request.folder_id} not found",
+            )
+
+    try:
+        workflow = await db_client.move_workflow_to_folder(
+            workflow_id=workflow_id,
+            folder_id=request.folder_id,
+            organization_id=user.selected_organization_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    run_count = await db_client.get_workflow_run_count(workflow.id)
+    return WorkflowListResponse(
+        id=workflow.id,
+        name=workflow.name,
+        status=workflow.status,
+        created_at=workflow.created_at,
+        total_runs=run_count,
+        folder_id=workflow.folder_id,
+    )
+
+
 @router.put(
     "/{workflow_id}",
     **sdk_expose(
@@ -917,6 +918,9 @@ async def update_workflow(
         # response echoes workflow_definition so the client picks up the new
         # UUID without a refetch.
         workflow_definition = ensure_trigger_paths(workflow_definition)
+        trigger_path_issues = validate_trigger_paths(workflow_definition)
+        if trigger_path_issues:
+            raise _trigger_path_validation_http_exception(trigger_path_issues)
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
@@ -1081,7 +1085,12 @@ async def create_workflow_run(
         user: The user to create the workflow run for
     """
     run = await db_client.create_workflow_run(
-        request.name, workflow_id, request.mode, user.id, use_draft=True
+        request.name,
+        workflow_id,
+        request.mode,
+        user.id,
+        use_draft=True,
+        organization_id=user.selected_organization_id,
     )
     return {
         "id": run.id,

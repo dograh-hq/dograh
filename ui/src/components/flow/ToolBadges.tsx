@@ -9,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 interface ToolBadgesProps {
     toolUuids: string[];
     onStaleUuidsDetected?: (staleUuids: string[]) => void;
+    mcpToolFilters?: Record<string, string[]>;
 }
 
-export function ToolBadges({ toolUuids, onStaleUuidsDetected }: ToolBadgesProps) {
+export function ToolBadges({ toolUuids, onStaleUuidsDetected, mcpToolFilters }: ToolBadgesProps) {
     const { tools } = useWorkflow();
     const [selectedTools, setSelectedTools] = useState<ToolResponse[]>([]);
 
@@ -50,15 +51,29 @@ export function ToolBadges({ toolUuids, onStaleUuidsDetected }: ToolBadgesProps)
 
     return (
         <div className="flex flex-wrap gap-1">
-            {selectedTools.map((tool) => (
-                <Badge
-                    key={tool.tool_uuid}
-                    variant="outline"
-                    className="text-xs"
-                >
-                    {tool.name}
-                </Badge>
-            ))}
+            {selectedTools.map((tool) => {
+                const isMcp = tool.category === "mcp";
+                const enabledFns = isMcp ? (mcpToolFilters?.[tool.tool_uuid] ?? []) : [];
+
+                if (isMcp && enabledFns.length > 0) {
+                    return enabledFns.map((fn) => (
+                        <Badge
+                            key={`${tool.tool_uuid}-${fn}`}
+                            variant="outline"
+                            className="text-xs flex items-center gap-1.5"
+                        >
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-500 shrink-0" />
+                            {fn}
+                        </Badge>
+                    ));
+                }
+
+                return (
+                    <Badge key={tool.tool_uuid} variant="outline" className="text-xs">
+                        {tool.name}
+                    </Badge>
+                );
+            })}
         </div>
     );
 }

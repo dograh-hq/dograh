@@ -1,8 +1,9 @@
 """Public download endpoints for workflow recordings and transcripts.
 
 These endpoints provide secure, token-based public access to workflow artifacts
-without requiring authentication. Tokens are generated on-demand when webhooks
-are executed and included in the webhook payload.
+without requiring authentication. Tokens are generated on-demand during
+post-call processing for runs that execute integrations, QA, or campaign
+reporting.
 """
 
 from typing import Literal

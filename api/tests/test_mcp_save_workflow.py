@@ -186,6 +186,45 @@ const n = wf.addTyped(startCall({ name: "g", prompt: "hi", promt: "typo" }));
     update_mock.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_invalid_trigger_path_surfaces_validation_error(mock_backends):
+    save_mock, update_mock = mock_backends
+    payload = {
+        "nodes": [
+            {
+                "id": "trigger-1",
+                "type": "trigger",
+                "data": {"trigger_path": "support/west"},
+            }
+        ],
+        "edges": [],
+    }
+
+    with (
+        patch(
+            "api.mcp_server.tools.save_workflow.parse_code",
+            AsyncMock(
+                return_value={
+                    "ok": True,
+                    "workflowName": _FakeWorkflowModel.name,
+                    "workflow": payload,
+                }
+            ),
+        ),
+        patch(
+            "api.mcp_server.tools.save_workflow.reconcile_positions",
+            return_value=payload,
+        ),
+    ):
+        result = await save_workflow(workflow_id=1, code="ignored")
+
+    assert result["saved"] is False
+    assert result["error_code"] == "validation_error"
+    assert "single URL path segment" in result["error"]
+    save_mock.assert_not_awaited()
+    update_mock.assert_not_awaited()
+
+
 # ─── Graph-stage rejections ──────────────────────────────────────────────
 
 

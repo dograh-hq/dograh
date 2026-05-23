@@ -23,6 +23,13 @@ export interface ToolParameter {
     required: boolean;
 }
 
+export interface PresetToolParameter {
+    name: string;
+    type: ParameterType;
+    valueTemplate: string;
+    required: boolean;
+}
+
 interface ParameterEditorProps {
     parameters: ToolParameter[];
     onChange: (parameters: ToolParameter[]) => void;
@@ -161,6 +168,149 @@ export function ParameterEditor({
                 disabled={disabled}
             >
                 <PlusIcon className="h-4 w-4 mr-1" /> Add Parameter
+            </Button>
+        </div>
+    );
+}
+
+interface PresetParameterEditorProps {
+    parameters: PresetToolParameter[];
+    onChange: (parameters: PresetToolParameter[]) => void;
+    disabled?: boolean;
+}
+
+export function PresetParameterEditor({
+    parameters,
+    onChange,
+    disabled = false,
+}: PresetParameterEditorProps) {
+    const addParameter = () => {
+        onChange([
+            ...parameters,
+            { name: "", type: "string", valueTemplate: "", required: true },
+        ]);
+    };
+
+    const updateParameter = (
+        index: number,
+        field: keyof PresetToolParameter,
+        value: string | boolean
+    ) => {
+        const newParams = [...parameters];
+        newParams[index] = { ...newParams[index], [field]: value };
+        onChange(newParams);
+    };
+
+    const removeParameter = (index: number) => {
+        onChange(parameters.filter((_, i) => i !== index));
+    };
+
+    return (
+        <div className="space-y-4">
+            {parameters.length === 0 && (
+                <div className="text-sm text-muted-foreground py-4 text-center border border-dashed rounded-md">
+                    No preset parameters defined. Add one to inject a fixed value or workflow context into the request.
+                </div>
+            )}
+
+            {parameters.map((param, index) => (
+                <div
+                    key={index}
+                    className="border rounded-lg p-4 space-y-3 bg-muted/20"
+                >
+                    <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-muted-foreground">
+                            Preset Parameter {index + 1}
+                        </span>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeParameter(index)}
+                            disabled={disabled}
+                            className="h-8 w-8"
+                        >
+                            <Trash2Icon className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                        </Button>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                            <Label className="text-xs">Name</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Key sent to the API, like &quot;phone_number&quot; or &quot;customer_id&quot;
+                            </Label>
+                            <Input
+                                placeholder="e.g., phone_number"
+                                value={param.name}
+                                onChange={(e) =>
+                                    updateParameter(index, "name", e.target.value)
+                                }
+                                disabled={disabled}
+                            />
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label className="text-xs">Type</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                JSON type to send to the API
+                            </Label>
+                            <Select
+                                value={param.type}
+                                onValueChange={(value: ParameterType) =>
+                                    updateParameter(index, "type", value)
+                                }
+                                disabled={disabled}
+                            >
+                                <SelectTrigger>
+                                    <SelectValue placeholder="Select type" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="string">String</SelectItem>
+                                    <SelectItem value="number">Number</SelectItem>
+                                    <SelectItem value="boolean">Boolean</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <Label className="text-xs">Value or Template</Label>
+                        <Label className="text-xs text-muted-foreground">
+                            Use a fixed value or a template like {`{{initial_context.phone_number}}`} or {`{{gathered_context.customer_id}}`}
+                        </Label>
+                        <Input
+                            placeholder="e.g., {{initial_context.phone_number}}"
+                            value={param.valueTemplate}
+                            onChange={(e) =>
+                                updateParameter(index, "valueTemplate", e.target.value)
+                            }
+                            disabled={disabled}
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <Switch
+                            id={`preset-required-${index}`}
+                            checked={param.required}
+                            onCheckedChange={(checked) =>
+                                updateParameter(index, "required", checked)
+                            }
+                            disabled={disabled}
+                        />
+                        <Label htmlFor={`preset-required-${index}`} className="text-sm">
+                            Required
+                        </Label>
+                    </div>
+                </div>
+            ))}
+
+            <Button
+                variant="outline"
+                size="sm"
+                onClick={addParameter}
+                className="w-fit"
+                disabled={disabled}
+            >
+                <PlusIcon className="h-4 w-4 mr-1" /> Add Preset Parameter
             </Button>
         </div>
     );

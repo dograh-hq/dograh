@@ -66,7 +66,7 @@ class TestUnregisteredFunctionCall:
 
         # Pipecat's missing-function handler returns a string error.
         assert isinstance(result_frame.result, str)
-        assert "not registered" in result_frame.result
+        assert "not currently available" in result_frame.result
         assert "nonexistent_tool" in result_frame.result
 
         # In-progress frame should also be emitted before the result so mute

@@ -292,8 +292,10 @@ class IntegrationModel(Base):
     __tablename__ = "integrations"
 
     id = Column(Integer, primary_key=True, index=True)
-    integration_id = Column(String, nullable=False, index=True)  # Nango Connection ID
-    organisation_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
+    integration_id = Column(
+        String, nullable=False, index=True
+    )  # External connection ID
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     provider = Column(String, nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"))
     is_active = Column(Boolean, default=True, nullable=False)
@@ -350,6 +352,32 @@ class WorkflowDefinitionModel(Base):
     workflow_runs = relationship("WorkflowRunModel", back_populates="definition")
 
 
+class FolderModel(Base):
+    """A folder for grouping workflows (agents) within an organization.
+
+    Folders are flat (no nesting) and org-scoped. A workflow belongs to at
+    most one folder via ``WorkflowModel.folder_id``; a NULL folder_id means
+    the workflow is "Uncategorized".
+    """
+
+    __tablename__ = "folders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    organization = relationship("OrganizationModel")
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+
+    workflows = relationship("WorkflowModel", back_populates="folder")
+
+    # Folder names must be unique within an organization.
+    __table_args__ = (
+        UniqueConstraint("organization_id", "name", name="uq_folder_org_name"),
+    )
+
+
 class WorkflowModel(Base):
     __tablename__ = "workflows"
     id = Column(Integer, primary_key=True, index=True)
@@ -364,6 +392,15 @@ class WorkflowModel(Base):
     user = relationship("UserModel", back_populates="workflows")
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
     organization = relationship("OrganizationModel")
+    # Optional folder for grouping in the agents list. NULL = "Uncategorized".
+    # ON DELETE SET NULL: deleting a folder un-files its agents, never deletes them.
+    folder_id = Column(
+        Integer,
+        ForeignKey("folders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    folder = relationship("FolderModel", back_populates="workflows")
     name = Column(String, index=True, nullable=False)
     status = Column(
         Enum(*[status.value for status in WorkflowStatus], name="workflow_status"),
@@ -482,6 +519,12 @@ class WorkflowRunModel(Base):
     queued_run_id = Column(Integer, ForeignKey("queued_runs.id"), nullable=True)
     queued_run = relationship("QueuedRunModel", foreign_keys=[queued_run_id])
     public_access_token = Column(String(36), nullable=True)
+    text_session = relationship(
+        "WorkflowRunTextSessionModel",
+        back_populates="workflow_run",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     # Indexes
     __table_args__ = (
@@ -501,85 +544,41 @@ class WorkflowRunModel(Base):
     )
 
 
-# LoopTalk Testing Models
-class LoopTalkTestSession(Base):
-    __tablename__ = "looptalk_test_sessions"
+class WorkflowRunTextSessionModel(Base):
+    __tablename__ = "workflow_run_text_sessions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
-    name = Column(String, nullable=False)
-    status = Column(
-        Enum("pending", "running", "completed", "failed", name="test_session_status"),
+    workflow_run_id = Column(
+        Integer,
+        ForeignKey("workflow_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    workflow_run = relationship("WorkflowRunModel", back_populates="text_session")
+    revision = Column(
+        Integer,
         nullable=False,
-        default="pending",
+        default=0,
+        server_default=text("0"),
     )
-
-    # Workflow configuration
-    actor_workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=False)
-    adversary_workflow_id = Column(Integer, ForeignKey("workflows.id"), nullable=False)
-
-    # Load testing configuration
-    load_test_group_id = Column(String, nullable=True, index=True)
-    test_index = Column(Integer, nullable=True)
-
-    # Test metadata
-    config = Column(JSON, nullable=False, default=dict)
-    results = Column(JSON, nullable=False, default=dict)
-    error = Column(String, nullable=True)
-
-    # Timestamps
+    session_data = Column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::json"),
+    )
+    checkpoint = Column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::json"),
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    started_at = Column(DateTime(timezone=True), nullable=True)
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    organization = relationship("OrganizationModel")
-    actor_workflow = relationship("WorkflowModel", foreign_keys=[actor_workflow_id])
-    adversary_workflow = relationship(
-        "WorkflowModel", foreign_keys=[adversary_workflow_id]
-    )
-    conversations = relationship("LoopTalkConversation", back_populates="test_session")
-
-    # Indexes for performance
-    __table_args__ = (
-        Index("ix_looptalk_test_sessions_org_id", "organization_id"),
-        Index("ix_looptalk_test_sessions_group_id", "load_test_group_id"),
-        Index("ix_looptalk_test_sessions_status", "status"),
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
     )
 
-
-class LoopTalkConversation(Base):
-    __tablename__ = "looptalk_conversations"
-
-    id = Column(Integer, primary_key=True, index=True)
-    test_session_id = Column(
-        Integer, ForeignKey("looptalk_test_sessions.id"), nullable=False
-    )
-
-    # Conversation metadata
-    duration_seconds = Column(Integer, nullable=True)
-    # Note: Turn tracking is handled by Langfuse, not stored here
-
-    # Audio recording URLs
-    actor_recording_url = Column(String, nullable=True)
-    adversary_recording_url = Column(String, nullable=True)
-    combined_recording_url = Column(String, nullable=True)
-
-    # Transcripts (if needed for quick access)
-    transcript = Column(JSON, nullable=False, default=dict)
-
-    # Metrics
-    metrics = Column(JSON, nullable=False, default=dict)
-
-    # Timestamps
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
-    ended_at = Column(DateTime(timezone=True), nullable=True)
-
-    # Relationships
-    test_session = relationship("LoopTalkTestSession", back_populates="conversations")
-
-    # Indexes
-    __table_args__ = (Index("ix_looptalk_conversations_session_id", "test_session_id"),)
+    __table_args__ = (Index("ix_workflow_run_text_sessions_updated_at", "updated_at"),)
 
 
 class OrganizationUsageCycleModel(Base):
@@ -636,8 +635,8 @@ class CampaignModel(Base):
     )
 
     # Source configuration
-    source_type = Column(String, nullable=False, default="google-sheet")
-    source_id = Column(String, nullable=False)  # Sheet URL
+    source_type = Column(String, nullable=False, default="csv")
+    source_id = Column(String, nullable=False)  # CSV file key
 
     # State management
     state = Column(

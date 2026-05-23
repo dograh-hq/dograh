@@ -1,8 +1,8 @@
 // GENERATED — do not edit by hand.
 //
 // Regenerate with `npm run codegen` against the target Dograh backend.
-// Source of truth: each node's NodeSpec in the backend's
-// `api/services/workflow/node_specs/` directory.
+// Source of truth: the backend's model-backed node-spec catalog served
+// from `/api/v1/node-types`.
 
 
 /**
@@ -28,10 +28,10 @@ export interface Trigger {
      */
     enabled?: boolean;
     /**
-     * Auto-generated UUID-style path segment that uniquely identifies this trigger. Used in both URLs:
+     * Path segment that uniquely identifies this trigger. Used in both URLs:
      *   • Production: `/api/v1/public/agent/<trigger_path>` — executes the published agent.
      *   • Test: `/api/v1/public/agent/test/<trigger_path>` — executes the latest draft.
-     * Do not edit manually.
+     * Can be customized to a descriptive value up to 36 characters using letters, numbers, hyphens, or underscores.
      */
     trigger_path?: string;
 }

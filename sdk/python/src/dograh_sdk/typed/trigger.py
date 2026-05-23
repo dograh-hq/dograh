@@ -1,8 +1,8 @@
 """GENERATED — do not edit by hand.
 
 Regenerate with `python -m dograh_sdk.codegen` against the target
-Dograh backend. Source of truth: each node's NodeSpec in the backend's
-`api/services/workflow/node_specs/` directory.
+Dograh backend. Source of truth: the backend's model-backed node-spec
+catalog served from `/api/v1/node-types`.
 """
 
 from __future__ import annotations
@@ -46,10 +46,10 @@ class Trigger(TypedNode):
 
     trigger_path: Optional[str] = None
     """
-    Auto-generated UUID-style path segment that uniquely identifies this
-    trigger. Used in both URLs:   • Production:
-    `/api/v1/public/agent/<trigger_path>` — executes the published agent.
-    • Test: `/api/v1/public/agent/test/<trigger_path>` — executes the latest
-    draft. Do not edit manually.
+    Path segment that uniquely identifies this trigger. Used in both URLs:
+    • Production: `/api/v1/public/agent/<trigger_path>` — executes the
+    published agent.   • Test: `/api/v1/public/agent/test/<trigger_path>` —
+    executes the latest draft. Can be customized to a descriptive value up
+    to 36 characters using letters, numbers, hyphens, or underscores.
     """
 

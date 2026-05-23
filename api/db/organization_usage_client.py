@@ -151,9 +151,9 @@ class OrganizationUsageClient(BaseDBClient):
     async def update_usage_after_run(
         self,
         organization_id: int,
-        actual_tokens: int,
-        duration_seconds: int = 0,
-        charge_usd: float = None,
+        actual_tokens: float,
+        duration_seconds: float = 0,
+        charge_usd: float | None = None,
     ) -> None:
         """Update usage after a workflow run completes with actual token count and duration.
 
@@ -354,6 +354,7 @@ class OrganizationUsageClient(BaseDBClient):
                     "caller_number": caller_number,
                     "called_number": called_number,
                     "call_type": run.call_type,
+                    "mode": run.mode,
                     "disposition": disposition,
                     "initial_context": run.initial_context,
                     "gathered_context": run.gathered_context,

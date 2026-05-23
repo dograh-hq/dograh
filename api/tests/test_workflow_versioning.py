@@ -182,7 +182,7 @@ class TestSaveDraft:
             workflow_definition=GRAPH_V2,
         )
 
-        refreshed = await db_session.get_workflow(workflow.id)
+        refreshed = await db_session.get_workflow_by_id(workflow.id)
         assert refreshed.released_definition_id == original_released_id
 
     async def test_save_draft_twice_updates_in_place(
@@ -264,7 +264,7 @@ class TestPublishDraft:
 
         await db_session.publish_workflow_draft(workflow.id)
 
-        refreshed = await db_session.get_workflow(workflow.id)
+        refreshed = await db_session.get_workflow_by_id(workflow.id)
         assert refreshed.released_definition_id == draft.id
 
     async def test_publish_sets_published_at(self, db_session, workflow_with_v1):
@@ -346,7 +346,7 @@ class TestDiscardDraft:
         )
         await db_session.discard_workflow_draft(workflow.id)
 
-        refreshed = await db_session.get_workflow(workflow.id)
+        refreshed = await db_session.get_workflow_by_id(workflow.id)
         assert refreshed.released_definition_id == original_released_id
 
     async def test_discard_when_no_draft_raises(self, db_session, workflow_with_v1):
@@ -464,7 +464,7 @@ class TestRevert:
 
         await db_session.revert_to_version(workflow.id, v1_id)
 
-        refreshed = await db_session.get_workflow(workflow.id)
+        refreshed = await db_session.get_workflow_by_id(workflow.id)
         assert refreshed.released_definition_id == v2.id  # still V2
 
 

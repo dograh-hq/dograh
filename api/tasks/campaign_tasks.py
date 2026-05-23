@@ -20,7 +20,7 @@ async def sync_campaign_source(ctx: Dict, campaign_id: int) -> None:
     Phase 1: Syncs data from configured source to queued_runs table
     - Campaign state should already be 'syncing'
     - Determines source type from campaign configuration
-    - Fetches data via appropriate sync service (Google Sheets, HubSpot, etc.)
+    - Fetches data via the appropriate sync service
     - Creates queued_run entries with unique source_uuid
     - Updates campaign total_rows
     - Transitions campaign state to 'running' on success

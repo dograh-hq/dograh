@@ -59,18 +59,66 @@ services:
     networks:
       - app-network
 
+  dograh-init:
+    image: bash:5.2
+    container_name: dograh_init
+    profiles: ["remote", "local-turn"]
+    environment:
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
+      SERVER_IP: "${SERVER_IP:-}"
+      PUBLIC_HOST: "${PUBLIC_HOST:-}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      TURN_HOST: "${TURN_HOST:-}"
+      TURN_SECRET: "${TURN_SECRET:-}"
+      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+      - ./deploy:/workspace/deploy:ro
+      - ./certs:/certs:ro
+      - nginx-generated:/generated/nginx
+      - coturn-generated:/generated/coturn
+    command:
+      - /workspace/scripts/run_dograh_init.sh
+
   nginx:
     image: nginx:alpine
     container_name: nginx_https
     profiles: ["remote"]
     depends_on:
-      - ui
+      dograh-init:
+        condition: service_completed_successfully
+      ui:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - nginx-generated:/etc/nginx/conf.d:ro
       - ./certs:/etc/nginx/certs:ro
+    networks:
+      - app-network
+
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    restart: unless-stopped
+    profiles: ["remote", "local-turn"]
+    depends_on:
+      dograh-init:
+        condition: service_completed_successfully
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - coturn-generated:/etc/coturn:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
     networks:
       - app-network
 
@@ -108,8 +156,8 @@ services:
       MINIO_SECURE: "false"
 
       # Number of uvicorn worker processes (each is its own process bound to a
-      # distinct port starting at 8000). nginx load-balances across them with
-      # least_conn — see setup_remote.sh.
+      # distinct port starting at 8000). dograh-init renders nginx upstreams
+      # from this value and nginx load-balances across them with least_conn.
       FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
 
       # Langfuse — credentials can be set here or per-organization via the UI
@@ -195,31 +243,16 @@ services:
     networks:
       - app-network
 
-  coturn:
-    image: coturn/coturn:4.8.0
-    container_name: coturn
-    restart: unless-stopped
-    profiles: ["remote", "local-turn"]
-    ports:
-      - "3478:3478/udp"
-      - "3478:3478/tcp"
-      - "5349:5349/udp"
-      - "5349:5349/tcp"
-      - "49152-49200:49152-49200/udp"
-    volumes:
-      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
-    command:
-      - -c
-      - /etc/coturn/turnserver.conf
-    networks:
-      - app-network
-
 volumes:
   postgres_data:
   redis_data:
   minio-data:
     driver: local
   shared-tmp:
+    driver: local
+  nginx-generated:
+    driver: local
+  coturn-generated:
     driver: local
 
 networks:

@@ -27,6 +27,7 @@ class WorkflowRunMode(Enum):
     TELNYX = "telnyx"
     WEBRTC = "webrtc"
     SMALLWEBRTC = "smallwebrtc"
+    TEXTCHAT = "textchat"
 
     # Historical, not used anymore. Don't
     # use and don't remove
@@ -133,6 +134,7 @@ class ToolCategory(Enum):
     CALCULATOR = "calculator"  # Built-in calculator tool
     NATIVE = "native"  # Built-in integrations (future: dtmf_input)
     INTEGRATION = "integration"  # Third-party integrations (future: Google Calendar, Salesforce, etc.)
+    MCP = "mcp"  # Customer-provided MCP server exposing a tool catalog
 
 
 class ToolStatus(Enum):

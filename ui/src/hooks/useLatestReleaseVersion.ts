@@ -14,7 +14,7 @@ interface Result {
 
 const CACHE_KEY = "dograh-latest-release";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const SEMVER_RE = /^(?:[a-z][a-z0-9-]*-)?v?(\d+)\.(\d+)\.(\d+)$/i;
+const SEMVER_RE = /^v?(\d+)\.(\d+)\.(\d+)$/;
 
 function parseSemver(tag: string): [number, number, number] | null {
     const m = tag.match(SEMVER_RE);
@@ -56,11 +56,11 @@ export function useLatestReleaseVersion(
         }
 
         let cancelled = false;
-        fetch("https://api.github.com/repos/dograh-hq/dograh/releases/latest")
+        fetch("/api/config/latest-version")
             .then((res) => (res.ok ? res.json() : null))
             .then((data) => {
-                if (cancelled || !data?.tag_name) return;
-                const tag = data.tag_name as string;
+                if (cancelled || !data?.latest) return;
+                const tag = data.latest as string;
                 try {
                     localStorage.setItem(
                         CACHE_KEY,
@@ -72,7 +72,7 @@ export function useLatestReleaseVersion(
                 setLatest(tag);
             })
             .catch(() => {
-                // silent — don't break the sidebar if GitHub is unreachable
+                // silent — don't break the sidebar if the lookup fails
             });
 
         return () => {
@@ -80,19 +80,13 @@ export function useLatestReleaseVersion(
         };
     }, [enabled, currentVersion]);
 
-    const normalizedCurrent = currentVersion
-        ? currentVersion.startsWith("v")
-            ? currentVersion
-            : `v${currentVersion}`
-        : null;
-
-    const currentParsed = normalizedCurrent ? parseSemver(normalizedCurrent) : null;
+    const currentParsed = currentVersion ? parseSemver(currentVersion) : null;
     const latestParsed = latest ? parseSemver(latest) : null;
 
     const isBehind = !!(
-        normalizedCurrent &&
+        currentVersion &&
         latest &&
-        isOlder(normalizedCurrent, latest)
+        isOlder(currentVersion, latest)
     );
 
     const isLatest = !!(

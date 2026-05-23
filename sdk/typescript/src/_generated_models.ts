@@ -707,6 +707,10 @@ export interface components {
             created_at: string;
             /** Total Runs */
             total_runs: number;
+            /** Folder Id */
+            folder_id?: number | null;
+            /** Workflow Uuid */
+            workflow_uuid?: string | null;
         };
         /** WorkflowResponse */
         WorkflowResponse: {

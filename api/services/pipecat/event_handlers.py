@@ -5,8 +5,9 @@ from loguru import logger
 from api.db import db_client
 from api.enums import PostHogEvent, WorkflowRunState
 from api.services.campaign.circuit_breaker import circuit_breaker
+from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
-from api.services.pipecat.audio_playback import play_audio, play_audio_loop
+from api.services.pipecat.audio_playback import play_audio_loop
 from api.services.pipecat.in_memory_buffers import (
     InMemoryAudioBuffer,
     InMemoryLogsBuffer,
@@ -19,8 +20,6 @@ from api.tasks.arq import enqueue_job
 from api.tasks.function_names import FunctionNames
 from pipecat.frames.frames import (
     Frame,
-    LLMContextFrame,
-    TTSSpeakFrame,
 )
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
@@ -68,8 +67,8 @@ def register_event_handlers(
     pipeline_metrics_aggregator: PipelineMetricsAggregator,
     audio_config=AudioConfig,
     pre_call_fetch_task: asyncio.Task | None = None,
-    fetch_recording_audio=None,
     user_provider_id: str | None = None,
+    integration_runtime_sessions: list[IntegrationRuntimeSession] | None = None,
 ):
     """Register all event handlers for transport and task events.
 
@@ -97,20 +96,11 @@ def register_event_handlers(
         "initial_response_triggered": False,
     }
 
-    async def queue_initial_llm_context():
-        # Queue LLMContextFrame after the VoicemailDetector since the detector
-        # gates LLMContextFrames until voicemail detection completes. We also
-        # don't want to trigger the Voicemail LLM with this initial frame.
-        await engine.llm.queue_frame(LLMContextFrame(engine.context))
-
     async def maybe_trigger_initial_response():
         """Start the conversation after both pipeline_started and client_connected events.
 
         If a pre-call fetch is in progress, plays a ringer while waiting for the
         response, then merges the result into the call context before proceeding.
-
-        If the start node has a greeting configured, play it directly via TTS.
-        Otherwise, trigger an LLM generation for the opening message.
         """
         if (
             ready_state["pipeline_started"]
@@ -165,46 +155,11 @@ def register_event_handlers(
             # Set the start node now (after pre-call fetch data is merged)
             # so that render_template() has the complete _call_context_vars.
             await engine.set_node(engine.workflow.start_node_id)
-
-            greeting_info = engine.get_start_greeting()
-            if greeting_info:
-                greeting_type, greeting_value = greeting_info
-                if (
-                    greeting_type == "audio"
-                    and greeting_value
-                    and fetch_recording_audio
-                ):
-                    logger.debug(f"Playing audio greeting recording: {greeting_value}")
-                    result = await fetch_recording_audio(
-                        recording_pk=int(greeting_value)
-                    )
-                    if result:
-                        await play_audio(
-                            result.audio,
-                            sample_rate=audio_config.pipeline_sample_rate or 16000,
-                            queue_frame=transport.output().queue_frame,
-                            transcript=result.transcript,
-                            append_to_context=True,
-                        )
-                    else:
-                        logger.warning(
-                            f"Failed to fetch audio greeting {greeting_value}, "
-                            "falling back to LLM generation"
-                        )
-                        await queue_initial_llm_context()
-                else:
-                    logger.debug("Playing text greeting via TTS")
-                    # append_to_context=True so the assistant aggregator commits
-                    # the greeting to the LLM context once TTS finishes; without
-                    # it the LLM would re-greet on its first generation.
-                    await task.queue_frame(
-                        TTSSpeakFrame(greeting_value, append_to_context=True)
-                    )
-            else:
-                logger.debug(
-                    "Both pipeline_started and client_connected received - triggering initial LLM generation"
-                )
-                await queue_initial_llm_context()
+            await engine.queue_node_opening(
+                node_id=engine.workflow.start_node_id,
+                previous_node_id=None,
+                generate_if_no_greeting=True,
+            )
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(_transport, _participant):
@@ -319,6 +274,20 @@ def register_event_handlers(
                 )
 
         # Clean up engine resources (including voicemail detector)
+        integration_logs: dict[str, object] = {}
+        for runtime_session in integration_runtime_sessions or []:
+            try:
+                session_logs = await runtime_session.on_call_finished(
+                    gathered_context=gathered_context
+                )
+                if session_logs:
+                    integration_logs.update(session_logs)
+            except Exception as e:
+                logger.error(
+                    f"Error finalizing integration runtime session '{runtime_session.name}': {e}",
+                    exc_info=True,
+                )
+
         await engine.cleanup()
 
         # ------------------------------------------------------------------
@@ -368,14 +337,11 @@ def register_event_handlers(
             )
         )
 
-        # Save real-time feedback logs to workflow run
+        logs_update: dict[str, object] = {}
         if not in_memory_logs_buffer.is_empty:
             try:
                 feedback_events = in_memory_logs_buffer.get_events()
-                await db_client.update_workflow_run(
-                    run_id=workflow_run_id,
-                    logs={"realtime_feedback_events": feedback_events},
-                )
+                logs_update["realtime_feedback_events"] = feedback_events
                 logger.debug(
                     f"Saved {len(feedback_events)} feedback events to workflow run logs"
                 )
@@ -383,6 +349,17 @@ def register_event_handlers(
                 logger.error(f"Error saving realtime feedback logs: {e}", exc_info=True)
         else:
             logger.debug("Logs buffer is empty, skipping save")
+
+        logs_update.update(integration_logs)
+
+        if logs_update:
+            try:
+                await db_client.update_workflow_run(
+                    run_id=workflow_run_id,
+                    logs=logs_update,
+                )
+            except Exception as e:
+                logger.error(f"Error saving workflow run logs: {e}", exc_info=True)
 
         # Write buffers to temp files and enqueue combined processing task
         audio_temp_path = None

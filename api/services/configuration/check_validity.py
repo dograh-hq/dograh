@@ -47,11 +47,16 @@ class UserConfigurationValidator:
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
             ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
+            ServiceProviders.GOOGLE_VERTEX.value: self._check_google_vertex_llm_api_key,
             ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
+            ServiceProviders.GROK_REALTIME.value: self._check_grok_realtime_api_key,
+            ServiceProviders.ULTRAVOX_REALTIME.value: self._check_ultravox_realtime_api_key,
             ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
+            ServiceProviders.GOOGLE_VERTEX_REALTIME.value: self._check_google_vertex_realtime_api_key,
             ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
             ServiceProviders.RIME.value: self._check_rime_api_key,
+            ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
         }
 
     async def validate(
@@ -116,6 +121,36 @@ class UserConfigurationValidator:
                 return [{"model": service_name, "message": str(e)}]
             return []
 
+        # Vertex Realtime uses service-account credentials (or ADC) instead of api_key
+        if provider == ServiceProviders.GOOGLE_VERTEX_REALTIME.value:
+            try:
+                if not self._check_google_vertex_realtime_api_key(
+                    provider, service_config
+                ):
+                    return [
+                        {
+                            "model": service_name,
+                            "message": f"Invalid {provider} configuration",
+                        }
+                    ]
+            except ValueError as e:
+                return [{"model": service_name, "message": str(e)}]
+            return []
+
+        # Vertex LLM uses service-account credentials (or ADC) instead of api_key
+        if provider == ServiceProviders.GOOGLE_VERTEX.value:
+            try:
+                if not self._check_google_vertex_llm_api_key(provider, service_config):
+                    return [
+                        {
+                            "model": service_name,
+                            "message": f"Invalid {provider} configuration",
+                        }
+                    ]
+            except ValueError as e:
+                return [{"model": service_name, "message": str(e)}]
+            return []
+
         # AWS Bedrock uses AWS credentials instead of api_key
         if provider == ServiceProviders.AWS_BEDROCK.value:
             try:
@@ -129,6 +164,19 @@ class UserConfigurationValidator:
             except ValueError as e:
                 return [{"model": service_name, "message": str(e)}]
             return []
+
+        # MiniMax TTS requires a group_id alongside the API key.
+        # LLM configs don't expose group_id, so only check when the field exists.
+        if provider == ServiceProviders.MINIMAX.value and hasattr(
+            service_config, "group_id"
+        ):
+            if not getattr(service_config, "group_id", None):
+                return [
+                    {
+                        "model": service_name,
+                        "message": "group_id is required for MiniMax TTS",
+                    }
+                ]
 
         api_key = service_config.api_key
 
@@ -205,6 +253,12 @@ class UserConfigurationValidator:
     def _check_openrouter_api_key(self, model: str, api_key: str) -> bool:
         return True
 
+    def _check_grok_realtime_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
+    def _check_ultravox_realtime_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
     def _check_speechmatics_api_key(self, model: str, api_key: str) -> bool:
         return True
 
@@ -214,6 +268,20 @@ class UserConfigurationValidator:
     def _check_speaches_api_key(self, model: str, service_config) -> bool:
         if not getattr(service_config, "base_url", None):
             raise ValueError("base_url is required for Speaches services")
+        return True
+
+    def _check_google_vertex_realtime_api_key(self, model: str, service_config) -> bool:
+        if not getattr(service_config, "project_id", None):
+            raise ValueError("project_id is required for Google Vertex Realtime")
+        if not getattr(service_config, "location", None):
+            raise ValueError("location is required for Google Vertex Realtime")
+        return True
+
+    def _check_google_vertex_llm_api_key(self, model: str, service_config) -> bool:
+        if not getattr(service_config, "project_id", None):
+            raise ValueError("project_id is required for Google Vertex")
+        if not getattr(service_config, "location", None):
+            raise ValueError("location is required for Google Vertex")
         return True
 
     def _check_aws_bedrock_api_key(self, model: str, service_config) -> bool:
@@ -228,4 +296,9 @@ class UserConfigurationValidator:
         return True
 
     def _check_rime_api_key(self, model: str, api_key: str) -> bool:
+        return True
+
+    def _check_minimax_api_key(self, model: str, api_key: str) -> bool:
+        # MiniMax doesn't publish a cheap key-validation endpoint; trust the key
+        # at save time and surface auth errors at first call (same as Rime/Sarvam).
         return True

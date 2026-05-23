@@ -1,11 +1,12 @@
 """Transport factories for non-telephony pipelines.
 
 Telephony transports live in their respective ``api.services.telephony.providers/<name>/transport.py``.
-This module hosts only the shared, non-telephony transports (WebRTC, internal/LoopTalk).
+This module hosts only the shared, non-telephony transports (WebRTC).
 """
 
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_mixer import build_audio_out_mixer
+from api.services.pipecat.transport_params import realtime_param_overrides
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.smallwebrtc.connection import SmallWebRTCConnection
 from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
@@ -16,6 +17,7 @@ async def create_webrtc_transport(
     workflow_run_id: int,
     audio_config: AudioConfig,
     ambient_noise_config: dict | None = None,
+    is_realtime: bool = False,
 ):
     """Create a transport for WebRTC connections."""
     mixer = await build_audio_out_mixer(
@@ -30,26 +32,6 @@ async def create_webrtc_transport(
             audio_in_sample_rate=audio_config.transport_in_sample_rate,
             audio_out_sample_rate=audio_config.transport_out_sample_rate,
             audio_out_mixer=mixer,
+            **realtime_param_overrides(is_realtime),
         ),
     )
-
-
-def create_internal_transport(
-    workflow_run_id: int,
-    audio_config: AudioConfig,
-    latency_seconds: float = 0.0,
-    ambient_noise_config: dict | None = None,
-):
-    """Create an internal transport for agent-to-agent connections (LoopTalk).
-
-    Args:
-        workflow_run_id: ID of the workflow run for turn analyzer context
-        audio_config: Audio configuration for the transport
-        latency_seconds: Network latency to simulate
-
-    Returns:
-        InternalTransport instance configured with turn analyzer
-    """
-    pass
-    # Commented out because looptalk coming in the regular import flow
-    # was causing issue. May be move this to looptalk/orchestrator.py

@@ -183,9 +183,7 @@ class CampaignSourceSyncService(ABC):
     async def get_source_credentials(
         self, organization_id: int, source_type: str
     ) -> Dict[str, Any]:
-        """Gets OAuth tokens or API credentials via Nango"""
-        # This would be implemented to work with Nango service
-        # For now, returning placeholder
+        """Gets source credentials when a sync service requires them."""
         logger.info(
             f"Getting credentials for org {organization_id}, source {source_type}"
         )

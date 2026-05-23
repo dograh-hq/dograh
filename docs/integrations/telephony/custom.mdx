@@ -193,7 +193,6 @@ If your provider POSTs webhooks to Dograh (answer URL, status callbacks, hangup 
 ```python
 # providers/your_provider/routes.py
 from fastapi import APIRouter, Request
-from api.services.telephony.factory import get_telephony_provider
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -286,7 +285,7 @@ register(SPEC)
 | Field | Used by |
 | --- | --- |
 | `name` | Stored as the discriminator on every `TelephonyConfiguration` row and as the `WorkflowRunMode` value |
-| `provider_cls` | `factory.get_telephony_provider*` |
+| `provider_cls` | `factory.get_default_telephony_provider`, `get_telephony_provider_by_id`, `get_telephony_provider_for_run` |
 | `config_loader` | `factory._normalize_with_phone_numbers` (replaces the old if/elif chain) |
 | `transport_factory` | `run_pipeline_telephony` |
 | `audio_config` | `create_audio_config()` and `run_pipeline_telephony` |
@@ -375,7 +374,7 @@ For end-to-end testing, save your provider through the telephony-configurations 
 
 ## Best Practices
 
-1. **Trust the registry** — never import another provider's class directly; resolve through `factory.get_telephony_provider*`.
+1. **Trust the registry** — never import another provider's class directly; resolve through the factory helpers (`get_default_telephony_provider`, `get_telephony_provider_by_id`, etc.).
 2. **Sensitive fields** — mark every credential field `sensitive=True` in `ProviderUIMetadata`. The save endpoint masks these on read and preserves the original when the client re-submits a masked value.
 3. **Inbound signature verification** — always validate inbound webhook signatures in `verify_inbound_signature`. Returning `True` when no signature header is present is acceptable; return `False` when a signature *is* present but invalid.
 4. **Transports load credentials lazily** — call `load_credentials_for_transport` with the `telephony_configuration_id` from the workflow run. Don't read the org's default config from `transport.py`.

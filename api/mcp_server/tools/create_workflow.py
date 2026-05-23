@@ -12,10 +12,10 @@ Execution flow mirrors `save_workflow`:
     4. Persist via `db_client.create_workflow` — workflow row + v1
        published definition in a single transaction.
 
-Error codes surfaced to the LLM match `save_workflow`. An additional
-`missing_name` error is returned when the source omits
-`new Workflow({ name: "..." })` — the name is required and there is no
-prior workflow to fall back to.
+Each failure path returns an `error_code` via `_error_result`. Those
+codes and their meanings are documented in the `create_workflow`
+docstring (the description shipped to the LLM via `tools/list`); keep the
+two in sync — `test_mcp_instructions_drift.py` enforces it.
 """
 
 from __future__ import annotations
@@ -34,6 +34,10 @@ from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.posthog_client import capture_event
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
+from api.services.workflow.trigger_paths import (
+    extract_trigger_paths,
+    validate_trigger_paths,
+)
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 
@@ -51,20 +55,6 @@ def _format_errors(errors: list[dict[str, Any]]) -> str:
             loc = f" (line {line}" + (f", col {col}" if col is not None else "") + ")"
         parts.append(f"{e.get('message', '')}{loc}")
     return "\n".join(parts)
-
-
-def _extract_trigger_paths(workflow_definition: dict) -> list[str]:
-    """Mirror of `routes.workflow.extract_trigger_paths` — kept local so the
-    MCP layer doesn't depend on the route module."""
-    if not workflow_definition:
-        return []
-    paths: list[str] = []
-    for node in workflow_definition.get("nodes") or []:
-        if node.get("type") == "trigger":
-            trigger_path = (node.get("data") or {}).get("trigger_path")
-            if trigger_path:
-                paths.append(trigger_path)
-    return paths
 
 
 @traced_tool
@@ -86,6 +76,22 @@ async def create_workflow(code: str) -> dict[str, Any]:
     On success the new workflow is published as version 1. Use
     `save_workflow(workflow_id, code)` for subsequent edits — those go to
     a draft.
+
+    On failure the result has `created: false`, a machine-readable
+    `error_code`, and a human-readable `error` (with file:line:column
+    where the problem is locatable). Resubmit the full corrected source —
+    patches are not accepted. Possible `error_code` values:
+    - `parse_error` — disallowed construct or malformed TypeScript.
+    - `validation_error` — node data failed spec validation (unknown
+      field, missing required, wrong type, option out of range).
+    - `schema_validation` — wire-format (DTO) rejection; rare.
+    - `graph_validation` — structural rule broken (e.g. no start node,
+      unreachable node, edge to/from the wrong node type).
+    - `missing_name` — `new Workflow({ name })` is absent or empty; the
+      name is required and there is no prior workflow to fall back to.
+    - `trigger_path_conflict` — a trigger node's path is already used by
+      another workflow in this organization; rename it and resubmit.
+    - `bridge_error` — internal/transient; retry once, then surface it.
     """
     user = await authenticate_mcp_request()
 
@@ -113,6 +119,12 @@ async def create_workflow(code: str) -> dict[str, Any]:
     # 1b. New workflow — no prior version to reconcile against; layout
     # places new nodes adjacent to their first incoming neighbor.
     payload = reconcile_positions(payload, None)
+    trigger_path_issues = validate_trigger_paths(payload)
+    if trigger_path_issues:
+        return _error_result(
+            "validation_error",
+            "\n".join(issue.message for issue in trigger_path_issues),
+        )
 
     # 2. Pydantic shape check (defence in depth — parser is spec-driven).
     try:
@@ -128,7 +140,7 @@ async def create_workflow(code: str) -> dict[str, Any]:
 
     # 4. Reject upfront if any trigger path collides with another workflow's
     # trigger in this org so we don't leave an orphan workflow record.
-    trigger_paths = _extract_trigger_paths(payload)
+    trigger_paths = extract_trigger_paths(payload)
     if trigger_paths:
         try:
             await db_client.assert_trigger_paths_available(

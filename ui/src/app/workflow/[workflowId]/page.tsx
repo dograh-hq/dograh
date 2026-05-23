@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, useSearchParams } from 'next/navigation';
 import posthog from 'posthog-js';
 import { useEffect, useMemo, useState } from 'react';
 
@@ -18,6 +18,7 @@ import WorkflowLayout from '../WorkflowLayout';
 
 export default function WorkflowDetailPage() {
     const params = useParams();
+    const searchParams = useSearchParams();
     const [workflow, setWorkflow] = useState<WorkflowResponse | undefined>(undefined);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,7 @@ export default function WorkflowDetailPage() {
     }, [params.workflowId, user]);
 
     const stableUser = useMemo(() => user, [user]);
+    const openTesterOnLoad = searchParams.get('onboarding') === 'web_call';
 
     if (loading) {
         return (
@@ -82,6 +84,8 @@ export default function WorkflowDetailPage() {
                 initialWorkflowName={workflow.name}
                 workflowId={workflow.id}
                 workflowUuid={workflow.workflow_uuid ?? undefined}
+                initialTotalRuns={workflow.total_runs ?? 0}
+                openTesterOnLoad={openTesterOnLoad}
                 initialFlow={{
                     nodes: workflow.workflow_definition.nodes as FlowNode[],
                     edges: workflow.workflow_definition.edges as FlowEdge[],

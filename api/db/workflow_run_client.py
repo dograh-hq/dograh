@@ -32,16 +32,22 @@ class WorkflowRunClient(BaseDBClient):
         campaign_id: int = None,
         queued_run_id: int = None,
         use_draft: bool = False,
+        organization_id: int | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
-            # Get workflow and user to check organization
-            workflow = await session.execute(
+            workflow_query = (
                 select(WorkflowModel)
                 .options(joinedload(WorkflowModel.user))
                 .where(
                     WorkflowModel.id == workflow_id, WorkflowModel.user_id == user_id
                 )
             )
+            if organization_id is not None:
+                workflow_query = workflow_query.where(
+                    WorkflowModel.organization_id == organization_id
+                )
+
+            workflow = await session.execute(workflow_query)
             workflow = workflow.scalars().first()
             if not workflow:
                 raise ValueError(f"Workflow with ID {workflow_id} not found")

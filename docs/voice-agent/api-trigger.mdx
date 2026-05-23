@@ -14,7 +14,12 @@ This is useful when you want to trigger calls from your own backend, a CRM, or w
 
 ## Finding your trigger URL
 
-When you add an API Trigger node to your workflow, Dograh assigns it a unique UUID. The trigger node exposes two URLs that share this UUID — one for the published agent and one for the latest draft. You can copy either URL from the trigger node's settings dialog.
+When you add an API Trigger node to your workflow, Dograh assigns it a unique UUID. The trigger node exposes two URLs that share this UUID:
+
+- A **production URL** for the published workflow
+- A **test URL** for the latest draft
+
+You can copy either URL from the trigger node's settings dialog.
 
 ```
 POST https://your-dograh-instance/api/v1/public/agent/{uuid}        # Production
@@ -30,7 +35,15 @@ If you are using the hosted version, replace `your-dograh-instance` with `api.do
 | Production | `/api/v1/public/agent/{uuid}`      | The published version of the agent.                                       |
 | Test       | `/api/v1/public/agent/test/{uuid}` | The latest draft. Falls back to the published version if no draft exists. |
 
-Use the test URL while iterating on changes so production traffic continues to hit the published version. Once you publish your draft, both URLs run the same definition.
+Use the test URL while iterating on changes so production traffic continues to hit the published version.
+
+The production URL only executes a **published** workflow. If you update the workflow but do not publish it, the production trigger will continue to run the older published version.
+
+Once you publish your draft, both URLs run the same definition.
+
+<Warning>
+A common pitfall is editing the workflow, saving the draft, and then calling the production trigger URL expecting the new behavior. That will not work until you publish the workflow. Use the test URL to verify draft changes before publishing.
+</Warning>
 
 The request body, headers, and response shape are identical for both URLs.
 
@@ -38,7 +51,8 @@ The request body, headers, and response shape are identical for both URLs.
 
 Authenticate by passing your API key in the `X-API-Key` header. The request body requires a `phone_number` and accepts optional `initial_context` and `telephony_configuration_id` fields.
 
-```bash
+<CodeGroup>
+```bash Production URL
 curl -X POST https://your-dograh-instance/api/v1/public/agent/{uuid} \
   -H "Content-Type: application/json" \
   -H "X-API-Key: dg_your_api_key" \
@@ -50,6 +64,22 @@ curl -X POST https://your-dograh-instance/api/v1/public/agent/{uuid} \
     }
   }'
 ```
+
+```bash Test URL
+curl -X POST https://your-dograh-instance/api/v1/public/agent/test/{uuid} \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: dg_your_api_key" \
+  -d '{
+    "phone_number": "+14155550100",
+    "initial_context": {
+      "customer_name": "Jane",
+      "appointment_date": "March 15"
+    }
+  }'
+```
+</CodeGroup>
+
+Use the test URL when you want to verify draft changes before publishing.
 
 ### Response
 

@@ -8,7 +8,7 @@ By default, the Dograh API container runs a single uvicorn worker. For productio
 This page covers how the multi-worker setup works, how to choose a worker count at install time, and how to change it on a running stack.
 
 <Warning>
-Multi-worker support requires **Dograh v1.29.0 or newer**. Earlier releases used `uvicorn --workers` and ship a different `setup_remote.sh` / `start_services_docker.sh` / `nginx.conf` layout — the steps below will not work on them. If your stack is older, [update first](/deployment/update) and then come back to this page.
+Multi-worker support requires **Dograh v1.29.0 or newer**. Earlier releases used `uvicorn --workers` and a different remote deployment layout. If your stack is older, [update first](/deployment/update) and then come back to this page.
 </Warning>
 
 ## How it works
@@ -58,23 +58,11 @@ Press Enter for the default (`4`) or enter a different positive integer. Non-int
 SERVER_IP=... TURN_SECRET=... FASTAPI_WORKERS=8 ./setup_remote.sh
 ```
 
-The script wires the value into two places:
-
-- **`.env`** — sets `FASTAPI_WORKERS=N`, which `docker-compose.yaml` substitutes into the API container's environment.
-- **`nginx.conf`** — generates an `upstream dograh_api` block with one `server api:800X` entry per worker.
-
-Both must agree, which is why the script generates them together.
+The script stores the value in **`.env`** (`FASTAPI_WORKERS=N`). The supported startup path (`./remote_up.sh`) preflights the `dograh-init` render from that value before every remote start, so nginx and the API worker count stay aligned.
 
 ## Changing the worker count on a running stack
 
-Once Dograh is running, increasing or decreasing the worker count is a two-file edit plus a restart. You'll touch:
-
-1. **`.env`** — controls how many uvicorn processes the API container spawns.
-2. **`nginx.conf`** — controls which worker ports nginx forwards to.
-
-<Warning>
-Both files must stay in sync. If `.env` says `FASTAPI_WORKERS=8` but `nginx.conf` only lists 4 upstream servers, half your workers will be idle. If `nginx.conf` lists more upstreams than there are workers, those upstreams will throw connection errors and trip the `proxy_next_upstream` fallback.
-</Warning>
+Once Dograh is running, increasing or decreasing the worker count is a one-file edit plus a restart. Change `.env`, then start through `./remote_up.sh` so `dograh-init` regenerates nginx runtime config before Docker starts the stack.
 
 ### Steps
 
@@ -90,41 +78,21 @@ FASTAPI_WORKERS=4
 FASTAPI_WORKERS=8
 ```
 
-**2. Edit `nginx.conf`** and update the `upstream dograh_api` block so it has exactly one `server api:800X` line per worker, with ports starting at `8000`:
-
-```nginx
-upstream dograh_api {
-    least_conn;
-    server api:8000 max_fails=3 fail_timeout=10s;
-    server api:8001 max_fails=3 fail_timeout=10s;
-    server api:8002 max_fails=3 fail_timeout=10s;
-    server api:8003 max_fails=3 fail_timeout=10s;
-    server api:8004 max_fails=3 fail_timeout=10s;   # ← new
-    server api:8005 max_fails=3 fail_timeout=10s;   # ← new
-    server api:8006 max_fails=3 fail_timeout=10s;   # ← new
-    server api:8007 max_fails=3 fail_timeout=10s;   # ← new
-    keepalive 32;
-}
-```
-
-To **scale down**, remove the trailing `server` lines so the list matches the new `FASTAPI_WORKERS` value.
-
-**3. Recreate the affected containers.** The simplest path — brief downtime, no surprises:
+**2. Recreate the stack through the validated wrapper.** The simplest path — brief downtime, no surprises:
 
 ```bash
-sudo docker compose --profile remote down
-sudo docker compose --profile remote up -d
+./remote_up.sh
 ```
 
 If you want to avoid downtime and your stack is healthy, you can recreate only the `api` and `nginx` containers:
 
 ```bash
-sudo docker compose --profile remote up -d --force-recreate api nginx
+./remote_up.sh -- api nginx
 ```
 
-`--force-recreate` ensures the api container picks up the new `FASTAPI_WORKERS` value and nginx re-reads the updated `nginx.conf` (which is mounted read-only from disk).
+`remote_up.sh` validates `.env`, runs the same `dograh-init` render that Compose will use at startup, runs `docker compose config -q`, and then starts the requested services.
 
-**4. Verify.** Confirm the right number of uvicorn processes are running. The API image is slim and doesn't include `ps`, so use Docker's host-side view instead:
+**3. Verify.** Confirm the right number of uvicorn processes are running. The API image is slim and doesn't include `ps`, so use Docker's host-side view instead:
 
 ```bash
 sudo docker compose --profile remote top api | grep uvicorn

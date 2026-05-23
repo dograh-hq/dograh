@@ -1,5 +1,55 @@
 # Changelog
 
+## [1.31.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.1...dograh-v1.31.0) (2026-05-21)
+
+
+### Features
+
+* add agent skills to review PR ([#320](https://github.com/dograh-hq/dograh/issues/320)) ([151bf77](https://github.com/dograh-hq/dograh/commit/151bf77e40476b63000c1e88d2f348d5d2791344))
+* add chat based testing for voice agent ([#308](https://github.com/dograh-hq/dograh/issues/308)) ([d97d1d7](https://github.com/dograh-hq/dograh/commit/d97d1d72cd1a414442b8b9f66d8312950c06978c))
+* add Review AGENTS.md Skill ([d93d7af](https://github.com/dograh-hq/dograh/commit/d93d7aff4d5308ee17c55855f0ffd1ed9f90449f))
+* add Tuner Integration to Dograh ([#311](https://github.com/dograh-hq/dograh/issues/311)) ([5f28c1b](https://github.com/dograh-hq/dograh/commit/5f28c1b2a9b17ed19f8a2b4118d1d4eb8c4249a7))
+* **mcp:** add search_docs tool over docs corpus (closes [#295](https://github.com/dograh-hq/dograh/issues/295)) ([#316](https://github.com/dograh-hq/dograh/issues/316)) ([5762095](https://github.com/dograh-hq/dograh/commit/5762095edfa585fa078ba70d486bc7af14708457))
+* **mcp:** generic MCP tool source with per-node function filtering ([#301](https://github.com/dograh-hq/dograh/issues/301)) ([75839f9](https://github.com/dograh-hq/dograh/commit/75839f9de5eb26ccc296235af36058e442d10d58))
+
+
+### Bug Fixes
+
+* **security:** bump python-multipart 0.0.20 -&gt; 0.0.27 ([#332](https://github.com/dograh-hq/dograh/issues/332)) ([332754a](https://github.com/dograh-hq/dograh/commit/332754a809ec14b9164c698fb3eff682b1d9d446))
+* **stt:** align Speechmatics language registry with official transcription codes ([#317](https://github.com/dograh-hq/dograh/issues/317)) ([afa78fe](https://github.com/dograh-hq/dograh/commit/afa78fe859e51d45b12dedd01613f2c24ffc7f65))
+* **webRTC:** LAN IP filtering ([#333](https://github.com/dograh-hq/dograh/issues/333)) ([af66372](https://github.com/dograh-hq/dograh/commit/af66372b655f05f4fc8e778ec58902e15ce25531))
+
+
+### Documentation
+
+* add Simplified Chinese translation of README ([#305](https://github.com/dograh-hq/dograh/issues/305)) ([5b1e398](https://github.com/dograh-hq/dograh/commit/5b1e3980b1982506aa334d19ab594db04ef9e19c))
+
+## [1.30.1](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.0...dograh-v1.30.1) (2026-05-17)
+
+
+### Bug Fixes
+
+* fix race between context init and keepalive for Dograh TTS ([ba7d45f](https://github.com/dograh-hq/dograh/commit/ba7d45fde054e30eb717f7912283d71647bdce2c))
+
+## [1.30.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.29.0...dograh-v1.30.0) (2026-05-16)
+
+
+### Features
+
+* add openai realtime models ([#298](https://github.com/dograh-hq/dograh/issues/298)) ([2381a80](https://github.com/dograh-hq/dograh/commit/2381a803ade54f6c8d1db572e0f6c3301dd74c20))
+
+
+### Bug Fixes
+
+* force FORCE_TURN_RELAY for local IPs in setup ([fc04f31](https://github.com/dograh-hq/dograh/commit/fc04f31639e0d326525d6840ca117babe2b25ea8))
+* provider resolution in telephony cost calculation post workflow integration calls ([0523dcb](https://github.com/dograh-hq/dograh/commit/0523dcb079410803a54deec49afda98cbb96e7bd))
+
+
+### Documentation
+
+* add telnyx to telephony providers supporting call transfer ([4ff1f57](https://github.com/dograh-hq/dograh/commit/4ff1f576f0a5e079466318d6e99d27eada6abc9e))
+* update README.md ([ea13492](https://github.com/dograh-hq/dograh/commit/ea13492a894af11410c7c54500f4bdc6fa0c2cda))
+
 ## [1.29.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.28.0...dograh-v1.29.0) (2026-05-13)
 
 

@@ -18,6 +18,25 @@ def _qa_node(node_id="qa-1", api_key="", **extra_data):
     return {"id": node_id, "type": "qa", "position": {"x": 0, "y": 0}, "data": data}
 
 
+def _tuner_node(node_id="tuner-1", api_key="", **extra_data):
+    """Helper to build a Tuner node."""
+    data = {
+        "name": "Tuner",
+        "tuner_enabled": True,
+        "tuner_agent_id": "sales-bot",
+        "tuner_workspace_id": 7,
+        **extra_data,
+    }
+    if api_key:
+        data["tuner_api_key"] = api_key
+    return {
+        "id": node_id,
+        "type": "tuner",
+        "position": {"x": 0, "y": 0},
+        "data": data,
+    }
+
+
 def _agent_node(node_id="agent-1"):
     """Helper to build a non-QA node."""
     return {
@@ -65,6 +84,19 @@ class TestMaskWorkflowDefinition:
         assert masked["nodes"][0]["type"] == "agentNode"
         assert "qa_api_key" not in masked["nodes"][0]["data"]
         assert masked["nodes"][1]["data"]["qa_api_key"] == mask_key("sk-secret1234")
+
+    def test_masks_tuner_api_key(self):
+        """Tuner node api_key is masked, showing only last 4 chars."""
+        real_key = "tuner_live_abcdefghijklmnop"
+        wf = _make_workflow_def([_tuner_node(api_key=real_key)])
+
+        masked = mask_workflow_definition(wf)
+
+        masked_key = masked["nodes"][0]["data"]["tuner_api_key"]
+        assert masked_key == mask_key(real_key)
+        assert masked_key.endswith("mnop")
+        assert masked_key.startswith("*")
+        assert real_key not in str(masked)
 
     def test_qa_node_without_api_key(self):
         """QA node with no api_key is left as-is."""
@@ -153,6 +185,16 @@ class TestMergeWorkflowApiKeys:
         result = merge_workflow_api_keys(incoming, existing)
 
         assert result["nodes"][0]["data"]["qa_api_key"] == new_key
+
+    def test_masked_tuner_key_is_restored(self):
+        """Masked Tuner keys round-trip without losing the stored secret."""
+        real_key = "tuner_live_abcdefghijklmnop"
+        existing = _make_workflow_def([_tuner_node(api_key=real_key)])
+        incoming = _make_workflow_def([_tuner_node(api_key=mask_key(real_key))])
+
+        result = merge_workflow_api_keys(incoming, existing)
+
+        assert result["nodes"][0]["data"]["tuner_api_key"] == real_key
 
     def test_no_incoming_api_key(self):
         """QA node without api_key in incoming is left alone."""

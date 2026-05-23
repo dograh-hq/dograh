@@ -10,16 +10,12 @@ Execution flow:
     4. Save as a new draft via `db_client.save_workflow_draft` — the
        published version stays intact, so edits are rollback-safe.
 
-Error codes surfaced to the LLM:
-    parse_error       — TS parse failed or a disallowed construct was used
-    validation_error  — node data failed spec validation (unknown field,
-                        missing required, wrong type, option out of range)
-    schema_validation — ReactFlowDTO Pydantic rejection (rare; parser bug)
-    graph_validation  — semantic graph rule broken (e.g. no start node)
-    bridge_error      — Node subprocess failed before returning JSON
-
-All LLM-facing errors include file:line:column where available so the
-LLM can correct its code directly.
+Each failure path returns an `error_code` via `_error_result`. Those
+codes and their meanings are documented in the `save_workflow` docstring
+(the description shipped to the LLM via `tools/list`); keep the two in
+sync — `test_mcp_instructions_drift.py` enforces it. All LLM-facing
+errors include file:line:column where available so the LLM can correct
+its code directly.
 """
 
 from __future__ import annotations
@@ -32,28 +28,21 @@ from pydantic import ValidationError as PydanticValidationError
 
 from api.db import db_client
 from api.mcp_server.auth import authenticate_mcp_request
+from api.mcp_server.tools._workflow_projection import (
+    select_workflow_projection_source,
+)
 from api.mcp_server.tracing import traced_tool
 from api.mcp_server.ts_bridge import TsBridgeError, parse_code
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.layout import reconcile_positions
+from api.services.workflow.trigger_paths import validate_trigger_paths
 from api.services.workflow.workflow_graph import WorkflowGraph
 
 
 async def _previous_workflow_json(workflow: Any) -> dict[str, Any] | None:
-    """Same selection priority as `get_workflow_code` — the version the
-    LLM saw is the version we reconcile against.
-
-    `current_definition` (is_current=True) is the published row, so the
-    draft must be fetched explicitly. If no draft exists (e.g. the last
-    draft was just published), fall through to `released_definition`.
-    """
-    draft = await db_client.get_draft_version(workflow.id)
-    if draft is not None and draft.workflow_json:
-        return draft.workflow_json
-    released = workflow.released_definition
-    if released is not None and released.workflow_json:
-        return released.workflow_json
-    return workflow.workflow_definition or None
+    """Match the agent-facing read tools' source selection."""
+    source = await select_workflow_projection_source(workflow)
+    return source.payload
 
 
 def _error_result(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -91,6 +80,18 @@ async def save_workflow(workflow_id: int, code: str) -> dict[str, Any]:
 
     On success the draft version is saved; the published version is
     untouched.
+
+    On failure the result has `saved: false`, a machine-readable
+    `error_code`, and a human-readable `error` (with file:line:column
+    where the problem is locatable). Resubmit the full corrected source —
+    patches are not accepted. Possible `error_code` values:
+    - `parse_error` — disallowed construct or malformed TypeScript.
+    - `validation_error` — node data failed spec validation (unknown
+      field, missing required, wrong type, option out of range).
+    - `schema_validation` — wire-format (DTO) rejection; rare.
+    - `graph_validation` — structural rule broken (e.g. no start node,
+      unreachable node, edge to/from the wrong node type).
+    - `bridge_error` — internal/transient; retry once, then surface it.
     """
     user = await authenticate_mcp_request()
 
@@ -121,6 +122,12 @@ async def save_workflow(workflow_id: int, code: str) -> dict[str, Any]:
     # here we fill them back in from what was there before, and pick
     # approximate placements for newly-introduced nodes.
     payload = reconcile_positions(payload, await _previous_workflow_json(workflow))
+    trigger_path_issues = validate_trigger_paths(payload)
+    if trigger_path_issues:
+        return _error_result(
+            "validation_error",
+            "\n".join(issue.message for issue in trigger_path_issues),
+        )
 
     # 2. Pydantic shape check (defence in depth — parser is spec-driven).
     try:

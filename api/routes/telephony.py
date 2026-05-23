@@ -757,6 +757,7 @@ async def handle_inbound_run(request: Request):
             from_phone_number_id=phone_row.id,
         )
 
+        backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         websocket_url = (
             f"{wss_backend_endpoint}/api/v1/telephony/ws/"
             f"{workflow_id}/{user_id}/{workflow_run_id}"

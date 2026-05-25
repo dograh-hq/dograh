@@ -39,24 +39,32 @@ if [ "$DEV_MODE" -eq 0 ]; then
     git submodule update --init --recursive
 fi
 
+# Use uv (https://github.com/astral-sh/uv) for ~5-10x faster installs.
+# The devcontainer Dockerfile pre-installs uv; this fallback handles CI runners
+# and contributor laptops that don't have it yet.
+if ! command -v uv >/dev/null 2>&1; then
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+fi
+
 # Install dograh API requirements first so pipecat's extras win on any
 # shared transitive dependencies (matches api/Dockerfile and CI workflow).
 echo "Installing dograh API requirements..."
-pip install -r api/requirements.txt
+uv pip install -r api/requirements.txt
 
 if [ "$DEV_MODE" -eq 1 ]; then
     echo "Installing dograh API dev requirements..."
-    pip install -r api/requirements.dev.txt
+    uv pip install -r api/requirements.dev.txt
 fi
 
 # Install pipecat in editable mode with all extras
 echo "Installing pipecat dependencies..."
-pip install -e ./pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp]
+uv pip install -e ./pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp]
 
 if [ "$DEV_MODE" -eq 1 ]; then
     echo "Installing pipecat dev dependencies..."
-    pip install --upgrade pip
-    pip install --group pipecat/pyproject.toml:dev
+    uv pip install --group pipecat/pyproject.toml:dev
 fi
 
 echo "Setup complete! Requirements are installed."

@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile
 # Stage 1: Builder - Install Python dependencies
-FROM python:3.12-slim AS builder
+FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
@@ -56,7 +56,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && chmod +x /usr/local/bin/ffmpeg /usr/local/bin/ffprobe
 
 # Stage 4: Runtime - Minimal image with only runtime dependencies
-FROM python:3.12-slim AS runner
+FROM python:3.13-slim AS runner
 
 WORKDIR /app
 
@@ -65,7 +65,7 @@ COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 
 # Node.js 22 binary only (ts_validator subprocess needs node >=22.6 for
-# native TypeScript stripping; see api/mcp_server/ts_bridge.py). python:3.12-slim
+# native TypeScript stripping; see api/mcp_server/ts_bridge.py). python:3.13-slim
 # already provides libstdc++6, libgcc-s1, and ca-certificates that node needs.
 COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 

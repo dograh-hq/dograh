@@ -126,6 +126,13 @@
         "icon": "code",
         "groups": [
           {
+            "group": "Contribution",
+            "pages": [
+              "contribution/introduction",
+              "contribution/setup"
+            ]
+          },
+          {
             "group": "Guides",
             "pages": [
               "developer/workflow-schema",
@@ -151,13 +158,6 @@
               "deployment/scaling",
               "deployment/update",
               "deployment/heroku"
-            ]
-          },
-          {
-            "group": "Contribution",
-            "pages": [
-              "contribution/introduction",
-              "contribution/setup"
             ]
           }
         ]

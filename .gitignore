@@ -11,6 +11,7 @@ infrastructure/
 prd/
 .vercel
 
+api/.env.devcontainer
 venv/
 .venv/
 .playwright-mcp
@@ -18,4 +19,3 @@ coturn/
 *.wav
 dograh_pcm_cache/
 node_modules/
-.vscode

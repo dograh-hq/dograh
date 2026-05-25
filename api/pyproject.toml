@@ -2,4 +2,4 @@
 name = "dograh-api"
 version = "1.31.0"
 description = "Backend API for Dograh voice AI platform"
-requires-python = ">=3.12"
+requires-python = ">=3.13,<3.14"

@@ -8,7 +8,7 @@ set -e  # Exit on error
 # Determine BASE_DIR as parent of the scripts directory
 BASE_DIR="$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")" && pwd)"
 
-ENV_FILE="$BASE_DIR/api/.env"
+ENV_FILE="${DOGRAH_ENV_FILE:-$BASE_DIR/api/.env}"
 RUN_DIR="$BASE_DIR/run"                 # Where we keep *.pid
 BASE_LOG_DIR="$BASE_DIR/logs"           # Base logs directory
 
@@ -26,6 +26,7 @@ HEALTH_INTERVAL=${HEALTH_INTERVAL:-2}
 cd "$BASE_DIR"
 echo "Starting Dograh Services (DEV MODE) at $(date) in BASE_DIR: ${BASE_DIR}"
 echo "Auto-reload enabled for api/ directory changes"
+echo "Environment file: $ENV_FILE"
 
 ###############################################################################
 ### 1) Load environment variables

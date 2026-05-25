@@ -93,8 +93,17 @@ async def handle_vobiz_hangup_callback(
         f"[run {workflow_run_id}] Received Vobiz hangup callback {json.dumps(callback_data)}"
     )
 
-    # Verify signature if provided
-    if x_vobiz_signature:
+    # Verify signature if Vobiz provided any supported signature header.
+    has_vobiz_signature = any(
+        header in all_headers
+        for header in (
+            "x-vobiz-signature-v3",
+            "x-vobiz-signature-ma-v3",
+            "x-vobiz-signature-v2",
+            "x-vobiz-signature-ma-v2",
+        )
+    )
+    if has_vobiz_signature:
         # We need the workflow run to get organization for provider credentials
         workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
         if not workflow_run:
@@ -118,11 +127,10 @@ async def handle_vobiz_hangup_callback(
         backend_endpoint, _ = await get_backend_endpoints()
         webhook_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/{workflow_run_id}"
 
-        is_valid = await provider.verify_webhook_signature(
+        is_valid = await provider.verify_inbound_signature(
             webhook_url,
             callback_data,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
+            all_headers,
             raw_body,
         )
 
@@ -215,8 +223,17 @@ async def handle_vobiz_ring_callback(
         f"[run {workflow_run_id}] Received Vobiz ring callback {json.dumps(callback_data)}"
     )
 
-    # Verify signature if provided
-    if x_vobiz_signature:
+    # Verify signature if Vobiz provided any supported signature header.
+    has_vobiz_signature = any(
+        header in all_headers
+        for header in (
+            "x-vobiz-signature-v3",
+            "x-vobiz-signature-ma-v3",
+            "x-vobiz-signature-v2",
+            "x-vobiz-signature-ma-v2",
+        )
+    )
+    if has_vobiz_signature:
         # We need the workflow run to get organization for provider credentials
         workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
         if not workflow_run:
@@ -242,11 +259,10 @@ async def handle_vobiz_ring_callback(
             f"{backend_endpoint}/api/v1/telephony/vobiz/ring-callback/{workflow_run_id}"
         )
 
-        is_valid = await provider.verify_webhook_signature(
+        is_valid = await provider.verify_inbound_signature(
             webhook_url,
             callback_data,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
+            all_headers,
             raw_body,
         )
 
@@ -348,15 +364,23 @@ async def handle_vobiz_hangup_callback_by_workflow(
         workflow_run, workflow.organization_id
     )
 
-    if x_vobiz_signature:
+    has_vobiz_signature = any(
+        header in all_headers
+        for header in (
+            "x-vobiz-signature-v3",
+            "x-vobiz-signature-ma-v3",
+            "x-vobiz-signature-v2",
+            "x-vobiz-signature-ma-v2",
+        )
+    )
+    if has_vobiz_signature:
         backend_endpoint, _ = await get_backend_endpoints()
         webhook_url = f"{backend_endpoint}/api/v1/telephony/vobiz/hangup-callback/workflow/{workflow_id}"
 
-        is_valid = await provider.verify_webhook_signature(
+        is_valid = await provider.verify_inbound_signature(
             webhook_url,
             callback_data,
-            x_vobiz_signature,
-            x_vobiz_timestamp,
+            all_headers,
             raw_body,
         )
 

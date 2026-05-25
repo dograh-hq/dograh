@@ -1,6 +1,6 @@
+import base64
 import hashlib
 import hmac
-from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
@@ -61,19 +61,18 @@ def _request(
     )
 
 
-def _signed_headers(
-    provider: VobizProvider, *, form_data: dict[str, str]
-) -> dict[str, str]:
-    timestamp = str(int(datetime.now(UTC).timestamp()))
-    body = urlencode(form_data)
-    signature = hmac.new(
-        provider.auth_token.encode("utf-8"),
-        f"{timestamp}.{body}".encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
+def _signed_headers(provider: VobizProvider, *, url: str) -> dict[str, str]:
+    nonce = "12345678901234567890"
+    signature = base64.b64encode(
+        hmac.new(
+            provider.auth_token.encode("utf-8"),
+            f"{url}.{nonce}".encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("ascii")
     return {
-        "x-vobiz-signature": signature,
-        "x-vobiz-timestamp": timestamp,
+        "x-vobiz-signature-v3": signature,
+        "x-vobiz-signature-v3-nonce": nonce,
     }
 
 
@@ -88,7 +87,9 @@ async def test_vobiz_hangup_callback_accepts_signed_form_body():
         "Direction": "outbound",
         "Duration": "12",
     }
-    headers = _signed_headers(provider, form_data=form_data)
+    headers = _signed_headers(
+        provider, url="https://example.test/api/v1/telephony/vobiz/hangup-callback/123"
+    )
     request = _request(
         path="/api/v1/telephony/vobiz/hangup-callback/123",
         form_data=form_data,
@@ -122,8 +123,6 @@ async def test_vobiz_hangup_callback_accepts_signed_form_body():
         result = await handle_vobiz_hangup_callback(
             workflow_run_id=123,
             request=request,
-            x_vobiz_signature=headers["x-vobiz-signature"],
-            x_vobiz_timestamp=headers["x-vobiz-timestamp"],
         )
 
     assert result == {"status": "success"}
@@ -139,7 +138,9 @@ async def test_vobiz_ring_callback_accepts_signed_form_body():
         "From": "15551230001",
         "To": "15551230002",
     }
-    headers = _signed_headers(provider, form_data=form_data)
+    headers = _signed_headers(
+        provider, url="https://example.test/api/v1/telephony/vobiz/ring-callback/123"
+    )
     request = _request(
         path="/api/v1/telephony/vobiz/ring-callback/123",
         form_data=form_data,
@@ -170,9 +171,57 @@ async def test_vobiz_ring_callback_accepts_signed_form_body():
         result = await handle_vobiz_ring_callback(
             workflow_run_id=123,
             request=request,
-            x_vobiz_signature=headers["x-vobiz-signature"],
-            x_vobiz_timestamp=headers["x-vobiz-timestamp"],
         )
 
     assert result == {"status": "success"}
     db_client.update_workflow_run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_vobiz_verify_webhook_signature_accepts_v3_and_strips_query():
+    provider = _provider()
+    headers = _signed_headers(
+        provider, url="https://example.test/api/v1/telephony/vobiz/hangup-callback/123"
+    )
+
+    assert await provider.verify_webhook_signature(
+        "https://example.test/api/v1/telephony/vobiz/hangup-callback/123?foo=bar",
+        {},
+        headers["x-vobiz-signature-v3"],
+        headers["x-vobiz-signature-v3-nonce"],
+        signature_version="v3",
+    )
+
+
+@pytest.mark.asyncio
+async def test_vobiz_verify_inbound_signature_accepts_v2():
+    provider = _provider()
+    url = "https://example.test/api/v1/telephony/vobiz/hangup-callback/123"
+    nonce = "12345678901234567890"
+    signature = base64.b64encode(
+        hmac.new(
+            provider.auth_token.encode("utf-8"),
+            f"{url}{nonce}".encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+    ).decode("ascii")
+
+    assert await provider.verify_inbound_signature(
+        url,
+        {},
+        {
+            "X-Vobiz-Signature-V2": signature,
+            "X-Vobiz-Signature-V2-Nonce": nonce,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_vobiz_verify_inbound_signature_rejects_missing_signature():
+    provider = _provider()
+
+    assert not await provider.verify_inbound_signature(
+        "https://example.test/api/v1/telephony/vobiz/hangup-callback/123",
+        {},
+        {},
+    )

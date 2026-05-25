@@ -18,6 +18,22 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BaseDir   = Split-Path -Parent $ScriptDir
 Set-Location $BaseDir
 
+# Fail early if the active Python is not 3.12 or 3.13. uv pip installs into
+# whichever interpreter resolves here (the active venv, or PATH python), so a
+# mismatch surfaces as confusing wheel/build errors much later.
+$PythonBin = if ($env:PYTHON) { $env:PYTHON } else { 'python' }
+if (-not (Get-Command $PythonBin -ErrorAction SilentlyContinue)) {
+    Write-Error "'$PythonBin' not found on PATH. Activate the project venv (or set `$env:PYTHON) and retry."
+    exit 1
+}
+
+$PyMajMin = & $PythonBin -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+if ($PyMajMin -ne '3.12' -and $PyMajMin -ne '3.13') {
+    $PyPath = (Get-Command $PythonBin).Source
+    Write-Error "Python 3.12 or 3.13 required, found $PyMajMin at $PyPath. Activate a venv built with python3.12 or python3.13 and retry."
+    exit 1
+}
+
 Write-Host "Setting up pipecat as a git submodule..."
 
 if (-not $Dev) {

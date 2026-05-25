@@ -1,21 +1,18 @@
 ---
 title: Setup
-description: Use this page to set up the Dograh contributor environment, with a devcontainer-first workflow.
+description: Set up the Dograh contributor environment with the devcontainer-first workflow.
 ---
 <Note>
 If the steps below do not work for you, please open an issue on [GitHub](https://github.com/dograh-hq/dograh/issues).
 </Note>
 
-### Recommended: Devcontainer setup
+### Recommended: Devcontainer Setup
 
 #### System Requirements
 - Git
 - Docker Desktop or another local Docker engine
-- A Dev Container-compatible editor. The most tested path is VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
-
-<Note>
-The checked-in `.devcontainer/` follows the Dev Containers specification. VS Code is the default recommendation because its support is the most mature and best documented, but the same setup should also work in tools like Cursor and JetBrains IDEs that support Dev Containers.
-</Note>
+- For the IDE path: VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers)
+- For the terminal-only path: Node.js on your host so you can install the Dev Container CLI
 
 1. Fork the Dograh repository at https://github.com/dograh-hq/dograh
 2. Clone **your fork**:
@@ -23,25 +20,35 @@ The checked-in `.devcontainer/` follows the Dev Containers specification. VS Cod
 git clone https://github.com/<GITHUB_HANDLE>/dograh
 cd dograh
 ```
-If you cloned `dograh-hq/dograh` directly instead of your fork, run `bash scripts/setup_fork.sh` once inside the container after it boots to reset `origin` and `upstream`.
+3. Start the devcontainer.
 
-3. Open the repository in your Dev Container-compatible editor and start the devcontainer.
-If you are using VS Code, run **Dev Containers: Reopen in Container**.
-4. Wait for the first container boot to finish. The post-create bootstrap will:
-- initialize the `pipecat` submodule
-- create `venv/` with Python 3.13
-- install backend dependencies with `scripts/setup_requirements.sh --dev`
-- install `ui/` dependencies and `api/mcp_server/ts_validator` dependencies
-- create `api/.env` and `ui/.env` if they do not already exist (rewriting docker network hostnames in `api/.env`)
-- start `postgres`, `redis`, and `minio` via Docker Compose
+   In VS Code, open the repository and run **Dev Containers: Reopen in Container**.
+
+   Without an IDE, use the Dev Container CLI:
+```bash
+npm install -g @devcontainers/cli
+devcontainer up --workspace-folder .
+devcontainer exec --workspace-folder . bash
+```
+4. Wait for the first build to finish. The first build takes several minutes; subsequent opens are much faster.
 5. Start the backend from a terminal inside the container:
 ```bash
 bash scripts/start_services_dev.sh
+```
+
+   Without an IDE, run the same command from your host:
+```bash
+devcontainer exec --workspace-folder . bash scripts/start_services_dev.sh
 ```
 6. Start the UI from another terminal inside the container:
 ```bash
 cd ui
 npm run dev -- --hostname 0.0.0.0
+```
+
+   Without an IDE, use another host terminal:
+```bash
+devcontainer exec --workspace-folder . bash -lc 'cd ui && npm run dev -- --hostname 0.0.0.0'
 ```
 7. Verify that the backend is healthy:
 ```bash
@@ -49,108 +56,8 @@ curl -X GET localhost:8000/api/v1/health
 ```
 8. Open the app at `http://localhost:3000`.
 
-You can tail backend logs from inside the container with:
+### More Setup Options
 
-```bash
-tail -f logs/latest/*.log
-```
-
-The backend reads `api/.env` both on the host and inside the devcontainer. The post-create bootstrap rewrites `DATABASE_URL`, `REDIS_URL`, and `MINIO_ENDPOINT` to docker network aliases (`postgres`, `redis`, `minio`) when it creates the file. If you already had an `api/.env` from host development with `localhost` hosts for those, edit it before starting the backend inside the devcontainer.
-
-#### Restarting the backend
-Re-run the same start script to restart. It reads the PID files under `run/`, terminates the previous services along with their descendants, and starts fresh ones.
-
-```bash
-bash scripts/start_services_dev.sh
-```
-
-<Note>
-`uvicorn` runs with `--reload --reload-dir api`, so edits under `api/` are picked up automatically. The other services (`ari_manager`, `campaign_orchestrator`, `arq`) do not auto-reload; re-run the start script after changing code they execute.
-</Note>
-
-### Fallback: host-managed setup
-Use this only if you do not want to use the devcontainer.
-
-#### System Requirements
-- Git
-- Node.js 24 to run the UI
-- Python 3.13 to run the backend
-- Docker to run Postgres, Redis, and MinIO locally
-
-1. Run the contributor bootstrap. It configures `origin` (your fork) and `upstream` (`dograh-hq/dograh`), initializes the pipecat submodule, creates the Python venv, and copies the `.env` templates.
-<CodeGroup>
-```bash macOS/Linux
-bash scripts/setup_fork.sh
-```
-```powershell Windows
-.\scripts\setup_fork.ps1
-```
-</CodeGroup>
-2. Activate the virtual environment:
-<CodeGroup>
-```bash macOS/Linux
-source venv/bin/activate
-```
-```powershell Windows
-.\venv\Scripts\Activate.ps1
-```
-</CodeGroup>
-3. Ensure your local Node version is 24:
-```bash
-nvm use 24
-```
-4. Install UI dependencies:
-```bash
-cd ui && npm install && cd ..
-```
-5. Start the local Docker services:
-```bash
-docker compose -f docker-compose-local.yaml up -d
-```
-6. Install Python requirements:
-<CodeGroup>
-```bash macOS/Linux
-bash scripts/setup_requirements.sh --dev
-```
-```powershell Windows
-.\scripts\setup_requirements.ps1 -Dev
-```
-</CodeGroup>
-7. Start the backend services:
-<CodeGroup>
-```bash macOS/Linux
-bash scripts/start_services_dev.sh
-```
-```powershell Windows
-.\scripts\start_services_dev.ps1
-```
-</CodeGroup>
-8. Start the UI:
-```bash
-cd ui && npm run dev
-```
-9. Open the application on `http://localhost:3000`.
-
-### Keeping your fork in sync with upstream
-The bootstrap script configures two remotes: `origin` (your fork, where you push) and `upstream` (`dograh-hq/dograh`, where new commits land). To pull in upstream changes:
-
-```bash
-git fetch upstream
-git checkout main
-git merge upstream/main
-git push origin main
-```
-
-Check your remotes any time with `git remote -v`. You should see:
-
-```bash
-origin    https://github.com/<YOUR_HANDLE>/dograh.git (fetch/push)
-upstream  https://github.com/dograh-hq/dograh.git    (fetch/push)
-```
-
-<Note>
-Always push feature branches to **`origin`** (your fork), then open a pull request against `dograh-hq/dograh:main`. Never push directly to `upstream`.
-</Note>
-
-### Next Steps
-The repository ships with `AGENTS.md` and `CLAUDE.md` so coding agents can navigate the codebase quickly. Adjust them locally if you need agent-specific guidance for your workflow.
+- For what the devcontainer bootstrap does, rebuild guidance, logs, and personal install hooks, see [Devcontainer Workflow](/contribution/devcontainer).
+- If you cloned `dograh-hq/dograh` directly instead of your fork, see [Fork Workflow](/contribution/fork-workflow) to reset `origin` and `upstream`.
+- If you do not want to use the devcontainer, see [Host-managed Setup](/contribution/host-managed-setup).

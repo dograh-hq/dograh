@@ -50,6 +50,30 @@
             "justMyCode": false
         },
         {
+            "name": "API: Campaign orchestrator",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "api.services.campaign.campaign_orchestrator",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "API: ARI manager",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "api.services.telephony.ari_manager",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
             "name": "Tests: API (pytest, full suite)",
             "type": "debugpy",
             "request": "launch",

@@ -22,6 +22,9 @@ from api.services.configuration.options import (
     GOOGLE_VERTEX_REALTIME_MODELS,
     GOOGLE_VERTEX_REALTIME_VOICES,
     SARVAM_LANGUAGES,
+    SARVAM_LLM_MODELS,
+    SARVAM_STT_LANGUAGES_V25,
+    SARVAM_STT_LANGUAGES_V3,
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
     SARVAM_V2_VOICES,
@@ -89,7 +92,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.ULTRAVOX_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
-        # ServiceProviders.SARVAM,
+        ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
 
@@ -468,6 +471,29 @@ class MiniMaxLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+@register_llm
+class SarvamLLMConfiguration(BaseLLMConfiguration):
+    model_config = SARVAM_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+    model: str = Field(
+        default="sarvam-30b",
+        description=(
+            "Sarvam chat model. Use sarvam-30b for low-latency voice agents; "
+            "sarvam-105b for complex multi-step reasoning."
+        ),
+        json_schema_extra={"examples": SARVAM_LLM_MODELS, "allow_custom_input": True},
+    )
+    temperature: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description=(
+            "Sampling temperature. Sarvam recommends 0.5 for balanced "
+            "conversational responses."
+        ),
+    )
+
+
 OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
 OPENAI_REALTIME_VOICES = [
     "alloy",
@@ -657,6 +683,7 @@ LLMConfig = Annotated[
         AWSBedrockLLMConfiguration,
         SpeachesLLMConfiguration,
         MiniMaxLLMConfiguration,
+        SarvamLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1125,13 +1152,24 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
         default="saarika:v2.5",
-        description="Sarvam STT model.",
+        description=(
+            "Sarvam STT model. saarika:v2.5 transcribes in the spoken language; "
+            "saaras:v3 is the recommended model with flexible output modes."
+        ),
         json_schema_extra={"examples": SARVAM_STT_MODELS},
     )
     language: str = Field(
-        default="hi-IN",
-        description="BCP-47 Indian-language code.",
-        json_schema_extra={"examples": SARVAM_LANGUAGES},
+        default="unknown",
+        description=(
+            "BCP-47 language code. Use unknown for automatic language detection."
+        ),
+        json_schema_extra={
+            "examples": SARVAM_STT_LANGUAGES_V25,
+            "model_options": {
+                "saarika:v2.5": SARVAM_STT_LANGUAGES_V25,
+                "saaras:v3": SARVAM_STT_LANGUAGES_V3,
+            },
+        },
     )
 
 

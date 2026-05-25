@@ -16,6 +16,7 @@ class WorkflowRunResponseSchema(BaseModel):
     transcript_url: str | None
     recording_url: str | None
     cost_info: Dict[str, Any] | None
+    usage_info: Dict[str, Any] | None = None
     definition_id: int | None  # This is for backward compatibility
     initial_context: dict | None = None
     gathered_context: dict | None = None

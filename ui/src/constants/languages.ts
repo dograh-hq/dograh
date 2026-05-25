@@ -84,6 +84,7 @@ export const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
     "zh-CN": "Chinese (Simplified)",
     "zh-TW": "Chinese (Traditional)",
     // Sarvam Indian languages
+    "unknown": "Auto-detect",
     "bn-IN": "Bengali",
     "gu-IN": "Gujarati",
     "hi-IN": "Hindi",
@@ -95,4 +96,15 @@ export const LANGUAGE_DISPLAY_NAMES: Record<string, string> = {
     "ta-IN": "Tamil",
     "te-IN": "Telugu",
     "as-IN": "Assamese",
+    "ur-IN": "Urdu",
+    "ne-IN": "Nepali",
+    "kok-IN": "Konkani",
+    "ks-IN": "Kashmiri",
+    "sd-IN": "Sindhi",
+    "sa-IN": "Sanskrit",
+    "sat-IN": "Santali",
+    "mni-IN": "Manipuri",
+    "brx-IN": "Bodo",
+    "mai-IN": "Maithili",
+    "doi-IN": "Dogri",
 };

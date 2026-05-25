@@ -126,6 +126,16 @@
         "icon": "code",
         "groups": [
           {
+            "group": "Contribution",
+            "pages": [
+              "contribution/introduction",
+              "contribution/setup",
+              "contribution/devcontainer",
+              "contribution/host-managed-setup",
+              "contribution/fork-workflow"
+            ]
+          },
+          {
             "group": "Guides",
             "pages": [
               "developer/workflow-schema",
@@ -151,13 +161,6 @@
               "deployment/scaling",
               "deployment/update",
               "deployment/heroku"
-            ]
-          },
-          {
-            "group": "Contribution",
-            "pages": [
-              "contribution/introduction",
-              "contribution/setup"
             ]
           }
         ]
@@ -292,7 +295,6 @@
   "search": {
     "prompt": "Search for Tools, Webhook, Deployment, etc..."
   },
-  "openapi": "/api-reference/openapi.json",
   "customCSS": "/custom.css",
   "contextual": {
     "options": [
@@ -311,5 +313,8 @@
       "github": "https://github.com/dograh-hq",
       "linkedin": "https://linkedin.com/company/dograh"
     }
+  },
+  "api": {
+    "openapi": "api-reference/openapi.json"
   }
 }

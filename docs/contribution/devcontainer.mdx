@@ -1,0 +1,101 @@
+---
+title: Devcontainer Workflow
+description: Details for running and maintaining the Dograh devcontainer.
+---
+
+The checked-in `.devcontainer/` follows the Dev Containers specification, so it should also work in Cursor, JetBrains IDEs, and other Dev Container-compatible editors. Only the VS Code path is actively tested. If something breaks elsewhere, please open a [GitHub issue](https://github.com/dograh-hq/dograh/issues).
+
+### What the Bootstrap Does
+
+While the container starts, the devcontainer will:
+
+- Initialize the `pipecat` git submodule on the host through `initializeCommand`
+- Bring up `postgres`, `redis`, and `minio` through Docker Compose and wait for them to be healthy
+- Seed the `venv` named volume from the image-baked Python 3.13 venv
+- Reinstall `pipecat` as editable from the bind-mounted submodule so source edits take effect
+- Create `api/.env`, `api/.env.test`, and `ui/.env` from their `*.example` templates if they do not already exist
+- Run `npm ci` for `ui/` and `api/mcp_server/ts_validator/`
+
+In the API env files, `localhost` for Postgres, Redis, and MinIO is rewritten to the docker network aliases `postgres`, `redis`, and `minio`. `MINIO_PUBLIC_ENDPOINT` deliberately stays on `localhost` because the browser on your host loads from it.
+
+<Note>
+If you already had an `api/.env` or `api/.env.test` from host-managed development with `localhost` hosts for Postgres, Redis, or MinIO, the bootstrap leaves it untouched. Edit those URLs to the docker network aliases before starting the backend inside the devcontainer, or delete the file and let the bootstrap recreate it on the next rebuild.
+</Note>
+
+### Dev Container CLI
+
+Install the CLI once on your host:
+
+```bash
+npm install -g @devcontainers/cli
+```
+
+Start or rebuild the container from the repository root:
+
+```bash
+devcontainer up --workspace-folder .
+```
+
+Open a shell in the running workspace container:
+
+```bash
+devcontainer exec --workspace-folder . bash
+```
+
+Run a one-off command from the host:
+
+```bash
+devcontainer exec --workspace-folder . bash scripts/start_services_dev.sh
+```
+
+### Backend Logs
+
+Tail backend logs from inside the container:
+
+```bash
+tail -f logs/latest/*.log
+```
+
+### Restarting the Backend
+
+Re-run the same start script to restart. It reads the PID files under `run/`, terminates the previous services along with their descendants, and starts fresh ones.
+
+```bash
+bash scripts/start_services_dev.sh
+```
+
+<Note>
+`uvicorn` runs with `--reload --reload-dir api`, so edits under `api/` are picked up automatically. The other services (`ari_manager`, `campaign_orchestrator`, `arq`) do not auto-reload; re-run the start script after changing code they execute.
+</Note>
+
+### When to Rebuild the Container
+
+The workspace bind mount and the `venv` / `node_modules` named volumes persist across container restarts, so you rarely need to rebuild. Rebuild only when one of these changes:
+
+- `.devcontainer/Dockerfile` or `.devcontainer/devcontainer.json`
+- `api/requirements.txt` or `api/requirements.dev.txt`
+- The `pipecat/` submodule
+
+Plain source edits, `ui/package.json`, and the `.env.example` templates do **not** require a rebuild. After a `git pull`, a quick check:
+
+```bash
+git diff HEAD@{1} HEAD -- .devcontainer api/requirements.txt api/requirements.dev.txt pipecat
+```
+
+If the diff is empty, you can keep your current container.
+
+### Personal Install Hook
+
+Anything you install inside the container outside the named volumes, notably under `/home/vscode`, is wiped on rebuild. This includes `npm i -g` packages and tools like the Claude or Codex CLIs.
+
+To reinstall personal tooling automatically on every rebuild, drop an executable script at `.devcontainer/install.local.sh`. It is gitignored and runs at the tail of the post-create bootstrap. Example:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+command -v claude >/dev/null 2>&1 || curl -fsSL https://claude.ai/install.sh | bash
+command -v codex  >/dev/null 2>&1 || npm i -g @openai/codex
+```
+
+Keep entries idempotent with `command -v` or a marker file so re-runs are cheap and safe.

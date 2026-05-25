@@ -1,41 +1,52 @@
 # Multi-stage Dockerfile
-# Stage 1: Builder - Install Python dependencies
+# Stage 1: Builder - Install Python dependencies into a venv via uv
+# (mirrors .devcontainer/Dockerfile's venv-builder stage).
 FROM python:3.13-slim AS builder
 
 WORKDIR /app
 
-# Install git in builder stage (needed for pip install from git)
+# Install git in builder stage (needed for any pip install from git URLs)
 RUN apt-get update && apt-get install -y \
     git \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install requirements
-COPY api/requirements.txt .
+# uv (https://github.com/astral-sh/uv) for ~5-10x faster installs than pip.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-# Install dependencies to user directory for easy copying
-RUN pip install --user --no-cache-dir -r requirements.txt && \
-    # Clean up pip cache after installation
-    rm -rf /root/.cache/pip
+# Build the venv at the path it will live at in the final image, so shebangs
+# and console-scripts inside the venv reference the correct runtime location
+# after COPY --from.
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
+RUN python -m venv "$VIRTUAL_ENV"
 
-# Copy and install pipecat from local submodule
-COPY pipecat /tmp/pipecat
-RUN pip install --user --no-cache-dir '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp]' && \
-    # Swap opencv-python (pulled by pipecat[webrtc]) for opencv-python-headless
-    # to drop X11/Qt dependencies that otherwise require libxcb etc. in runner.
-    pip uninstall -y opencv-python && \
-    pip install --user --no-cache-dir opencv-python-headless && \
-    # Pre-download NLTK punkt_tab tokenizer data (required by pipecat at runtime)
-    python -c "import nltk; nltk.download('punkt_tab', quiet=True)" && \
-    # Clean up pip cache and temporary pipecat directory
-    rm -rf /root/.cache/pip /tmp/pipecat
+# Layer 1: API deps. Cache invalidates only when requirements.txt changes.
+RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv pip install -r /tmp/req.txt
 
-# Strip cache files, test/example dirs, and type stubs from installed packages
-RUN find /root/.local -type f -name '*.pyc' -delete && \
-    find /root/.local -type d -name '__pycache__' -prune -exec rm -rf {} + && \
-    find /root/.local -type f -name '*.pyo' -delete && \
-    find /root/.local -type d \( -name tests -o -name test -o -name examples \) -prune -exec rm -rf {} + && \
-    find /root/.local -name '*.pyi' -delete
+# Layer 2: pipecat deps. Cache invalidates when pipecat source changes.
+# After installing pipecat, two hardening tweaks:
+#   1. Swap opencv-python (pulled by pipecat[webrtc]) for opencv-python-headless.
+#      The non-headless build links against X11/Qt (libxcb*); without those
+#      shared libs in the image, `import cv2` fails at runtime.
+#   2. Pre-download NLTK's punkt_tab tokenizer so pipecat's text processing
+#      doesn't hit the network on first agent run. NLTK auto-finds it under
+#      sys.prefix/nltk_data, so it travels with the venv on COPY.
+RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
+    --mount=type=cache,target=/root/.cache/uv \
+    uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp]' \
+ && uv pip uninstall opencv-python \
+ && uv pip install opencv-python-headless \
+ && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"
+
+# Strip cache files, test/example dirs, and type stubs from the venv
+RUN find /opt/venv -type f -name '*.pyc' -delete && \
+    find /opt/venv -type d -name '__pycache__' -prune -exec rm -rf {} + && \
+    find /opt/venv -type f -name '*.pyo' -delete && \
+    find /opt/venv -type d \( -name tests -o -name test -o -name examples \) -prune -exec rm -rf {} + && \
+    find /opt/venv -name '*.pyi' -delete
 
 # Stage 2: Node deps for ts_validator (built with full node:22-slim, only
 # node_modules is copied into the runner).
@@ -69,14 +80,13 @@ COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 # already provides libstdc++6, libgcc-s1, and ca-certificates that node needs.
 COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 
-# Copy Python packages from builder stage
-COPY --from=builder /root/.local /root/.local
+# Copy the populated venv from the builder stage. NLTK data lives at
+# /opt/venv/nltk_data and is auto-discovered via sys.prefix.
+COPY --from=builder /opt/venv /opt/venv
 
-# Copy NLTK data (punkt_tab tokenizer) from builder stage
-COPY --from=builder /root/nltk_data /root/nltk_data
-
-# Make sure scripts in .local are available
-ENV PATH=/root/.local/bin:$PATH
+# Activate the venv for subsequent RUN/CMD layers.
+ENV VIRTUAL_ENV=/opt/venv \
+    PATH=/opt/venv/bin:$PATH
 
 # Set Python to not generate .pyc files in runtime
 ENV PYTHONDONTWRITEBYTECODE=1

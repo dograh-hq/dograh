@@ -11,7 +11,7 @@ infrastructure/
 prd/
 .vercel
 
-api/.env.devcontainer
+.devcontainer/install.local.sh
 venv/
 .venv/
 .playwright-mcp

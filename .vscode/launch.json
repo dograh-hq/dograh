@@ -4,7 +4,7 @@
 //   - Python interpreter selected in VS Code (devcontainer sets this
 //     automatically; otherwise pick `./venv/bin/python` via the
 //     "Python: Select Interpreter" command).
-//   - api/.env exists (copy from api/.env.example, or api/.env.devcontainer
+//   - api/.env exists (copy from api/.env.example
 //     is created automatically by the devcontainer post-create script).
 //   - api/.env.test exists for the test configurations (copy from
 //     api/.env.example and point at a throwaway database).

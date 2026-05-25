@@ -116,4 +116,12 @@ wait "$ui_pid" || fail "npm ci ui"
 wait "$ts_pid" || fail "npm ci ts_validator"
 step_done
 
+# Optional personal hook: gitignored script for per-developer tools (e.g.
+# claude, codex, etc.). Runs only if present; safe to omit.
+LOCAL_HOOK="$ROOT_DIR/.devcontainer/install.local.sh"
+if [[ -f "$LOCAL_HOOK" ]]; then
+  printf '\n==> Running local install hook (%s)\n' "$LOCAL_HOOK"
+  bash "$LOCAL_HOOK"
+fi
+
 printf '\nDevcontainer bootstrap complete in %ds.\n' "$((SECONDS - SCRIPT_START))"

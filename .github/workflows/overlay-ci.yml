@@ -1,0 +1,23 @@
+name: overlay-ci
+on:
+  push:
+    branches: [main]
+    paths:
+      - "overlay/**"
+      - ".github/workflows/overlay-ci.yml"
+  pull_request:
+    paths:
+      - "overlay/**"
+      - ".github/workflows/overlay-ci.yml"
+
+jobs:
+  overlay-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r overlay/requirements.txt
+      - name: Import smoke test
+        run: python -c "from overlay.mcp_server import server; print('overlay import ok')"

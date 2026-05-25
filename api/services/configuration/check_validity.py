@@ -233,6 +233,37 @@ class UserConfigurationValidator:
                 "Please check that your API key is correct and has not been revoked. "
                 "You can verify your keys at https://platform.openai.com/api-keys."
             )
+        except openai.APIConnectionError:
+            if base_url:
+                raise ValueError(
+                    f"Could not connect to the OpenAI-compatible API at {base_url}. "
+                    "Please verify that the base_url is correct and reachable, and try again."
+                )
+            raise ValueError(
+                "Could not connect to the OpenAI API. Please check your network connection "
+                "and try again."
+            )
+        except openai.APIError:
+            if base_url:
+                raise ValueError(
+                    f"The OpenAI-compatible API at {base_url} returned an error while "
+                    "validating the API key. Please verify that the base_url is correct, "
+                    "the service is available, and the API key is valid."
+                )
+            raise ValueError(
+                "The OpenAI API returned an error while validating the API key. "
+                "Please try again later."
+            )
+        except Exception:
+            if base_url:
+                raise ValueError(
+                    f"Failed to validate the OpenAI API key using the API at {base_url}. "
+                    "Please verify that the base_url is correct and reachable, and that the "
+                    "API key is valid."
+                )
+            raise ValueError(
+                "Failed to validate the OpenAI API key. Please try again later."
+            )
 
     def _check_deepgram_api_key(self, model: str, api_key: str) -> bool:
         try:

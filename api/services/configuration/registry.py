@@ -290,6 +290,10 @@ class OpenAILLMService(BaseLLMConfiguration):
         description="OpenAI chat model to use.",
         json_schema_extra={"examples": OPENAI_MODELS, "allow_custom_input": True},
     )
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Override only if using an OpenAI-compatible API (e.g. local LLM, proxy).",
+    )
 
 
 @register_llm

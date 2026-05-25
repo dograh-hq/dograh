@@ -504,6 +504,9 @@ def create_llm_service_from_provider(
     """
     logger.info(f"Creating LLM service: provider={provider}, model={model}")
     if provider == ServiceProviders.OPENAI.value:
+        kwargs = {}
+        if base_url:
+            kwargs["base_url"] = base_url
         if "gpt-5" in model:
             return OpenAILLMService(
                 api_key=api_key,
@@ -511,10 +514,12 @@ def create_llm_service_from_provider(
                     model=model,
                     extra={"reasoning_effort": "minimal", "verbosity": "low"},
                 ),
+                **kwargs,
             )
         return OpenAILLMService(
             api_key=api_key,
             settings=OpenAILLMSettings(model=model, temperature=0.1),
+            **kwargs,
         )
     elif provider == ServiceProviders.GROQ.value:
         return GroqLLMService(
@@ -709,7 +714,9 @@ def create_llm_service(user_config):
     api_key = user_config.llm.api_key
 
     kwargs = {}
-    if provider == ServiceProviders.OPENROUTER.value:
+    if provider == ServiceProviders.OPENAI.value:
+        kwargs["base_url"] = user_config.llm.base_url
+    elif provider == ServiceProviders.OPENROUTER.value:
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.AZURE.value:
         kwargs["endpoint"] = user_config.llm.endpoint

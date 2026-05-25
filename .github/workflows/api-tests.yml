@@ -69,11 +69,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-          cache: pip
-          cache-dependency-path: |
-            api/requirements.txt
-            api/requirements.dev.txt
-            pipecat/pyproject.toml
 
       - name: Set up Node 22 (test_ts_bridge.py shells out to node)
         uses: actions/setup-node@v4

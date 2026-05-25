@@ -80,6 +80,11 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Create Python virtual environment
+        run: |
+          python -m venv .venv
+          echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+
       - name: Install api and pipecat dependencies
         run: ./scripts/setup_requirements.sh --dev
 

@@ -1,0 +1,67 @@
+---
+title: Host-managed Setup
+description: Set up Dograh directly on your host without the devcontainer.
+---
+
+Use this only if you do not want to use the devcontainer.
+
+### System Requirements
+
+- Git
+- Node.js 24 to run the UI
+- Python 3.13 to run the backend
+- Docker to run Postgres, Redis, and MinIO locally
+
+1. Run the contributor bootstrap. It configures `origin` as your fork and `upstream` as `dograh-hq/dograh`, initializes the pipecat submodule, creates the Python venv, and copies the `.env` templates.
+<CodeGroup>
+```bash macOS/Linux
+bash scripts/setup_fork.sh
+```
+```powershell Windows
+.\scripts\setup_fork.ps1
+```
+</CodeGroup>
+2. Activate the virtual environment:
+<CodeGroup>
+```bash macOS/Linux
+source venv/bin/activate
+```
+```powershell Windows
+.\venv\Scripts\Activate.ps1
+```
+</CodeGroup>
+3. Ensure your local Node version is 24:
+```bash
+nvm use 24
+```
+4. Install UI dependencies:
+```bash
+cd ui && npm install && cd ..
+```
+5. Start the local Docker services:
+```bash
+docker compose -f docker-compose-local.yaml up -d
+```
+6. Install Python requirements:
+<CodeGroup>
+```bash macOS/Linux
+bash scripts/setup_requirements.sh --dev
+```
+```powershell Windows
+.\scripts\setup_requirements.ps1 -Dev
+```
+</CodeGroup>
+7. Start the backend services:
+<CodeGroup>
+```bash macOS/Linux
+bash scripts/start_services_dev.sh
+```
+```powershell Windows
+.\scripts\start_services_dev.ps1
+```
+</CodeGroup>
+8. Start the UI:
+```bash
+cd ui && npm run dev
+```
+9. Open the application on `http://localhost:3000`.

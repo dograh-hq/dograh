@@ -30,6 +30,11 @@ import sys
 import loguru
 import pytest
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SDK_PY_SRC = REPO_ROOT / "sdk" / "python" / "src"
+if str(SDK_PY_SRC) not in sys.path:
+    sys.path.insert(0, str(SDK_PY_SRC))
+
 from api.constants import APP_ROOT_DIR  # noqa: E402
 
 

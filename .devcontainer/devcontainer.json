@@ -1,0 +1,70 @@
+{
+  "name": "Dograh",
+  "dockerComposeFile": [
+    "../docker-compose-local.yaml",
+    "docker-compose.yml"
+  ],
+  "service": "workspace",
+  "runServices": [
+    "workspace",
+    "postgres",
+    "redis",
+    "minio"
+  ],
+  "workspaceFolder": "/workspaces/dograh",
+  "shutdownAction": "stopCompose",
+  "overrideCommand": false,
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    }
+  },
+  "initializeCommand": "git submodule update --init --recursive",
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "bash .devcontainer/scripts/post-start.sh",
+  "forwardPorts": [
+    5432,
+    6379,
+    9000,
+    9001
+  ],
+  "portsAttributes": {
+    "3000": {
+      "label": "Dograh UI",
+      "onAutoForward": "ignore"
+    },
+    "8000": {
+      "label": "Dograh API",
+      "onAutoForward": "ignore"
+    },
+    "5432": {
+      "label": "Postgres"
+    },
+    "6379": {
+      "label": "Redis"
+    },
+    "9000": {
+      "label": "MinIO API"
+    },
+    "9001": {
+      "label": "MinIO Console"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/workspaces/dograh/venv/bin/python",
+        "terminal.integrated.defaultProfile.linux": "bash"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.debugpy",
+        "ms-azuretools.vscode-docker",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}

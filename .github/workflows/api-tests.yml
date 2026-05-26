@@ -65,20 +65,20 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Set up Python 3.12
+      - name: Set up Python 3.13
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: |
-            api/requirements.txt
-            api/requirements.dev.txt
-            pipecat/pyproject.toml
+          python-version: "3.13"
 
       - name: Set up Node 22 (test_ts_bridge.py shells out to node)
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Create Python virtual environment
+        run: |
+          python -m venv .venv
+          echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
 
       - name: Install api and pipecat dependencies
         run: ./scripts/setup_requirements.sh --dev

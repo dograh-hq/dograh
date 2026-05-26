@@ -18,27 +18,35 @@ from api.services.integrations import get_node_secret_fields
 VISIBLE_CHARS = 4  # number of trailing characters to reveal
 MASK_CHAR = "*"
 MASK_MARKER = "***"  # substring that indicates a masked key
+SERVICE_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
 
 
-def contains_masked_key(api_key: str | list[str] | None) -> bool:
-    """Return True if *api_key* looks like a masked placeholder."""
-    if api_key is None:
+def contains_masked_key(value: str | list[str] | None) -> bool:
+    """Return True if *value* looks like a masked placeholder."""
+    if value is None:
         return False
-    keys = api_key if isinstance(api_key, list) else [api_key]
+    keys = value if isinstance(value, list) else [value]
     return any(MASK_MARKER in k for k in keys)
 
 
 def check_for_masked_keys(config: "UserConfiguration") -> None:
-    """Raise ValueError if any service in *config* still has a masked API key."""
+    """Raise ValueError if any service in *config* still has a masked secret."""
     for field in ("llm", "tts", "stt", "embeddings", "realtime"):
         service = getattr(config, field, None)
         if service is None:
             continue
-        if contains_masked_key(service.get_all_api_keys()):
-            raise ValueError(
-                f"The {field} api_key appears to be masked. "
-                "Please provide the actual API key, not the masked value."
-            )
+        for secret_field in SERVICE_SECRET_FIELDS:
+            if not hasattr(service, secret_field):
+                continue
+            if secret_field == "api_key" and hasattr(service, "get_all_api_keys"):
+                secret_value = service.get_all_api_keys()
+            else:
+                secret_value = getattr(service, secret_field, None)
+            if contains_masked_key(secret_value):
+                raise ValueError(
+                    f"The {field} {secret_field} appears to be masked. "
+                    "Please provide the actual value, not the masked value."
+                )
 
 
 def mask_key(real_key: str, visible: int = VISIBLE_CHARS) -> str:
@@ -105,12 +113,14 @@ def _mask_service(service_cfg: Optional[ServiceConfig]) -> Optional[Dict[str, An
 
     # Work on a dict copy so we don't mutate original models
     data = service_cfg.model_dump()
-    if "api_key" in data and data["api_key"]:
-        raw = data["api_key"]
+    for secret_field in SERVICE_SECRET_FIELDS:
+        if secret_field not in data or not data[secret_field]:
+            continue
+        raw = data[secret_field]
         if isinstance(raw, list):
-            data["api_key"] = [mask_key(k) for k in raw]
+            data[secret_field] = [mask_key(k) for k in raw]
         else:
-            data["api_key"] = mask_key(raw)
+            data[secret_field] = mask_key(raw)
     return data
 
 

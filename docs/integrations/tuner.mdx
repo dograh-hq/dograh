@@ -1,0 +1,125 @@
+---
+title: "Tuner Integration"
+description: "Connect Dograh to Tuner — the observability, simulation, and testing layer for voice"
+---
+
+<iframe
+  width="100%"
+  height="400"
+  src="https://www.youtube.com/embed/Zxse1yLorbk"
+  title="Tuner Integration Walkthrough"
+  frameBorder="0"
+  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+  allowFullScreen
+/>
+
+## Overview
+
+The Tuner integration node automatically sends your completed call data (transcript, metadata, and call outcomes) to Tuner after each call finishes. This lets you monitor agent performance, run evaluations, and track quality trends without any custom code.
+
+## Prerequisites
+
+- A [Tuner account](https://app.usetuner.ai) with an active workspace
+- A Dograh voice agent workflow
+
+## Setup
+
+### 1. Create an agent in Tuner
+
+Log in to [Tuner](https://app.usetuner.ai) and create a new agent. When configuring the agent, set the **Provider** to **Custom API** — this is required for the Dograh integration.
+
+<img
+  src="/images/tuner-create-agent.png"
+  alt="Create a New Agent modal in Tuner — set Provider to Custom API"
+/>
+
+
+### 2. Gather your Tuner credentials
+
+You'll need three values from your Tuner account:
+
+| Credential | Where to find it |
+|---|---|
+| **Agent ID** | Agent Settings → Agent Remote ID |
+| **Workspace ID** | Workspace Settings → General Settings → Workspace ID |
+| **API Key** | Workspace Settings → Tuner API Key |
+
+**Agent Remote ID** — open Agent Settings for your agent:
+
+<img
+  src="/images/tuner-agent-settings.png"
+  alt="Tuner Agent Settings showing Agent Remote ID"
+/>
+
+**Workspace ID and API Key** — open Workspace Settings:
+
+<img
+  src="/images/tuner-workspace-settings.png"
+  alt="Tuner Workspace Settings showing Workspace ID and API Key"
+/>
+
+### 3. Add the Tuner node to your workflow
+
+In your Dograh workflow editor, click **Add node** and scroll to the **Integrations** section. Select **Tuner**.
+
+<img
+  src="/images/tuner-dograh-workflow-builder.png"
+  alt="Dograh voice workflow builder — click Add node"
+/>
+
+Scroll to **Integrations** and select **Tuner**:
+
+<img
+  src="/images/tuner-integrations-panel.png"
+  alt="Dograh Integrations panel showing QA Analysis, Tuner, and Webhook"
+/>
+
+The node appears on your canvas with a **Not configured** badge:
+
+<img
+  src="/images/tuner-node-not-configured.png"
+  alt="Tuner node on the canvas showing Not configured"
+/>
+
+### 4. Configure the node
+
+Click on the Tuner node and fill in the following fields:
+
+- **Tuner Agent ID** — The Agent Remote ID from Tuner
+- **Tuner Workspace ID** — Your numeric workspace ID
+- **Tuner API Key** — Your workspace API key
+- **Enabled** — Toggle on to activate the export
+
+<img
+  src="/images/tuner-edit-modal.png"
+  alt="Dograh Edit Tuner modal with credential fields and Enabled toggle"
+/>
+
+Click **Save**, then **Publish** your workflow.
+
+<img
+  src="/images/tuner-node-configured.png"
+  alt="Tuner node on the canvas showing configured and enabled"
+/>
+
+### 5. Verify the connection
+
+Make a test call through your agent. Once the call completes, check the **Call Logs** tab in your Tuner agent dashboard. The call should appear within a few moments.
+
+## Disabling the integration
+
+To temporarily stop exporting calls to Tuner, open the Tuner node configuration and toggle **Enabled** off. Your credentials are preserved — toggle it back on anytime to resume.
+
+## Troubleshooting
+
+| Issue | Solution |
+|---|---|
+| Calls not appearing in Tuner | Verify all three credentials are correct with no extra whitespace |
+| Node shows "Not configured" | Open the node and fill in Agent ID, Workspace ID, and API Key |
+| Workflow not sending data | Make sure the workflow is published, not just saved as a draft |
+| Wrong agent in Tuner | Confirm the Tuner agent's Provider is set to **Custom API** |
+
+## Learn more
+
+- [Tuner](https://usetuner.ai) — The observability, simulation, and testing layer for voice
+- [Tuner documentation](https://docs.usetuner.ai) — Complete Tuner platform docs

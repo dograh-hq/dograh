@@ -1,10 +1,12 @@
 from typing import TYPE_CHECKING
 
+import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 
 from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
+from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
@@ -26,7 +28,15 @@ from pipecat.services.dograh.tts import DograhTTSService, DograhTTSSettings
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService, ElevenLabsTTSSettings
 from pipecat.services.gladia.stt import GladiaSTTService, GladiaSTTSettings
 from pipecat.services.google.llm import GoogleLLMService, GoogleLLMSettings
+from pipecat.services.google.stt import GoogleSTTService, GoogleSTTSettings
+from pipecat.services.google.tts import GoogleTTSService, GoogleTTSSettings
+from pipecat.services.google.vertex.llm import (
+    GoogleVertexLLMService,
+    GoogleVertexLLMSettings,
+)
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
+from pipecat.services.minimax.llm import MiniMaxLLMService
+from pipecat.services.minimax.tts import MiniMaxTTSSettings
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import (
@@ -100,6 +110,23 @@ def create_stt_service(
         return OpenAISTTService(
             api_key=user_config.stt.api_key,
             settings=OpenAISTTSettings(model=user_config.stt.model),
+        )
+    elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
+        language = getattr(user_config.stt, "language", None) or "en-US"
+        location = getattr(user_config.stt, "location", None) or "global"
+        credentials = getattr(user_config.stt, "credentials", None)
+
+        settings_kwargs = {"model": user_config.stt.model}
+        try:
+            settings_kwargs["languages"] = [Language(language)]
+        except ValueError:
+            settings_kwargs["language_codes"] = [language]
+
+        return GoogleSTTService(
+            credentials=credentials,
+            location=location,
+            settings=GoogleSTTSettings(**settings_kwargs),
+            sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
         return CartesiaSTTService(
@@ -237,6 +264,30 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
             settings=OpenAITTSSettings(model=user_config.tts.model),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.GOOGLE.value:
+        model = getattr(user_config.tts, "model", None) or "chirp_3_hd"
+        language = getattr(user_config.tts, "language", None) or "en-US"
+        voice = getattr(user_config.tts, "voice", None) or "en-US-Chirp3-HD-Charon"
+        speed = getattr(user_config.tts, "speed", None)
+        location = getattr(user_config.tts, "location", None) or None
+        credentials = getattr(user_config.tts, "credentials", None)
+
+        settings_kwargs = {
+            "model": model,
+            "voice": voice,
+            "language": language,
+        }
+        if speed is not None and speed != 1.0:
+            settings_kwargs["speaking_rate"] = speed
+
+        return GoogleTTSService(
+            credentials=credentials,
+            location=location,
+            settings=GoogleTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
@@ -392,6 +443,40 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.MINIMAX.value:
+        group_id = getattr(user_config.tts, "group_id", None)
+        if not group_id:
+            raise HTTPException(
+                status_code=400,
+                detail="MiniMax TTS requires a group_id. Configure it in your TTS settings.",
+            )
+        voice = getattr(user_config.tts, "voice", None) or "English_Graceful_Lady"
+        speed = getattr(user_config.tts, "speed", None) or 1.0
+
+        # Pipecat appends "?GroupId=..." to base_url as-is, so /t2a_v2 must
+        # already be in the path.
+        base_url = (
+            getattr(user_config.tts, "base_url", None)
+            or "https://api.minimax.io/v1/t2a_v2"
+        ).rstrip("/")
+        if not base_url.endswith("/t2a_v2"):
+            base_url = f"{base_url}/t2a_v2"
+
+        session = aiohttp.ClientSession()
+        return MiniMaxOwnedSessionTTSService(
+            api_key=user_config.tts.api_key,
+            group_id=group_id,
+            base_url=base_url,
+            aiohttp_session=session,
+            settings=MiniMaxTTSSettings(
+                model=user_config.tts.model,
+                voice=voice,
+                speed=speed,
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid TTS provider {user_config.tts.provider}"
@@ -401,13 +486,17 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
 def create_llm_service_from_provider(
     provider: str,
     model: str,
-    api_key: str,
+    api_key: str | None,
     *,
     base_url: str | None = None,
     endpoint: str | None = None,
     aws_access_key: str | None = None,
     aws_secret_key: str | None = None,
     aws_region: str | None = None,
+    project_id: str | None = None,
+    location: str | None = None,
+    credentials: str | None = None,
+    temperature: float | None = None,
 ):
     """Create an LLM service from explicit provider/model/api_key.
 
@@ -446,6 +535,13 @@ def create_llm_service_from_provider(
             api_key=api_key,
             settings=GoogleLLMSettings(model=model, temperature=0.1),
         )
+    elif provider == ServiceProviders.GOOGLE_VERTEX.value:
+        return GoogleVertexLLMService(
+            credentials=credentials,
+            project_id=project_id,
+            location=location or "us-east4",
+            settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
+        )
     elif provider == ServiceProviders.AZURE.value:
         return AzureLLMService(
             api_key=api_key,
@@ -470,6 +566,15 @@ def create_llm_service_from_provider(
             base_url=base_url or "http://localhost:11434/v1",
             api_key=api_key or "none",
             settings=SpeachesLLMSettings(model=model),
+        )
+    elif provider == ServiceProviders.MINIMAX.value:
+        return MiniMaxLLMService(
+            api_key=api_key,
+            base_url=base_url or "https://api.minimax.io/v1",
+            settings=MiniMaxLLMService.Settings(
+                model=model,
+                temperature=temperature if temperature is not None else 1.0,
+            ),
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
@@ -518,6 +623,39 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                         ),
                     ),
                 ),
+            ),
+        )
+    elif provider == ServiceProviders.GROK_REALTIME.value:
+        from api.services.pipecat.realtime.grok_realtime import (
+            DograhGrokRealtimeLLMService,
+        )
+        from pipecat.services.xai.realtime.events import SessionProperties
+
+        return DograhGrokRealtimeLLMService(
+            api_key=api_key,
+            settings=DograhGrokRealtimeLLMService.Settings(
+                model=model,
+                session_properties=SessionProperties(
+                    voice=voice or "Ara",
+                ),
+            ),
+        )
+    elif provider == ServiceProviders.ULTRAVOX_REALTIME.value:
+        from api.services.pipecat.realtime.ultravox_realtime import (
+            DograhUltravoxOneShotInputParams,
+            DograhUltravoxRealtimeLLMService,
+        )
+
+        return DograhUltravoxRealtimeLLMService(
+            params=DograhUltravoxOneShotInputParams(
+                api_key=api_key,
+                model=model,
+                voice=voice,
+                output_medium="voice",
+            ),
+            settings=DograhUltravoxRealtimeLLMService.Settings(
+                model=model,
+                output_medium="voice",
             ),
         )
     elif provider == ServiceProviders.GOOGLE_REALTIME.value:
@@ -581,5 +719,12 @@ def create_llm_service(user_config):
         kwargs["aws_access_key"] = user_config.llm.aws_access_key
         kwargs["aws_secret_key"] = user_config.llm.aws_secret_key
         kwargs["aws_region"] = user_config.llm.aws_region
+    elif provider == ServiceProviders.GOOGLE_VERTEX.value:
+        kwargs["project_id"] = user_config.llm.project_id
+        kwargs["location"] = user_config.llm.location
+        kwargs["credentials"] = user_config.llm.credentials
+    elif provider == ServiceProviders.MINIMAX.value:
+        kwargs["base_url"] = user_config.llm.base_url
+        kwargs["temperature"] = user_config.llm.temperature
 
     return create_llm_service_from_provider(provider, model, api_key, **kwargs)

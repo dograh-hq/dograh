@@ -1,0 +1,128 @@
+// Debug configurations for Dograh contributors.
+//
+// Prerequisites:
+//   - Python interpreter selected in VS Code (devcontainer sets this
+//     automatically; otherwise pick `./venv/bin/python` via the
+//     "Python: Select Interpreter" command).
+//   - api/.env exists (copy from api/.env.example
+//     is created automatically by the devcontainer post-create script).
+//   - api/.env.test exists for the test configurations (copy from
+//     api/.env.example and point at a throwaway database).
+//
+// All Python configs set justMyCode=false so the debugger steps into
+// library code (useful for tracing through pipecat/fastapi/etc.).
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "API: Uvicorn (reload)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "api.app:app",
+                "--reload",
+                "--host", "0.0.0.0",
+                "--port", "8000"
+            ],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "API: Arq worker (watch)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "arq",
+            "args": [
+                "api.tasks.arq.WorkerSettings",
+                "--watch", "${workspaceFolder}/api",
+                "--custom-log-dict", "api.tasks.arq.LOG_CONFIG"
+            ],
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "API: Campaign orchestrator",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "api.services.campaign.campaign_orchestrator",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "API: ARI manager",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "api.services.telephony.ari_manager",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Tests: API (pytest, full suite)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["tests", "-xvs"],
+            "cwd": "${workspaceFolder}/api",
+            "envFile": "${workspaceFolder}/api/.env.test",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Tests: API (pytest, current file)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${file}", "-xvs"],
+            "cwd": "${workspaceFolder}/api",
+            "envFile": "${workspaceFolder}/api/.env.test",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Tests: Pipecat (pytest, current file)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "args": ["${file}", "-xvs"],
+            "cwd": "${workspaceFolder}/pipecat",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/pipecat/src"
+            },
+            "justMyCode": false
+        },
+        {
+            "name": "Python: Current file",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "cwd": "${workspaceFolder}",
+            "envFile": "${workspaceFolder}/api/.env",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            },
+            "justMyCode": false
+        }
+    ]
+}

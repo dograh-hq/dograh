@@ -372,6 +372,8 @@ class WorkflowClient(BaseDBClient):
                     WorkflowModel.name,
                     WorkflowModel.status,
                     WorkflowModel.created_at,
+                    WorkflowModel.folder_id,
+                    WorkflowModel.workflow_uuid,
                 )
             )
 
@@ -425,8 +427,26 @@ class WorkflowClient(BaseDBClient):
             return result.scalar_one_or_none()
 
     async def get_workflow(
-        self, workflow_id: int, user_id: int = None, organization_id: int = None
+        self,
+        workflow_id: int,
+        user_id: int | None = None,
+        organization_id: int | None = None,
     ) -> WorkflowModel | None:
+        """Fetch a workflow by id, scoped to a tenant.
+
+        Scoping is mandatory: pass ``organization_id`` (preferred) or
+        ``user_id``. A fully unscoped lookup would let a request-supplied id
+        reach another tenant's workflow. System/runtime paths that only have a
+        ``workflow_id`` and derive the org from the workflow itself (e.g.
+        inbound telephony routing) must call ``get_workflow_by_id`` instead —
+        the explicit unscoped variant.
+        """
+        if user_id is None and organization_id is None:
+            raise ValueError(
+                "get_workflow requires organization_id (preferred) or user_id "
+                "for tenant scoping; use get_workflow_by_id for unscoped "
+                "system lookups."
+            )
         async with self.async_session() as session:
             query = (
                 select(WorkflowModel)
@@ -448,6 +468,13 @@ class WorkflowClient(BaseDBClient):
             return result.scalars().first()
 
     async def get_workflow_by_id(self, workflow_id: int) -> WorkflowModel | None:
+        """Fetch a workflow by id WITHOUT tenant scoping.
+
+        Explicit unscoped variant of ``get_workflow``. Only for system/runtime
+        contexts that legitimately have just a workflow_id and derive the org
+        from the workflow itself (e.g. inbound telephony). Never call this with
+        a request-supplied id on a user-facing path.
+        """
         async with self.async_session() as session:
             result = await session.execute(
                 select(WorkflowModel)
@@ -609,7 +636,7 @@ class WorkflowClient(BaseDBClient):
         self,
         workflow_id: int,
         status: str,
-        organization_id: int = None,
+        organization_id: int,
     ) -> WorkflowModel:
         """
         Update the status of a workflow.
@@ -617,7 +644,9 @@ class WorkflowClient(BaseDBClient):
         Args:
             workflow_id: The ID of the workflow to update
             status: The new status (active/archived)
-            organization_id: The organization ID
+            organization_id: The organization ID. Required and always filtered
+                on: this is a mutation, so an unscoped query would let a caller
+                archive another org's workflow (tenant-isolation bypass).
 
         Returns:
             The updated WorkflowModel
@@ -632,11 +661,11 @@ class WorkflowClient(BaseDBClient):
                     selectinload(WorkflowModel.current_definition),
                     selectinload(WorkflowModel.released_definition),
                 )
-                .where(WorkflowModel.id == workflow_id)
+                .where(
+                    WorkflowModel.id == workflow_id,
+                    WorkflowModel.organization_id == organization_id,
+                )
             )
-
-            if organization_id:
-                query = query.where(WorkflowModel.organization_id == organization_id)
 
             result = await session.execute(query)
             workflow = result.scalars().first()
@@ -645,6 +674,47 @@ class WorkflowClient(BaseDBClient):
                 raise ValueError(f"Workflow with ID {workflow_id} not found")
 
             workflow.status = status
+
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(workflow)
+        return workflow
+
+    async def move_workflow_to_folder(
+        self,
+        workflow_id: int,
+        folder_id: int | None,
+        organization_id: int,
+    ) -> WorkflowModel:
+        """Set (or clear) a workflow's folder.
+
+        Pass ``folder_id=None`` to move the workflow to "Uncategorized". The
+        caller must validate that ``folder_id`` belongs to ``organization_id``
+        before calling (the FK only proves the folder exists, not ownership).
+
+        ``organization_id`` is required and always filtered on: this is a
+        mutation, so an unscoped query would let a caller move another org's
+        workflow (tenant-isolation bypass).
+
+        Raises:
+            ValueError: If the workflow is not found within the organization.
+        """
+        async with self.async_session() as session:
+            query = select(WorkflowModel).where(
+                WorkflowModel.id == workflow_id,
+                WorkflowModel.organization_id == organization_id,
+            )
+
+            result = await session.execute(query)
+            workflow = result.scalars().first()
+
+            if not workflow:
+                raise ValueError(f"Workflow with ID {workflow_id} not found")
+
+            workflow.folder_id = folder_id
 
             try:
                 await session.commit()

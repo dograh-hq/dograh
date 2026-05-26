@@ -313,6 +313,13 @@ class TestDispatcherThreadsTelephonyConfig:
                 f"kwargs={store_kwargs}"
             )
 
+            assert provider.initiate_call.await_count == 1
+            webhook_url = provider.initiate_call.await_args.kwargs["webhook_url"]
+            assert "campaign_id=" not in webhook_url, (
+                "campaign outbound answer_url should not include campaign_id; "
+                f"got {webhook_url}"
+            )
+
     @pytest.mark.asyncio
     async def test_release_call_slot_uses_stored_telephony_config(self):
         """When a call completes, release_call_slot must release the from_number

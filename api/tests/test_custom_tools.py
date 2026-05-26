@@ -935,9 +935,11 @@ class TestCustomToolManagerUnit:
         # Create a mock engine with a mock LLM
         mock_llm = Mock()
         registered_handlers = {}
+        registered_kwargs = {}
 
         def capture_register(name, handler, **kwargs):
             registered_handlers[name] = handler
+            registered_kwargs[name] = kwargs
 
         mock_llm.register_function = capture_register
 
@@ -986,6 +988,7 @@ class TestCustomToolManagerUnit:
 
             # Verify handler was registered
             assert "api_call" in registered_handlers
+            assert registered_kwargs["api_call"]["timeout_secs"] == pytest.approx(5)
 
         # Now test that the handler works
         handler = registered_handlers["api_call"]

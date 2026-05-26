@@ -610,13 +610,14 @@ class GlobalNodeData(BaseNodeData, _PromptedNodeDataMixin):
         "trigger_path": {
             "display_name": "Trigger Path",
             "description": (
-                "Auto-generated UUID-style path segment that uniquely identifies "
+                "Path segment that uniquely identifies "
                 "this trigger. Used in both URLs:\n"
                 "  • Production: `/api/v1/public/agent/<trigger_path>` — executes "
                 "the published agent.\n"
                 "  • Test: `/api/v1/public/agent/test/<trigger_path>` — executes "
                 "the latest draft.\n"
-                "Do not edit manually."
+                "Can be customized to a descriptive value up to 36 characters "
+                "using letters, numbers, hyphens, or underscores."
             ),
         },
     },

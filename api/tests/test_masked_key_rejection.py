@@ -9,6 +9,7 @@ from api.services.auth.depends import get_user
 from api.services.configuration.masking import mask_key
 from api.services.configuration.registry import (
     GoogleLLMService,
+    GoogleVertexLLMConfiguration,
     OpenAILLMService,
 )
 
@@ -167,4 +168,45 @@ class TestMaskedKeyRejection:
 
             # Merge resolves the masked key back to the real one,
             # so check_for_masked_keys should NOT raise.
+            assert response.status_code == 200
+
+    def test_allows_same_provider_with_masked_vertex_credentials(self):
+        """Same provider with masked credentials should succeed."""
+        app = _make_test_app()
+        client = TestClient(app)
+
+        real_credentials = '{"type":"service_account","project_id":"demo-project"}'
+        masked_credentials = mask_key(real_credentials)
+        existing = UserConfiguration(
+            llm=GoogleVertexLLMConfiguration(
+                provider="google_vertex",
+                api_key=None,
+                model="gemini-2.5-flash",
+                project_id="demo-project",
+                location="us-east4",
+                credentials=real_credentials,
+            )
+        )
+
+        with (
+            patch("api.routes.user.db_client") as mock_db,
+            patch("api.routes.user.UserConfigurationValidator") as mock_validator,
+        ):
+            mock_db.get_user_configurations = AsyncMock(return_value=existing)
+            mock_db.update_user_configuration = AsyncMock(return_value=existing)
+            mock_validator.return_value.validate = AsyncMock()
+
+            response = client.put(
+                "/user/configurations/user",
+                json={
+                    "llm": {
+                        "provider": "google_vertex",
+                        "model": "gemini-2.5-flash",
+                        "project_id": "demo-project",
+                        "location": "us-east4",
+                        "credentials": masked_credentials,
+                    }
+                },
+            )
+
             assert response.status_code == 200

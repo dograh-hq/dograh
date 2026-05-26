@@ -14,9 +14,18 @@ import type {
 export function generateCode(
     workflow: WireWorkflow,
     specs: NodeSpec[],
-    opts: { workflowName?: string } = {},
+    opts: { workflowName?: string; edgeFieldNames?: string[] } = {},
 ): GenerateResult {
     const specByName = new Map(specs.map((s) => [s.name, s]));
+    const edgeFieldNames = new Set(
+        opts.edgeFieldNames ?? [
+            "label",
+            "condition",
+            "transition_speech",
+            "transition_speech_type",
+            "transition_speech_recording_id",
+        ],
+    );
 
     // Catch unknown node types up-front — otherwise we'd emit an import
     // line for a factory that doesn't exist.
@@ -97,7 +106,7 @@ export function generateCode(
                 ],
             };
         }
-        const cleanedEdge = pickEdgeFields(edge.data);
+        const cleanedEdge = pickEdgeFields(edge.data, edgeFieldNames);
         const edgeOpts = renderObject(cleanedEdge, 0);
         lines.push(`wf.edge(${src}, ${tgt}, ${edgeOpts});`);
     }
@@ -210,22 +219,13 @@ function stripUnknown(
     return out;
 }
 
-// Edge schema is fixed (no NodeSpec for edges). Mirrors the allowed
-// fields on `Workflow.edge(...)` in both SDKs.
-const KNOWN_EDGE_FIELDS = new Set([
-    "label",
-    "condition",
-    "transition_speech",
-    "transition_speech_type",
-    "transition_speech_recording_id",
-]);
-
 function pickEdgeFields(
     data: Record<string, unknown>,
+    knownEdgeFields: Set<string>,
 ): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(data)) {
-        if (KNOWN_EDGE_FIELDS.has(k)) out[k] = v;
+        if (knownEdgeFields.has(k)) out[k] = v;
     }
     return out;
 }

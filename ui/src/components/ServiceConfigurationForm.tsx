@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, X } from "lucide-react";
+import { ExternalLink, Plus, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 
@@ -32,9 +32,13 @@ interface SchemaProperty {
     description?: string;
     format?: string;
     multiline?: boolean;
+    docs_url?: string;
 }
 
 interface ProviderSchema {
+    title?: string;
+    description?: string;
+    provider_docs_url?: string;
     properties: Record<string, SchemaProperty>;
     required?: string[];
     $defs?: Record<string, SchemaProperty>;
@@ -88,12 +92,24 @@ export interface ServiceConfigurationFormProps {
     submitLabel?: string;
 }
 
-function getGlobalSummary(config: Record<string, unknown> | null | undefined): string {
+function getProviderDisplayName(
+    provider: string | undefined,
+    providerSchema: ProviderSchema | undefined,
+): string | undefined {
+    if (!provider) return provider;
+    return providerSchema?.title || provider;
+}
+
+function getGlobalSummary(
+    config: Record<string, unknown> | null | undefined,
+    providerSchema: ProviderSchema | undefined,
+): string {
     if (!config) return "Not configured";
     const provider = config.provider as string | undefined;
     const model = config.model as string | undefined;
     if (!provider) return "Not configured";
-    return model ? `${provider} / ${model}` : provider;
+    const providerLabel = getProviderDisplayName(provider, providerSchema);
+    return model ? `${providerLabel} / ${model}` : providerLabel || provider;
 }
 
 export function ServiceConfigurationForm({
@@ -486,11 +502,26 @@ export function ServiceConfigurationForm({
                             <SelectContent>
                                 {availableProviders.map((provider) => (
                                     <SelectItem key={provider} value={provider}>
-                                        {provider}
+                                        {getProviderDisplayName(provider, schemas?.[service]?.[provider])}
                                     </SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
+                        {(providerSchema?.description || providerSchema?.provider_docs_url) && (
+                            <p className="text-xs text-muted-foreground">
+                                {providerSchema?.description}{" "}
+                                {providerSchema?.provider_docs_url && (
+                                    <a
+                                        href={providerSchema.provider_docs_url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="inline-flex items-center gap-0.5 underline"
+                                    >
+                                        Learn more <ExternalLink className="h-3 w-3" />
+                                    </a>
+                                )}
+                            </p>
+                        )}
                     </div>
 
                     {currentProvider && providerSchema && configFields[0] && (
@@ -580,9 +611,21 @@ export function ServiceConfigurationForm({
         const actualSchema = schema.$ref && providerSchema.$defs
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
             : schema;
-        if (!actualSchema?.description) return null;
+        if (!actualSchema?.description && !actualSchema?.docs_url) return null;
         return (
-            <p className="text-xs text-muted-foreground">{actualSchema.description}</p>
+            <p className="text-xs text-muted-foreground">
+                {actualSchema?.description}{" "}
+                {actualSchema?.docs_url && (
+                    <a
+                        href={actualSchema.docs_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 underline"
+                    >
+                        Supported languages <ExternalLink className="h-3 w-3" />
+                    </a>
+                )}
+            </p>
         );
     };
 
@@ -763,6 +806,8 @@ export function ServiceConfigurationForm({
     const renderOverrideToggle = (service: ServiceSegment, label: string) => {
         const globalVal = (userConfig as Record<string, unknown> | null)?.[service] as Record<string, unknown> | null | undefined;
         const isEnabled = enabledOverrides[service];
+        const globalProvider = globalVal?.provider as string | undefined;
+        const globalProviderSchema = globalProvider ? schemas?.[service]?.[globalProvider] : undefined;
 
         return (
             <div className="flex items-center justify-between p-3 border rounded-md bg-muted/20 mb-4">
@@ -772,7 +817,7 @@ export function ServiceConfigurationForm({
                     </Label>
                     {!isEnabled && (
                         <p className="text-xs text-muted-foreground">
-                            Using global: {getGlobalSummary(globalVal)}
+                            Using global: {getGlobalSummary(globalVal, globalProviderSchema)}
                         </p>
                     )}
                 </div>

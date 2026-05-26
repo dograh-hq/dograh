@@ -51,6 +51,19 @@ def test_openai_realtime_uses_provider_turn_frames_without_local_vad():
     assert isinstance(strategies.stop[0], ExternalUserTurnStopStrategy)
 
 
+def test_grok_realtime_uses_provider_turn_frames_without_local_vad():
+    strategies, vad_analyzer = _create_realtime_user_turn_config(
+        ServiceProviders.GROK_REALTIME.value
+    )
+
+    assert vad_analyzer is None
+    assert len(strategies.start) == 1
+    assert isinstance(strategies.start[0], ExternalUserTurnStartStrategy)
+    assert strategies.start[0]._enable_interruptions is False
+    assert len(strategies.stop) == 1
+    assert isinstance(strategies.stop[0], ExternalUserTurnStopStrategy)
+
+
 def test_unknown_realtime_providers_keep_local_vad():
     strategies, vad_analyzer = _create_realtime_user_turn_config("other_realtime")
 

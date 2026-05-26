@@ -25,8 +25,19 @@ import type {
     WireNode,
 } from "./types.ts";
 
-export function parseCode(code: string, specs: NodeSpec[]): ParseResult {
+export function parseCode(
+    code: string,
+    specs: NodeSpec[],
+    edgeFieldNames: string[] = [
+        "label",
+        "condition",
+        "transition_speech",
+        "transition_speech_type",
+        "transition_speech_recording_id",
+    ],
+): ParseResult {
     const specByName = new Map(specs.map((s) => [s.name, s]));
+    const allowedEdgeFieldNames = new Set(edgeFieldNames);
     const sourceFile = ts.createSourceFile(
         "workflow.ts",
         code,
@@ -334,6 +345,12 @@ export function parseCode(code: string, specs: NodeSpec[]): ParseResult {
         if (typeof optsObj["condition"] !== "string" || (optsObj["condition"] as string).trim() === "") {
             addError(stmt, "`edge` requires a non-empty `condition` string.");
             return;
+        }
+        for (const key of Object.keys(optsObj)) {
+            if (!allowedEdgeFieldNames.has(key)) {
+                addError(stmt, `Unknown edge field: \`${key}\`.`);
+                return;
+            }
         }
         edges.push({
             id: `${src.id}-${tgt.id}`,

@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from api.services.workflow.dto import EdgeDataDTO
 from api.services.workflow.node_specs import all_specs
 
 _VALIDATOR_ENTRY = Path(__file__).resolve().parent / "ts_validator" / "src" / "index.ts"
@@ -29,6 +30,10 @@ class TsBridgeError(Exception):
 
 def _specs_payload() -> list[dict[str, Any]]:
     return [s.model_dump(mode="json") for s in all_specs()]
+
+
+def _edge_field_names() -> list[str]:
+    return list(EdgeDataDTO.model_fields.keys())
 
 
 async def _invoke(request: dict[str, Any]) -> dict[str, Any]:
@@ -65,6 +70,7 @@ async def generate_code(workflow: dict[str, Any], *, workflow_name: str = "") ->
             "command": "generate",
             "workflow": workflow,
             "specs": _specs_payload(),
+            "edgeFieldNames": _edge_field_names(),
             "workflowName": workflow_name,
         }
     )
@@ -89,5 +95,6 @@ async def parse_code(code: str) -> dict[str, Any]:
             "command": "parse",
             "code": code,
             "specs": _specs_payload(),
+            "edgeFieldNames": _edge_field_names(),
         }
     )

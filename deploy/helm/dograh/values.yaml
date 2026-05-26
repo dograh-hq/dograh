@@ -1,0 +1,527 @@
+# Dograh Helm chart — default values.
+#
+# Conventions:
+# - "mode" fields are enums; see values.schema.json for allowed values.
+# - Anything sensitive (passwords, tokens, signing keys) is split into the
+#   `secrets:` section and rendered as a Kubernetes Secret. Non-sensitive
+#   config lives in `config:` and renders as a ConfigMap.
+# - The chart never ships real defaults for credentials. Operators must
+#   override `secrets.*` (or supply an existing Secret name).
+
+# -----------------------------------------------------------------------------
+# Global image config — applied to web, workers, ariManager, campaignOrchestrator
+# -----------------------------------------------------------------------------
+image:
+  registry: docker.io
+  repository: dograhai/dograh-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+# - name: regcred
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# -----------------------------------------------------------------------------
+# Stateful dependency modes.
+#
+# database.mode:
+#   internal  — bundled Bitnami PostgreSQL subchart (postgresql.enabled=true)
+#   external  — operator supplies DATABASE_URL via secrets.databaseUrl
+# redis.mode:
+#   internal  — bundled Bitnami Redis subchart (redis.enabled=true)
+#   external  — operator supplies REDIS_URL via secrets.redisUrl
+# storage.mode:
+#   internalMinio — bundled MinIO subchart (minio.enabled=true)
+#   externalMinio — operator supplies a MinIO-compatible endpoint + creds
+#   s3            — sets ENABLE_AWS_S3=true; uses AWS S3
+# exposure.mode:
+#   gatewayApi — renders Gateway + HTTPRoute (gateway.networking.k8s.io/v1)
+#   ingress    — renders Ingress resources (networking.k8s.io/v1)
+# -----------------------------------------------------------------------------
+database:
+  mode: internal
+  # For external mode, secrets.databaseUrl must be set.
+
+redis:
+  mode: internal
+  # For external mode, secrets.redisUrl must be set.
+
+storage:
+  mode: internalMinio
+  # For externalMinio mode, set externalMinio.endpoint + secrets.minioAccessKey
+  # + secrets.minioSecretKey.
+  externalMinio:
+    endpoint: ""  # e.g. minio.example.com
+    publicEndpoint: ""  # browser-visible URL
+    secure: false
+    bucket: voice-audio
+  # For s3 mode, set s3.region. AWS credentials are picked up from the pod's
+  # IAM role (IRSA recommended) or from secrets.awsAccessKeyId + secrets.awsSecretAccessKey.
+  s3:
+    region: us-east-1
+    bucket: voice-audio
+    publicEndpoint: ""  # e.g. https://s3.amazonaws.com
+
+exposure:
+  # Default is `ingress` because it works out-of-the-box on any cluster
+  # without requiring Gateway API CRDs. Production deployments should
+  # prefer `gatewayApi` per HELM_DEPLOYMENT_PLAN.md — switch the mode
+  # and supply gatewayClassName.
+  mode: ingress
+  # Gateway API config (when mode=gatewayApi).
+  gatewayApi:
+    # Set to false to skip rendering the Gateway resource and instead
+    # attach HTTPRoutes to a pre-existing Gateway (parentRef.name below).
+    createGateway: true
+    gatewayClassName: ""  # required when createGateway=true (e.g. "istio", "envoy-gateway", "aws-alb")
+    listenerHostname: ""  # optional SNI hostname for the listener; empty = wildcard
+    # Reference an existing Gateway instead of creating one.
+    # Ignored when createGateway=true.
+    parentRefs:
+      - name: dograh
+        namespace: ""  # empty = same namespace as the release
+  # Ingress config (when mode=ingress).
+  ingress:
+    className: ""  # e.g. "nginx", "alb"
+    annotations: {}
+    # Hostname for the API/UI. UI is served at / and API under /api/.
+    # MinIO browser-visible path uses the same hostname under /voice-audio/.
+    host: ""  # e.g. dograh.example.com
+    tls:
+      enabled: false
+      secretName: ""  # operator-managed TLS secret in the release namespace
+
+# -----------------------------------------------------------------------------
+# Non-sensitive runtime config — rendered into a ConfigMap and injected via
+# envFrom on every backend pod. Sensitive values live under `secrets:` below.
+# -----------------------------------------------------------------------------
+config:
+  environment: production
+  logLevel: INFO
+  backendApiEndpoint: ""  # public URL the browser uses to reach the API; auto-derived from exposure.host if empty in NOTES
+  minioBucket: voice-audio
+  minioEndpoint: ""  # internal cluster endpoint (auto-set when internalMinio)
+  minioPublicEndpoint: ""  # browser-visible endpoint (auto-set when ingress/gateway path exposes MinIO)
+  minioSecure: false
+  enableAwsS3: false
+  enableTelemetry: true
+  posthogHost: https://us.i.posthog.com
+  posthogApiKey: phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr
+  forceTurnRelay: false
+  turnHost: ""  # public hostname/IP of coturn (the LoadBalancer address)
+  fastapiWorkers: 1  # informational only; web tier scales by pod, not in-pod workers
+
+# -----------------------------------------------------------------------------
+# Secrets — rendered into a Kubernetes Secret unless secrets.existingSecret is
+# set. NEVER commit real values here; override via -f overrides.yaml or
+# --set-string at install time.
+# -----------------------------------------------------------------------------
+secrets:
+  # If set, the chart skips rendering its own Secret and assumes this Secret
+  # already exists in the release namespace with all keys below.
+  existingSecret: ""
+
+  # Required when database.mode=external.
+  databaseUrl: ""  # e.g. postgresql+asyncpg://user:pass@host:5432/dograh
+  # Required when redis.mode=external.
+  redisUrl: ""  # e.g. redis://:pass@host:6379
+
+  # MinIO / S3 credentials.
+  minioAccessKey: ""
+  minioSecretKey: ""
+  awsAccessKeyId: ""  # only used when storage.mode=s3 and not using IRSA
+  awsSecretAccessKey: ""
+
+  # JWT signing key for the OSS auth path. MUST be overridden in production.
+  ossJwtSecret: "ChangeMeInProduction"
+
+  # TURN REST API shared secret (matches coturn.staticAuthSecret below).
+  turnSecret: ""
+
+  # Optional Langfuse tracing.
+  langfuseSecretKey: ""
+  langfusePublicKey: ""
+  langfuseHost: ""
+
+# -----------------------------------------------------------------------------
+# Shared /tmp PVC.
+#
+# AUDIT FINDING: api/services/pipecat/event_handlers.py writes WAV/transcript
+# tempfiles in the web process and enqueues an ARQ job that reads those exact
+# paths in the worker (api/tasks/s3_upload.py). In compose this works because
+# all processes share the `shared-tmp` volume. In Kubernetes web and worker run
+# in separate pods. Options:
+#   1. Enable this PVC (ReadWriteMany required) to mount /tmp/dograh-shared
+#      into both web and arq-worker pods. Use this for v1.
+#   2. Refactor event_handlers.py to upload from the web process and pass a
+#      storage key (not a local path) to the ARQ job. Preferred long-term;
+#      see deploy/helm/dograh/README.md "Open TODOs".
+# If your cluster lacks RWX (most cloud default storage classes are RWO),
+# you MUST take option (2) before splitting web and worker pods, or end-of-
+# call uploads will fail silently.
+sharedTmp:
+  enabled: false
+  storageClassName: ""  # must be an RWX-capable class (e.g. efs-sc, azurefile, longhorn-rwx)
+  size: 10Gi
+  mountPath: /tmp/dograh-shared
+
+# -----------------------------------------------------------------------------
+# Web tier (FastAPI + WebSocket signaling)
+# -----------------------------------------------------------------------------
+web:
+  replicaCount: 2
+  port: 8000
+
+  # Long-lived signaling WebSockets keep per-connection state in process
+  # memory (api/routes/webrtc_signaling.py). A naive pod restart drops every
+  # in-flight call. The two settings below give the gateway time to stop
+  # routing new connections to a terminating pod and give in-flight calls
+  # time to finish.
+  terminationGracePeriodSeconds: 600
+  # preStop sleep: long enough for the load balancer to observe the pod going
+  # NotReady and stop sending new connections. 15s is conservative for most
+  # controllers (gateway/nginx/ALB).
+  preStopSleepSeconds: 15
+
+  resources:
+    # These are conservative starting numbers. Tune to your workload —
+    # WebRTC signaling is mostly idle but bursty during call setup.
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+
+  # Distinct probes so the pod can fail readiness during drain without being
+  # killed for liveness. liveness has a longer threshold (process is alive)
+  # while readiness flips quickly (stop receiving new connections).
+  livenessProbe:
+    httpGet:
+      path: /api/v1/health
+      port: 8000
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 6
+  readinessProbe:
+    httpGet:
+      path: /api/v1/health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 2
+
+  service:
+    type: ClusterIP
+    port: 8000
+    annotations: {}
+
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  # Recommend spreading web pods across zones / nodes.
+  topologySpreadConstraints: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# ARQ background workers
+# -----------------------------------------------------------------------------
+workers:
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+
+  # exec probe — workers have no HTTP endpoint.
+  livenessProbe:
+    exec:
+      command: ["sh", "-c", "pgrep -f 'arq api.tasks.arq.WorkerSettings' > /dev/null"]
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# ARI manager — TELEPHONY SINGLETON
+#
+# Maintains an outbound WebSocket to Asterisk and is the canonical receiver of
+# ARI events. Running >1 replica produces duplicate event handling. The chart
+# hard-codes replicas:1 and strategy:Recreate; there is NO replica knob here
+# on purpose. Add proper leader election before relaxing this.
+# -----------------------------------------------------------------------------
+ariManager:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  livenessProbe:
+    exec:
+      command: ["sh", "-c", "pgrep -f api.services.telephony.ari_manager > /dev/null"]
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# Campaign orchestrator — CAMPAIGN SINGLETON
+#
+# Uses in-memory deduplication locks (api/services/campaign/campaign_orchestrator.py
+# `_processing_locks`). Running >1 replica would silently break scheduling.
+# Same singleton rules as ariManager: no replica knob, Recreate strategy.
+# -----------------------------------------------------------------------------
+campaignOrchestrator:
+  enabled: true
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  livenessProbe:
+    exec:
+      command: ["sh", "-c", "pgrep -f api.services.campaign.campaign_orchestrator > /dev/null"]
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# Next.js UI
+# -----------------------------------------------------------------------------
+ui:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    registry: docker.io
+    repository: dograhai/dograh-ui
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  port: 3010
+
+  # Server-side (SSR) URL. Defaults to the in-cluster web Service.
+  backendUrl: ""  # auto-set in template when empty
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 3010
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 3010
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 2
+
+  service:
+    type: ClusterIP
+    port: 3010
+
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# coturn — TURN media relay
+# -----------------------------------------------------------------------------
+coturn:
+  enabled: true
+
+  image:
+    registry: docker.io
+    repository: coturn/coturn
+    tag: "4.8.0"
+    pullPolicy: IfNotPresent
+
+  # External IP advertised by coturn for NAT traversal. This is the
+  # LoadBalancer IP of the coturn Service. There is a chicken-and-egg here:
+  # the LB IP may not be known until after install. See NOTES.txt for the
+  # supported workflow (install with placeholder, kubectl get svc, helm
+  # upgrade --set coturn.externalIp=<IP>).
+  externalIp: ""
+
+  realm: dograh.com
+
+  # Coturn uses TURN REST API authentication (HMAC-SHA1). The secret here
+  # MUST match secrets.turnSecret — the chart will warn at install time if
+  # they diverge.
+  staticAuthSecretFromSecretsKey: turnSecret
+
+  # Relay port range. AWS NLB has a default quota of 50 listeners per LB,
+  # so the default 49 ports (49152-49200) sits just inside the limit.
+  # Increasing this requires either a higher NLB listener quota or
+  # additional TURN deployments.
+  relayPortRange:
+    min: 49152
+    max: 49200
+
+  # Standard TURN ports.
+  ports:
+    plain: 3478
+    tls: 5349
+
+  # TLS for turns:// — NOT WIRED IN v1. The original docker-compose exposes
+  # 5349 but does not configure cert paths. v1 scopes to plain TURN over
+  # UDP/TCP. See README.md "Open TODOs".
+  tls:
+    enabled: false
+
+  service:
+    type: LoadBalancer
+    annotations: {}
+    # externalTrafficPolicy: Local preserves the client IP, which TURN auth
+    # benefits from. Some LBs need this set to "Cluster" to be reachable.
+    externalTrafficPolicy: Local
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 1Gi
+
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# -----------------------------------------------------------------------------
+# Migration Job
+# -----------------------------------------------------------------------------
+migrate:
+  # Run alembic upgrade head as a pre-install / pre-upgrade Helm hook.
+  enabled: true
+
+  # Hard cap on how long a migration may run. A failed/exceeded migration
+  # rolls back the install/upgrade because backoffLimit is 0.
+  activeDeadlineSeconds: 600
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# -----------------------------------------------------------------------------
+# Horizontal Pod Autoscaling — web tier only.
+#
+# WARNING: CPU/memory is a poor signal for WebRTC signaling workloads.
+# WebSockets are long-lived, low-CPU, and steady-memory; CPU will look flat
+# while you saturate per-pod connection limits. Replace this with a custom
+# metric (active WS connections, active calls) once one is exposed.
+# -----------------------------------------------------------------------------
+autoscaling:
+  web:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+# -----------------------------------------------------------------------------
+# Bitnami subcharts. Each is gated by its own `enabled` flag set by mode
+# resolution in templates/_helpers.tpl. Override the subchart's own values
+# under these keys.
+# -----------------------------------------------------------------------------
+postgresql:
+  # enabled is set automatically based on database.mode in _helpers.tpl;
+  # this key is read by the subchart's `condition`.
+  enabled: true
+  auth:
+    username: dograh
+    password: ""  # auto-generated if empty
+    database: dograh
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+redisInternal:
+  # Bitnami Redis subchart values, aliased to redisInternal to avoid
+  # colliding with `redis.mode` above. `redisInternal.enabled` is the gating
+  # flag for whether the subchart deploys.
+  enabled: true
+  auth:
+    enabled: true
+    password: ""  # auto-generated if empty
+  master:
+    persistence:
+      enabled: true
+      size: 8Gi
+  replica:
+    replicaCount: 0  # standalone primary by default
+
+minio:
+  enabled: true
+  auth:
+    rootUser: minioadmin
+    rootPassword: ""  # auto-generated if empty
+  defaultBuckets: "voice-audio"
+  persistence:
+    enabled: true
+    size: 20Gi

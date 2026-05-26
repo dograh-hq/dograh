@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dograh.arqWorker.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: arq-worker
+spec:
+  replicas: {{ .Values.workers.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "dograh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: arq-worker
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "dograh.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: arq-worker
+      {{- with .Values.workers.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "dograh.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: arq-worker
+          image: {{ include "dograh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["./scripts/run_arq_worker.sh"]
+          envFrom:
+            {{- include "dograh.backendEnvFrom" . | nindent 12 }}
+          env:
+            - name: DATABASE_URL
+              value: {{ include "dograh.databaseUrl" . | quote }}
+            - name: REDIS_URL
+              value: {{ include "dograh.redisUrl" . | quote }}
+            {{- if eq .Values.database.mode "internal" }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: password
+            {{- end }}
+            {{- if eq .Values.redis.mode "internal" }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-redisinternal
+                  key: redis-password
+            {{- end }}
+          livenessProbe:
+            {{- toYaml .Values.workers.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.workers.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "dograh.sharedTmpVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "dograh.sharedTmpVolumes" . | nindent 8 }}
+      {{- with .Values.workers.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.workers.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.workers.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

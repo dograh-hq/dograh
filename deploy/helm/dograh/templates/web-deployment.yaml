@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dograh.web.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  {{- if not .Values.autoscaling.web.enabled }}
+  replicas: {{ .Values.web.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "dograh.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: web
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "dograh.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: web
+      {{- with .Values.web.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "dograh.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Long-lived signaling WebSockets keep state in-process; honor the
+      # configured drain window so in-flight calls survive a rolling
+      # update. See README "Decisions log".
+      terminationGracePeriodSeconds: {{ .Values.web.terminationGracePeriodSeconds }}
+      containers:
+        - name: web
+          image: {{ include "dograh.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["./scripts/run_web.sh"]
+          ports:
+            - name: http
+              containerPort: {{ .Values.web.port }}
+              protocol: TCP
+          envFrom:
+            {{- include "dograh.backendEnvFrom" . | nindent 12 }}
+          env:
+            - name: WEB_PORT
+              value: {{ .Values.web.port | quote }}
+            - name: DATABASE_URL
+              value: {{ include "dograh.databaseUrl" . | quote }}
+            - name: REDIS_URL
+              value: {{ include "dograh.redisUrl" . | quote }}
+            {{- if eq .Values.database.mode "internal" }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-postgresql
+                  key: password
+            {{- end }}
+            {{- if eq .Values.redis.mode "internal" }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-redisinternal
+                  key: redis-password
+            {{- end }}
+          # Distinct probes: readiness flips fast (drain), liveness is
+          # slower (process aliveness).
+          livenessProbe:
+            {{- toYaml .Values.web.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.web.readinessProbe | nindent 12 }}
+          lifecycle:
+            preStop:
+              # Sleep so the gateway / load balancer observes the pod
+              # NotReady and stops sending new connections before SIGTERM
+              # propagates to uvicorn.
+              exec:
+                command: ["sh", "-c", "sleep {{ .Values.web.preStopSleepSeconds }}"]
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "dograh.sharedTmpVolumeMounts" . | nindent 12 }}
+      volumes:
+        {{- include "dograh.sharedTmpVolumes" . | nindent 8 }}
+      {{- with .Values.web.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.web.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

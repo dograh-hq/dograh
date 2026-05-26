@@ -108,6 +108,7 @@ class CampaignCallDispatcher:
             logger.warning(f"Failed to initialize from_number pool: {e}")
 
         processed_count = 0
+        processed_run_ids: set[int] = set()
         for i, queued_run in enumerate(queued_runs):
             try:
                 # Apply rate limiting, i.e lets not initiate more than rate_limit_per_second
@@ -133,28 +134,48 @@ class CampaignCallDispatcher:
                 )
 
                 processed_count += 1
+                processed_run_ids.add(queued_run.id)
 
                 # Update campaign processed count
                 await db_client.update_campaign(
                     campaign_id=campaign_id, processed_rows=campaign.processed_rows + 1
                 )
 
-            except (ConcurrentSlotAcquisitionError, PhoneNumberPoolExhaustedError):
-                # Revert all unprocessed runs (current and remaining) back to queued
-                # so they can be picked up again when campaign is resumed
-                for unprocessed_run in queued_runs[i:]:
-                    try:
-                        await db_client.update_queued_run(
-                            queued_run_id=unprocessed_run.id,
-                            state="queued",
-                        )
-                        logger.info(
-                            f"Reverted queued run {unprocessed_run.id} back to queued state"
-                        )
-                    except Exception as revert_error:
-                        logger.error(
-                            f"Failed to revert queued run {unprocessed_run.id}: {revert_error}"
-                        )
+            except asyncio.CancelledError:
+                logger.warning(
+                    f"Campaign {campaign_id} batch cancelled; returning claimed "
+                    "queued runs that were not dispatched"
+                )
+                await self._return_unprocessed_claims(
+                    queued_runs, processed_run_ids, reason="task_cancelled"
+                )
+                raise
+
+            except PhoneNumberPoolExhaustedError as e:
+                logger.warning(
+                    f"Phone number pool exhausted for campaign {campaign_id}; "
+                    "returning claimed queued runs that were not dispatched: "
+                    f"{e}"
+                )
+                await self._return_unprocessed_claims(
+                    queued_runs,
+                    processed_run_ids,
+                    reason="phone_number_pool_exhausted",
+                )
+                # Re-raise to propagate to process_campaign_batch
+                raise
+
+            except ConcurrentSlotAcquisitionError as e:
+                logger.warning(
+                    f"Concurrent slot acquisition failed for campaign {campaign_id}; "
+                    "returning claimed queued runs that were not dispatched: "
+                    f"{e}"
+                )
+                await self._return_unprocessed_claims(
+                    queued_runs,
+                    processed_run_ids,
+                    reason="concurrent_slot_acquisition_failed",
+                )
                 # Re-raise to propagate to process_campaign_batch
                 raise
 
@@ -177,6 +198,38 @@ class CampaignCallDispatcher:
                     )
 
         return processed_count
+
+    async def _return_unprocessed_claims(
+        self,
+        queued_runs: list[QueuedRunModel],
+        processed_run_ids: set[int],
+        *,
+        reason: str,
+    ) -> None:
+        queued_run_ids = [
+            queued_run.id
+            for queued_run in queued_runs
+            if queued_run.id not in processed_run_ids
+        ]
+        if not queued_run_ids:
+            return
+
+        try:
+            returned_count = (
+                await db_client.return_processing_queued_runs_without_workflow(
+                    queued_run_ids
+                )
+            )
+            logger.info(
+                f"Returned {returned_count}/{len(queued_run_ids)} claimed queued runs "
+                f"back to queued state; reason={reason}; "
+                f"queued_run_ids={queued_run_ids}"
+            )
+        except Exception as revert_error:
+            logger.error(
+                f"Failed to return claimed queued runs; reason={reason}; "
+                f"queued_run_ids={queued_run_ids}; error={revert_error}"
+            )
 
     async def dispatch_call(
         self, queued_run: QueuedRunModel, campaign: any, slot_id: str

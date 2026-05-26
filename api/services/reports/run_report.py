@@ -10,14 +10,8 @@ import io
 from datetime import UTC, datetime
 from typing import Any, List, Optional
 
-from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
-
-
-def _artifact_url(token: str | None, artifact: str) -> str:
-    if not token:
-        return ""
-    return f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{token}/{artifact}"
+from api.utils.artifacts import artifact_url
 
 
 def _collect_extracted_variable_keys(runs: List[Any]) -> list[str]:
@@ -83,8 +77,8 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
 
         post_values = [
             call_tags,
-            _artifact_url(run.public_access_token, "transcript"),
-            _artifact_url(run.public_access_token, "recording"),
+            artifact_url(run.public_access_token, "transcript") or "",
+            artifact_url(run.public_access_token, "recording") or "",
         ]
 
         writer.writerow(pre_values + extracted_values + post_values)

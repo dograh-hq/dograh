@@ -1,0 +1,9 @@
+---
+title: "Inbound Run Webhook"
+description: "Webhook endpoint that starts agent runs from inbound calls"
+openapi: "POST /api/v1/telephony/inbound/{workflow_id}"
+---
+
+Configure this URL in your telephony provider's dashboard (Twilio, Vonage, etc.) to start agent runs from inbound calls to a specific agent. The `workflow_id` determines which agent handles the call.
+
+See [Inbound calls](/integrations/telephony/inbound) for full setup instructions per provider.

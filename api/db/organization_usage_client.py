@@ -350,6 +350,7 @@ class OrganizationUsageClient(BaseDBClient):
                     "call_duration_seconds": int(round(call_duration)),
                     "recording_url": run.recording_url,
                     "transcript_url": run.transcript_url,
+                    "public_access_token": run.public_access_token,
                     "phone_number": phone_number,
                     "caller_number": caller_number,
                     "called_number": called_number,

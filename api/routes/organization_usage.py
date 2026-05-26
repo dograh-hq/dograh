@@ -13,6 +13,7 @@ from api.db.models import UserModel
 from api.services.auth.depends import get_user
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.reports import generate_usage_runs_report_csv
+from api.utils.artifacts import artifact_url
 
 router = APIRouter(prefix="/organizations")
 
@@ -49,6 +50,7 @@ class WorkflowRunUsageResponse(BaseModel):
     call_duration_seconds: int
     recording_url: Optional[str] = None
     transcript_url: Optional[str] = None
+    public_access_token: Optional[str] = None
     phone_number: Optional[str] = Field(
         default=None,
         deprecated=True,
@@ -222,6 +224,15 @@ async def get_usage_history(
         )
 
         total_pages = (total_count + limit - 1) // limit
+
+        for run in runs:
+            public_access_token = run.get("public_access_token")
+            run["transcript_url"] = artifact_url(
+                public_access_token, "transcript", fallback=run.get("transcript_url")
+            )
+            run["recording_url"] = artifact_url(
+                public_access_token, "recording", fallback=run.get("recording_url")
+            )
 
         return {
             "runs": runs,

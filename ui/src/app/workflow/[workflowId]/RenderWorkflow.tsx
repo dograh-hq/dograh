@@ -656,7 +656,7 @@ function RenderWorkflow({
                         </div>
 
                         {isTesterRailOpen && (
-                            <aside className="hidden h-full w-[420px] shrink-0 border-l border-border xl:block">
+                            <aside className="hidden h-full w-[400px] shrink-0 border-l border-border xl:block">
                                 <WorkflowTesterPanel
                                     workflowId={workflowId}
                                     initialContextVariables={templateContextVariables}

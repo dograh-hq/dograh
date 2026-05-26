@@ -4413,6 +4413,10 @@ export type WorkflowListResponse = {
      * Folder Id
      */
     folder_id?: number | null;
+    /**
+     * Workflow Uuid
+     */
+    workflow_uuid?: string | null;
 };
 
 /**
@@ -4560,6 +4564,10 @@ export type WorkflowRunResponseSchema = {
      * Recording Url
      */
     recording_url: string | null;
+    /**
+     * Public Access Token
+     */
+    public_access_token?: string | null;
     /**
      * Cost Info
      */
@@ -4709,6 +4717,10 @@ export type WorkflowRunUsageResponse = {
      * Transcript Url
      */
     transcript_url?: string | null;
+    /**
+     * Public Access Token
+     */
+    public_access_token?: string | null;
     /**
      * Phone Number
      *
@@ -5071,20 +5083,6 @@ export type HandleCloudonixCdrApiV1TelephonyCloudonixCdrPostResponses = {
 
 export type HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRunIdPostData = {
     body?: never;
-    headers?: {
-        /**
-         * X-Plivo-Signature-V3
-         */
-        'x-plivo-signature-v3'?: string | null;
-        /**
-         * X-Plivo-Signature-Ma-V3
-         */
-        'x-plivo-signature-ma-v3'?: string | null;
-        /**
-         * X-Plivo-Signature-V3-Nonce
-         */
-        'x-plivo-signature-v3-nonce'?: string | null;
-    };
     path: {
         /**
          * Workflow Run Id
@@ -5117,20 +5115,6 @@ export type HandlePlivoHangupCallbackApiV1TelephonyPlivoHangupCallbackWorkflowRu
 
 export type HandlePlivoRingCallbackApiV1TelephonyPlivoRingCallbackWorkflowRunIdPostData = {
     body?: never;
-    headers?: {
-        /**
-         * X-Plivo-Signature-V3
-         */
-        'x-plivo-signature-v3'?: string | null;
-        /**
-         * X-Plivo-Signature-Ma-V3
-         */
-        'x-plivo-signature-ma-v3'?: string | null;
-        /**
-         * X-Plivo-Signature-V3-Nonce
-         */
-        'x-plivo-signature-v3-nonce'?: string | null;
-    };
     path: {
         /**
          * Workflow Run Id
@@ -5227,12 +5211,6 @@ export type HandleTelnyxTransferResultApiV1TelephonyTelnyxTransferResultTransfer
 
 export type HandleTwilioStatusCallbackApiV1TelephonyTwilioStatusCallbackWorkflowRunIdPostData = {
     body?: never;
-    headers?: {
-        /**
-         * X-Webhook-Signature
-         */
-        'x-webhook-signature'?: string | null;
-    };
     path: {
         /**
          * Workflow Run Id
@@ -10074,6 +10052,86 @@ export type InitiateCallTestApiV1PublicAgentTestUuidPostResponses = {
 };
 
 export type InitiateCallTestApiV1PublicAgentTestUuidPostResponse = InitiateCallTestApiV1PublicAgentTestUuidPostResponses[keyof InitiateCallTestApiV1PublicAgentTestUuidPostResponses];
+
+export type InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostData = {
+    body: TriggerCallRequest;
+    headers: {
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key': string;
+    };
+    path: {
+        /**
+         * Workflow Uuid
+         */
+        workflow_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/public/agent/workflow/{workflow_uuid}';
+};
+
+export type InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostError = InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostErrors[keyof InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostErrors];
+
+export type InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TriggerCallResponse;
+};
+
+export type InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostResponse = InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostResponses[keyof InitiateCallByWorkflowUuidApiV1PublicAgentWorkflowWorkflowUuidPostResponses];
+
+export type InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostData = {
+    body: TriggerCallRequest;
+    headers: {
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key': string;
+    };
+    path: {
+        /**
+         * Workflow Uuid
+         */
+        workflow_uuid: string;
+    };
+    query?: never;
+    url: '/api/v1/public/agent/test/workflow/{workflow_uuid}';
+};
+
+export type InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostError = InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostErrors[keyof InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostErrors];
+
+export type InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: TriggerCallResponse;
+};
+
+export type InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostResponse = InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostResponses[keyof InitiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowUuidPostResponses];
 
 export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetData = {
     body?: never;

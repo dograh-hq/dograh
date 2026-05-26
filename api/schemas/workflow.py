@@ -15,6 +15,7 @@ class WorkflowRunResponseSchema(BaseModel):
     is_completed: bool
     transcript_url: str | None
     recording_url: str | None
+    public_access_token: str | None = None
     cost_info: Dict[str, Any] | None
     definition_id: int | None  # This is for backward compatibility
     initial_context: dict | None = None

@@ -681,6 +681,54 @@ class TestProcessBatchConcurrency:
         assert states.get("processing", 0) == 0
 
 
+class TestProcessBatchCancellation:
+    """Cancellation cleanup for claimed queued runs."""
+
+    @pytest.mark.asyncio
+    async def test_cancelled_batch_returns_claimed_runs_without_workflows(self):
+        dispatcher = CampaignCallDispatcher()
+        campaign = MagicMock()
+        campaign.id = 42
+        campaign.state = "running"
+        campaign.organization_id = 7
+        campaign.rate_limit_per_second = 1
+        campaign.telephony_configuration_id = 170
+
+        queued_runs = [MagicMock(id=101), MagicMock(id=102), MagicMock(id=103)]
+        provider = MagicMock()
+        provider.from_numbers = []
+
+        with (
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.db_client"
+            ) as mock_db,
+            patch.object(
+                dispatcher,
+                "get_provider_for_campaign",
+                AsyncMock(return_value=provider),
+            ),
+            patch.object(
+                dispatcher,
+                "apply_rate_limit",
+                AsyncMock(side_effect=asyncio.CancelledError),
+            ),
+        ):
+            mock_db.get_campaign_by_id = AsyncMock(return_value=campaign)
+            mock_db.claim_queued_runs_for_processing = AsyncMock(
+                return_value=queued_runs
+            )
+            mock_db.return_processing_queued_runs_without_workflow = AsyncMock(
+                return_value=3
+            )
+
+            with pytest.raises(asyncio.CancelledError):
+                await dispatcher.process_batch(campaign_id=42, batch_size=3)
+
+            mock_db.return_processing_queued_runs_without_workflow.assert_awaited_once_with(
+                [101, 102, 103]
+            )
+
+
 class TestProcessBatchEdgeCases:
     """Edge case tests for process_batch."""
 

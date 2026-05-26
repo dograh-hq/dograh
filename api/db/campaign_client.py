@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, text
+from sqlalchemy import func, text, update
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
@@ -466,6 +466,63 @@ class CampaignClient(BaseDBClient):
                 await session.rollback()
                 raise
 
+    async def increment_campaign_metadata_counter(
+        self, campaign_id: int, key: str
+    ) -> int:
+        """Atomically increment an integer field in campaign orchestrator_metadata."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE campaigns "
+                    "SET orchestrator_metadata = ("
+                    "        COALESCE(orchestrator_metadata::jsonb, '{}'::jsonb) "
+                    "        || jsonb_build_object("
+                    "            :key, "
+                    "            COALESCE((orchestrator_metadata::jsonb ->> :key)::int, 0) + 1"
+                    "        )"
+                    "    )::json, "
+                    "    updated_at = :now "
+                    "WHERE id = :campaign_id "
+                    "RETURNING (orchestrator_metadata::jsonb ->> :key)::int"
+                ),
+                {
+                    "campaign_id": campaign_id,
+                    "key": key,
+                    "now": datetime.now(UTC),
+                },
+            )
+            attempt = result.scalar_one()
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            return attempt
+
+    async def reset_campaign_metadata_counter(self, campaign_id: int, key: str) -> None:
+        """Remove a counter field from campaign orchestrator_metadata."""
+        async with self.async_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE campaigns "
+                    "SET orchestrator_metadata = ("
+                    "        COALESCE(orchestrator_metadata::jsonb, '{}'::jsonb) - :key"
+                    "    )::json, "
+                    "    updated_at = :now "
+                    "WHERE id = :campaign_id"
+                ),
+                {
+                    "campaign_id": campaign_id,
+                    "key": key,
+                    "now": datetime.now(UTC),
+                },
+            )
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
     # QueuedRun methods
     async def bulk_create_queued_runs(self, queued_runs_data: list[dict]) -> None:
         """Bulk create queued runs"""
@@ -500,6 +557,35 @@ class CampaignClient(BaseDBClient):
                 raise e
             await session.refresh(queued_run)
             return queued_run
+
+    async def return_processing_queued_runs_without_workflow(
+        self, queued_run_ids: list[int]
+    ) -> int:
+        """Return claimed queued_runs to queued if no workflow was created for them."""
+        if not queued_run_ids:
+            return 0
+
+        workflow_exists = (
+            select(WorkflowRunModel.id)
+            .where(WorkflowRunModel.queued_run_id == QueuedRunModel.id)
+            .exists()
+        )
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(QueuedRunModel)
+                .where(
+                    QueuedRunModel.id.in_(queued_run_ids),
+                    QueuedRunModel.state == "processing",
+                    ~workflow_exists,
+                )
+                .values(state="queued")
+            )
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            return result.rowcount or 0
 
     async def count_queued_runs(
         self, campaign_id: int, state: Optional[str] = None

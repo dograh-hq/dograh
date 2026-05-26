@@ -17,6 +17,11 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     init: true
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    cap_add:
+      - SYS_ADMIN
     networks:
       - app-network
     volumes:

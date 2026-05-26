@@ -4565,6 +4565,14 @@ export type WorkflowRunResponseSchema = {
      */
     recording_url: string | null;
     /**
+     * Transcript Public Url
+     */
+    transcript_public_url?: string | null;
+    /**
+     * Recording Public Url
+     */
+    recording_public_url?: string | null;
+    /**
      * Public Access Token
      */
     public_access_token?: string | null;
@@ -4717,6 +4725,14 @@ export type WorkflowRunUsageResponse = {
      * Transcript Url
      */
     transcript_url?: string | null;
+    /**
+     * Recording Public Url
+     */
+    recording_public_url?: string | null;
+    /**
+     * Transcript Public Url
+     */
+    transcript_public_url?: string | null;
     /**
      * Public Access Token
      */

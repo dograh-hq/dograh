@@ -50,6 +50,8 @@ class WorkflowRunUsageResponse(BaseModel):
     call_duration_seconds: int
     recording_url: Optional[str] = None
     transcript_url: Optional[str] = None
+    recording_public_url: Optional[str] = None
+    transcript_public_url: Optional[str] = None
     public_access_token: Optional[str] = None
     phone_number: Optional[str] = Field(
         default=None,
@@ -227,12 +229,10 @@ async def get_usage_history(
 
         for run in runs:
             public_access_token = run.get("public_access_token")
-            run["transcript_url"] = artifact_url(
-                public_access_token, "transcript", fallback=run.get("transcript_url")
+            run["transcript_public_url"] = artifact_url(
+                public_access_token, "transcript"
             )
-            run["recording_url"] = artifact_url(
-                public_access_token, "recording", fallback=run.get("recording_url")
-            )
+            run["recording_public_url"] = artifact_url(public_access_token, "recording")
 
         return {
             "runs": runs,

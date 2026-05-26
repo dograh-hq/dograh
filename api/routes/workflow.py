@@ -1125,12 +1125,10 @@ async def get_workflow_run(
         "name": run.name,
         "mode": run.mode,
         "is_completed": run.is_completed,
-        "transcript_url": artifact_url(
-            public_access_token, "transcript", fallback=run.transcript_url
-        ),
-        "recording_url": artifact_url(
-            public_access_token, "recording", fallback=run.recording_url
-        ),
+        "transcript_url": run.transcript_url,
+        "recording_url": run.recording_url,
+        "transcript_public_url": artifact_url(public_access_token, "transcript"),
+        "recording_public_url": artifact_url(public_access_token, "recording"),
         "public_access_token": public_access_token,
         "cost_info": {
             "dograh_token_usage": (

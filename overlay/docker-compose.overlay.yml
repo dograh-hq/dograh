@@ -1,0 +1,20 @@
+# Voice-engine overlay — runs our MCP server alongside (eventually) the
+# Dograh stack from upstream's docker-compose.yaml. For Stream S5 we only
+# bring up the overlay; once we wire the Dograh SDK, this file will
+# `include:` upstream's compose so the engine + MCP share a network.
+#
+#   docker compose -f overlay/docker-compose.overlay.yml up -d
+
+services:
+  voice-engine:
+    build:
+      context: ..
+      dockerfile: overlay/Dockerfile
+    restart: unless-stopped
+    environment:
+      DOGRAH_API_URL: ${DOGRAH_API_URL:-http://dograh-api:8000}
+      # Tenant scoping happens at the platform-api layer — overlay accepts
+      # any caller and proxies. Lock it down once the api-side enforces
+      # per-tenant tokens.
+    ports:
+      - "7000:7000"

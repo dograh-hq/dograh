@@ -260,10 +260,9 @@ export default function CustomEdge(props: CustomEdgeProps) {
         await saveWorkflow();
     }, [id, updateEdge, saveWorkflow]);
 
-    const handleDeleteEdge = useCallback(async () => {
+    const handleDeleteEdge = useCallback(() => {
         deleteEdge(id);
-        await saveWorkflow();
-    }, [id, deleteEdge, saveWorkflow]);
+    }, [id, deleteEdge]);
 
     return (
         <>

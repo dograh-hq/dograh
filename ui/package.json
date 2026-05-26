@@ -3,7 +3,7 @@
   "version": "1.31.0",
   "private": true,
   "scripts": {
-    "dev": "cross-env NODE_OPTIONS=--enable-source-maps next dev --turbopack",
+    "dev": "cross-env NODE_OPTIONS=--enable-source-maps next dev --turbopack -p 3010",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

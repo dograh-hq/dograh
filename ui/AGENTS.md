@@ -75,5 +75,5 @@ The auth interceptor (which attaches the Bearer token) is only registered once a
 
 ```bash
 npm install
-npm run dev    # Runs on port 3000
+npm run dev    # Runs on port 3010
 ```

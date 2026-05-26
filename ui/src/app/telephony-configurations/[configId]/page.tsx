@@ -239,7 +239,7 @@ export default function TelephonyConfigurationDetailPage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {}).map(([k, v]) => (
               <div key={k} className="flex justify-between gap-3">
@@ -250,6 +250,24 @@ export default function TelephonyConfigurationDetailPage() {
               </div>
             ))}
           </dl>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Inbound webhook URL</p>
+            <button
+              type="button"
+              onClick={() => {
+                const url = `${typeof window !== "undefined" ? window.location.origin : ""}/api/v1/telephony/inbound/run`;
+                navigator.clipboard
+                  .writeText(url)
+                  .then(() => toast.success("Inbound webhook URL copied"))
+                  .catch(() => toast.error("Failed to copy URL"));
+              }}
+              title="Click to copy inbound webhook URL"
+              className="inline-flex items-center gap-1 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground"
+            >
+              <span className="truncate">/api/v1/telephony/inbound/run</span>
+              <Copy className="h-3 w-3 shrink-0" />
+            </button>
+          </div>
         </CardContent>
       </Card>
 

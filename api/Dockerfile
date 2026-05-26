@@ -71,6 +71,8 @@ FROM python:3.13-slim AS runner
 
 WORKDIR /app
 
+RUN groupadd --system dograh && useradd --system --gid dograh --home-dir /app dograh
+
 # Static ffmpeg + ffprobe (used by audio_converter, audio_file_cache, etc.)
 COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg-static /usr/local/bin/ffprobe /usr/local/bin/ffprobe
@@ -109,6 +111,9 @@ ENV PYTHONPATH=/app
 
 # Disable file logging in Docker - logs go to stdout for docker logs
 ENV LOG_TO_FILE=false
+
+RUN chown -R dograh:dograh /app
+USER dograh
 
 # Expose the port FastAPI will run on
 EXPOSE 8000

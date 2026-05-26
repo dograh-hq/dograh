@@ -24,7 +24,10 @@ from api.services.configuration.masking import (
     mask_workflow_definition,
     merge_workflow_api_keys,
 )
-from api.services.configuration.resolve import resolve_effective_config
+from api.services.configuration.resolve import (
+    enrich_overrides_with_api_keys,
+    resolve_effective_config,
+)
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
 from api.services.reports import generate_workflow_report_csv
@@ -940,15 +943,17 @@ async def update_workflow(
 
         # Validate model_overrides: resolve onto global config, then
         # run the same validator used by the user-configurations endpoint.
-        if request.workflow_configurations and request.workflow_configurations.get(
-            "model_overrides"
-        ):
+        # Also stamp the current global API key into the override so the override
+        # remains functional if the global config later switches to a different provider.
+        workflow_configurations = request.workflow_configurations
+        if workflow_configurations and workflow_configurations.get("model_overrides"):
             user_config = await db_client.get_user_configurations(user.id)
             try:
-                effective = resolve_effective_config(
+                enriched_overrides = enrich_overrides_with_api_keys(
+                    workflow_configurations["model_overrides"],
                     user_config,
-                    request.workflow_configurations["model_overrides"],
                 )
+                effective = resolve_effective_config(user_config, enriched_overrides)
                 await UserConfigurationValidator().validate(
                     effective,
                     organization_id=user.selected_organization_id,
@@ -956,6 +961,10 @@ async def update_workflow(
                 )
             except ValueError as e:
                 raise HTTPException(status_code=422, detail=str(e))
+            workflow_configurations = {
+                **workflow_configurations,
+                "model_overrides": enriched_overrides,
+            }
 
         # Reject upfront if any new trigger path collides with another
         # workflow's trigger — keeps the workflow record from
@@ -978,7 +987,7 @@ async def update_workflow(
             name=request.name,
             workflow_definition=workflow_definition,
             template_context_variables=request.template_context_variables,
-            workflow_configurations=request.workflow_configurations,
+            workflow_configurations=workflow_configurations,
             organization_id=user.selected_organization_id,
         )
 

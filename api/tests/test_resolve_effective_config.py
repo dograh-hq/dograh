@@ -19,7 +19,10 @@ from api.services.configuration.registry import (
     OpenAILLMService,
     UltravoxRealtimeLLMConfiguration,
 )
-from api.services.configuration.resolve import resolve_effective_config
+from api.services.configuration.resolve import (
+    enrich_overrides_with_api_keys,
+    resolve_effective_config,
+)
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -403,3 +406,62 @@ class TestUnknownKeys:
             {"embeddings": {"provider": "openai", "model": "text-embedding-3-small"}},
         )
         assert result.embeddings is None  # was None in global, stays None
+
+
+# ---------------------------------------------------------------------------
+# enrich_overrides_with_api_keys
+# ---------------------------------------------------------------------------
+
+
+class TestEnrichOverridesWithApiKeys:
+    def test_injects_api_key_when_same_provider(self, global_config):
+        """Override matching the global provider gets the global API key stamped in."""
+        overrides = {"tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}}
+        enriched = enrich_overrides_with_api_keys(overrides, global_config)
+        assert enriched["tts"]["api_key"] == "el-global-tts"
+
+    def test_does_not_overwrite_existing_api_key(self, global_config):
+        """Override that already has an api_key keeps its own key."""
+        overrides = {"tts": {"provider": "elevenlabs", "api_key": "my-own-key", "voice": "Bella", "model": "eleven_flash_v2_5"}}
+        enriched = enrich_overrides_with_api_keys(overrides, global_config)
+        assert enriched["tts"]["api_key"] == "my-own-key"
+
+    def test_skips_when_provider_differs(self, global_config):
+        """Override for a different provider is not enriched with the global key."""
+        overrides = {"tts": {"provider": "cartesia", "voice": "some-voice", "model": "sonic-3"}}
+        enriched = enrich_overrides_with_api_keys(overrides, global_config)
+        assert "api_key" not in enriched["tts"]
+
+    def test_does_not_mutate_original(self, global_config):
+        """The input overrides dict must not be modified."""
+        overrides = {"tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}}
+        original_copy = {"tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}}
+        enrich_overrides_with_api_keys(overrides, global_config)
+        assert overrides == original_copy
+
+    def test_regression_override_survives_global_provider_change(self, global_config):
+        """Core bug: override for provider A still works after global switches to B.
+
+        Steps:
+          1. Global TTS = ElevenLabs, Override TTS = ElevenLabs (different voice)
+          2. enrich_overrides_with_api_keys stamps ElevenLabs API key into override
+          3. Global TTS changes to Deepgram (simulate by building a new config)
+          4. resolve_effective_config must still return a valid ElevenLabs config
+        """
+        override_at_save_time = {
+            "tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}
+        }
+        enriched = enrich_overrides_with_api_keys(override_at_save_time, global_config)
+        assert enriched["tts"]["api_key"] == "el-global-tts"
+
+        # Simulate global config switching to Deepgram
+        from api.services.configuration.registry import DeepgramTTSConfiguration
+        new_global = global_config.model_copy(
+            update={"tts": DeepgramTTSConfiguration(provider="deepgram", api_key="dg-new", voice="aura-2-helena-en")}
+        )
+
+        # The enriched override should resolve correctly against the new global
+        result = resolve_effective_config(new_global, enriched)
+        assert result.tts.provider == "elevenlabs"
+        assert result.tts.voice == "Bella"
+        assert result.tts.api_key == "el-global-tts"

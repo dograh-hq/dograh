@@ -71,7 +71,9 @@ FROM python:3.13-slim AS runner
 
 WORKDIR /app
 
-RUN groupadd --system dograh && useradd --system --gid dograh --home-dir /app dograh
+RUN groupadd --system dograh \
+ && useradd --system --gid dograh --no-log-init --home-dir /app --shell /usr/sbin/nologin dograh \
+ && chown dograh:dograh /app
 
 # Static ffmpeg + ffprobe (used by audio_converter, audio_file_cache, etc.)
 COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
@@ -95,24 +97,24 @@ ENV PYTHONDONTWRITEBYTECODE=1
 # Unbuffered output for better container logging
 ENV PYTHONUNBUFFERED=1
 
-# Copy application code
-COPY ./api ./api
-COPY ./scripts/start_services_docker.sh ./scripts/start_services_docker.sh
+# Copy application code (chown at copy-time avoids a duplicate /app layer
+# from a later `RUN chown -R`, which would double the on-disk size of /app).
+COPY --chown=dograh:dograh ./api ./api
+COPY --chown=dograh:dograh ./scripts/start_services_docker.sh ./scripts/start_services_docker.sh
 
 # ts_validator Node deps (built in ts-deps stage with full node:22-slim image).
 # The validator runs as a short-lived subprocess from api/mcp_server/ts_bridge.py.
-COPY --from=ts-deps /ts_validator/node_modules ./api/mcp_server/ts_validator/node_modules
+COPY --from=ts-deps --chown=dograh:dograh /ts_validator/node_modules ./api/mcp_server/ts_validator/node_modules
 
 # Product documentation — read at runtime by the MCP docs tools
 # (search_dograh_docs / fetch_dograh_doc) so agents can learn Dograh.
-COPY ./docs ./docs
+COPY --chown=dograh:dograh ./docs ./docs
 
 ENV PYTHONPATH=/app
 
 # Disable file logging in Docker - logs go to stdout for docker logs
 ENV LOG_TO_FILE=false
 
-RUN chown -R dograh:dograh /app
 USER dograh
 
 # Expose the port FastAPI will run on

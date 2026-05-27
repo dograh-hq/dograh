@@ -57,6 +57,15 @@ import {
 } from "@/components/ui/table";
 import { useAuth } from "@/lib/auth";
 
+const INBOUND_WEBHOOK_PATH = "/api/v1/telephony/inbound/run";
+
+function getInboundWebhookUrl(): string {
+  const backendUrl =
+    process.env.NEXT_PUBLIC_BACKEND_URL ||
+    (typeof window !== "undefined" ? window.location.origin : "");
+  return `${backendUrl}${INBOUND_WEBHOOK_PATH}`;
+}
+
 export default function TelephonyConfigurationDetailPage() {
   const router = useRouter();
   const params = useParams<{ configId: string }>();
@@ -239,7 +248,7 @@ export default function TelephonyConfigurationDetailPage() {
             </Button>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2 text-sm">
             {Object.entries(config.credentials ?? {}).map(([k, v]) => (
               <div key={k} className="flex justify-between gap-3">
@@ -250,6 +259,25 @@ export default function TelephonyConfigurationDetailPage() {
               </div>
             ))}
           </dl>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">Inbound webhook URL</p>
+            <button
+              type="button"
+              onClick={() => {
+                const url = getInboundWebhookUrl();
+                navigator.clipboard
+                  .writeText(url)
+                  .then(() => toast.success("Inbound webhook URL copied"))
+                  .catch(() => toast.error("Failed to copy URL"));
+              }}
+              title="Click to copy inbound webhook URL"
+              aria-label="Copy inbound webhook URL"
+              className="inline-flex items-center gap-1 self-start rounded font-mono text-xs text-muted-foreground hover:text-foreground"
+            >
+              <span className="truncate">{getInboundWebhookUrl()}</span>
+              <Copy className="h-3 w-3 shrink-0" />
+            </button>
+          </div>
         </CardContent>
       </Card>
 

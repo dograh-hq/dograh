@@ -13,6 +13,7 @@ from api.schemas.user_configuration import (
 )
 from api.services.configuration.registry import ServiceConfig, ServiceProviders
 from api.services.mps_service_key_client import mps_service_key_client
+from api.utils.url_security import validate_user_configured_service_url
 
 AuthContext = TypedDict(
     "AuthContext",
@@ -107,6 +108,17 @@ class UserConfigurationValidator:
 
         provider = service_config.provider
 
+        for url_field in ("base_url", "endpoint"):
+            url = getattr(service_config, url_field, None)
+            if url:
+                try:
+                    validate_user_configured_service_url(
+                        url,
+                        field_name=url_field,
+                    )
+                except ValueError as e:
+                    return [{"model": service_name, "message": str(e)}]
+
         # Speaches doesn't require an API key
         if provider == ServiceProviders.SPEACHES.value:
             try:
@@ -197,7 +209,10 @@ class UserConfigurationValidator:
         return []
 
     def _check_api_key(
-        self, provider: str, api_key: str, service_config: Optional[ServiceConfig] = None
+        self,
+        provider: str,
+        api_key: str,
+        service_config: Optional[ServiceConfig] = None,
     ) -> bool:
         """Check if an API key for a provider is valid."""
         validator = self._validator_map.get(provider)

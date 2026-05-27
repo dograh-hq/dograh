@@ -13,6 +13,7 @@ from api.schemas.user_configuration import (
 )
 from api.services.configuration.registry import ServiceConfig, ServiceProviders
 from api.services.mps_service_key_client import mps_service_key_client
+from api.utils.url_security import validate_user_configured_service_url
 
 AuthContext = TypedDict(
     "AuthContext",
@@ -107,6 +108,17 @@ class UserConfigurationValidator:
 
         provider = service_config.provider
 
+        for url_field in ("base_url", "endpoint"):
+            url = getattr(service_config, url_field, None)
+            if url:
+                try:
+                    validate_user_configured_service_url(
+                        url,
+                        field_name=url_field,
+                    )
+                except ValueError as e:
+                    return [{"model": service_name, "message": str(e)}]
+
         # Speaches doesn't require an API key
         if provider == ServiceProviders.SPEACHES.value:
             try:
@@ -181,30 +193,92 @@ class UserConfigurationValidator:
         api_key = service_config.api_key
 
         try:
-            if not self._check_api_key(provider, api_key):
+            if not self._check_api_key(provider, api_key, service_config):
                 return [
-                    {"model": service_name, "message": f"Invalid {provider} API key"}
+                    {
+                        "model": service_name,
+                        "message": (
+                            f"Invalid {provider} API key. Please verify your API key is "
+                            f"correct, has not expired, and has the required permissions."
+                        ),
+                    }
                 ]
         except ValueError as e:
             return [{"model": service_name, "message": str(e)}]
 
         return []
 
-    def _check_api_key(self, provider: str, api_key: str) -> bool:
+    def _check_api_key(
+        self,
+        provider: str,
+        api_key: str,
+        service_config: Optional[ServiceConfig] = None,
+    ) -> bool:
         """Check if an API key for a provider is valid."""
         validator = self._validator_map.get(provider)
         if not validator:
             return False
 
+        if provider in (
+            ServiceProviders.OPENAI.value,
+            ServiceProviders.OPENAI_REALTIME.value,
+        ):
+            return validator(provider, api_key, service_config)
         return validator(provider, api_key)
 
-    def _check_openai_api_key(self, model: str, api_key: str) -> bool:
-        client = openai.OpenAI(api_key=api_key)
+    def _check_openai_api_key(
+        self, model: str, api_key: str, service_config: Optional[ServiceConfig] = None
+    ) -> bool:
+        client_kwargs: dict[str, str] = {"api_key": api_key}
+        base_url = getattr(service_config, "base_url", None) if service_config else None
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        client = openai.OpenAI(**client_kwargs)
         try:
             client.models.list()
             return True
         except openai.AuthenticationError:
-            return False
+            if base_url and "openai.com" not in base_url:
+                raise ValueError(
+                    f"Invalid OpenAI API key. The key was rejected by the API at {base_url}. "
+                    "Please check that your API key is correct and has not been revoked."
+                )
+            raise ValueError(
+                "Invalid OpenAI API key. The key was rejected by the OpenAI API. "
+                "Please check that your API key is correct and has not been revoked. "
+                "You can verify your keys at https://platform.openai.com/api-keys."
+            )
+        except openai.APIConnectionError:
+            if base_url:
+                raise ValueError(
+                    f"Could not connect to the OpenAI-compatible API at {base_url}. "
+                    "Please verify that the base_url is correct and reachable, and try again."
+                )
+            raise ValueError(
+                "Could not connect to the OpenAI API. Please check your network connection "
+                "and try again."
+            )
+        except openai.APIError:
+            if base_url:
+                raise ValueError(
+                    f"The OpenAI-compatible API at {base_url} returned an error while "
+                    "validating the API key. Please verify that the base_url is correct, "
+                    "the service is available, and the API key is valid."
+                )
+            raise ValueError(
+                "The OpenAI API returned an error while validating the API key. "
+                "Please try again later."
+            )
+        except Exception:
+            if base_url:
+                raise ValueError(
+                    f"Failed to validate the OpenAI API key using the API at {base_url}. "
+                    "Please verify that the base_url is correct and reachable, and that the "
+                    "API key is valid."
+                )
+            raise ValueError(
+                "Failed to validate the OpenAI API key. Please try again later."
+            )
 
     def _check_deepgram_api_key(self, model: str, api_key: str) -> bool:
         try:
@@ -212,7 +286,11 @@ class UserConfigurationValidator:
             deepgram.manage.v1.projects.list()
             return True
         except Exception:
-            return False
+            raise ValueError(
+                "Invalid Deepgram API key. The key was rejected by the Deepgram API. "
+                "Please check that your API key is correct and active. "
+                "You can verify your keys at https://console.deepgram.com/."
+            )
 
     def _check_groq_api_key(self, model: str, api_key: str) -> bool:
         client = Groq(api_key=api_key)
@@ -220,7 +298,11 @@ class UserConfigurationValidator:
             client.models.list()
             return True
         except Exception:
-            return False
+            raise ValueError(
+                "Invalid Groq API key. The key was rejected by the Groq API. "
+                "Please check that your API key is correct and active. "
+                "You can verify your keys at https://console.groq.com/keys."
+            )
 
     def _validate_elevenlabs_api_key(self, model: str, api_key: str) -> bool:
         return True

@@ -10,6 +10,11 @@ Module under test: api.services.configuration.resolve
 import pytest
 
 from api.schemas.user_configuration import UserConfiguration
+from api.services.configuration.masking import (
+    contains_masked_key,
+    mask_workflow_configurations,
+)
+from api.services.configuration.merge import merge_workflow_configuration_secrets
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
     ElevenlabsTTSConfiguration,
@@ -416,26 +421,62 @@ class TestUnknownKeys:
 class TestEnrichOverridesWithApiKeys:
     def test_injects_api_key_when_same_provider(self, global_config):
         """Override matching the global provider gets the global API key stamped in."""
-        overrides = {"tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}}
+        overrides = {
+            "tts": {
+                "provider": "elevenlabs",
+                "voice": "Bella",
+                "model": "eleven_flash_v2_5",
+            }
+        }
         enriched = enrich_overrides_with_api_keys(overrides, global_config)
         assert enriched["tts"]["api_key"] == "el-global-tts"
 
+    def test_injects_all_api_keys_when_global_has_multiple(self, global_config):
+        """Override matching a multi-key global provider gets every global key."""
+        global_config.llm.api_key = ["sk-global-1", "sk-global-2"]
+        overrides = {"llm": {"provider": "openai", "model": "gpt-4.1-mini"}}
+
+        enriched = enrich_overrides_with_api_keys(overrides, global_config)
+
+        assert enriched["llm"]["api_key"] == ["sk-global-1", "sk-global-2"]
+
     def test_does_not_overwrite_existing_api_key(self, global_config):
         """Override that already has an api_key keeps its own key."""
-        overrides = {"tts": {"provider": "elevenlabs", "api_key": "my-own-key", "voice": "Bella", "model": "eleven_flash_v2_5"}}
+        overrides = {
+            "tts": {
+                "provider": "elevenlabs",
+                "api_key": "my-own-key",
+                "voice": "Bella",
+                "model": "eleven_flash_v2_5",
+            }
+        }
         enriched = enrich_overrides_with_api_keys(overrides, global_config)
         assert enriched["tts"]["api_key"] == "my-own-key"
 
     def test_skips_when_provider_differs(self, global_config):
         """Override for a different provider is not enriched with the global key."""
-        overrides = {"tts": {"provider": "cartesia", "voice": "some-voice", "model": "sonic-3"}}
+        overrides = {
+            "tts": {"provider": "cartesia", "voice": "some-voice", "model": "sonic-3"}
+        }
         enriched = enrich_overrides_with_api_keys(overrides, global_config)
         assert "api_key" not in enriched["tts"]
 
     def test_does_not_mutate_original(self, global_config):
         """The input overrides dict must not be modified."""
-        overrides = {"tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}}
-        original_copy = {"tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}}
+        overrides = {
+            "tts": {
+                "provider": "elevenlabs",
+                "voice": "Bella",
+                "model": "eleven_flash_v2_5",
+            }
+        }
+        original_copy = {
+            "tts": {
+                "provider": "elevenlabs",
+                "voice": "Bella",
+                "model": "eleven_flash_v2_5",
+            }
+        }
         enrich_overrides_with_api_keys(overrides, global_config)
         assert overrides == original_copy
 
@@ -449,15 +490,24 @@ class TestEnrichOverridesWithApiKeys:
           4. resolve_effective_config must still return a valid ElevenLabs config
         """
         override_at_save_time = {
-            "tts": {"provider": "elevenlabs", "voice": "Bella", "model": "eleven_flash_v2_5"}
+            "tts": {
+                "provider": "elevenlabs",
+                "voice": "Bella",
+                "model": "eleven_flash_v2_5",
+            }
         }
         enriched = enrich_overrides_with_api_keys(override_at_save_time, global_config)
         assert enriched["tts"]["api_key"] == "el-global-tts"
 
         # Simulate global config switching to Deepgram
         from api.services.configuration.registry import DeepgramTTSConfiguration
+
         new_global = global_config.model_copy(
-            update={"tts": DeepgramTTSConfiguration(provider="deepgram", api_key="dg-new", voice="aura-2-helena-en")}
+            update={
+                "tts": DeepgramTTSConfiguration(
+                    provider="deepgram", api_key="dg-new", voice="aura-2-helena-en"
+                )
+            }
         )
 
         # The enriched override should resolve correctly against the new global
@@ -465,3 +515,105 @@ class TestEnrichOverridesWithApiKeys:
         assert result.tts.provider == "elevenlabs"
         assert result.tts.voice == "Bella"
         assert result.tts.api_key == "el-global-tts"
+
+
+class TestWorkflowConfigurationSecrets:
+    def test_masks_model_override_secrets(self):
+        configs = {
+            "model_overrides": {
+                "llm": {
+                    "provider": "openai",
+                    "api_key": "sk-real-llm-key",
+                    "model": "gpt-4.1-mini",
+                },
+                "tts": {
+                    "provider": "elevenlabs",
+                    "api_key": "el-real-tts-key",
+                    "voice": "Bella",
+                },
+            },
+            "ambient_noise_configuration": {"enabled": True},
+        }
+
+        masked = mask_workflow_configurations(configs)
+
+        assert masked["model_overrides"]["llm"]["api_key"] != "sk-real-llm-key"
+        assert contains_masked_key(masked["model_overrides"]["llm"]["api_key"])
+        assert masked["model_overrides"]["llm"]["api_key"].endswith("-key")
+        assert masked["model_overrides"]["tts"]["api_key"] != "el-real-tts-key"
+        assert masked["ambient_noise_configuration"] == {"enabled": True}
+        assert configs["model_overrides"]["llm"]["api_key"] == "sk-real-llm-key"
+
+    def test_restores_masked_model_override_secrets_from_existing_config(self):
+        existing = {
+            "model_overrides": {
+                "tts": {
+                    "provider": "elevenlabs",
+                    "api_key": "el-real-tts-key",
+                    "voice": "Rachel",
+                }
+            }
+        }
+        incoming = mask_workflow_configurations(existing)
+        incoming["model_overrides"]["tts"]["voice"] = "Bella"
+
+        merged = merge_workflow_configuration_secrets(incoming, existing)
+
+        assert merged["model_overrides"]["tts"]["api_key"] == "el-real-tts-key"
+        assert merged["model_overrides"]["tts"]["voice"] == "Bella"
+        assert incoming["model_overrides"]["tts"]["api_key"] != "el-real-tts-key"
+
+    def test_single_masked_key_preserves_existing_multi_key_override(self):
+        existing = {
+            "model_overrides": {
+                "llm": {
+                    "provider": "openai",
+                    "api_key": ["sk-workflow-1", "sk-workflow-2"],
+                    "model": "gpt-4.1-mini",
+                }
+            }
+        }
+        incoming = mask_workflow_configurations(existing)
+        incoming["model_overrides"]["llm"]["api_key"] = incoming["model_overrides"][
+            "llm"
+        ]["api_key"][0]
+
+        merged = merge_workflow_configuration_secrets(incoming, existing)
+
+        assert merged["model_overrides"]["llm"]["api_key"] == [
+            "sk-workflow-1",
+            "sk-workflow-2",
+        ]
+
+    def test_missing_secret_copies_current_global_key_instead_of_existing_workflow_key(
+        self, global_config
+    ):
+        global_config.stt.api_key = ["dg-global-1", "dg-global-2"]
+        existing = {
+            "model_overrides": {
+                "stt": {
+                    "provider": "deepgram",
+                    "api_key": "dg-workflow-key",
+                    "model": "nova-3-general",
+                    "language": "multi",
+                }
+            }
+        }
+        incoming = {
+            "model_overrides": {
+                "stt": {
+                    "provider": "deepgram",
+                    "model": "nova-3-general",
+                    "language": "en",
+                }
+            }
+        }
+
+        merged = merge_workflow_configuration_secrets(incoming, existing)
+        enriched = enrich_overrides_with_api_keys(
+            merged["model_overrides"],
+            global_config,
+        )
+
+        assert enriched["stt"]["api_key"] == ["dg-global-1", "dg-global-2"]
+        assert enriched["stt"]["language"] == "en"

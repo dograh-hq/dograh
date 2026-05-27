@@ -215,9 +215,7 @@ def test_runtime_blocks_elevenlabs_local_tts_base_url_in_saas(monkeypatch):
 
 
 def test_embedding_service_blocks_private_base_url_in_saas(monkeypatch):
-    monkeypatch.setattr(
-        "api.utils.url_security.DEPLOYMENT_MODE", "saas"
-    )
+    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
 
     with pytest.raises(ValueError, match="public IP"):
         OpenAIEmbeddingService(

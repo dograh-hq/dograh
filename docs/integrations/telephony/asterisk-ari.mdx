@@ -73,12 +73,32 @@ Replace `dograh` with the app name you configured in `ari.conf` and in Dograh.
 
 Dograh uses Asterisk's external media streaming to send and receive audio over WebSocket. Configure a WebSocket client connection that points to your Dograh instance:
 
-```ini
-[dograh]
-type = websocket_client
-uri = ws://your-dograh-host:port/api/v1/telephony/ws/ari
-protocols = media
-```
+<Tabs>
+  <Tab title="Dograh Cloud">
+    ```ini
+    [dograh]
+    type = websocket_client
+    uri = wss://api.dograh.com/api/v1/telephony/ws/ari
+    protocols = media
+    ```
+
+    <Note>
+    Dograh Cloud requires a secure WebSocket connection (`wss://`). Make sure your Asterisk build includes TLS support for `chan_websocket`. The ARI credentials (**Stasis App Name** and **App Password**) must match what you configure in the Dograh dashboard under Telephony Settings.
+    </Note>
+  </Tab>
+  <Tab title="Self-hosted">
+    ```ini
+    [dograh]
+    type = websocket_client
+    uri = ws://your-dograh-host:port/api/v1/telephony/ws/ari
+    protocols = media
+    ```
+
+    <Note>
+    Self-hosted deployments on an internal network may use an unencrypted WebSocket (`ws://`). If your Dograh instance is exposed over HTTPS, use `wss://` and the corresponding hostname instead.
+    </Note>
+  </Tab>
+</Tabs>
 
 <Note>
 The section name (e.g., `dograh`) is the **WebSocket Client Name** you'll enter in the Dograh telephony configuration. This name tells Asterisk which WebSocket connection to use for external media streaming during calls.

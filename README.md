@@ -30,6 +30,10 @@
 - **Full control & transparency** — every line of code is open, with flexible LLM / TTS / STT integration
 - **Maintained by YC alumni and exit founders**, committed to keeping voice AI open
 
+<p align="center">
+  <a href="https://trendshift.io/repositories/31007" target="_blank"><img src="https://trendshift.io/api/badge/repositories/31007" alt="dograh-hq%2Fdograh | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+</p>
+
 ## 🎥 Featured
 
 <div align="center">

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage Dockerfile
 # Stage 1: Builder - Install Python dependencies into a venv via uv
 # (mirrors .devcontainer/Dockerfile's venv-builder stage).
@@ -58,9 +59,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 # Stage 3: Static ffmpeg binary (avoids apt ffmpeg pulling mesa/libllvm for
 # hardware acceleration we don't use server-side).
 FROM debian:trixie-slim AS ffmpeg-static
+ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl ca-certificates xz-utils \
-    && curl -fsSL -o /tmp/ffmpeg.tar.xz https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz \
+    && curl -fsSL -o /tmp/ffmpeg.tar.xz "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-${TARGETARCH}-static.tar.xz" \
     && mkdir -p /tmp/ffmpeg \
     && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1 \
     && mv /tmp/ffmpeg/ffmpeg /tmp/ffmpeg/ffprobe /usr/local/bin/ \

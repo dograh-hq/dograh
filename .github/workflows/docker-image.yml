@@ -3,10 +3,6 @@ name: Build and Push Docker Images
 on:
   release:
     types: [published]
-  push:
-    branches:
-      - docker-build-speedup
-      - docker-build-speedup-*
   workflow_dispatch:
     inputs:
       image_tag:

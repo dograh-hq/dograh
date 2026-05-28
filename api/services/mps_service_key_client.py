@@ -263,10 +263,12 @@ class MPSServiceKeyClient:
             HTTPException: If the API call fails
         """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/api/v1/service-keys/usage",
-                json={"service_key": service_key},
-                headers=self._get_headers(organization_id, created_by),
+            response = await client.get(
+                f"{self.base_url}/api/v1/service-keys/usage/self",
+                headers={
+                    "Authorization": f"Bearer {service_key}",
+                    "Content-Type": "application/json",
+                },
             )
 
             if response.status_code == 200:
@@ -429,10 +431,12 @@ class MPSServiceKeyClient:
         """
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    f"{self.base_url}/api/v1/service-keys/usage",
-                    json={"service_key": service_key},
-                    headers=self._get_headers(organization_id, created_by),
+                response = client.get(
+                    f"{self.base_url}/api/v1/service-keys/usage/self",
+                    headers={
+                        "Authorization": f"Bearer {service_key}",
+                        "Content-Type": "application/json",
+                    },
                 )
                 return response.status_code == 200
         except Exception:

@@ -25,13 +25,14 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
+from pipecat.tests import MockLLMService, run_test
 
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools.custom_tool import (
+    _coerce_parameter_value,
     execute_http_tool,
     tool_to_function_schema,
 )
-from pipecat.tests import MockLLMService, run_test
 
 
 @dataclass
@@ -139,6 +140,51 @@ class TestToolToFunctionSchema:
         assert "customer_name" in required
         assert "duration_minutes" in required
         assert "is_priority" not in required
+
+    def test_tool_with_object_and_array_parameters(self):
+        """Test converting a tool with object and array parameters."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-nested",
+            name="Create Booking",
+            description="Create a booking with nested details",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/bookings",
+                    "parameters": [
+                        {
+                            "name": "booking",
+                            "type": "object",
+                            "description": "Nested booking payload",
+                            "required": True,
+                        },
+                        {
+                            "name": "attendees",
+                            "type": "array",
+                            "description": "Booking attendees",
+                            "required": False,
+                        },
+                    ],
+                },
+            },
+        )
+
+        schema = tool_to_function_schema(tool)
+
+        props = schema["function"]["parameters"]["properties"]
+        assert props["booking"] == {
+            "type": "object",
+            "additionalProperties": True,
+            "description": "Nested booking payload",
+        }
+        assert props["attendees"] == {
+            "type": "array",
+            "items": {},
+            "description": "Booking attendees",
+        }
 
     def test_preset_parameters_are_not_exposed_to_llm_schema(self):
         """Test that preset parameters are injected at runtime, not shown to the LLM."""
@@ -293,6 +339,51 @@ class TestExecuteHttpTool:
             assert result["status"] == "success"
             assert result["status_code"] == 201
             assert result["data"]["id"] == 123
+
+    @pytest.mark.asyncio
+    async def test_post_request_sends_nested_json_body(self):
+        """Test that POST requests preserve nested arguments in the JSON body."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-nested",
+            name="Create Booking",
+            description="Create a nested booking",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "POST",
+                    "url": "https://api.example.com/bookings",
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+
+        arguments = {
+            "booking": {
+                "start": "2026-05-28T10:00:00Z",
+                "attendee": {"name": "Jane", "email": "jane@example.com"},
+                "metadata": {"source": "voice"},
+            }
+        }
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"bookingId": "booking-123"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            result = await execute_http_tool(tool, arguments)
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["json"] == arguments
+            assert isinstance(call_kwargs["json"]["booking"], dict)
+            assert isinstance(call_kwargs["json"]["booking"]["attendee"], dict)
+            assert result["status"] == "success"
 
     @pytest.mark.asyncio
     async def test_post_request_injects_preset_parameters(self):
@@ -637,6 +728,24 @@ class TestExecuteHttpTool:
 
                 # Verify credential lookup was NOT called
                 mock_db.get_credential_by_uuid.assert_not_called()
+
+
+class TestCoerceParameterValue:
+    """Tests for _coerce_parameter_value function."""
+
+    def test_object_value_returns_dict_unchanged(self):
+        """Test that object parameters preserve dict values."""
+        value = {"attendee": {"name": "Jane"}}
+
+        assert _coerce_parameter_value(value, "object") is value
+
+    def test_object_value_parses_json_string(self):
+        """Test that object parameters parse JSON string values."""
+        value = '{"attendee": {"name": "Jane"}}'
+
+        assert _coerce_parameter_value(value, "object") == {
+            "attendee": {"name": "Jane"}
+        }
 
 
 class TestAuthHeaders:

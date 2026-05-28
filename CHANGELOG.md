@@ -1,5 +1,40 @@
 # Changelog
 
+## [1.32.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.31.0...dograh-v1.32.0) (2026-05-28)
+
+
+### Features
+
+* add copy-to-clipboard button for inbound webhook URL ([#359](https://github.com/dograh-hq/dograh/issues/359)) ([62d3749](https://github.com/dograh-hq/dograh/commit/62d3749219c08437774c851a9f7cae5b0fd3c299))
+* add delete button in an edge in workflow builder ([#366](https://github.com/dograh-hq/dograh/issues/366)) ([9675151](https://github.com/dograh-hq/dograh/commit/9675151549bd9c27e3ba937f458115e9900d326f))
+* add devcontainer based setup  ([#352](https://github.com/dograh-hq/dograh/issues/352)) ([0716582](https://github.com/dograh-hq/dograh/commit/0716582aa7597e2697f72313237c69b2ac0e30db))
+* add google stt and tts. add folders to organize agents ([ad2fa07](https://github.com/dograh-hq/dograh/commit/ad2fa0705882bf6ba48c5ba65cc6bfac90e105cf))
+* add MiniMax provider support (Chat + TTS) ([#309](https://github.com/dograh-hq/dograh/issues/309)) ([0e0d313](https://github.com/dograh-hq/dograh/commit/0e0d3136ca9d2986e76c982a08c957bb62e94a6f))
+* add transcript and recording public URLs in API ([3df5730](https://github.com/dograh-hq/dograh/commit/3df5730076f39c8cb981d1b5b1f4060278e75cb8))
+* add ultravox realtime and fix signature issue in telephony ([#345](https://github.com/dograh-hq/dograh/issues/345)) ([3892b58](https://github.com/dograh-hq/dograh/commit/3892b584861e4a7bec56f03950fedca5171e6079))
+* add xai grok as realtime model ([9135c2d](https://github.com/dograh-hq/dograh/commit/9135c2da1360e4d93d822375011351f2fa67f729))
+* allow overriding base URL of OpenAI models ([#368](https://github.com/dograh-hq/dograh/issues/368)) ([8a58b09](https://github.com/dograh-hq/dograh/commit/8a58b0992d588c199f6ee1f77d959efc16a2a97c))
+* stamp API key into model override at save time to survive global provider change ([#362](https://github.com/dograh-hq/dograh/issues/362)) ([5b61ad6](https://github.com/dograh-hq/dograh/commit/5b61ad645f8af066d98cec9038daa943a2c9bc9e))
+
+
+### Bug Fixes
+
+* abort docker compose when OSS_JWT_SECRET is unset ([#356](https://github.com/dograh-hq/dograh/issues/356)) ([7eecadd](https://github.com/dograh-hq/dograh/commit/7eecadd8d64c77ba4118bb6397f7eac474868bfb))
+* fix 1008 policy violation issue on ElevenLabs ([93edef3](https://github.com/dograh-hq/dograh/commit/93edef35e8a7cce0c0ebe72bbd77510a29312082))
+* fix projection to TS when fetching agnet in MCP ([bbb4f91](https://github.com/dograh-hq/dograh/commit/bbb4f91a2747c5a6b36a6675d6823396d2b44790))
+* fix service key validation in OSS ([#371](https://github.com/dograh-hq/dograh/issues/371)) ([b891091](https://github.com/dograh-hq/dograh/commit/b891091e0e2127ff704b8c3cb984b1195483cf71)), closes [#303](https://github.com/dograh-hq/dograh/issues/303)
+* fix vobiz webhook signature validation ([285de92](https://github.com/dograh-hq/dograh/commit/285de925282da9f4213bf802844f20c55127cbd8))
+* harden CORS origin allow list ([6f79bd6](https://github.com/dograh-hq/dograh/commit/6f79bd67eb2f21de9cfb3252f969e8d7f4609c9a)), closes [#322](https://github.com/dograh-hq/dograh/issues/322)
+* run api container as non-root dograh user ([#360](https://github.com/dograh-hq/dograh/issues/360)) ([573dd68](https://github.com/dograh-hq/dograh/commit/573dd68d76a689d49a2ebaca059a366331a9beb9))
+
+
+### Documentation
+
+* add github trending badge in README ([1e8f832](https://github.com/dograh-hq/dograh/commit/1e8f832bcc2174099dea5294e9fae2c4212b1e81))
+* **asterisk-ari:** add required TLS config for Dograh Cloud and reload/codec notes ([9e12d96](https://github.com/dograh-hq/dograh/commit/9e12d96ebbf9ed81c62b978a88f7964d1d0ce3da))
+* clarify Asterisk ARI WebSocket URI for Dograh Cloud vs self-hosted ([#358](https://github.com/dograh-hq/dograh/issues/358)) ([92c8dad](https://github.com/dograh-hq/dograh/commit/92c8dadd34905eb2401a742c75beb031fe586fed))
+* fix asterisk protocol in mintlify websocket client config ([a725fda](https://github.com/dograh-hq/dograh/commit/a725fda274d81e3072de9864cb63cc3eed339392))
+
 ## [1.31.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.1...dograh-v1.31.0) (2026-05-21)
 
 

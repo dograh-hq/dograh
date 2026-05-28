@@ -699,12 +699,16 @@ class CloudonixProvider(TelephonyProvider):
             if "Twilio-AccountSid" in trunk_headers:
                 underlying_provider = "twilio"
 
+        direction = webhook_data.get("Direction", "inbound").lower()
+        if direction in {"inbound", "subscriber"}:
+            direction = "inbound"
+
         return NormalizedInboundData(
             provider=CloudonixProvider.PROVIDER_NAME,
             call_id=call_id,
             from_number=webhook_data.get("From", ""),
             to_number=webhook_data.get("To", ""),
-            direction=webhook_data.get("Direction", "inbound").lower(),
+            direction=direction,
             call_status=webhook_data.get("CallStatus", "in-progress"),
             account_id=account_id,
             from_country=webhook_data.get("FromCountry"),

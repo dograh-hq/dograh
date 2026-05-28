@@ -14,7 +14,12 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
-export type ParameterType = "string" | "number" | "boolean";
+export type ParameterType =
+    | "string"
+    | "number"
+    | "boolean"
+    | "object"
+    | "array";
 
 export interface ToolParameter {
     name: string;
@@ -124,6 +129,8 @@ export function ParameterEditor({
                                     <SelectItem value="string">String</SelectItem>
                                     <SelectItem value="number">Number</SelectItem>
                                     <SelectItem value="boolean">Boolean</SelectItem>
+                                    <SelectItem value="object">Object</SelectItem>
+                                    <SelectItem value="array">Array</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
@@ -267,6 +274,8 @@ export function PresetParameterEditor({
                                     <SelectItem value="string">String</SelectItem>
                                     <SelectItem value="number">Number</SelectItem>
                                     <SelectItem value="boolean">Boolean</SelectItem>
+                                    <SelectItem value="object">Object</SelectItem>
+                                    <SelectItem value="array">Array</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>

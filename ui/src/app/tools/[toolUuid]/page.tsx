@@ -58,6 +58,8 @@ function normalizeParameterType(value: string | null | undefined): ParameterType
     switch (value) {
         case "number":
         case "boolean":
+        case "object":
+        case "array":
             return value;
         default:
             return "string";

@@ -23,6 +23,7 @@ from pipecat.transports.base_transport import TransportParams
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.run_pipeline import _run_pipeline
+from api.services.pipecat.worker_runner import wait_for_pipeline_worker_started
 from api.tests.integrations._run_pipeline_helpers import (
     create_workflow_run_rows,
     patch_run_pipeline_externals,
@@ -116,7 +117,9 @@ async def test_run_pipeline_fires_initial_response_and_completes_run(
             run_task.result()  # re-raise the failure
         assert captured_task, "create_pipeline_task was never invoked"
         pipeline_task = captured_task[0]
-        await asyncio.wait_for(pipeline_task._pipeline_start_event.wait(), timeout=3.0)
+        await wait_for_pipeline_worker_started(
+            pipeline_task, timeout=3.0, run_task=run_task
+        )
         # Let the initial response handler (set_node, queue LLMContextFrame)
         # complete before tearing things down.
         await asyncio.sleep(0.1)

@@ -51,6 +51,7 @@ from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
 from api.services.pipecat.transport_setup import create_webrtc_transport
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
@@ -87,7 +88,6 @@ from pipecat.turns.user_stop import (
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
-from pipecat.workers.base_worker import WorkerParams
 
 # Setup tracing if enabled
 ensure_tracing()
@@ -821,9 +821,7 @@ async def _run_pipeline(
 
     try:
         # Run the pipeline
-        loop = asyncio.get_running_loop()
-        params = WorkerParams(loop=loop)
-        await task.run(params)
+        await run_pipeline_worker(task)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")

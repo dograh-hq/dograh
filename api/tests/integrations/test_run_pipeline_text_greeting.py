@@ -36,6 +36,7 @@ from pipecat.utils.time import time_now_iso8601
 from api.enums import WorkflowRunMode, WorkflowRunState
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.run_pipeline import _run_pipeline
+from api.services.pipecat.worker_runner import wait_for_pipeline_worker_started
 from api.tests.integrations._run_pipeline_helpers import (
     create_workflow_run_rows,
     patch_run_pipeline_externals,
@@ -186,8 +187,8 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
             assert captured_task, "create_pipeline_task was never invoked"
             pipeline_task = captured_task[0]
 
-            await asyncio.wait_for(
-                pipeline_task._pipeline_start_event.wait(), timeout=3.0
+            await wait_for_pipeline_worker_started(
+                pipeline_task, timeout=3.0, run_task=run_task
             )
 
             # Locate the assistant aggregator's LLM context (downstream of TTS).

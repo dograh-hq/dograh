@@ -20,7 +20,6 @@ from pipecat.frames.frames import (
     TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -31,6 +30,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.services.pipecat.recording_audio_cache import RecordingAudio
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
@@ -247,10 +247,9 @@ async def run_pipeline_and_capture_frames(
             return_value="completed",
         ),
     ):
-        runner = PipelineRunner()
 
         async def run():
-            await runner.run(task)
+            await run_pipeline_worker(task)
 
         async def initialize():
             await asyncio.sleep(0.01)

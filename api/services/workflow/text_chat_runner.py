@@ -22,7 +22,6 @@ from pipecat.frames.frames import (
     TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -44,6 +43,10 @@ from api.services.pipecat.service_factory import create_llm_service
 from api.services.pipecat.tracing_config import (
     build_remote_parent_context,
     get_trace_url,
+)
+from api.services.pipecat.worker_runner import (
+    run_pipeline_worker,
+    wait_for_pipeline_worker_started,
 )
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
@@ -534,8 +537,7 @@ async def execute_text_chat_pending_turn(
         conversation_type="text",
         additional_span_attributes=trace_span_attributes,
     )
-    runner = PipelineRunner(handle_sigint=False, handle_sigterm=False)
-    runner_task = asyncio.create_task(runner.run(task))
+    runner_task = asyncio.create_task(run_pipeline_worker(task))
 
     engine.set_task(task)
     engine.set_audio_config(audio_config)
@@ -548,7 +550,7 @@ async def execute_text_chat_pending_turn(
     )
 
     try:
-        await asyncio.wait_for(task._pipeline_start_event.wait(), timeout=5.0)
+        await wait_for_pipeline_worker_started(task, timeout=5.0, run_task=runner_task)
 
         await engine.initialize()
 

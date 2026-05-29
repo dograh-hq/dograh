@@ -21,7 +21,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -212,7 +212,7 @@ async def run_pipeline_and_capture_frames(
         engine.set_transport_output(transport_output)
 
     pipeline = Pipeline([llm, tts, transport_output, context_aggregator.assistant()])
-    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+    task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
     # Spy on task.queue_frame and transport_output.queue_frame to capture

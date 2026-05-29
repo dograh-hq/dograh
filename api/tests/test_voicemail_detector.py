@@ -18,7 +18,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -161,7 +161,7 @@ class TestVoicemailDetectorWithUserAggregator:
             ]
         )
 
-        task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+        task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
         runner = PipelineRunner()
 
         async def run_pipeline():

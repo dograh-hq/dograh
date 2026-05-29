@@ -61,7 +61,6 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
-from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -88,6 +87,7 @@ from pipecat.turns.user_stop import (
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.enums import EndTaskReason, RealtimeFeedbackType
 from pipecat.utils.run_context import set_current_org_id, set_current_run_id
+from pipecat.workers.base_worker import WorkerParams
 
 # Setup tracing if enabled
 ensure_tracing()
@@ -822,7 +822,7 @@ async def _run_pipeline(
     try:
         # Run the pipeline
         loop = asyncio.get_running_loop()
-        params = PipelineTaskParams(loop=loop)
+        params = WorkerParams(loop=loop)
         await task.run(params)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:

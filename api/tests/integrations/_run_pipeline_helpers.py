@@ -15,7 +15,7 @@ Provided here:
 - ``NoopFeedbackObserver``: a ``RealtimeFeedbackObserver`` stand-in with
   no WebSocket / clock-task side effects.
 - ``patch_run_pipeline_externals``: ``contextmanager`` that applies the
-  full patch set and captures the constructed ``PipelineTask`` for the
+  full patch set and captures the constructed ``PipelineWorker`` for the
   caller. Optional ``llm`` / ``tts`` arguments inject preconfigured
   mocks; otherwise blank ``MockLLMService`` / ``MockTTSService``
   instances are constructed per-call.
@@ -84,10 +84,10 @@ def patch_run_pipeline_externals(
     tts: MockTTSService | None = None,
 ):
     """Patch the externally-talking pieces of ``_run_pipeline`` and capture
-    the constructed ``PipelineTask`` so tests can drive it from outside.
+    the constructed ``PipelineWorker`` so tests can drive it from outside.
 
     Args:
-        captured_task: A list the constructed ``PipelineTask`` is appended
+        captured_task: A list the constructed ``PipelineWorker`` is appended
             to. Tests read ``captured_task[0]`` to get a handle on the task
             (to wait on its start event, queue frames, cancel it, etc.).
         llm: Optional pre-built ``MockLLMService``. When given, every call
@@ -168,7 +168,7 @@ def patch_run_pipeline_externals(
                 return_value="completed",
             )
         )
-        # Capture the PipelineTask so the test can drive it from outside.
+        # Capture the PipelineWorker so the test can drive it from outside.
         stack.enter_context(
             patch(
                 "api.services.pipecat.run_pipeline.create_pipeline_task",

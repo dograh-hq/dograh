@@ -16,7 +16,7 @@ import pytest
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -99,7 +99,7 @@ async def _build_engine_and_pipeline(
         ]
     )
 
-    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+    task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
     return engine, task, function_call_mute_strategy, user_context_aggregator

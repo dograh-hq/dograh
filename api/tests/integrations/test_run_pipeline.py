@@ -2,7 +2,7 @@
 
 Drives the actual ``_run_pipeline`` against the test database with real
 DB rows (organization, user, user configuration, workflow, workflow run)
-and pipecat's real ``MockTransport`` / ``Pipeline`` / ``PipelineTask``.
+and pipecat's real ``MockTransport`` / ``Pipeline`` / ``PipelineWorker``.
 The only patches are for things that talk to genuinely external systems;
 those are applied via ``patch_run_pipeline_externals`` from the shared
 helpers module.

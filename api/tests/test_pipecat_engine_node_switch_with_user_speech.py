@@ -25,7 +25,7 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -119,7 +119,7 @@ async def create_test_pipeline(
     workflow: WorkflowGraph,
     mock_llm: MockLLMService,
     user_speech_initial_delay: float = 0.01,
-) -> tuple[PipecatEngine, MockTransport, PipelineTask]:
+) -> tuple[PipecatEngine, MockTransport, PipelineWorker]:
     """Create a PipecatEngine with full pipeline for testing node switch scenarios.
 
     The pipeline includes a UserSpeechInjector processor that injects
@@ -208,7 +208,7 @@ async def create_test_pipeline(
     )
 
     # Create pipeline task
-    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+    task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
     engine.set_task(task)
 

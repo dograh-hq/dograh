@@ -10,7 +10,7 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     TTSSpeakFrame,
 )
-from pipecat.pipeline.task import PipelineTask
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.settings import LLMSettings
@@ -60,7 +60,7 @@ class PipecatEngine:
     def __init__(
         self,
         *,
-        task: Optional[PipelineTask] = None,
+        task: Optional[PipelineWorker] = None,
         llm: Optional["LLMService"] = None,
         inference_llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
@@ -842,7 +842,7 @@ class PipecatEngine:
         """
         self.context = context
 
-    def set_task(self, task: PipelineTask) -> None:
+    def set_task(self, task: PipelineWorker) -> None:
         """Set the pipeline task.
 
         This allows setting the task after the engine has been created,

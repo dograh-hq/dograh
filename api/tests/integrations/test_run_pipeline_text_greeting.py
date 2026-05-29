@@ -191,7 +191,7 @@ async def _run_test_body(workflow_run_setup, db_session) -> None:
             )
 
             # Locate the assistant aggregator's LLM context (downstream of TTS).
-            # The PipelineTask wraps the user's pipeline inside another Pipeline,
+            # The PipelineWorker wraps the user's pipeline inside another Pipeline,
             # so we walk the tree recursively.
             assistant_aggregator = _find_processor_by_class_name(
                 pipeline_task, "LLMAssistantAggregator"

@@ -369,26 +369,42 @@ async def search_chunks(
 
     try:
         # Import here to avoid circular dependency
-        from api.services.gen_ai import OpenAIEmbeddingService
+        from api.services.configuration.registry import ServiceProviders
+        from api.services.gen_ai import AzureOpenAIEmbeddingService, OpenAIEmbeddingService
 
         # Try to get user's embeddings configuration
         user_config = await db_client.get_user_configurations(user.id)
         embeddings_api_key = None
         embeddings_model = None
+        embeddings_provider = None
+        embeddings_endpoint = None
+        embeddings_api_version = None
 
         if user_config.embeddings:
             embeddings_api_key = user_config.embeddings.api_key
             embeddings_model = user_config.embeddings.model
+            embeddings_provider = getattr(user_config.embeddings, "provider", None)
+            embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+            embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
-        # Initialize embedding service with user config or fallback to env
-        embedding_service = OpenAIEmbeddingService(
-            db_client=db_client,
-            api_key=embeddings_api_key,
-            model_id=embeddings_model or "text-embedding-3-small",
-            base_url=getattr(user_config.embeddings, "base_url", None)
-            if user_config.embeddings
-            else None,
-        )
+        # Initialize embedding service based on provider
+        if embeddings_provider == ServiceProviders.AZURE.value and embeddings_endpoint:
+            embedding_service = AzureOpenAIEmbeddingService(
+                db_client=db_client,
+                api_key=embeddings_api_key,
+                endpoint=embeddings_endpoint,
+                model_id=embeddings_model or "text-embedding-3-small",
+                api_version=embeddings_api_version or "2024-02-15-preview",
+            )
+        else:
+            embedding_service = OpenAIEmbeddingService(
+                db_client=db_client,
+                api_key=embeddings_api_key,
+                model_id=embeddings_model or "text-embedding-3-small",
+                base_url=getattr(user_config.embeddings, "base_url", None)
+                if user_config.embeddings
+                else None,
+            )
 
         # Perform search
         results = await embedding_service.search_similar_chunks(

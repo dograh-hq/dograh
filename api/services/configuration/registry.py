@@ -49,6 +49,7 @@ class ServiceProviders(str, Enum):
     ELEVENLABS = "elevenlabs"
     GOOGLE = "google"
     AZURE = "azure"
+    AZURE_SPEECH = "azure_speech"
     DOGRAH = "dograh"
     SARVAM = "sarvam"
     SPEECHMATICS = "speechmatics"
@@ -65,6 +66,7 @@ class ServiceProviders(str, Enum):
     ULTRAVOX_REALTIME = "ultravox_realtime"
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
+    AZURE_REALTIME = "azure_realtime"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -76,6 +78,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.ELEVENLABS,
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
+        ServiceProviders.AZURE_SPEECH,
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
         ServiceProviders.SPEACHES,
@@ -89,6 +92,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.ULTRAVOX_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
+        ServiceProviders.AZURE_REALTIME,
         # ServiceProviders.SARVAM,
     ]
     api_key: str | list[str]
@@ -238,6 +242,16 @@ SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
         "for setup and supported backends."
     ),
     provider_docs_url="https://github.com/speaches-ai/speaches",
+)
+AZURE_SPEECH_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Azure Speech Services",
+    description="Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.",
+    provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/speech-service/",
+)
+AZURE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Azure OpenAI Realtime",
+    description="Azure OpenAI Realtime API — low-latency speech-to-speech conversations.",
+    provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/realtime-audio-quickstart",
 )
 
 OPENAI_MODELS = [
@@ -640,12 +654,63 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+AZURE_REALTIME_MODELS = ["gpt-4o-realtime-preview"]
+AZURE_REALTIME_VOICES = [
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "sage",
+    "shimmer",
+    "verse",
+]
+AZURE_REALTIME_API_VERSIONS = [
+    "2025-04-01-preview",
+    "2024-10-01-preview",
+    "2024-12-17",
+]
+
+
+@register_service(ServiceType.REALTIME)
+class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
+    model_config = AZURE_REALTIME_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE_REALTIME] = ServiceProviders.AZURE_REALTIME
+    model: str = Field(
+        default="gpt-4o-realtime-preview",
+        description="Azure OpenAI realtime deployment name.",
+        json_schema_extra={
+            "examples": AZURE_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    endpoint: str = Field(
+        description="Azure OpenAI resource endpoint (e.g. https://<resource>.openai.azure.com).",
+    )
+    voice: str = Field(
+        default="alloy",
+        description="Voice the model speaks in.",
+        json_schema_extra={
+            "examples": AZURE_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    api_version: str = Field(
+        default="2025-04-01-preview",
+        description="Azure OpenAI API version.",
+        json_schema_extra={
+            "examples": AZURE_REALTIME_API_VERSIONS,
+        },
+    )
+
+
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
     ServiceProviders.GROK_REALTIME.value,
     ServiceProviders.ULTRAVOX_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
     ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
+    ServiceProviders.AZURE_REALTIME.value,
 }
 
 
@@ -672,6 +737,7 @@ RealtimeConfig = Annotated[
         UltravoxRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,
         GoogleVertexRealtimeLLMConfiguration,
+        AzureRealtimeLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -993,6 +1059,116 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+AZURE_SPEECH_REGIONS = [
+    "eastus",
+    "eastus2",
+    "westus",
+    "westus2",
+    "westus3",
+    "centralus",
+    "northcentralus",
+    "southcentralus",
+    "westcentralus",
+    "westeurope",
+    "northeurope",
+    "uksouth",
+    "ukwest",
+    "francecentral",
+    "switzerlandnorth",
+    "germanywestcentral",
+    "norwayeast",
+    "australiaeast",
+    "eastasia",
+    "southeastasia",
+    "japaneast",
+    "japanwest",
+    "koreacentral",
+    "centralindia",
+    "southindia",
+    "brazilsouth",
+]
+
+AZURE_SPEECH_TTS_LANGUAGES = [
+    "en-US", "en-GB", "en-AU", "en-CA", "en-IN",
+    "es-ES", "es-MX",
+    "fr-FR", "fr-CA",
+    "de-DE",
+    "it-IT",
+    "ja-JP",
+    "ko-KR",
+    "zh-CN", "zh-HK", "zh-TW",
+    "pt-BR", "pt-PT",
+    "ru-RU",
+    "ar-SA",
+    "nl-NL",
+    "pl-PL",
+    "sv-SE",
+    "hi-IN",
+]
+
+AZURE_SPEECH_TTS_VOICES = [
+    "en-US-AriaNeural",
+    "en-US-GuyNeural",
+    "en-US-JennyNeural",
+    "en-US-DavisNeural",
+    "en-US-AmberNeural",
+    "en-US-AnaNeural",
+    "en-US-AshleyNeural",
+    "en-US-BrandonNeural",
+    "en-US-ChristopherNeural",
+    "en-US-ElizabethNeural",
+    "en-US-EricNeural",
+    "en-US-JacobNeural",
+    "en-US-MichelleNeural",
+    "en-US-MonicaNeural",
+    "en-US-NancyNeural",
+    "en-US-RogerNeural",
+    "en-US-SaraNeural",
+    "en-US-SteffanNeural",
+    "en-US-TonyNeural",
+]
+
+
+@register_tts
+class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
+    model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE_SPEECH] = ServiceProviders.AZURE_SPEECH
+    model: str = Field(
+        default="neural",
+        description="Azure Speech synthesis engine (neural voices only).",
+        json_schema_extra={"examples": ["neural"]},
+    )
+    region: str = Field(
+        default="eastus",
+        description="Azure region for Speech Services (e.g. 'eastus', 'westeurope').",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_REGIONS,
+        },
+    )
+    voice: str = Field(
+        default="en-US-AriaNeural",
+        description="Azure Neural voice name (e.g. 'en-US-AriaNeural').",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_TTS_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for synthesis.",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0).",
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1006,6 +1182,7 @@ TTSConfig = Annotated[
         RimeTTSConfiguration,
         SpeachesTTSConfiguration,
         MiniMaxTTSConfiguration,
+        AzureSpeechTTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1227,6 +1404,50 @@ class GladiaSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+AZURE_SPEECH_STT_LANGUAGES = [
+    "en-US", "en-GB", "en-AU", "en-CA", "en-IN",
+    "es-ES", "es-MX",
+    "fr-FR", "fr-CA",
+    "de-DE",
+    "it-IT",
+    "ja-JP",
+    "ko-KR",
+    "zh-CN",
+    "pt-BR", "pt-PT",
+    "ru-RU",
+    "ar-SA",
+    "nl-NL",
+    "pl-PL",
+    "hi-IN",
+]
+
+
+@register_stt
+class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
+    model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE_SPEECH] = ServiceProviders.AZURE_SPEECH
+    model: str = Field(
+        default="latest_long",
+        description="Azure Speech recognition model (use 'latest_long' for continuous recognition).",
+        json_schema_extra={"examples": ["latest_long", "latest_short"]},
+    )
+    region: str = Field(
+        default="eastus",
+        description="Azure region for Speech Services (e.g. 'eastus', 'westeurope').",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_REGIONS,
+        },
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for recognition.",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -1239,6 +1460,7 @@ STTConfig = Annotated[
         SpeachesSTTConfiguration,
         AssemblyAISTTConfiguration,
         GladiaSTTConfiguration,
+        AzureSpeechSTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1278,8 +1500,33 @@ class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
+AZURE_EMBEDDING_MODELS = ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]
+
+
+@register_embeddings
+class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    model_config = AZURE_OPENAI_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
+    model: str = Field(
+        default="text-embedding-3-small",
+        description="Azure OpenAI embedding deployment name (must match the deployed model).",
+        json_schema_extra={"examples": AZURE_EMBEDDING_MODELS, "allow_custom_input": True},
+    )
+    endpoint: str = Field(
+        description="Azure OpenAI resource endpoint (e.g. https://<resource>.openai.azure.com).",
+    )
+    api_version: str = Field(
+        default="2024-02-15-preview",
+        description="Azure OpenAI API version for embeddings.",
+    )
+
+
 EmbeddingsConfig = Annotated[
-    Union[OpenAIEmbeddingsConfiguration, OpenRouterEmbeddingsConfiguration],
+    Union[
+        OpenAIEmbeddingsConfiguration,
+        OpenRouterEmbeddingsConfiguration,
+        AzureOpenAIEmbeddingsConfiguration,
+    ],
     Field(discriminator="provider"),
 ]
 

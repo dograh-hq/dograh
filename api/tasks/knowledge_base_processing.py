@@ -12,7 +12,8 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import KnowledgeBaseChunkModel
-from api.services.gen_ai import OpenAIEmbeddingService
+from api.services.configuration.registry import ServiceProviders
+from api.services.gen_ai import AzureOpenAIEmbeddingService, OpenAIEmbeddingService
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.storage import storage_fs
 
@@ -148,21 +149,30 @@ async def process_knowledge_base_document(
             )
             return
 
-        # Chunked mode: fetch user embedding config, embed via OpenAI, persist chunks.
+        # Chunked mode: fetch user embedding config, embed, and persist chunks.
+        embeddings_provider = None
         embeddings_api_key = None
         embeddings_model = None
         embeddings_base_url = None
+        embeddings_endpoint = None
+        embeddings_api_version = None
         if document.created_by:
             user_config = await db_client.get_user_configurations(document.created_by)
             if user_config.embeddings:
+                embeddings_provider = getattr(user_config.embeddings, "provider", None)
                 embeddings_api_key = user_config.embeddings.api_key
                 embeddings_model = user_config.embeddings.model
                 embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
-                logger.info(f"Using user embeddings config: model={embeddings_model}")
+                embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+                embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
+                logger.info(
+                    f"Using user embeddings config: provider={embeddings_provider}, "
+                    f"model={embeddings_model}"
+                )
 
         if not embeddings_api_key:
             error_message = (
-                "OpenAI API key not configured. Please set your API key in "
+                "API key not configured. Please set your API key in "
                 "Model Configurations > Embedding to process documents."
             )
             logger.warning(f"Document {document_id}: {error_message}")
@@ -171,12 +181,21 @@ async def process_knowledge_base_document(
             )
             return
 
-        embedding_service = OpenAIEmbeddingService(
-            db_client=db_client,
-            api_key=embeddings_api_key,
-            model_id=embeddings_model or "text-embedding-3-small",
-            base_url=embeddings_base_url,
-        )
+        if embeddings_provider == ServiceProviders.AZURE.value and embeddings_endpoint:
+            embedding_service = AzureOpenAIEmbeddingService(
+                db_client=db_client,
+                api_key=embeddings_api_key,
+                endpoint=embeddings_endpoint,
+                model_id=embeddings_model or "text-embedding-3-small",
+                api_version=embeddings_api_version or "2024-02-15-preview",
+            )
+        else:
+            embedding_service = OpenAIEmbeddingService(
+                db_client=db_client,
+                api_key=embeddings_api_key,
+                model_id=embeddings_model or "text-embedding-3-small",
+                base_url=embeddings_base_url,
+            )
 
         mps_chunks = mps_response.get("chunks", [])
         if not mps_chunks:

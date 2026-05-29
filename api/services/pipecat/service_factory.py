@@ -11,6 +11,8 @@ from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
+from pipecat.services.azure.stt import AzureSTTService, AzureSTTSettings
+from pipecat.services.azure.tts import AzureTTSService, AzureTTSSettings
 from pipecat.services.cartesia.stt import CartesiaSTTService
 from pipecat.services.cartesia.tts import (
     CartesiaTTSService,
@@ -244,6 +246,22 @@ def create_stt_service(
                 operating_point=operating_point,
                 additional_vocab=additional_vocab,
             ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.AZURE_SPEECH.value:
+        from pipecat.transcriptions.language import Language as PipecatLanguage
+
+        language_code = getattr(user_config.stt, "language", None) or "en-US"
+        region = getattr(user_config.stt, "region", None) or "eastus"
+        # Try to map BCP-47 string to pipecat Language enum; fall back to string
+        try:
+            pipecat_language = PipecatLanguage(language_code)
+        except ValueError:
+            pipecat_language = PipecatLanguage.EN_US
+        return AzureSTTService(
+            api_key=user_config.stt.api_key,
+            region=region,
+            settings=AzureSTTSettings(language=pipecat_language),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     else:
@@ -492,6 +510,27 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
         )
+    elif user_config.tts.provider == ServiceProviders.AZURE_SPEECH.value:
+        region = getattr(user_config.tts, "region", None) or "eastus"
+        voice = getattr(user_config.tts, "voice", None) or "en-US-AriaNeural"
+        language = getattr(user_config.tts, "language", None) or "en-US"
+        speed = getattr(user_config.tts, "speed", None) or 1.0
+        # Map speed multiplier (0.5–2.0) to Azure SSML rate string (e.g. "1.25")
+        rate = str(speed) if speed != 1.0 else None
+        settings_kwargs: dict = {
+            "voice": voice,
+            "language": language,
+        }
+        if rate:
+            settings_kwargs["rate"] = rate
+        return AzureTTSService(
+            api_key=user_config.tts.api_key,
+            region=region,
+            settings=AzureTTSSettings(**settings_kwargs),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid TTS provider {user_config.tts.provider}"
@@ -723,6 +762,44 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             project_id=project_id,
             location=location,
             settings=DograhGeminiLiveVertexLLMService.Settings(**settings_kwargs),
+        )
+    elif provider == ServiceProviders.AZURE_REALTIME.value:
+        from api.services.pipecat.realtime.azure_realtime import (
+            DograhAzureRealtimeLLMService,
+        )
+        from pipecat.services.openai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            AudioOutput,
+            InputAudioTranscription,
+            SessionProperties,
+        )
+
+        endpoint = getattr(realtime_config, "endpoint", None) or ""
+        api_version = getattr(realtime_config, "api_version", None) or "2025-04-01-preview"
+        # Construct the Azure Realtime WebSocket URL
+        # https://<resource>.openai.azure.com/openai/realtime?api-version=<ver>&deployment=<model>
+        base_host = endpoint.rstrip("/").replace("https://", "").replace("http://", "")
+        wss_url = (
+            f"wss://{base_host}/openai/realtime"
+            f"?api-version={api_version}&deployment={model}"
+        )
+        return DograhAzureRealtimeLLMService(
+            api_key=api_key,
+            base_url=wss_url,
+            settings=DograhAzureRealtimeLLMService.Settings(
+                model=model,
+                session_properties=SessionProperties(
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(),
+                        ),
+                        output=AudioOutput(
+                            voice=voice or "alloy",
+                        ),
+                    ),
+                ),
+            ),
         )
     else:
         raise HTTPException(

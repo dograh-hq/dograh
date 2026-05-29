@@ -826,5 +826,10 @@ async def _run_pipeline(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
+        # scopes opened by MCPClient.start() in engine.initialize() are
+        # task-affine; this finally runs in the same task as initialize(),
+        # whereas engine.cleanup() runs in a pipecat event-handler task.
+        await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

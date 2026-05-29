@@ -955,7 +955,15 @@ class PipecatEngine:
                 exc_info=True,
             )
 
-    async def _close_mcp_sessions(self) -> None:
+    async def close_mcp_sessions(self) -> None:
+        """Close all open MCP tool sessions.
+
+        Must run in the same task that ran initialize() (which opened the
+        sessions via _open_mcp_sessions). The MCP client's underlying anyio
+        cancel scopes are task-affine — they must be exited from the task that
+        entered them — so this is invoked from _run_pipeline's finally, not
+        from cleanup() (which runs in a pipecat event-handler task).
+        """
         for tool_uuid, session in list(self._mcp_sessions.items()):
             try:
                 await session.close()
@@ -964,7 +972,14 @@ class PipecatEngine:
         self._mcp_sessions = {}
 
     async def cleanup(self):
-        """Clean up engine resources on disconnect."""
+        """Clean up engine resources on disconnect.
+
+        MCP tool sessions are intentionally NOT closed here — see
+        close_mcp_sessions(). This method runs in a pipecat event-handler task
+        (on_pipeline_finished), a different task than the one that opened the
+        MCP sessions; closing them here raises "Attempted to exit cancel scope
+        in a different task than it was entered in".
+        """
         # Cancel any pending timeout tasks
         if (
             self._user_response_timeout_task
@@ -973,11 +988,5 @@ class PipecatEngine:
             self._user_response_timeout_task.cancel()
 
         # Cancel any in-flight background summarization.
-        # MCP sessions are closed in a finally block so they are guaranteed to
-        # run even if the summarization cleanup raises an exception.
-        try:
-            if self._context_summarization_manager:
-                await self._context_summarization_manager.cleanup()
-        finally:
-            # Close any open MCP tool sessions
-            await self._close_mcp_sessions()
+        if self._context_summarization_manager:
+            await self._context_summarization_manager.cleanup()

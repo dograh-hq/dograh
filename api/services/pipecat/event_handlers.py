@@ -21,7 +21,7 @@ from api.tasks.function_names import FunctionNames
 from pipecat.frames.frames import (
     Frame,
 )
-from pipecat.pipeline.task import PipelineTask
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.enums import EndTaskReason
 
@@ -58,7 +58,7 @@ async def _capture_call_event(
 
 
 def register_event_handlers(
-    task: PipelineTask,
+    task: PipelineWorker,
     transport,
     workflow_run_id: int,
     engine: PipecatEngine,
@@ -184,13 +184,13 @@ def register_event_handlers(
         )
 
     @task.event_handler("on_pipeline_started")
-    async def on_pipeline_started(_task: PipelineTask, _frame: Frame):
+    async def on_pipeline_started(_task: PipelineWorker, _frame: Frame):
         logger.debug("In on_pipeline_started callback handler")
         ready_state["pipeline_started"] = True
         await maybe_trigger_initial_response()
 
     @task.event_handler("on_pipeline_error")
-    async def on_pipeline_error(_task: PipelineTask, frame: Frame):
+    async def on_pipeline_error(_task: PipelineWorker, frame: Frame):
         logger.warning(f"Pipeline error for workflow run {workflow_run_id}: {frame}")
         try:
             workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
@@ -218,7 +218,7 @@ def register_event_handlers(
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(
-        task: PipelineTask,
+        task: PipelineWorker,
         _frame: Frame,
     ):
         logger.debug(f"In on_pipeline_finished callback handler")

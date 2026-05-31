@@ -3,8 +3,6 @@
 import sentry_sdk
 
 from api.constants import (
-    CORS_ALLOWED_ORIGINS,
-    DEPLOYMENT_MODE,
     ENABLE_TELEMETRY,
     SENTRY_DSN,
 )
@@ -14,9 +12,7 @@ from api.logging_config import ENVIRONMENT, setup_logging
 setup_logging()
 
 
-if SENTRY_DSN and (
-    DEPLOYMENT_MODE != "oss" or (DEPLOYMENT_MODE == "oss" and ENABLE_TELEMETRY)
-):
+if SENTRY_DSN and ENABLE_TELEMETRY:
     sentry_sdk.init(
         dsn=SENTRY_DSN,
         send_default_pii=True,
@@ -88,31 +84,13 @@ app = FastAPI(
 )
 
 
-# Configure CORS.
-# OSS is typically deployed with UI and API behind a single reverse proxy
-# (same-origin, so CORS does not apply). Keep it permissive without
-# credentials — wildcard + credentials is rejected by browsers and unsafe.
-# SaaS deployments must set CORS_ALLOWED_ORIGINS to an explicit allowlist.
-if DEPLOYMENT_MODE == "oss":
-    cors_origins: list[str] = ["*"]
-    cors_allow_credentials = False
-else:
-    if not CORS_ALLOWED_ORIGINS:
-        raise RuntimeError(
-            "CORS_ALLOWED_ORIGINS must be set to an explicit origin allowlist "
-            "when DEPLOYMENT_MODE != 'oss'"
-        )
-    if "*" in CORS_ALLOWED_ORIGINS:
-        raise RuntimeError(
-            "CORS_ALLOWED_ORIGINS cannot contain '*' with credentialed requests"
-        )
-    cors_origins = CORS_ALLOWED_ORIGINS
-    cors_allow_credentials = True
-
+# OSS deployment: UI and API run behind the same reverse proxy (same-origin).
+# Keep CORS permissive without credentials — wildcard + credentials is
+# rejected by browsers and is unsafe.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=cors_origins,
-    allow_credentials=cors_allow_credentials,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

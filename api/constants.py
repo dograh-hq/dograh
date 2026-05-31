@@ -25,12 +25,9 @@ UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")
 DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]
 
-DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")
-CORS_ALLOWED_ORIGINS = [
-    o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
-]
-AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
-DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
+# OSS-only deployment — these are frozen constants, not env-driven toggles.
+DEPLOYMENT_MODE = "oss"
+AUTH_PROVIDER = "local"
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 
 # Storage Configuration

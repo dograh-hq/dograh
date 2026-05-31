@@ -2,31 +2,14 @@ import json
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_superuser
-from api.services.auth.stack_auth import stackauth
 
 router = APIRouter(prefix="/superuser", tags=["superuser"])
-
-
-class ImpersonateRequest(BaseModel):
-    """Request payload for superadmin impersonation.
-
-    Either ``provider_user_id`` **or** ``user_id`` must be supplied. If both are
-    provided, ``provider_user_id`` takes precedence.
-    """
-
-    provider_user_id: str | None = None
-    user_id: int | None = None
-
-
-class ImpersonateResponse(BaseModel):
-    refresh_token: str
-    access_token: str
 
 
 class SuperuserWorkflowRunResponse(BaseModel):
@@ -54,48 +37,6 @@ class SuperuserWorkflowRunsListResponse(BaseModel):
     page: int
     limit: int
     total_pages: int
-
-
-@router.post("/impersonate")
-async def impersonate(
-    request: ImpersonateRequest, user: UserModel = Depends(get_superuser)
-) -> ImpersonateResponse:
-    """Impersonate a user as a super-admin.
-    Internally, Stack Auth requires the **provider user ID** (a UUID-ish string)
-    to create an impersonation session.
-    """
-
-    provider_user_id: str | None = request.provider_user_id
-
-    # ------------------------------------------------------------------
-    # Fallback: resolve provider_user_id from internal ``user_id``
-    # ------------------------------------------------------------------
-    if provider_user_id is None:
-        if request.user_id is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Either 'provider_user_id' or 'user_id' must be provided.",
-            )
-
-        db_user = await db_client.get_user_by_id(request.user_id)
-
-        if db_user is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"User with ID {request.user_id} not found.",
-            )
-
-        provider_user_id = db_user.provider_id
-
-    # ------------------------------------------------------------------
-    # Call Stack Auth to create the impersonation session
-    # ------------------------------------------------------------------
-    session = await stackauth.impersonate(provider_user_id)
-
-    return ImpersonateResponse(
-        refresh_token=session["refresh_token"],
-        access_token=session["access_token"],
-    )
 
 
 @router.get("/workflow-runs")

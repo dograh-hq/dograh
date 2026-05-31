@@ -7,7 +7,6 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from api.constants import DEPLOYMENT_MODE
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user
@@ -110,22 +109,11 @@ async def get_current_period_usage(user: UserModel = Depends(get_user)):
 
 @router.get("/usage/mps-credits", response_model=MPSCreditsResponse)
 async def get_mps_credits(user: UserModel = Depends(get_user)):
-    """Get aggregated usage and quota from MPS.
-
-    OSS users: queries by provider_id (created_by).
-    Hosted users: queries by organization_id.
-    """
+    """Get aggregated usage and quota from MPS."""
     try:
-        if DEPLOYMENT_MODE == "oss":
-            usage = await mps_service_key_client.get_usage_by_created_by(
-                str(user.provider_id)
-            )
-        else:
-            if not user.selected_organization_id:
-                raise HTTPException(status_code=400, detail="No organization selected")
-            usage = await mps_service_key_client.get_usage_by_organization(
-                user.selected_organization_id
-            )
+        usage = await mps_service_key_client.get_usage_by_created_by(
+            str(user.provider_id)
+        )
 
         total_used = usage.get("total_credits_used", 0.0)
         total_remaining = usage.get("remaining_credits", 0.0)

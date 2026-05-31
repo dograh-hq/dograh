@@ -3,3 +3,27 @@ name = "dograh-api"
 version = "1.33.0"
 description = "Backend API for Dograh voice AI platform"
 requires-python = ">=3.13,<3.14"
+dependencies = [
+    "aioboto3==15.1.0",
+    "alembic==1.16.5",
+    "alembic-postgresql-enum==1.8.0",
+    "arq==0.26.3",
+    "asyncpg==0.30.0",
+    "bcrypt==5.0.0",
+    "email-validator==2.3.0",
+    "fastapi==0.135.3",
+    "fastmcp==3.2.4",
+    "langfuse==3.9.3",
+    "minio==7.2.16",
+    "msgpack==1.1.2",
+    "pgvector==0.4.2",
+    "posthog==7.11.1",
+    "pynacl==1.6.2",
+    "python-multipart==0.0.27",
+    "redis==5.3.1",
+    "sentry-sdk[fastapi]==2.38.0",
+    "sqlalchemy[asyncio]==2.0.43",
+    "tuner-pipecat-sdk==0.2.0",
+    "twilio==9.8.0",
+    "uvicorn==0.35.0",
+]

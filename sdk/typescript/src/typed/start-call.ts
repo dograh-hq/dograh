@@ -38,7 +38,7 @@ export interface StartCall {
      */
     greeting_type?: "text" | "audio";
     /**
-     * Text spoken via TTS at the start of the call. Supports {{template_variables}}. Leave empty to skip the greeting.
+     * Text spoken via TTS at the start of the call. Supports {{template_variables}}. Leave empty to skip the greeting. Not supported with realtime (speech-to-speech) models.
      */
     greeting?: string;
     /**

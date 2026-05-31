@@ -36,6 +36,11 @@ The guide tool is the authoritative source for prompt-authoring craft (turn-taki
 
 ## Call order
 
+### Creating a reusable tool
+1. If authentication is needed, call `list_credentials` and use an existing `credential_uuid`; the user creates credential secrets in the UI.
+2. Build a typed tool definition and call `create_tool`. The request schema is authoritative for allowed tool categories and config fields.
+3. Use the returned `tool_uuid` in workflow node `tool_uuids`, then call `create_workflow` or `save_workflow`.
+
 ### Reading documentation
 1. `search_docs` — use first for keyword or acronym lookup when the user is asking how Dograh works or how to configure something.
 2. `read_doc` — fetch the full page once one result looks likely. Prefer this over reasoning from search summaries alone.

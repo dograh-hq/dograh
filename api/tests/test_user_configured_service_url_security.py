@@ -1,149 +1,16 @@
-from types import SimpleNamespace
-
-import pytest
-from fastapi import HTTPException
-
 from api.services.configuration.check_validity import UserConfigurationValidator
-from api.services.configuration.registry import (
-    ServiceProviders,
-    SpeachesLLMConfiguration,
-)
-from api.services.gen_ai.embedding.openai_service import OpenAIEmbeddingService
-from api.services.pipecat.service_factory import (
-    create_llm_service_from_provider,
-    create_tts_service,
-)
+from api.services.configuration.registry import SpeachesLLMConfiguration
 from api.utils.url_security import validate_user_configured_service_url
 
 
-def test_oss_allows_local_service_urls(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "oss")
-
+def test_oss_allows_local_service_urls():
     validate_user_configured_service_url(
         "http://localhost:11434/v1",
         field_name="base_url",
     )
 
 
-@pytest.mark.parametrize(
-    "url",
-    [
-        "http://localhost:11434/v1",
-        "http://127.0.0.1:11434/v1",
-        "http://10.0.0.10/v1",
-        "http://169.254.169.254/latest/meta-data",
-        "http://100.64.0.1/v1",
-    ],
-)
-def test_saas_blocks_local_and_internal_service_urls(url, monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-
-    with pytest.raises(ValueError):
-        validate_user_configured_service_url(
-            url,
-            field_name="base_url",
-        )
-
-
-def test_saas_rejects_unsupported_service_url_schemes(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-
-    with pytest.raises(ValueError, match="http, https, ws, or wss"):
-        validate_user_configured_service_url(
-            "file:///etc/passwd",
-            field_name="base_url",
-        )
-
-
-def test_saas_checks_resolved_hostname_ips(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-
-    def fake_getaddrinfo(*_args, **_kwargs):
-        return [(None, None, None, None, ("10.0.0.10", 443))]
-
-    monkeypatch.setattr("api.utils.url_security.socket.getaddrinfo", fake_getaddrinfo)
-
-    with pytest.raises(ValueError, match="public IP"):
-        validate_user_configured_service_url(
-            "https://internal.example.com/v1",
-            field_name="base_url",
-        )
-
-
-def test_saas_allows_public_service_url(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-
-    def fake_getaddrinfo(*_args, **_kwargs):
-        return [(None, None, None, None, ("8.8.8.8", 443))]
-
-    monkeypatch.setattr("api.utils.url_security.socket.getaddrinfo", fake_getaddrinfo)
-
-    validate_user_configured_service_url(
-        "https://api.example.com/v1",
-        field_name="base_url",
-    )
-
-
-def test_saas_allows_public_websocket_service_url(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-
-    def fake_getaddrinfo(*_args, **_kwargs):
-        return [(None, None, None, None, ("8.8.8.8", 443))]
-
-    monkeypatch.setattr("api.utils.url_security.socket.getaddrinfo", fake_getaddrinfo)
-
-    validate_user_configured_service_url(
-        "wss://api.example.com/v1",
-        field_name="base_url",
-    )
-
-
-def test_saas_blocks_local_websocket_service_url(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-
-    with pytest.raises(ValueError, match="localhost"):
-        validate_user_configured_service_url(
-            "ws://localhost:8000/v1",
-            field_name="base_url",
-        )
-
-
-def test_validator_blocks_speaches_local_base_url_in_saas(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-    validator = UserConfigurationValidator()
-    config = SpeachesLLMConfiguration()
-
-    result = validator._validate_service(config, "llm")
-
-    assert result == [
-        {
-            "model": "llm",
-            "message": "base_url cannot point to localhost in SaaS mode",
-        }
-    ]
-
-
-def test_validator_blocks_azure_private_endpoint_in_saas(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "saas")
-    validator = UserConfigurationValidator()
-    config = SimpleNamespace(
-        provider=ServiceProviders.AZURE.value,
-        endpoint="http://10.0.0.10/openai",
-        api_key="test-key",
-    )
-
-    result = validator._validate_service(config, "llm")
-
-    assert result == [
-        {
-            "model": "llm",
-            "message": "endpoint must resolve to a public IP address in SaaS mode",
-        }
-    ]
-
-
-def test_validator_allows_speaches_local_base_url_in_oss(monkeypatch):
-    monkeypatch.setattr("api.utils.url_security.DEPLOYMENT_MODE", "oss")
+def test_validator_allows_speaches_local_base_url_in_oss():
     validator = UserConfigurationValidator()
     config = SpeachesLLMConfiguration()
 

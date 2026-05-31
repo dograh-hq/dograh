@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Callback factory helpers for :pyclass:`~api.services.workflow.pipecat_engine.PipecatEngine`.
 
 Each helper takes a :class:`PipecatEngine` instance and returns an async
@@ -9,6 +7,8 @@ Separating these helpers into their own module keeps
 encapsulating the callback implementations here for easier maintenance and
 unit-testing.
 """
+
+from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING
@@ -73,11 +73,14 @@ def create_user_idle_handler(engine: "PipecatEngine") -> UserIdleHandler:
 
 
 def create_max_duration_callback(engine: "PipecatEngine"):
-    """Return a callback that ends the task when the max call duration is exceeded."""
+    """Return a callback that cancels the task when the hard call limit is exceeded."""
 
     async def handle_max_duration():
         logger.debug("Max call duration exceeded. Terminating call")
-        await engine.end_call_with_reason(EndTaskReason.CALL_DURATION_EXCEEDED.value)
+        await engine.end_call_with_reason(
+            EndTaskReason.CALL_DURATION_EXCEEDED.value,
+            abort_immediately=True,
+        )
 
     return handle_max_duration
 

@@ -49,12 +49,7 @@ class MPSServiceKeyClient:
         expires_in_days: int = 90,
         description: Optional[str] = None,
     ) -> dict:
-        """
-        Create a new service key via MPS API.
-
-        For OSS mode: organization_id should be None
-        For authenticated mode: organization_id should be provided
-        """
+        """Create a new service key via MPS API."""
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             request_body = {
                 "name": name,
@@ -62,10 +57,6 @@ class MPSServiceKeyClient:
                 "expires_in_days": expires_in_days,
                 "created_by": created_by,
             }
-
-            # Only add organization_id for non-OSS mode
-            if DEPLOYMENT_MODE != "oss" and organization_id:
-                request_body["organization_id"] = organization_id
 
             response = await client.post(
                 f"{self.base_url}/api/v1/service-keys/",
@@ -104,23 +95,11 @@ class MPSServiceKeyClient:
         created_by: Optional[str] = None,
         include_archived: bool = False,
     ) -> List[dict]:
-        """
-        Get service keys from MPS.
-
-        For OSS mode: Use created_by to filter keys
-        For authenticated mode: Use organization_id to filter keys
-        """
+        """Get service keys from MPS, filtered by created_by."""
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             params = {}
-
-            if DEPLOYMENT_MODE == "oss":
-                # In OSS mode, filter by created_by
-                if created_by:
-                    params["created_by"] = created_by
-            else:
-                # In authenticated mode, filter by organization_id
-                if organization_id:
-                    params["organization_id"] = organization_id
+            if created_by:
+                params["created_by"] = created_by
 
             if include_archived:
                 params["include_archived"] = "true"
@@ -170,19 +149,11 @@ class MPSServiceKeyClient:
             if response.status_code == 200:
                 key = response.json()
 
-                # Validate ownership for OSS mode
-                if DEPLOYMENT_MODE == "oss" and created_by:
+                # Validate ownership: created_by must match the key creator
+                if created_by:
                     if key.get("created_by") != created_by:
                         logger.warning(
                             f"Access denied: User {created_by} tried to access key created by {key.get('created_by')}"
-                        )
-                        return None
-
-                # Validate organization for authenticated mode
-                if DEPLOYMENT_MODE != "oss" and organization_id:
-                    if key.get("organization_id") != organization_id:
-                        logger.warning(
-                            f"Access denied: Org {organization_id} tried to access key for org {key.get('organization_id')}"
                         )
                         return None
 

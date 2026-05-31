@@ -139,8 +139,4 @@ TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))
 # TURN is misconfigured or unreachable.
 FORCE_TURN_RELAY = os.getenv("FORCE_TURN_RELAY", "false").lower() == "true"
 
-# OSS Email/Password Auth
-OSS_JWT_SECRET = os.getenv("OSS_JWT_SECRET", "change-me-in-production")
-OSS_JWT_EXPIRY_HOURS = int(os.getenv("OSS_JWT_EXPIRY_HOURS", "720"))  # 30 days
-
 TUNER_BASE_URL = os.getenv("TUNER_BASE_URL", "https://api.usetuner.ai")

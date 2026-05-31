@@ -99,3 +99,12 @@ class TransferRedisChannels:
     def transfer_context_key(transfer_id: str) -> str:
         """Redis key for transfer context storage."""
         return f"transfer:context:{transfer_id}"
+
+    @staticmethod
+    def transfer_context_by_call_sid_key(original_call_sid: str) -> str:
+        """Redis key for the original_call_sid -> transfer_id secondary index.
+
+        Lets a caller's transfer context be resolved with a direct lookup
+        instead of an O(N) ``KEYS transfer:context:*`` keyspace scan.
+        """
+        return f"transfer:by_call_sid:{original_call_sid}"

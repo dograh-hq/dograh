@@ -1,5 +1,6 @@
 import json
 import re
+import asyncio
 import uuid
 from datetime import datetime
 from typing import List, Literal, Optional
@@ -399,6 +400,9 @@ async def create_workflow(
         },
     )
 
+    from api.services.pipecat.paygent_agent_sync import ensure_agent_async
+    asyncio.create_task(ensure_agent_async(workflow.id, workflow.name))
+
     if trigger_paths:
         await db_client.sync_triggers_for_workflow(
             workflow_id=workflow.id,
@@ -498,6 +502,9 @@ async def create_workflow_from_template(
                 "organization_id": user.selected_organization_id,
             },
         )
+
+        from api.services.pipecat.paygent_agent_sync import ensure_agent_async
+        asyncio.create_task(ensure_agent_async(workflow.id, workflow.name))
 
         if trigger_paths:
             await db_client.sync_triggers_for_workflow(

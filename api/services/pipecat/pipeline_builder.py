@@ -37,6 +37,7 @@ def build_pipeline(
     pipeline_metrics_aggregator,
     voicemail_detector=None,
     recording_router=None,
+    paygent_aggregator=None,
 ):
     """Build the main pipeline with all components.
 
@@ -91,6 +92,9 @@ def build_pipeline(
         ]
     )
 
+    if paygent_aggregator:
+        processors.append(paygent_aggregator)
+
     return Pipeline(processors)
 
 
@@ -103,6 +107,7 @@ def build_realtime_pipeline(
     pipeline_engine_callback_processor,
     pipeline_metrics_aggregator,
     voicemail_detector=None,
+    paygent_aggregator=None,
 ):
     """Build a pipeline for realtime (speech-to-speech) LLM services.
 
@@ -148,6 +153,9 @@ def build_realtime_pipeline(
             pipeline_metrics_aggregator,
         ]
     )
+
+    if paygent_aggregator:
+        processors.append(paygent_aggregator)
 
     return Pipeline(processors)
 

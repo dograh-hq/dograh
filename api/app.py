@@ -26,6 +26,7 @@ if SENTRY_DSN and (
 
 
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,6 +68,10 @@ async def lifespan(app: FastAPI):
         )
         await sync_manager.start()
         set_worker_sync_manager(sync_manager)
+
+        # Start async background backfill of Paygent agents (non-blocking)
+        from api.services.pipecat.paygent_agent_sync import run_backfill_if_requested
+        asyncio.create_task(run_backfill_if_requested())
 
         yield  # Run app
 

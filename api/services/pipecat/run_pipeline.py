@@ -437,6 +437,113 @@ async def _run_pipeline(
         workflow_run_id, initial_context=merged_call_context_vars
     )
 
+    # ── Paygent cost tracking ─────────────────────────────────────────────
+    # All configuration is sourced from environment variables — no secrets in
+    # source code. Set these in your .env / .env.local / deployment secrets:
+    #
+    #   PAYGENT_API_KEY      — Paygent API key  (required to enable tracking)
+    #   PAYGENT_INDICATOR    — billing indicator name (default: "per-minute")
+    #   PAYGENT_BASE_URL     — Paygent service URL (default: https://cp-api.withpaygent.com)
+    #
+    # agent_id  is always the workflow integer ID (str) — matches what
+    #           ensure_agent_async registers on workflow create.
+    # customer_id is always the organization_id (str).
+    # Do NOT override these per-deployment via PAYGENT_AGENT_ID/CUSTOMER_ID.
+    import os as _os
+    try:
+        from dotenv import load_dotenv as _load_dotenv
+        _api_dir = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        _env_path = _os.path.join(_api_dir, ".env")
+        if _os.path.exists(_env_path):
+            _load_dotenv(_env_path)
+        _env_local_path = _os.path.join(_api_dir, ".env.local")
+        if _os.path.exists(_env_local_path):
+            _load_dotenv(_env_local_path, override=True)
+    except Exception as _dotenv_err:
+        logger.warning(f"[Paygent] Could not load .env files: {_dotenv_err}")
+
+    paygent_aggregator = None
+    _paygent_api_key = _os.environ.get("PAYGENT_API_KEY", "").strip()
+
+    if _paygent_api_key:
+        try:
+            from api.services.pipecat.paygent import PaygentPipelineMetricsAggregator
+
+            def _get_prov_model(cfg_obj):
+                if not cfg_obj: return "unknown", "default"
+                prov = getattr(getattr(cfg_obj, "provider", None), "value", None) or getattr(cfg_obj, "provider", "unknown")
+                mod = getattr(cfg_obj, "model", "default")
+                return str(prov), str(mod)
+
+            stt_p, stt_m = _get_prov_model(getattr(user_config, "stt", None))
+            tts_p, tts_m = _get_prov_model(getattr(user_config, "tts", None))
+            llm_p, llm_m = _get_prov_model(getattr(user_config, "llm", None))
+            if is_realtime and getattr(user_config, "realtime", None):
+                rt_p, rt_m = _get_prov_model(user_config.realtime)
+                llm_p, llm_m = rt_p, rt_m
+                stt_p, stt_m = rt_p, rt_m
+                tts_p, tts_m = rt_p, rt_m
+
+            # ── customer_id derivation ────────────────────────────────────────
+            # Use the most meaningful identifier available for the end customer:
+            #   • Telephony outbound  → the number being called (called_number)
+            #   • Telephony inbound   → the caller's number    (caller_number)
+            #   • WebRTC / web-call   → "web-call" sentinel string
+            # This makes Paygent usage records map directly to real contacts
+            # rather than the opaque org integer.
+            _ctx = merged_call_context_vars or {}
+            _run_mode = getattr(workflow_run, "mode", "") or ""
+            _is_telephony = bool(
+                _ctx.get("provider")                     # telephony runs always stamp provider
+                or "twilio" in _run_mode.lower()
+                or "vonage" in _run_mode.lower()
+                or "telnyx" in _run_mode.lower()
+                or "vobiz"  in _run_mode.lower()
+                or "plivo"  in _run_mode.lower()
+                or "ari"    in _run_mode.lower()
+                or "tel"    in _run_mode.lower()
+            )
+            if _is_telephony:
+                # Outbound: we dialed `called_number`; inbound: caller is `caller_number`
+                _direction = _ctx.get("direction", "")
+                if _direction == "inbound":
+                    _customer_id = _ctx.get("caller_number") or str(workflow.organization_id)
+                else:
+                    _customer_id = (
+                        _ctx.get("called_number")
+                        or _ctx.get("phone_number")
+                        or str(workflow.organization_id)
+                    )
+            else:
+                # WebRTC / web-call
+                _customer_id = "web-call"
+
+            logger.info(
+                "[Paygent] customer_id=%s (mode=%s direction=%s)",
+                _customer_id, _run_mode, _ctx.get("direction", "n/a"),
+            )
+
+            paygent_aggregator = PaygentPipelineMetricsAggregator(
+                api_key=_paygent_api_key,
+                agent_id=str(workflow_id),
+                customer_id=_customer_id,
+                session_id=str(workflow_run_id),
+                indicator=_os.environ.get("PAYGENT_INDICATOR", "per-minute").strip(),
+                base_url=_os.environ.get("PAYGENT_BASE_URL", "https://cp-api.withpaygent.com").strip(),
+                is_realtime=is_realtime,
+                stt_provider=stt_p,
+                stt_model=stt_m,
+                tts_provider=tts_p,
+                tts_model=tts_m,
+                llm_provider=llm_p,
+                llm_model=llm_m,
+            )
+            logger.info(f"[Paygent] Cost tracking enabled for run {workflow_run_id}")
+        except Exception as e:
+            logger.error(f"[Paygent] Failed to initialize aggregator: {e}")
+    else:
+        logger.info("[Paygent] PAYGENT_API_KEY not set — cost tracking disabled")
+
     workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(run_workflow_json))
 
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
@@ -724,6 +831,7 @@ async def _run_pipeline(
             pipeline_engine_callback_processor,
             pipeline_metrics_aggregator,
             voicemail_detector=voicemail_detector,
+            paygent_aggregator=paygent_aggregator,
         )
     else:
         pipeline = build_pipeline(
@@ -738,6 +846,7 @@ async def _run_pipeline(
             pipeline_metrics_aggregator,
             voicemail_detector=voicemail_detector,
             recording_router=recording_router,
+            paygent_aggregator=paygent_aggregator,
         )
 
     # Create pipeline task with audio configuration

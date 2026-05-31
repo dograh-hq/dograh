@@ -4,68 +4,25 @@ LLM-function-name namespacing. No I/O, no MCP protocol here."""
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import ValidationError
 
-DEFAULT_TIMEOUT_SECS = 30
-DEFAULT_SSE_READ_TIMEOUT_SECS = 300
+from api.schemas.tool import (
+    DEFAULT_MCP_SSE_READ_TIMEOUT_SECS,
+    DEFAULT_MCP_TIMEOUT_SECS,
+    McpToolDefinition,
+)
+from api.schemas.tool import (
+    McpToolConfig as McpToolConfig,
+)
+
+DEFAULT_TIMEOUT_SECS = DEFAULT_MCP_TIMEOUT_SECS
+DEFAULT_SSE_READ_TIMEOUT_SECS = DEFAULT_MCP_SSE_READ_TIMEOUT_SECS
 
 
 class McpDefinitionError(ValueError):
     """Raised when an MCP tool definition is structurally invalid."""
-
-
-class McpToolConfig(BaseModel):
-    """Configuration for an MCP tool definition."""
-
-    transport: Literal["streamable_http"] = Field(
-        default="streamable_http", description="MCP transport protocol"
-    )
-    url: str = Field(description="MCP server URL (must be http:// or https://)")
-    credential_uuid: Optional[str] = Field(
-        default=None, description="Reference to ExternalCredentialModel for auth"
-    )
-    tools_filter: list[str] = Field(
-        default_factory=list,
-        description="Allowlist of MCP tool names to expose (empty = all tools)",
-    )
-    timeout_secs: int = Field(
-        default=DEFAULT_TIMEOUT_SECS, description="Connection timeout in seconds"
-    )
-    sse_read_timeout_secs: int = Field(
-        default=DEFAULT_SSE_READ_TIMEOUT_SECS,
-        description="SSE read timeout in seconds",
-    )
-    discovered_tools: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description=(
-            "Server-managed cache of the MCP server's tool catalog "
-            "[{name, description}]. Populated best-effort by the backend."
-        ),
-    )
-
-    @field_validator("url")
-    @classmethod
-    def validate_url(cls, v: str) -> str:
-        if not isinstance(v, str) or not v.startswith(("http://", "https://")):
-            raise ValueError("config.url must be an http(s) URL")
-        return v
-
-    @field_validator("tools_filter")
-    @classmethod
-    def validate_tools_filter(cls, v: list[str]) -> list[str]:
-        if not all(isinstance(tool_name, str) for tool_name in v):
-            raise ValueError("config.tools_filter must be a list of strings")
-        return v
-
-
-class McpToolDefinition(BaseModel):
-    """Persisted MCP tool definition."""
-
-    schema_version: int = Field(default=1, description="Schema version")
-    type: Literal["mcp"] = Field(description="Tool type")
-    config: McpToolConfig = Field(description="MCP server configuration")
 
 
 def _format_validation_error(error: ValidationError) -> str:

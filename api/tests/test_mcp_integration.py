@@ -51,7 +51,7 @@ async def test_engine_opens_and_closes_mcp_sessions(monkeypatch):
             assert sess.available is True
             assert len(sess.function_schemas()) == 2
         finally:
-            await engine._close_mcp_sessions()
+            await engine.close_mcp_sessions()
         assert engine._mcp_sessions == {}
 
 

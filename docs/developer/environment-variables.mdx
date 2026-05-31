@@ -56,6 +56,7 @@ Never use the placeholder `OSS_JWT_SECRET` in a production deployment. Generate 
 | `UI_APP_URL` | `http://localhost:3010` | URL of the frontend application |
 | `MPS_API_URL` | `https://services.dograh.com` | Dograh Managed Platform Services URL |
 | `DOGRAH_MPS_SECRET_KEY` | `null` | **Required for non-OSS deployments.** Secret key for authenticating with MPS |
+| `CORS_ALLOWED_ORIGINS` | `null` | **Required for non-OSS deployments.** Comma-separated list of origins allowed to make credentialed cross-origin requests (e.g. `https://app.example.com,https://admin.example.com`). Ignored in OSS mode, which serves a permissive same-origin policy without credentials |
 
 ---
 

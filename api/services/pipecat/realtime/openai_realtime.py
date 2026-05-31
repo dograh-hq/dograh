@@ -13,9 +13,8 @@ Adds:
   flow kicks off the bot's first response.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
   like user-idle checks, without mutating Dograh's local ``LLMContext``.
-- **finalized=True on TranscriptionFrame** for parity with the Gemini
-  service (every OpenAI transcription via the ``completed`` event is
-  final by construction).
+- **finalized=True on TranscriptionFrame** because every OpenAI
+  transcription via the ``completed`` event is final by construction.
 """
 
 import json
@@ -254,9 +253,8 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             logger.error(f"Failed to process function call arguments: {e}")
 
     # ------------------------------------------------------------------
-    # Transcription: broadcast with finalized=True for parity with the
-    # Gemini service (consumers that check `finalized` should see True
-    # for every completed-transcription event from OpenAI).
+    # Transcription: broadcast with finalized=True for every
+    # completed-transcription event from OpenAI.
     # ------------------------------------------------------------------
 
     async def handle_evt_input_audio_transcription_completed(self, evt):

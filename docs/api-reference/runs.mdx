@@ -1,0 +1,61 @@
+---
+title: "Overview"
+description: "Create and inspect agent runs via the API"
+---
+
+| Method | Endpoint | Quick Link |
+|---|---|---|
+| `POST` | `/public/agent/{uuid}` | [Trigger an outbound agent run by API Trigger node](/api-reference/runs/trigger) |
+| `POST` | `/public/agent/workflow/{workflow_uuid}` | [Trigger an outbound agent run by Agent UUID](/api-reference/runs/trigger-workflow) |
+| `GET` | `/workflow/{workflow_id}/runs/{run_id}` | [Retrieve agent run details](/api-reference/runs/get-run) |
+| `GET` | `/public/download/workflow/{token}/{artifact_type}` | [Download recordings and transcripts](/api-reference/runs/download) |
+| `POST` | `/telephony/inbound/{workflow_id}` | [Inbound run webhook](/api-reference/runs/inbound) |
+
+## Choose the right public run route
+
+Dograh exposes two public outbound agent run route families. They are **not**
+ interchangeable, even though both path parameters look like UUIDs.
+
+| Use this when | Production route | Test route | Identifier you pass |
+|---|---|---|---|
+| You added an **[API Trigger node](/voice-agent/api-trigger)** to the workflow and want to execute that trigger | `/public/agent/{uuid}` | `/public/agent/test/{uuid}` | The trigger UUID (`trigger_path`) from the API Trigger node |
+| You want to execute the workflow by its stable **Agent UUID** instead of a trigger node | `/public/agent/workflow/{workflow_uuid}` | `/public/agent/test/workflow/{workflow_uuid}` | The workflow UUID from the agent's **[Agent UUID](/configurations/agent-uuid)** field |
+
+<Note>
+Do not pass a workflow UUID to `/public/agent/{uuid}` and do not pass a trigger UUID
+to `/public/agent/workflow/{workflow_uuid}`. Dograh treats these as different
+identifier types and the request will fail if you mix them up.
+</Note>
+
+Once Dograh resolves the target agent, both route families behave the same:
+
+- They accept the same request body
+- They return the same response shape
+- They validate the same `X-API-Key` organization boundary
+- They use the same telephony configuration selection rules
+
+If you specifically need the API Trigger route, see [Trigger an outbound agent run by API Trigger node](/api-reference/runs/trigger). To execute by Agent UUID, see [Trigger an outbound agent run by Agent UUID](/api-reference/runs/trigger-workflow).
+
+## Using initial context
+
+`initial_context` passes runtime data into the agent at run time. Values are available as template variables in your agent's prompt using double-brace syntax.
+
+```json
+{
+  "initial_context": {
+    "customer_name": "Jane",
+    "appointment_date": "March 15"
+  }
+}
+```
+
+Your agent prompt can then reference `{{customer_name}}` and `{{appointment_date}}` and they will be substituted when the run starts.
+
+## Run status values
+
+| Status | Description |
+|---|---|
+| `pending` | Run queued but not yet connected |
+| `in_progress` | Run is live |
+| `completed` | Run ended normally |
+| `failed` | Run failed before or during execution |

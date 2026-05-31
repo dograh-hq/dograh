@@ -1,0 +1,9 @@
+---
+title: "Retrieve Agent Run Details"
+description: "Get the details, transcript, and recording for an agent run"
+openapi: "GET /api/v1/workflow/{workflow_id}/runs/{run_id}"
+---
+
+Returns the full run record including run status, duration, transcript URL, recording URL, gathered context, and usage/cost info.
+
+Use the `recording_url` and `transcript_url` directly, or use the [Download endpoint](/api-reference/runs/download) to generate time-limited public URLs for sharing.

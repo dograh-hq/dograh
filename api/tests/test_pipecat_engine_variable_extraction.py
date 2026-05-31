@@ -18,8 +18,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -28,6 +27,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
@@ -142,7 +142,7 @@ class TestVariableExtractionDuringTransitions:
         )
 
         # Create pipeline task
-        task = PipelineTask(
+        task = PipelineWorker(
             pipeline,
             params=PipelineParams(),
             enable_rtvi=False,
@@ -168,10 +168,9 @@ class TestVariableExtractionDuringTransitions:
                     new_callable=AsyncMock,
                     return_value={"user_name": "John Doe"},
                 ):
-                    runner = PipelineRunner()
 
                     async def run_pipeline():
-                        await runner.run(task)
+                        await run_pipeline_worker(task)
 
                     async def initialize_engine():
                         await asyncio.sleep(0.01)

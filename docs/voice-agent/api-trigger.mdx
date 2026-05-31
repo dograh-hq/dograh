@@ -83,7 +83,7 @@ Use the test URL when you want to verify draft changes before publishing.
 
 ### Response
 
-A successful request returns a `workflow_run_id` that you can use to [retrieve call details](/api-reference/calls/get-run), recordings, and transcripts.
+A successful request returns a `workflow_run_id` that you can use to [retrieve run details](/api-reference/runs/get-run), recordings, and transcripts.
 
 ```json
 {
@@ -136,5 +136,5 @@ By default, calls are placed through your organization's default outbound [telep
 The id is shown on each row in **Telephony configurations** (`https://app.dograh.com/telephony-configurations` for hosted or `http://localhost:3010/telephony-configurations` for local). The configuration must belong to the same organization as the API Trigger; otherwise the request returns `404`.
 
 <Note>
-For full endpoint details including all parameters and response fields, see the [API reference](/api-reference/calls/trigger).
+For full endpoint details including all parameters and response fields, see the [API reference](/api-reference/runs/trigger).
 </Note>

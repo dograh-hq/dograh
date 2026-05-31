@@ -1,10 +1,10 @@
 import { BaseEdge, type Edge, EdgeLabelRenderer, type EdgeProps, getSmoothStepPath, useReactFlow } from '@xyflow/react';
-import { AlertCircle, Pencil } from 'lucide-react';
+import { AlertCircle, Pencil, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { useWorkflow, useWorkflowOptional } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
-import { TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
+import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -122,10 +122,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                             recordings={recordings ?? []}
                         >
                             <>
-                                <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
-                                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                                    <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
-                                </div>
+                                <StaticTextWarning />
                                 <Textarea
                                     value={transitionSpeech}
                                     placeholder="e.g. Let me transfer you to our billing department..."
@@ -158,6 +155,7 @@ export default function CustomEdge(props: CustomEdgeProps) {
     const { getEdges, setNodes } = useReactFlow<FlowNode, FlowEdge>();
     const { saveWorkflow } = useWorkflow();
     const updateEdge = useWorkflowStore((state) => state.updateEdge);
+    const deleteEdge = useWorkflowStore((state) => state.deleteEdge);
     const [open, setOpen] = useState(false);
     const [isHovered, setIsHovered] = useState(false);
 
@@ -259,6 +257,10 @@ export default function CustomEdge(props: CustomEdgeProps) {
         await saveWorkflow();
     }, [id, updateEdge, saveWorkflow]);
 
+    const handleDeleteEdge = useCallback(() => {
+        deleteEdge(id);
+    }, [id, deleteEdge]);
+
     return (
         <>
             <g
@@ -321,14 +323,24 @@ export default function CustomEdge(props: CustomEdgeProps) {
                                 <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
                                     Condition
                                 </span>
-                                <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="h-6 w-6 p-0 hover:bg-muted text-muted-foreground"
-                                    onClick={() => setOpen(true)}
-                                >
-                                    <Pencil className="h-3 w-3" />
-                                </Button>
+                                <div className="flex items-center gap-1">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive text-muted-foreground"
+                                        onClick={handleDeleteEdge}
+                                    >
+                                        <Trash2 className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 p-0 hover:bg-muted text-muted-foreground"
+                                        onClick={() => setOpen(true)}
+                                    >
+                                        <Pencil className="h-3 w-3" />
+                                    </Button>
+                                </div>
                             </div>
                             {/* Content */}
                             <div className="px-3 pb-3">

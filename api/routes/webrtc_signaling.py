@@ -545,6 +545,20 @@ async def public_signaling_websocket(
         await websocket.close(code=1008, reason="Invalid embed token")
         return
 
+    # Enforce the embed token's allowed-domain policy on the public signaling
+    # path, mirroring the HTTP embed endpoints (issue #330). Without this a
+    # leaked or replayed session token could attach from an arbitrary origin.
+    from api.routes.public_embed import validate_origin
+
+    origin = websocket.headers.get("origin") or websocket.headers.get("referer", "")
+    if not validate_origin(origin, embed_token.allowed_domains or []):
+        logger.warning(
+            f"Domain validation failed for public signaling: {origin} "
+            f"not in {embed_token.allowed_domains}"
+        )
+        await websocket.close(code=1008, reason="Domain not allowed")
+        return
+
     # Create a minimal user object for compatibility with signaling manager
     # Use the embed token creator as the user
     user = await db_client.get_user_by_id(embed_token.created_by)

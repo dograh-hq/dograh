@@ -82,8 +82,11 @@ class CSVSyncService(CampaignSourceSyncService):
         headers = self.normalize_headers(csv_data[0])
         rows = csv_data[1:]
 
-        # Create hash of file_key for consistent source_uuid prefix
-        file_hash = hashlib.md5(file_key.encode()).hexdigest()[:8]
+        # Create hash of file_key for consistent source_uuid prefix.
+        # usedforsecurity=False because this hash is not used for security
+        # purposes (only for stable deterministic naming), so MD5 is acceptable
+        # per policy for non-security hashing.
+        file_hash = hashlib.md5(file_key.encode(), usedforsecurity=False).hexdigest()[:8]
 
         # Convert to queued_runs
         queued_runs = []

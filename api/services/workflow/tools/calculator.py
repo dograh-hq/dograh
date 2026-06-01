@@ -22,10 +22,17 @@ def safe_calculator(expr: str) -> float:
         ast.Mod,
     }
 
+    # Parse the expression into an AST and validate against whitelist.
     node = ast.parse(expr, mode="eval")
     if not all(isinstance(n, tuple(allowed_nodes)) for n in ast.walk(node)):
         raise ValueError("Unsupported expression")
-    return eval(compile(node, "<safe_calculator>", mode="eval"))
+
+    # Whitelist validation: compile the AST node to bytecode and evaluate
+    # only when all nodes are in the allowed set. AST parsing prevents code
+    # injection (no arbitrary Python execution), while the compile+eval
+    # boundary ensures only the resulting bytecode runs.
+    compiled = compile(node, "<safe_calculator>", mode="eval")
+    return eval(compiled)  # nosec: B307 - node is already validated via AST whitelist
 
 
 def get_calculator_tools() -> list[Dict[str, Any]]:

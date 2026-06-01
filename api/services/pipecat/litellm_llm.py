@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 
 from loguru import logger
+from openai import NOT_GIVEN
 
 try:
     import litellm
@@ -11,7 +12,17 @@ except ImportError:
     )
 
 from pipecat.services.openai.base_llm import BaseOpenAILLMService, OpenAILLMSettings
+from pipecat.services.settings import NOT_GIVEN as _PIPECAT_NOT_GIVEN
 from pipecat.services.settings import assert_given
+
+
+def _strip_not_given(params: dict) -> dict:
+    """Remove OpenAI/pipecat NOT_GIVEN sentinels that litellm can't handle."""
+    return {
+        k: v
+        for k, v in params.items()
+        if v is not NOT_GIVEN and v is not _PIPECAT_NOT_GIVEN
+    }
 
 
 @dataclass
@@ -73,7 +84,7 @@ class LiteLLMLLMService(BaseOpenAILLMService):
             convert_developer_to_user=not self.supports_developer_role,
         )
 
-        params = self.build_chat_completion_params(params_from_context)
+        params = _strip_not_given(self.build_chat_completion_params(params_from_context))
 
         if self._litellm_api_key:
             params["api_key"] = self._litellm_api_key
@@ -108,7 +119,7 @@ class LiteLLMLLMService(BaseOpenAILLMService):
             convert_developer_to_user=not self.supports_developer_role,
         )
 
-        params = self.build_chat_completion_params(invocation_params)
+        params = _strip_not_given(self.build_chat_completion_params(invocation_params))
         params["stream"] = False
         params.pop("stream_options", None)
 

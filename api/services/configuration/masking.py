@@ -10,6 +10,7 @@ The rules are simple:
 """
 
 import copy
+import re
 from typing import Any, Dict, Optional
 
 from api.schemas.user_configuration import UserConfiguration
@@ -22,13 +23,28 @@ MASK_MARKER = "***"  # substring that indicates a masked key
 SERVICE_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
 MODEL_OVERRIDE_FIELDS = ("llm", "tts", "stt", "realtime")
 
+# A mask_key() result is a run of one-or-more MASK_CHAR followed by at most
+# VISIBLE_CHARS revealed trailing characters. The legacy ``MASK_MARKER in k``
+# check only catches keys long enough to produce 3+ leading asterisks, so masked
+# *short* secrets slip through: e.g. mask_key("EMPTY") == "*MPTY" (a single
+# asterisk), which is not detected and can then be persisted verbatim, corrupting
+# the stored value. Match the full mask_key() shape so any masked key is caught.
+_MASK_SHAPE_RE = re.compile(
+    rf"^{re.escape(MASK_CHAR)}+[^{re.escape(MASK_CHAR)}]{{0,{VISIBLE_CHARS}}}$"
+)
+
 
 def contains_masked_key(value: str | list[str] | None) -> bool:
-    """Return True if *value* looks like a masked placeholder."""
+    """Return True if *value* looks like a masked placeholder.
+
+    Triggers on either the legacy 3+ MASK_CHAR marker (long keys) or the full
+    mask_key() shape — a run of MASK_CHAR followed by <= VISIBLE_CHARS revealed
+    characters — so masked *short* secrets such as ``"*MPTY"`` are also caught.
+    """
     if value is None:
         return False
     keys = value if isinstance(value, list) else [value]
-    return any(MASK_MARKER in k for k in keys)
+    return any(MASK_MARKER in k or bool(_MASK_SHAPE_RE.match(k)) for k in keys)
 
 
 def check_for_masked_keys(config: "UserConfiguration") -> None:

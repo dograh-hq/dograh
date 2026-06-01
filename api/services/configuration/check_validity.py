@@ -58,6 +58,7 @@ class UserConfigurationValidator:
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
             ServiceProviders.RIME.value: self._check_rime_api_key,
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
+            ServiceProviders.LITELLM.value: self._check_litellm_api_key,
         }
 
     async def validate(
@@ -118,6 +119,20 @@ class UserConfigurationValidator:
                     )
                 except ValueError as e:
                     return [{"model": service_name, "message": str(e)}]
+
+        # LiteLLM doesn't require an API key (proxy may be unauthenticated)
+        if provider == ServiceProviders.LITELLM.value:
+            try:
+                if not self._check_litellm_api_key(provider, service_config):
+                    return [
+                        {
+                            "model": service_name,
+                            "message": f"Invalid {provider} configuration",
+                        }
+                    ]
+            except ValueError as e:
+                return [{"model": service_name, "message": str(e)}]
+            return []
 
         # Speaches doesn't require an API key
         if provider == ServiceProviders.SPEACHES.value:
@@ -383,4 +398,9 @@ class UserConfigurationValidator:
     def _check_minimax_api_key(self, model: str, api_key: str) -> bool:
         # MiniMax doesn't publish a cheap key-validation endpoint; trust the key
         # at save time and surface auth errors at first call (same as Rime/Sarvam).
+        return True
+
+    def _check_litellm_api_key(self, model: str, service_config) -> bool:
+        if not getattr(service_config, "base_url", None):
+            raise ValueError("base_url is required for LiteLLM proxy")
         return True

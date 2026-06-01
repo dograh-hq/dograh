@@ -622,6 +622,14 @@ def create_llm_service_from_provider(
                 temperature=temperature if temperature is not None else 0.5,
             ),
         )
+    elif provider == ServiceProviders.LITELLM.value:
+        base_url = base_url or "http://localhost:4000"
+        _validate_runtime_service_url(base_url, "base_url")
+        return OpenAILLMService(
+            api_key=api_key or "no-key-required",
+            base_url=f"{base_url.rstrip('/')}/v1",
+            settings=OpenAILLMSettings(model=model, temperature=0.1),
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
 
@@ -776,5 +784,7 @@ def create_llm_service(user_config):
         kwargs["temperature"] = user_config.llm.temperature
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["temperature"] = user_config.llm.temperature
+    elif provider == ServiceProviders.LITELLM.value:
+        kwargs["base_url"] = user_config.llm.base_url
 
     return create_llm_service_from_provider(provider, model, api_key, **kwargs)

@@ -79,7 +79,7 @@ SARVAM_STT_LANGUAGES_V25 = (
     "te-IN",
     "en-IN",
 )
-# saaras:v3 adds these regional languages on top of the v2.5 set
+# saaras:v3 adds these regional languages on top of the v2.5 set. Full list: https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
 SARVAM_STT_LANGUAGES_V3 = SARVAM_STT_LANGUAGES_V25 + (
     "as-IN",
     "ur-IN",

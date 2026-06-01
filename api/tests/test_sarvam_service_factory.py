@@ -1,15 +1,19 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from pipecat.services.sarvam.llm import SarvamLLMService as RealSarvamLLMService
+from pipecat.transcriptions.language import Language
 
 from api.services.configuration.registry import (
     SarvamLLMConfiguration,
     ServiceProviders,
 )
+from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.service_factory import (
     create_llm_service,
     create_llm_service_from_provider,
+    create_stt_service,
 )
 
 
@@ -76,3 +80,35 @@ class TestSarvamLLMServiceFactory:
 
         kwargs = mock_service.call_args.kwargs
         assert kwargs["settings"].temperature == 0.7
+
+
+class TestSarvamSTTServiceFactory:
+    @pytest.mark.parametrize(
+        "input_language,expected_language",
+        [
+            ("unknown", None),
+            (None, None),
+            ("hi-IN", Language.HI_IN),
+            ("ne-IN", "ne-IN"),
+        ],
+    )
+    def test_stt_language_mapping(self, input_language, expected_language):
+        user_config = SimpleNamespace(
+            stt=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                model="saaras:v3",
+                api_key="test-key",
+                language=input_language,
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamSTTService"
+        ) as mock_service:
+            create_stt_service(user_config, audio_config)
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["settings"].language == expected_language

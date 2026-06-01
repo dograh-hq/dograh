@@ -172,6 +172,7 @@ def create_stt_service(
         elif language in language_mapping:
             pipecat_language = language_mapping[language]
         else:
+            # Unmapped BCP-47 codes pass through; Sarvam accepts them per https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
             pipecat_language = language
         return SarvamSTTService(
             api_key=user_config.stt.api_key,

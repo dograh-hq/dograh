@@ -622,6 +622,14 @@ def create_llm_service_from_provider(
                 temperature=temperature if temperature is not None else 0.5,
             ),
         )
+    elif provider == ServiceProviders.LITELLM.value:
+        from api.services.pipecat.litellm_llm import LiteLLMLLMService, LiteLLMSettings
+
+        return LiteLLMLLMService(
+            api_key=api_key,
+            api_base=base_url,
+            settings=LiteLLMSettings(model=model, temperature=0.1),
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
 
@@ -776,5 +784,7 @@ def create_llm_service(user_config):
         kwargs["temperature"] = user_config.llm.temperature
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["temperature"] = user_config.llm.temperature
+    elif provider == ServiceProviders.LITELLM.value:
+        kwargs["base_url"] = user_config.llm.base_url
 
     return create_llm_service_from_provider(provider, model, api_key, **kwargs)

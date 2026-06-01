@@ -68,6 +68,7 @@ class ServiceProviders(str, Enum):
     ULTRAVOX_REALTIME = "ultravox_realtime"
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
+    LITELLM = "litellm"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -93,6 +94,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         ServiceProviders.SARVAM,
+        ServiceProviders.LITELLM,
     ]
     api_key: str | list[str]
 
@@ -498,6 +500,58 @@ class SarvamLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+LITELLM_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "LiteLLM",
+    description=(
+        "LiteLLM AI gateway proxy. Routes requests to 100+ LLM providers "
+        "(OpenAI, Anthropic, Bedrock, Vertex, HuggingFace, etc.) through a "
+        "single OpenAI-compatible endpoint."
+    ),
+    provider_docs_url="https://docs.litellm.ai/",
+)
+
+LITELLM_MODELS = [
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "claude-sonnet-4-20250514",
+    "claude-haiku-4-5-20251001",
+    "gemini/gemini-2.5-flash",
+    "bedrock/anthropic.claude-sonnet-4-20250514-v1:0",
+    "vertex_ai/gemini-2.5-flash",
+]
+
+
+@register_llm
+class LiteLLMLLMConfiguration(BaseLLMConfiguration):
+    model_config = LITELLM_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.LITELLM] = ServiceProviders.LITELLM
+    model: str = Field(
+        default="gpt-4.1",
+        description=(
+            "LiteLLM model identifier. Use the LiteLLM model name format "
+            "(e.g. 'gpt-4.1', 'claude-sonnet-4-20250514', 'bedrock/anthropic.claude-sonnet-4-20250514-v1:0'). "
+            "See https://docs.litellm.ai/docs/providers for the full list."
+        ),
+        json_schema_extra={"examples": LITELLM_MODELS, "allow_custom_input": True},
+    )
+    base_url: str | None = Field(
+        default=None,
+        description=(
+            "Optional API base URL. Only needed when routing through a "
+            "LiteLLM proxy server. Leave blank for direct SDK usage "
+            "(provider API keys are read from environment variables)."
+        ),
+    )
+    api_key: str | list[str] | None = Field(
+        default=None,
+        description=(
+            "Optional API key. For direct SDK usage, provider keys are read "
+            "from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY). "
+            "Set this only when using a LiteLLM proxy that requires a master/virtual key."
+        ),
+    )
+
+
 OPENAI_REALTIME_MODELS = ["gpt-realtime-2"]
 OPENAI_REALTIME_VOICES = [
     "alloy",
@@ -688,6 +742,7 @@ LLMConfig = Annotated[
         SpeachesLLMConfiguration,
         MiniMaxLLMConfiguration,
         SarvamLLMConfiguration,
+        LiteLLMLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]

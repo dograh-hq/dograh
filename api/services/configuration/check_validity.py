@@ -119,6 +119,11 @@ class UserConfigurationValidator:
                 except ValueError as e:
                     return [{"model": service_name, "message": str(e)}]
 
+        # LiteLLM reads provider API keys from env vars; neither api_key
+        # nor base_url is required for direct SDK usage.
+        if provider == ServiceProviders.LITELLM.value:
+            return []
+
         # Speaches doesn't require an API key
         if provider == ServiceProviders.SPEACHES.value:
             try:
@@ -384,3 +389,4 @@ class UserConfigurationValidator:
         # MiniMax doesn't publish a cheap key-validation endpoint; trust the key
         # at save time and surface auth errors at first call (same as Rime/Sarvam).
         return True
+

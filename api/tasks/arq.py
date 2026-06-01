@@ -24,8 +24,10 @@ use_ssl = parsed_url.scheme == "rediss"
 ssl_context = None
 if use_ssl:
     ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
+    # NOTE: verify_mode and check_hostname are intentionally left at
+    # their create_default_context() defaults (CERT_REQUIRED, check_hostname=True).
+    # Setting these to CERT_NONE / False would disable TLS certificate
+    # verification and enable MITM attacks.
 
 REDIS_SETTINGS = RedisSettings(
     host=parsed_url.hostname or "localhost",

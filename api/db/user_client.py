@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from loguru import logger
 from pydantic import ValidationError
+from sqlalchemy import func
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
@@ -166,10 +167,16 @@ class UserClient(BaseDBClient):
             await session.commit()
 
     async def get_user_by_email(self, email: str) -> UserModel | None:
-        """Fetch a user by their email address."""
+        """Fetch a user by their email address (case-insensitive).
+
+        Email addresses are case-insensitive in practice, so a user who
+        signed up as "User@example.com" must still be found when they later
+        log in as "user@example.com". Compare on lower(email) so lookups are
+        robust to capitalization differences across sign-in flows.
+        """
         async with self.async_session() as session:
             result = await session.execute(
-                select(UserModel).where(UserModel.email == email)
+                select(UserModel).where(func.lower(UserModel.email) == func.lower(email))
             )
             return result.scalars().first()
 

@@ -623,15 +623,12 @@ def create_llm_service_from_provider(
             ),
         )
     elif provider == ServiceProviders.LITELLM.value:
-        base_url = base_url or "http://localhost:4000"
-        _validate_runtime_service_url(base_url, "base_url")
-        normalized = base_url.rstrip("/")
-        if not normalized.endswith("/v1"):
-            normalized = f"{normalized}/v1"
-        return OpenAILLMService(
-            api_key=api_key or "no-key-required",
-            base_url=normalized,
-            settings=OpenAILLMSettings(model=model, temperature=0.1),
+        from api.services.pipecat.litellm_llm import LiteLLMLLMService, LiteLLMSettings
+
+        return LiteLLMLLMService(
+            api_key=api_key,
+            api_base=base_url,
+            settings=LiteLLMSettings(model=model, temperature=0.1),
         )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")

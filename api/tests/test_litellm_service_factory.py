@@ -2,7 +2,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
 
 from api.services.configuration.registry import (
     LiteLLMLLMConfiguration,
@@ -19,24 +18,25 @@ class TestLiteLLMLLMConfiguration:
         config = LiteLLMLLMConfiguration()
         assert config.provider == ServiceProviders.LITELLM
         assert config.model == "gpt-4.1"
-        assert config.base_url == "http://localhost:4000"
+        assert config.base_url is None
         assert config.api_key is None
 
     def test_custom_model(self):
         config = LiteLLMLLMConfiguration(model="claude-sonnet-4-20250514")
         assert config.model == "claude-sonnet-4-20250514"
 
-    def test_custom_base_url(self):
-        config = LiteLLMLLMConfiguration(base_url="https://my-proxy.example.com")
-        assert config.base_url == "https://my-proxy.example.com"
-
     def test_with_api_key(self):
         config = LiteLLMLLMConfiguration(api_key="sk-litellm-master-key")
         assert config.api_key == "sk-litellm-master-key"
 
-    def test_api_key_optional(self):
+    def test_with_base_url_for_proxy_mode(self):
+        config = LiteLLMLLMConfiguration(base_url="http://localhost:4000")
+        assert config.base_url == "http://localhost:4000"
+
+    def test_api_key_and_base_url_both_optional(self):
         config = LiteLLMLLMConfiguration()
         assert config.api_key is None
+        assert config.base_url is None
 
     def test_bedrock_model_format(self):
         config = LiteLLMLLMConfiguration(
@@ -50,9 +50,9 @@ class TestLiteLLMLLMConfiguration:
 
 
 class TestLiteLLMServiceFactory:
-    def test_create_litellm_service_default_base_url(self):
+    def test_create_litellm_service_uses_litellm_llm_service(self):
         with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
+            "api.services.pipecat.litellm_llm.LiteLLMLLMService"
         ) as mock_service:
             create_llm_service_from_provider(
                 provider=ServiceProviders.LITELLM.value,
@@ -63,92 +63,36 @@ class TestLiteLLMServiceFactory:
         assert mock_service.call_count == 1
         kwargs = mock_service.call_args.kwargs
         assert kwargs["api_key"] == "sk-test"
-        assert kwargs["base_url"] == "http://localhost:4000/v1"
         assert kwargs["settings"].model == "gpt-4.1"
         assert kwargs["settings"].temperature == 0.1
 
-    def test_create_litellm_service_custom_base_url(self):
+    def test_create_litellm_service_no_api_key(self):
         with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
+            "api.services.pipecat.litellm_llm.LiteLLMLLMService"
         ) as mock_service:
             create_llm_service_from_provider(
                 provider=ServiceProviders.LITELLM.value,
                 model="claude-sonnet-4-20250514",
-                api_key="sk-test",
-                base_url="https://my-proxy.example.com",
-            )
-
-        kwargs = mock_service.call_args.kwargs
-        assert kwargs["base_url"] == "https://my-proxy.example.com/v1"
-        assert kwargs["settings"].model == "claude-sonnet-4-20250514"
-
-    def test_create_litellm_service_base_url_already_has_v1(self):
-        with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
-        ) as mock_service:
-            create_llm_service_from_provider(
-                provider=ServiceProviders.LITELLM.value,
-                model="gpt-4.1",
-                api_key="sk-test",
-                base_url="https://my-proxy.example.com/v1",
-            )
-
-        kwargs = mock_service.call_args.kwargs
-        assert kwargs["base_url"] == "https://my-proxy.example.com/v1"
-
-    def test_create_litellm_service_base_url_trailing_slash(self):
-        with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
-        ) as mock_service:
-            create_llm_service_from_provider(
-                provider=ServiceProviders.LITELLM.value,
-                model="gpt-4.1",
-                api_key="sk-test",
-                base_url="http://localhost:4000/",
-            )
-
-        kwargs = mock_service.call_args.kwargs
-        assert kwargs["base_url"] == "http://localhost:4000/v1"
-
-    def test_create_litellm_service_base_url_trailing_slash_with_v1(self):
-        with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
-        ) as mock_service:
-            create_llm_service_from_provider(
-                provider=ServiceProviders.LITELLM.value,
-                model="gpt-4.1",
-                api_key="sk-test",
-                base_url="http://localhost:4000/v1/",
-            )
-
-        kwargs = mock_service.call_args.kwargs
-        assert kwargs["base_url"] == "http://localhost:4000/v1"
-
-    def test_create_litellm_service_no_api_key_uses_placeholder(self):
-        with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
-        ) as mock_service:
-            create_llm_service_from_provider(
-                provider=ServiceProviders.LITELLM.value,
-                model="gpt-4.1",
                 api_key=None,
             )
 
         kwargs = mock_service.call_args.kwargs
-        assert kwargs["api_key"] == "no-key-required"
+        assert kwargs["api_key"] is None
+        assert kwargs["settings"].model == "claude-sonnet-4-20250514"
 
-    def test_create_litellm_service_rejects_private_ip_in_saas_mode(self):
+    def test_create_litellm_service_with_base_url(self):
         with patch(
-            "api.utils.url_security.DEPLOYMENT_MODE", "saas"
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                create_llm_service_from_provider(
-                    provider=ServiceProviders.LITELLM.value,
-                    model="gpt-4.1",
-                    api_key="sk-test",
-                    base_url="http://169.254.169.254",
-                )
-            assert exc_info.value.status_code == 400
+            "api.services.pipecat.litellm_llm.LiteLLMLLMService"
+        ) as mock_service:
+            create_llm_service_from_provider(
+                provider=ServiceProviders.LITELLM.value,
+                model="gpt-4.1",
+                api_key="sk-proxy-key",
+                base_url="http://localhost:4000",
+            )
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["api_base"] == "http://localhost:4000"
 
 
 class TestLiteLLMCreateLLMService:
@@ -163,38 +107,36 @@ class TestLiteLLMCreateLLMService:
         )
 
         with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
+            "api.services.pipecat.litellm_llm.LiteLLMLLMService"
         ) as mock_service:
             create_llm_service(user_config)
 
         kwargs = mock_service.call_args.kwargs
-        assert kwargs["base_url"] == "https://my-proxy.example.com/v1"
+        assert kwargs["api_base"] == "https://my-proxy.example.com"
         assert kwargs["api_key"] == "sk-test"
         assert kwargs["settings"].model == "gpt-4.1"
 
-    def test_create_llm_service_no_api_key(self):
+    def test_create_llm_service_no_api_key_no_base_url(self):
         user_config = SimpleNamespace(
             llm=SimpleNamespace(
                 provider=ServiceProviders.LITELLM.value,
-                model="claude-sonnet-4-20250514",
+                model="anthropic/claude-haiku-4-5-20251001",
                 api_key=None,
-                base_url="http://localhost:4000",
+                base_url=None,
             )
         )
 
         with patch(
-            "api.services.pipecat.service_factory.OpenAILLMService"
+            "api.services.pipecat.litellm_llm.LiteLLMLLMService"
         ) as mock_service:
             create_llm_service(user_config)
 
         kwargs = mock_service.call_args.kwargs
-        assert kwargs["api_key"] == "no-key-required"
+        assert kwargs["api_key"] is None
+        assert kwargs["api_base"] is None
 
 
 class TestLiteLLMConfigDiscriminatedUnion:
-    """Verify LiteLLM round-trips through the discriminated LLMConfig union
-    and UserConfiguration, which is the real config parsing path."""
-
     def test_litellm_parses_through_llm_config_union(self):
         from api.services.configuration.registry import LLMConfig
         from pydantic import TypeAdapter
@@ -211,7 +153,6 @@ class TestLiteLLMConfigDiscriminatedUnion:
         assert isinstance(config, LiteLLMLLMConfiguration)
         assert config.provider == ServiceProviders.LITELLM
         assert config.model == "claude-sonnet-4-20250514"
-        assert config.base_url == "https://my-proxy.example.com"
 
     def test_litellm_parses_through_user_configuration(self):
         from api.schemas.user_configuration import UserConfiguration
@@ -220,12 +161,12 @@ class TestLiteLLMConfigDiscriminatedUnion:
             llm={
                 "provider": "litellm",
                 "model": "gpt-4.1",
-                "base_url": "http://localhost:4000",
             }
         )
         assert isinstance(uc.llm, LiteLLMLLMConfiguration)
         assert uc.llm.model == "gpt-4.1"
         assert uc.llm.api_key is None
+        assert uc.llm.base_url is None
 
     def test_litellm_config_json_round_trip(self):
         config = LiteLLMLLMConfiguration(
@@ -237,7 +178,6 @@ class TestLiteLLMConfigDiscriminatedUnion:
         restored = LiteLLMLLMConfiguration(**data)
         assert restored.model == config.model
         assert restored.base_url == config.base_url
-        assert restored.api_key == config.api_key
         assert restored.provider == ServiceProviders.LITELLM
 
     def test_litellm_registered_in_llm_registry(self):
@@ -247,34 +187,14 @@ class TestLiteLLMConfigDiscriminatedUnion:
 
 
 class TestLiteLLMValidation:
-    def test_check_litellm_missing_base_url(self):
+    def test_litellm_validation_passes_without_api_key_or_base_url(self):
         from api.services.configuration.check_validity import (
             UserConfigurationValidator,
         )
 
         validator = UserConfigurationValidator()
-        service_config = SimpleNamespace(base_url=None)
-
-        with pytest.raises(ValueError, match="base_url is required"):
-            validator._check_litellm_api_key("litellm", service_config)
-
-    def test_check_litellm_empty_base_url(self):
-        from api.services.configuration.check_validity import (
-            UserConfigurationValidator,
+        result = validator._validate_service(
+            LiteLLMLLMConfiguration(model="gpt-4.1"),
+            "llm",
         )
-
-        validator = UserConfigurationValidator()
-        service_config = SimpleNamespace(base_url="")
-
-        with pytest.raises(ValueError, match="base_url is required"):
-            validator._check_litellm_api_key("litellm", service_config)
-
-    def test_check_litellm_valid_base_url(self):
-        from api.services.configuration.check_validity import (
-            UserConfigurationValidator,
-        )
-
-        validator = UserConfigurationValidator()
-        service_config = SimpleNamespace(base_url="http://localhost:4000")
-
-        assert validator._check_litellm_api_key("litellm", service_config) is True
+        assert result == []

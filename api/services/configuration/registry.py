@@ -534,15 +534,20 @@ class LiteLLMLLMConfiguration(BaseLLMConfiguration):
         ),
         json_schema_extra={"examples": LITELLM_MODELS, "allow_custom_input": True},
     )
-    base_url: str = Field(
-        default="http://localhost:4000",
-        description="Base URL of your LiteLLM proxy server (e.g. http://localhost:4000).",
+    base_url: str | None = Field(
+        default=None,
+        description=(
+            "Optional API base URL. Only needed when routing through a "
+            "LiteLLM proxy server. Leave blank for direct SDK usage "
+            "(provider API keys are read from environment variables)."
+        ),
     )
     api_key: str | list[str] | None = Field(
         default=None,
         description=(
-            "LiteLLM proxy master key or virtual key. If your proxy doesn't "
-            "require authentication, leave blank."
+            "Optional API key. For direct SDK usage, provider keys are read "
+            "from environment variables (e.g. OPENAI_API_KEY, ANTHROPIC_API_KEY). "
+            "Set this only when using a LiteLLM proxy that requires a master/virtual key."
         ),
     )
 

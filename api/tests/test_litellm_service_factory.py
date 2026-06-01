@@ -191,6 +191,61 @@ class TestLiteLLMCreateLLMService:
         assert kwargs["api_key"] == "no-key-required"
 
 
+class TestLiteLLMConfigDiscriminatedUnion:
+    """Verify LiteLLM round-trips through the discriminated LLMConfig union
+    and UserConfiguration, which is the real config parsing path."""
+
+    def test_litellm_parses_through_llm_config_union(self):
+        from api.services.configuration.registry import LLMConfig
+        from pydantic import TypeAdapter
+
+        adapter = TypeAdapter(LLMConfig)
+        config = adapter.validate_python(
+            {
+                "provider": "litellm",
+                "model": "claude-sonnet-4-20250514",
+                "base_url": "https://my-proxy.example.com",
+                "api_key": "sk-master",
+            }
+        )
+        assert isinstance(config, LiteLLMLLMConfiguration)
+        assert config.provider == ServiceProviders.LITELLM
+        assert config.model == "claude-sonnet-4-20250514"
+        assert config.base_url == "https://my-proxy.example.com"
+
+    def test_litellm_parses_through_user_configuration(self):
+        from api.schemas.user_configuration import UserConfiguration
+
+        uc = UserConfiguration(
+            llm={
+                "provider": "litellm",
+                "model": "gpt-4.1",
+                "base_url": "http://localhost:4000",
+            }
+        )
+        assert isinstance(uc.llm, LiteLLMLLMConfiguration)
+        assert uc.llm.model == "gpt-4.1"
+        assert uc.llm.api_key is None
+
+    def test_litellm_config_json_round_trip(self):
+        config = LiteLLMLLMConfiguration(
+            model="bedrock/anthropic.claude-sonnet-4-20250514-v1:0",
+            base_url="https://proxy.corp.internal",
+            api_key="sk-virtual-key",
+        )
+        data = config.model_dump()
+        restored = LiteLLMLLMConfiguration(**data)
+        assert restored.model == config.model
+        assert restored.base_url == config.base_url
+        assert restored.api_key == config.api_key
+        assert restored.provider == ServiceProviders.LITELLM
+
+    def test_litellm_registered_in_llm_registry(self):
+        from api.services.configuration.registry import REGISTRY, ServiceType
+
+        assert ServiceProviders.LITELLM in REGISTRY[ServiceType.LLM]
+
+
 class TestLiteLLMValidation:
     def test_check_litellm_missing_base_url(self):
         from api.services.configuration.check_validity import (

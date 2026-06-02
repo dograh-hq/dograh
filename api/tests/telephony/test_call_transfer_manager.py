@@ -65,9 +65,7 @@ class TestFindTransferContextByCallSid:
         fake = _FakeRedis()
         manager = CallTransferManager(redis_client=fake)
 
-        await manager.store_transfer_context(
-            _build_context("tx-1", "caller-abc")
-        )
+        await manager.store_transfer_context(_build_context("tx-1", "caller-abc"))
 
         found = await manager.find_transfer_context_for_call("caller-abc")
 
@@ -84,9 +82,7 @@ class TestFindTransferContextByCallSid:
         fake = _FakeRedis()
         manager = CallTransferManager(redis_client=fake)
 
-        await manager.store_transfer_context(
-            _build_context("tx-1", "caller-abc")
-        )
+        await manager.store_transfer_context(_build_context("tx-1", "caller-abc"))
 
         found = await manager.find_transfer_context_for_call("not-a-caller")
 
@@ -100,9 +96,7 @@ class TestFindTransferContextByCallSid:
         fake = _FakeRedis()
         manager = CallTransferManager(redis_client=fake)
 
-        await manager.store_transfer_context(
-            _build_context("tx-1", "caller-abc")
-        )
+        await manager.store_transfer_context(_build_context("tx-1", "caller-abc"))
         await manager.remove_transfer_context("tx-1")
 
         found = await manager.find_transfer_context_for_call("caller-abc")

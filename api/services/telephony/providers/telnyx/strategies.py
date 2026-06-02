@@ -121,9 +121,7 @@ class TelnyxConferenceStrategy(TransferStrategy):
             )
 
             manager = await get_call_transfer_manager()
-            return await manager.find_transfer_context_for_call(
-                caller_call_control_id
-            )
+            return await manager.find_transfer_context_for_call(caller_call_control_id)
 
         except Exception as e:
             logger.error(f"[Telnyx Transfer] Error finding transfer context: {e}")

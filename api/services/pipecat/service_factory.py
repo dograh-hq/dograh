@@ -119,9 +119,15 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
+        kwargs = {}
+        base_url = getattr(user_config.stt, "base_url", None)
+        if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
+            kwargs["base_url"] = base_url
         return OpenAISTTService(
             api_key=user_config.stt.api_key,
             settings=OpenAISTTSettings(model=user_config.stt.model),
+            **kwargs,
         )
     elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
         language = getattr(user_config.stt, "language", None) or "en-US"
@@ -283,12 +289,18 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
+        kwargs = {}
+        base_url = getattr(user_config.tts, "base_url", None)
+        if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
+            kwargs["base_url"] = base_url
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
+            **kwargs,
         )
     elif user_config.tts.provider == ServiceProviders.GOOGLE.value:
         model = getattr(user_config.tts, "model", None) or "chirp_3_hd"

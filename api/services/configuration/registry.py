@@ -830,6 +830,10 @@ class OpenAITTSService(BaseTTSConfiguration):
         default="alloy",
         description="OpenAI TTS voice name.",
     )
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Override only if using an OpenAI-compatible API (e.g. local TTS, proxy).",
+    )
 
 
 DOGRAH_TTS_MODELS = ["default"]
@@ -1087,6 +1091,10 @@ class OpenAISTTConfiguration(BaseSTTConfiguration):
         default="gpt-4o-transcribe",
         description="OpenAI transcription model.",
         json_schema_extra={"examples": OPENAI_STT_MODELS},
+    )
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Override only if using an OpenAI-compatible API (e.g. local STT, proxy).",
     )
 
 

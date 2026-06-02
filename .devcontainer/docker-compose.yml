@@ -29,7 +29,9 @@ services:
       - dograh-venv:/workspaces/dograh/venv
       - dograh-ui-node_modules:/workspaces/dograh/ui/node_modules
       - dograh-ts-validator-node_modules:/workspaces/dograh/api/mcp_server/ts_validator/node_modules
-
+    ports:
+      - "3000:3000"
+      - "8000:8000"
 volumes:
   dograh-venv:
   dograh-ui-node_modules:

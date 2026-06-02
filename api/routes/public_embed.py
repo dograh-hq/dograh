@@ -204,8 +204,35 @@ async def initialize_embed_session(request: Request, init_request: InitEmbedRequ
     )
 
 
+@router.options("/config/{token}")
+async def options_embed_config(token: str, request: Request):
+    """Handle CORS preflight for the embed config endpoint.
+
+    External sites fetch /config/{token} before calling Start Voice Call.
+    The global CORSMiddleware only covers first-party origins, so we handle
+    CORS explicitly here, gating on the token's allowed_domains list.
+    """
+    origin = request.headers.get("origin", "")
+
+    embed_token = await db_client.get_embed_token_by_token(token)
+    if not embed_token or not embed_token.is_active:
+        return Response(status_code=403)
+
+    if not validate_origin(origin, embed_token.allowed_domains or []):
+        return Response(status_code=403)
+
+    return Response(
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Origin",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
+
+
 @router.get("/config/{token}", response_model=EmbedConfigResponse)
-async def get_embed_config(token: str, request: Request):
+async def get_embed_config(token: str, request: Request, response: Response):
     """Get embed configuration without creating a session.
 
     This endpoint is used to fetch widget configuration for display purposes
@@ -225,6 +252,11 @@ async def get_embed_config(token: str, request: Request):
     # Validate domain
     if not validate_origin(origin, embed_token.allowed_domains or []):
         raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
+
+    # Set CORS header explicitly — the global CORSMiddleware covers only
+    # first-party origins; this endpoint is fetched by external embed sites.
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
 
     # Extract settings with defaults
     settings = embed_token.settings or {}

@@ -775,7 +775,7 @@ export interface components {
              * @description JSON type for the resolved value.
              * @enum {string}
              */
-            type: "string" | "number" | "boolean";
+            type: "string" | "number" | "boolean" | "object" | "array";
             /**
              * Value Template
              * @description Fixed value or template, e.g. {{initial_context.phone_number}}.
@@ -933,7 +933,7 @@ export interface components {
              * @description JSON type for the parameter value.
              * @enum {string}
              */
-            type: "string" | "number" | "boolean";
+            type: "string" | "number" | "boolean" | "object" | "array";
             /**
              * Description
              * @description Description shown to the model for this parameter.

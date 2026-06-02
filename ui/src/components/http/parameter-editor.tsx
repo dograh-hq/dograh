@@ -2,6 +2,7 @@
 
 import { PlusIcon, Trash2Icon } from "lucide-react";
 
+import type { ToolParameter as ApiToolParameter } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,12 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 
-export type ParameterType =
-    | "string"
-    | "number"
-    | "boolean"
-    | "object"
-    | "array";
+export type ParameterType = ApiToolParameter["type"];
 
 export interface ToolParameter {
     name: string;

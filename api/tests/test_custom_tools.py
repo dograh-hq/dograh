@@ -26,7 +26,6 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
-from pipecat.tests import MockLLMService, run_test
 
 from api.services.workflow.pipecat_engine_custom_tools import get_function_schema
 from api.services.workflow.tools.custom_tool import (
@@ -34,6 +33,7 @@ from api.services.workflow.tools.custom_tool import (
     execute_http_tool,
     tool_to_function_schema,
 )
+from pipecat.tests import MockLLMService, run_test
 
 
 @dataclass
@@ -747,6 +747,33 @@ class TestCoerceParameterValue:
         assert _coerce_parameter_value(value, "object") == {
             "attendee": {"name": "Jane"}
         }
+
+    def test_array_value_returns_list_unchanged(self):
+        """Test that array parameters preserve list values."""
+        value = [{"name": "Jane"}, {"name": "Sam"}]
+
+        assert _coerce_parameter_value(value, "array") is value
+
+    def test_array_value_parses_json_string(self):
+        """Test that array parameters parse JSON string values."""
+        value = '[{"name": "Jane"}, {"name": "Sam"}]'
+
+        assert _coerce_parameter_value(value, "array") == [
+            {"name": "Jane"},
+            {"name": "Sam"},
+        ]
+
+    @pytest.mark.parametrize("value", ["not json", "[]", "null"])
+    def test_object_value_rejects_invalid_or_wrong_shape(self, value):
+        """Test that object parameters require a JSON object."""
+        with pytest.raises(ValueError, match="Cannot convert"):
+            _coerce_parameter_value(value, "object")
+
+    @pytest.mark.parametrize("value", ["not json", "{}", "null"])
+    def test_array_value_rejects_invalid_or_wrong_shape(self, value):
+        """Test that array parameters require a JSON array."""
+        with pytest.raises(ValueError, match="Cannot convert"):
+            _coerce_parameter_value(value, "array")
 
 
 class TestAuthHeaders:

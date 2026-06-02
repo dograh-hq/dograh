@@ -40,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 import {
@@ -448,6 +449,11 @@ export default function ToolDetailPage() {
                     Authorization: `Bearer ${accessToken}`,
                 },
             });
+
+            if (response.error) {
+                setError(detailFromError(response.error, "Failed to save tool"));
+                return;
+            }
 
             if (response.data) {
                 setTool(response.data);

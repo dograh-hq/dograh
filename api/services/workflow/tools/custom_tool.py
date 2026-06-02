@@ -144,24 +144,24 @@ def _coerce_parameter_value(value: Any, param_type: str) -> Any:
         raise ValueError(f"Cannot convert '{value}' to boolean")
 
     if param_type == "object":
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Cannot convert '{value}' to object") from exc
         if isinstance(value, dict):
             return value
-        if isinstance(value, str):
-            try:
-                return json.loads(value)
-            except json.JSONDecodeError:
-                return value
-        return value
+        raise ValueError(f"Cannot convert '{value}' to object")
 
     if param_type == "array":
-        if isinstance(value, list):
-            return value
         if isinstance(value, str):
             try:
-                return json.loads(value)
-            except json.JSONDecodeError:
-                return value
-        return value
+                value = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Cannot convert '{value}' to array") from exc
+        if isinstance(value, list):
+            return value
+        raise ValueError(f"Cannot convert '{value}' to array")
 
     return value
 

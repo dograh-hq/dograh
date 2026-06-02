@@ -2539,7 +2539,7 @@ export type PresetToolParameter = {
      *
      * JSON type for the resolved value.
      */
-    type: 'string' | 'number' | 'boolean';
+    type: 'string' | 'number' | 'boolean' | 'object' | 'array';
     /**
      * Value Template
      *
@@ -3625,7 +3625,7 @@ export type ToolParameter = {
      *
      * JSON type for the parameter value.
      */
-    type: 'string' | 'number' | 'boolean';
+    type: 'string' | 'number' | 'boolean' | 'object' | 'array';
     /**
      * Description
      *
@@ -4592,6 +4592,12 @@ export type WorkflowRunResponseSchema = {
      * Cost Info
      */
     cost_info: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Usage Info
+     */
+    usage_info?: {
         [key: string]: unknown;
     } | null;
     /**

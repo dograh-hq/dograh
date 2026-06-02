@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 interface ConfigFormDialogProps {
@@ -132,7 +133,7 @@ export function ConfigFormDialog({
             body: { name: name || undefined, config: configPayload },
           },
         );
-        if (res.error) throw new Error(detailFromError(res.error));
+        if (res.error) throw new Error(detailFromError(res.error, "Failed to save configuration"));
         toast.success("Configuration updated");
       } else {
         const res = await createTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPost(
@@ -145,7 +146,7 @@ export function ConfigFormDialog({
             },
           },
         );
-        if (res.error) throw new Error(detailFromError(res.error));
+        if (res.error) throw new Error(detailFromError(res.error, "Failed to save configuration"));
         toast.success("Configuration created");
       }
       onOpenChange(false);
@@ -344,17 +345,4 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
       autoComplete={field.sensitive ? "current-password" : undefined}
     />
   );
-}
-
-// FastAPI error responses come back as { detail: string } or
-// { detail: [{loc, msg, ...}] }. Surface a useful message either way.
-function detailFromError(err: unknown): string {
-  if (typeof err === "string") return err;
-  const e = err as { detail?: unknown };
-  if (typeof e?.detail === "string") return e.detail;
-  if (Array.isArray(e?.detail) && e.detail.length > 0) {
-    const first = e.detail[0] as { msg?: string };
-    if (first?.msg) return first.msg;
-  }
-  return "Failed to save configuration";
 }

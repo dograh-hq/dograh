@@ -690,6 +690,7 @@ function RenderWorkflow({
                     isOpen={isAddNodePanelOpen}
                     onNodeSelect={handleNodeSelect}
                     onClose={() => setIsAddNodePanelOpen(false)}
+                    nodes={nodes}
                 />
 
                 <VersionHistoryPanel

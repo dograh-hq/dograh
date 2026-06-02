@@ -15,7 +15,7 @@
     <img src="https://img.shields.io/badge/⚡_60_秒自托管-一行命令-111827?style=for-the-badge" alt="60 秒自托管">
   </a>
   &nbsp;
-  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">
+  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">
     <img src="https://img.shields.io/badge/💬_加入_Slack-社区-4A154B?style=for-the-badge&logo=slack" alt="加入 Slack">
   </a>
 </p>
@@ -144,7 +144,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 - **GitHub Discussions** —— 分享使用场景、提问、交流工作流配方。
 - **GitHub Issues** —— 报告 bug 或提交功能请求。
 
-👉 加入我们 → [Dograh 社区 Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+👉 加入我们 → [Dograh 社区 Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g)
 
 ## 🙌 参与贡献
 
@@ -178,5 +178,5 @@ Dograh AI 基于 [BSD 2-Clause 协议](LICENSE)开源 —— 与构建 Dograh AI
   <p align="center">
     <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ 给我们一个 Star</a> |
     <a href="https://app.dograh.com">☁️ 试用云端版本</a> |
-    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">💬 加入 Slack</a>
+    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">💬 加入 Slack</a>
   </p>

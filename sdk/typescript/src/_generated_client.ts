@@ -7,6 +7,7 @@
 // `_generated_models` (openapi-typescript output, --root-types).
 
 import type {
+    CreateToolRequest,
     CreateWorkflowRequest,
     CredentialResponse,
     DocumentListResponseSchema,
@@ -26,6 +27,11 @@ export abstract class _GeneratedClient {
         path: string,
         opts?: { json?: unknown; params?: Record<string, unknown> },
     ): Promise<T>;
+
+    /** Create a reusable tool for the authenticated organization. */
+    async createTool(opts: { body: CreateToolRequest }): Promise<ToolResponse> {
+        return this.request<ToolResponse>("POST", "/tools/", { json: opts.body });
+    }
 
     /** Create a new workflow from a workflow definition. */
     async createWorkflow(opts: { body: CreateWorkflowRequest }): Promise<WorkflowResponse> {

@@ -19,6 +19,7 @@ class WorkflowRunResponseSchema(BaseModel):
     recording_public_url: str | None = None
     public_access_token: str | None = None
     cost_info: Dict[str, Any] | None
+    usage_info: Dict[str, Any] | None = None
     definition_id: int | None  # This is for backward compatibility
     initial_context: dict | None = None
     gathered_context: dict | None = None

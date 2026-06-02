@@ -22,7 +22,24 @@ mistake the system has seen at least once.
 DOGRAH_MCP_INSTRUCTIONS = """\
 You build and edit Dograh voice-AI workflows by emitting TypeScript that uses the `@dograh/sdk` package. Workflows are stored as JSON; this server projects them to TypeScript for editing and parses them back on save.
 
+## Stages
+
+Every authoring session runs through three stages. Inject the right guidance at each by calling `get_voice_prompting_guide` before you write or revise prompts. Do not skip plan when creating; do not skip review when editing prompt-bearing fields.
+
+1. **Plan** — call `get_voice_prompting_guide` with `stage="plan"` first. Decide persona, ordered node list, edges, exit conditions, and tools/credentials needed. Enumerate available `list_node_types`, `list_tools`, `list_credentials`, `list_documents`, `list_recordings` as needed. Present a structured plan to the user and wait for confirmation before writing any code.
+
+2. **Create** — call `get_voice_prompting_guide` with `stage="create"` and (when applicable) `node_type=<type>` before writing each node type's prompts. Drill into specific topics via `get_voice_prompting_guide` with `topic=<id>` only when complexity warrants it. Then emit TypeScript and call `create_workflow` (new) or `save_workflow` (edit).
+
+3. **Review** — after a successful save, read any `tips[]` returned and surface them to the user with proposed fixes. Call `get_voice_prompting_guide` with `stage="review"` to enumerate review-time concerns (instruction collision, missing handoff cues, success-criteria gaps).
+
+The guide tool is the authoritative source for prompt-authoring craft (turn-taking, persona, readback, disfluencies). Product-mechanics questions (how a node type works at runtime, what `template_variables` resolve to) belong in `search_docs` / `read_doc` instead — don't conflate the two.
+
 ## Call order
+
+### Creating a reusable tool
+1. If authentication is needed, call `list_credentials` and use an existing `credential_uuid`; the user creates credential secrets in the UI.
+2. Build a typed tool definition and call `create_tool`. The request schema is authoritative for allowed tool categories and config fields.
+3. Use the returned `tool_uuid` in workflow node `tool_uuids`, then call `create_workflow` or `save_workflow`.
 
 ### Reading documentation
 1. `search_docs` — use first for keyword or acronym lookup when the user is asking how Dograh works or how to configure something.
@@ -33,14 +50,17 @@ You build and edit Dograh voice-AI workflows by emitting TypeScript that uses th
 1. `list_workflows` — locate the target workflow.
 2. `get_workflow_code` — fetch the current source for that workflow.
 3. (optional) `list_node_types` / `get_node_type` — consult before adding or editing a node type whose fields aren't already visible in the current code.
-4. Mutate the code in place. Preserve existing nodes, edges, and variable names unless the task requires removing or renaming them.
-5. `save_workflow` — persist as a new draft. The published version is untouched.
+4. (optional) `get_voice_prompting_guide` with `stage="create"` and `node_type=<type>` — call before revising any node's prompt field.
+5. Mutate the code in place. Preserve existing nodes, edges, and variable names unless the task requires removing or renaming them.
+6. `save_workflow` — persist as a new draft. The published version is untouched.
 
 ### Creating a new workflow
-1. Create a simple 1-node workflow with only `startCall`. The user can iteratively add complexity by editing it.
-2. `list_node_types` / `get_node_type` — consult to learn the fields available on the node types you intend to use.
-3. Author SDK TypeScript from scratch. The `new Workflow({ name: "..." })` call is required — `name` becomes the workflow's display name.
-4. `create_workflow` — persists a new workflow as version 1 (published). Returns the new `workflow_id`. For subsequent edits use `save_workflow` (which writes a draft).
+1. Run the plan stage (see above) before any code.
+2. Create a simple 1-node workflow with only `startCall` if the user just wants a starter. The user can iteratively add complexity by editing it.
+3. `list_node_types` / `get_node_type` — consult to learn the fields available on the node types you intend to use.
+4. `get_voice_prompting_guide` with `stage="create"` and `node_type=<type>` — call before writing each node's prompt.
+5. Author SDK TypeScript from scratch. The `new Workflow({ name: "..." })` call is required — `name` becomes the workflow's display name.
+6. `create_workflow` — persists a new workflow as version 1 (published). Returns the new `workflow_id`. For subsequent edits use `save_workflow` (which writes a draft).
 
 ## Allowed source shape
 

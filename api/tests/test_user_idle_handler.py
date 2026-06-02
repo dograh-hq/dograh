@@ -23,8 +23,7 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -43,6 +42,7 @@ from pipecat.turns.user_stop import ExternalUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.tests import MockLLMService, MockTTSService
@@ -100,7 +100,7 @@ async def create_pipeline_with_speech_injection(
     speeches: list[str],
     user_idle_timeout: float = 0.2,
     mock_audio_duration_ms: int = 400,
-) -> tuple[PipecatEngine, PipelineTask, object]:
+) -> tuple[PipecatEngine, PipelineWorker, object]:
     """Create a pipeline with user speech injection and idle handling.
 
     Sets up a realistic pipeline with:
@@ -194,7 +194,7 @@ async def create_pipeline_with_speech_injection(
         ]
     )
 
-    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+    task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
     return engine, task, user_idle_handler
@@ -266,10 +266,9 @@ class TestUserIdleHandler:
                 new_callable=AsyncMock,
                 return_value="completed",
             ):
-                runner = PipelineRunner()
 
                 async def run_pipeline():
-                    await runner.run(task)
+                    await run_pipeline_worker(task)
 
                 async def initialize_engine():
                     await asyncio.sleep(0.01)

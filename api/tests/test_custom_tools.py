@@ -21,6 +21,7 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
+    UserTurnInferenceCompletedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -559,7 +560,7 @@ class TestExecuteHttpTool:
             mock_client.request.return_value = mock_response
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
-            result = await execute_http_tool(tool, arguments)
+            await execute_http_tool(tool, arguments)
 
             call_kwargs = mock_client.request.call_args.kwargs
             assert call_kwargs["method"] == "DELETE"
@@ -902,6 +903,7 @@ class TestCustomToolManagerIntegration:
             expected_down_frames=[
                 LLMFullResponseStartFrame,
                 FunctionCallsFromLLMInfoFrame,
+                UserTurnInferenceCompletedFrame,
                 FunctionCallsStartedFrame,
                 LLMFullResponseEndFrame,
                 FunctionCallInProgressFrame,

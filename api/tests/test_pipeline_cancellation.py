@@ -8,10 +8,11 @@ from pipecat.frames.frames import (
     InterruptionTaskFrame,
     LLMRunFrame,
 )
-from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineTask
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+
+from api.services.pipecat.worker_runner import run_pipeline_worker
 
 
 class MockTransport(FrameProcessor):
@@ -51,12 +52,10 @@ async def test_interruption_with_blocked_end_frame():
     transport = MockTransport()
     pipeline = Pipeline([transport, busy_wait_processor])
 
-    task = PipelineTask(pipeline, enable_rtvi=False)
+    task = PipelineWorker(pipeline, enable_rtvi=False)
 
     async def run_pipeline():
-        loop = asyncio.get_running_loop()
-        params = PipelineTaskParams(loop=loop)
-        await task.run(params=params)
+        await run_pipeline_worker(task)
 
     async def queue_frame():
         await task.queue_frames([LLMRunFrame()])

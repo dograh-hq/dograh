@@ -47,6 +47,7 @@ from pipecat.services.openai.stt import (
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
+from pipecat.services.sarvam.llm import SarvamLLMService, SarvamLLMSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
@@ -158,7 +159,7 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
-        # Map Sarvam language code to pipecat Language enum
+        language = getattr(user_config.stt, "language", None)
         language_mapping = {
             "bn-IN": Language.BN_IN,
             "gu-IN": Language.GU_IN,
@@ -172,9 +173,18 @@ def create_stt_service(
             "od-IN": Language.OR_IN,
             "en-IN": Language.EN_IN,
             "as-IN": Language.AS_IN,
+            "ur-IN": Language.UR_IN,
+            "kok-IN": Language.KOK_IN,
+            "mai-IN": Language.MAI_IN,
+            "sd-IN": Language.SD_IN,
         }
-        language = getattr(user_config.stt, "language", None)
-        pipecat_language = language_mapping.get(language, Language.HI_IN)
+        if not language or language == "unknown":
+            pipecat_language = None
+        elif language in language_mapping:
+            pipecat_language = language_mapping[language]
+        else:
+            # Unmapped BCP-47 codes pass through; Sarvam accepts them per https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
+            pipecat_language = language
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             settings=SarvamSTTSettings(
@@ -604,6 +614,14 @@ def create_llm_service_from_provider(
                 temperature=temperature if temperature is not None else 1.0,
             ),
         )
+    elif provider == ServiceProviders.SARVAM.value:
+        return SarvamLLMService(
+            api_key=api_key,
+            settings=SarvamLLMSettings(
+                model=model,
+                temperature=temperature if temperature is not None else 0.5,
+            ),
+        )
     else:
         raise HTTPException(status_code=400, detail=f"Invalid LLM provider {provider}")
 
@@ -755,6 +773,8 @@ def create_llm_service(user_config):
         kwargs["credentials"] = user_config.llm.credentials
     elif provider == ServiceProviders.MINIMAX.value:
         kwargs["base_url"] = user_config.llm.base_url
+        kwargs["temperature"] = user_config.llm.temperature
+    elif provider == ServiceProviders.SARVAM.value:
         kwargs["temperature"] = user_config.llm.temperature
 
     return create_llm_service_from_provider(provider, model, api_key, **kwargs)

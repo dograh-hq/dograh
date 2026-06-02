@@ -23,10 +23,10 @@ import {
 
 import { validateWorkEmail } from "./isPersonalEmail";
 import {
+  type LeadSource,
   TOPUP_COMPANY_SIZE_OPTIONS,
   TOPUP_VOLUME_OPTIONS,
   VOLUME_PRICING_GATE,
-  type LeadSource,
 } from "./leadFieldOptions";
 import { MathCaptcha } from "./MathCaptcha";
 import { submitLead } from "./submitLead";

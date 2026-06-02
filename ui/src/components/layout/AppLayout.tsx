@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { PostHogEvent } from "@/constants/posthog-events";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { LeadFormsProvider } from "@/context/LeadFormsContext";
 
 import { AppSidebar } from "./AppSidebar";
 import { GitHubStarBadge } from "./GitHubStarBadge";
@@ -111,39 +112,41 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   return (
     <SidebarProvider defaultOpen>
       {shouldShowSidebar ? (
-        <div className="flex min-h-screen w-full">
-          <AppSidebar />
-          <SidebarInset className="flex-1">
-            <BackendStatusBanner />
-            {!isWorkflowEditor && <AppHeader />}
-            {/* Optional header area for specific pages */}
-            {headerActions && (
-              <header className="sticky top-0 z-50 w-full border-b bg-background">
-                <div className="container mx-auto px-4 py-4">
-                  <div className="flex items-center justify-center">
-                    {headerActions}
+        <LeadFormsProvider>
+          <div className="flex min-h-screen w-full">
+            <AppSidebar />
+            <SidebarInset className="flex-1">
+              <BackendStatusBanner />
+              {!isWorkflowEditor && <AppHeader />}
+              {/* Optional header area for specific pages */}
+              {headerActions && (
+                <header className="sticky top-0 z-50 w-full border-b bg-background">
+                  <div className="container mx-auto px-4 py-4">
+                    <div className="flex items-center justify-center">
+                      {headerActions}
+                    </div>
+                  </div>
+                </header>
+              )}
+
+              {/* Optional sticky tabs */}
+              {stickyTabs && (
+                <div className="sticky top-0 z-40 bg-[#2a2e39] border-b border-gray-700">
+                  <div className="container mx-auto px-4">
+                    <div className="flex items-center justify-center py-2">
+                      {stickyTabs}
+                    </div>
                   </div>
                 </div>
-              </header>
-            )}
+              )}
 
-            {/* Optional sticky tabs */}
-            {stickyTabs && (
-              <div className="sticky top-0 z-40 bg-[#2a2e39] border-b border-gray-700">
-                <div className="container mx-auto px-4">
-                  <div className="flex items-center justify-center py-2">
-                    {stickyTabs}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Main content area */}
-            <main className="flex-1">
-              {children}
-            </main>
-          </SidebarInset>
-        </div>
+              {/* Main content area */}
+              <main className="flex-1">
+                {children}
+              </main>
+            </SidebarInset>
+          </div>
+        </LeadFormsProvider>
       ) : (
         <div className="flex-1 w-full">
           <BackendStatusBanner />

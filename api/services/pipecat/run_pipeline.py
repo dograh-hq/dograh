@@ -504,10 +504,16 @@ async def _run_pipeline(
     embeddings_api_key = None
     embeddings_model = None
     embeddings_base_url = None
+    embeddings_provider = None
+    embeddings_endpoint = None
+    embeddings_api_version = None
     if user_config and user_config.embeddings:
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
+        embeddings_provider = getattr(user_config.embeddings, "provider", None)
         embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+        embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+        embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
     # Check if the workflow has any active recordings so the engine can
     # include recording response mode instructions in all node prompts.
@@ -532,6 +538,9 @@ async def _run_pipeline(
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
         embeddings_base_url=embeddings_base_url,
+        embeddings_provider=embeddings_provider,
+        embeddings_endpoint=embeddings_endpoint,
+        embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
     )

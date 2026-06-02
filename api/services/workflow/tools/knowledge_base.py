@@ -260,7 +260,10 @@ async def _perform_retrieval(
                     "Model Configurations > Embedding."
                 )
 
-            if embeddings_provider == ServiceProviders.AZURE.value and embeddings_endpoint:
+            if (
+                embeddings_provider == ServiceProviders.AZURE.value
+                and embeddings_endpoint
+            ):
                 embedding_service = AzureOpenAIEmbeddingService(
                     db_client=db_client,
                     api_key=embeddings_api_key,

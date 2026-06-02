@@ -370,7 +370,10 @@ async def search_chunks(
     try:
         # Import here to avoid circular dependency
         from api.services.configuration.registry import ServiceProviders
-        from api.services.gen_ai import AzureOpenAIEmbeddingService, OpenAIEmbeddingService
+        from api.services.gen_ai import (
+            AzureOpenAIEmbeddingService,
+            OpenAIEmbeddingService,
+        )
 
         # Try to get user's embeddings configuration
         user_config = await db_client.get_user_configurations(user.id)
@@ -385,7 +388,9 @@ async def search_chunks(
             embeddings_model = user_config.embeddings.model
             embeddings_provider = getattr(user_config.embeddings, "provider", None)
             embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
-            embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
+            embeddings_api_version = getattr(
+                user_config.embeddings, "api_version", None
+            )
 
         # Initialize embedding service based on provider
         if embeddings_provider == ServiceProviders.AZURE.value and embeddings_endpoint:

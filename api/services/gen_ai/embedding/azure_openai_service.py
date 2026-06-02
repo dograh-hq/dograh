@@ -1,8 +1,8 @@
 """Azure OpenAI embedding service.
 
 Uses the Azure OpenAI REST API for text embeddings, compatible with
-text-embedding-3-small, text-embedding-3-large, and text-embedding-ada-002
-deployments.
+1536-dimensional embedding deployments such as text-embedding-3-small and
+text-embedding-ada-002.
 """
 
 from typing import Any, Dict, List, Optional
@@ -89,10 +89,22 @@ class AzureOpenAIEmbeddingService(BaseEmbeddingService):
                 input=texts,
                 model=self.model_id,
             )
-            return [item.embedding for item in response.data]
+            embeddings = [item.embedding for item in response.data]
+            self._validate_embedding_dimensions(embeddings)
+            return embeddings
         except Exception as e:
             logger.error(f"Error generating Azure OpenAI embeddings: {e}")
             raise
+
+    def _validate_embedding_dimensions(self, embeddings: List[List[float]]) -> None:
+        for embedding in embeddings:
+            if len(embedding) != EMBEDDING_DIMENSION:
+                raise ValueError(
+                    "Azure OpenAI embedding deployment "
+                    f"{self.model_id!r} returned {len(embedding)} dimensions; "
+                    "Dograh knowledge base storage currently supports "
+                    f"{EMBEDDING_DIMENSION}-dimensional embeddings."
+                )
 
     async def embed_query(self, query: str) -> List[float]:
         """Embed a single query text using Azure OpenAI API."""

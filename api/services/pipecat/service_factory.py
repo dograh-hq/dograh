@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import aiohttp
 from fastapi import HTTPException
@@ -269,11 +270,10 @@ def create_stt_service(
 
         language_code = getattr(user_config.stt, "language", None) or "en-US"
         region = getattr(user_config.stt, "region", None) or "eastus"
-        # Try to map BCP-47 string to pipecat Language enum; fall back to string
         try:
             pipecat_language = PipecatLanguage(language_code)
         except ValueError:
-            pipecat_language = PipecatLanguage.EN_US
+            pipecat_language = language_code
         return AzureSTTService(
             api_key=user_config.stt.api_key,
             region=region,
@@ -806,13 +806,27 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         )
 
         endpoint = getattr(realtime_config, "endpoint", None) or ""
-        api_version = getattr(realtime_config, "api_version", None) or "2025-04-01-preview"
+        if not endpoint:
+            raise HTTPException(
+                status_code=400,
+                detail="Azure Realtime requires an endpoint.",
+            )
+        _validate_runtime_service_url(endpoint, "endpoint")
+        api_version = (
+            getattr(realtime_config, "api_version", None) or "2025-04-01-preview"
+        )
         # Construct the Azure Realtime WebSocket URL
         # https://<resource>.openai.azure.com/openai/realtime?api-version=<ver>&deployment=<model>
-        base_host = endpoint.rstrip("/").replace("https://", "").replace("http://", "")
-        wss_url = (
-            f"wss://{base_host}/openai/realtime"
-            f"?api-version={api_version}&deployment={model}"
+        parsed_endpoint = urlparse(endpoint)
+        wss_url = urlunparse(
+            (
+                "wss",
+                parsed_endpoint.netloc,
+                "/openai/realtime",
+                "",
+                urlencode({"api-version": api_version, "deployment": model}),
+                "",
+            )
         )
         return DograhAzureRealtimeLLMService(
             api_key=api_key,

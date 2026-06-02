@@ -5,6 +5,15 @@ from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from api.services.configuration.options import (
+    AZURE_EMBEDDING_MODELS,
+    AZURE_MODELS,
+    AZURE_REALTIME_API_VERSIONS,
+    AZURE_REALTIME_MODELS,
+    AZURE_REALTIME_VOICES,
+    AZURE_SPEECH_REGIONS,
+    AZURE_SPEECH_STT_LANGUAGES,
+    AZURE_SPEECH_TTS_LANGUAGES,
+    AZURE_SPEECH_TTS_VOICES,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -286,7 +295,6 @@ OPENROUTER_MODELS = [
     "meta-llama/llama-3.3-70b-instruct",
     "deepseek/deepseek-chat-v3-0324",
 ]
-AZURE_MODELS = ["gpt-4.1-mini"]
 DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen"]
 AWS_BEDROCK_MODELS = [
     "us.amazon.nova-pro-v1:0",
@@ -678,24 +686,6 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
             "in `credentials` (or ADC). Leave blank."
         ),
     )
-
-
-AZURE_REALTIME_MODELS = ["gpt-4o-realtime-preview"]
-AZURE_REALTIME_VOICES = [
-    "alloy",
-    "ash",
-    "ballad",
-    "coral",
-    "echo",
-    "sage",
-    "shimmer",
-    "verse",
-]
-AZURE_REALTIME_API_VERSIONS = [
-    "2025-04-01-preview",
-    "2024-10-01-preview",
-    "2024-12-17",
-]
 
 
 @register_service(ServiceType.REALTIME)
@@ -1090,76 +1080,6 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     )
 
 
-AZURE_SPEECH_REGIONS = [
-    "eastus",
-    "eastus2",
-    "westus",
-    "westus2",
-    "westus3",
-    "centralus",
-    "northcentralus",
-    "southcentralus",
-    "westcentralus",
-    "westeurope",
-    "northeurope",
-    "uksouth",
-    "ukwest",
-    "francecentral",
-    "switzerlandnorth",
-    "germanywestcentral",
-    "norwayeast",
-    "australiaeast",
-    "eastasia",
-    "southeastasia",
-    "japaneast",
-    "japanwest",
-    "koreacentral",
-    "centralindia",
-    "southindia",
-    "brazilsouth",
-]
-
-AZURE_SPEECH_TTS_LANGUAGES = [
-    "en-US", "en-GB", "en-AU", "en-CA", "en-IN",
-    "es-ES", "es-MX",
-    "fr-FR", "fr-CA",
-    "de-DE",
-    "it-IT",
-    "ja-JP",
-    "ko-KR",
-    "zh-CN", "zh-HK", "zh-TW",
-    "pt-BR", "pt-PT",
-    "ru-RU",
-    "ar-SA",
-    "nl-NL",
-    "pl-PL",
-    "sv-SE",
-    "hi-IN",
-]
-
-AZURE_SPEECH_TTS_VOICES = [
-    "en-US-AriaNeural",
-    "en-US-GuyNeural",
-    "en-US-JennyNeural",
-    "en-US-DavisNeural",
-    "en-US-AmberNeural",
-    "en-US-AnaNeural",
-    "en-US-AshleyNeural",
-    "en-US-BrandonNeural",
-    "en-US-ChristopherNeural",
-    "en-US-ElizabethNeural",
-    "en-US-EricNeural",
-    "en-US-JacobNeural",
-    "en-US-MichelleNeural",
-    "en-US-MonicaNeural",
-    "en-US-NancyNeural",
-    "en-US-RogerNeural",
-    "en-US-SaraNeural",
-    "en-US-SteffanNeural",
-    "en-US-TonyNeural",
-]
-
-
 @register_tts
 class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
@@ -1450,24 +1370,6 @@ class GladiaSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-AZURE_SPEECH_STT_LANGUAGES = [
-    "en-US", "en-GB", "en-AU", "en-CA", "en-IN",
-    "es-ES", "es-MX",
-    "fr-FR", "fr-CA",
-    "de-DE",
-    "it-IT",
-    "ja-JP",
-    "ko-KR",
-    "zh-CN",
-    "pt-BR", "pt-PT",
-    "ru-RU",
-    "ar-SA",
-    "nl-NL",
-    "pl-PL",
-    "hi-IN",
-]
-
-
 @register_stt
 class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
     model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
@@ -1546,17 +1448,20 @@ class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
-AZURE_EMBEDDING_MODELS = ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"]
-
-
 @register_embeddings
 class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     model_config = AZURE_OPENAI_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
     model: str = Field(
         default="text-embedding-3-small",
-        description="Azure OpenAI embedding deployment name (must match the deployed model).",
-        json_schema_extra={"examples": AZURE_EMBEDDING_MODELS, "allow_custom_input": True},
+        description=(
+            "Azure OpenAI embedding deployment name. The deployment must return "
+            "1536-dimensional embeddings."
+        ),
+        json_schema_extra={
+            "examples": AZURE_EMBEDDING_MODELS,
+            "allow_custom_input": True,
+        },
     )
     endpoint: str = Field(
         description="Azure OpenAI resource endpoint (e.g. https://<resource>.openai.azure.com).",

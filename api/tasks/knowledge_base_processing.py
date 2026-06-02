@@ -164,7 +164,9 @@ async def process_knowledge_base_document(
                 embeddings_model = user_config.embeddings.model
                 embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
                 embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
-                embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
+                embeddings_api_version = getattr(
+                    user_config.embeddings, "api_version", None
+                )
                 logger.info(
                     f"Using user embeddings config: provider={embeddings_provider}, "
                     f"model={embeddings_model}"

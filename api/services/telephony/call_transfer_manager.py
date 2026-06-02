@@ -47,6 +47,11 @@ class CallTransferManager:
             redis = await self._get_redis()
             key = TransferRedisChannels.transfer_context_key(context.transfer_id)
             await redis.setex(key, ttl, context.to_json())
+            if context.original_call_sid:
+                index_key = TransferRedisChannels.transfer_context_by_call_sid_key(
+                    context.original_call_sid
+                )
+                await redis.setex(index_key, ttl, context.transfer_id)
             logger.debug(f"Stored transfer context for {context.transfer_id}")
         except Exception as e:
             logger.error(f"Failed to store transfer context: {e}")
@@ -79,8 +84,15 @@ class CallTransferManager:
         """
         try:
             redis = await self._get_redis()
+            context = await self.get_transfer_context(transfer_id)
             key = TransferRedisChannels.transfer_context_key(transfer_id)
-            await redis.delete(key)
+            if context and context.original_call_sid:
+                index_key = TransferRedisChannels.transfer_context_by_call_sid_key(
+                    context.original_call_sid
+                )
+                await redis.delete(key, index_key)
+            else:
+                await redis.delete(key)
             logger.debug(f"Removed transfer context for {transfer_id}")
         except Exception as e:
             logger.error(f"Failed to remove transfer context: {e}")
@@ -186,24 +198,24 @@ class CallTransferManager:
                 logger.error(f"Error closing pubsub connection: {e}")
 
     async def find_transfer_context_for_call(self, caller_channel_id: str):
-        """Find the active transfer context for this caller channel."""
+        """Find the active transfer context for this caller channel.
 
-        redis = await self._get_redis()
-
+        Resolves via the original_call_sid -> transfer_id secondary index
+        (see store_transfer_context) instead of scanning the keyspace with
+        ``KEYS transfer:context:*``.
+        """
         try:
-            # Search Redis for transfer contexts where original_call_sid matches this caller
-            transfer_keys = await redis.keys("transfer:context:*")
+            redis = await self._get_redis()
+            index_key = TransferRedisChannels.transfer_context_by_call_sid_key(
+                caller_channel_id
+            )
+            transfer_id = await redis.get(index_key)
+            if not transfer_id:
+                return None
 
-            for key in transfer_keys:
-                try:
-                    context_data = await redis.get(key)
-                    if context_data:
-                        context = TransferContext.from_json(context_data)
-                        if context.original_call_sid == caller_channel_id:
-                            return context
-                except Exception:
-                    continue
-
+            context = await self.get_transfer_context(transfer_id)
+            if context and context.original_call_sid == caller_channel_id:
+                return context
             return None
 
         except Exception as e:

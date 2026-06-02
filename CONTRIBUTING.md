@@ -4,7 +4,7 @@ Welcome to Dograh AI! ❤️ Thank you for your interest in contributing to the 
 
 Dograh AI is a comprehensive voice agent platform that helps developers build, test, and deploy conversational AI systems with minimal setup. This guide will help you understand the project structure, set up your development environment, and start contributing effectively.
 
-👉 Join our community → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+👉 Join our community → [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g)
 
 ## 🏗️ Project Overview
 
@@ -40,7 +40,7 @@ Please refer to our [Development Setup documentation](https://docs.dograh.com/co
 **Before You Start**
 
 - Check existing [GitHub Issues](../../issues) for similar work
-- Join our [Slack community](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ) to discuss your plans
+- Join our [Slack community](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g) to discuss your plans
 - Look for issues tagged `good first issue` for beginner-friendly tasks
 
 **During Development**
@@ -58,6 +58,6 @@ Our Slack community is the heart of Dograh AI development:
 - **Connect**: Meet other contributors and maintainers
 - **Stay Updated**: Learn about contribution opportunities and releases
 
-👉 **Join us**: [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+👉 **Join us**: [Dograh Community Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g)
 
 Thank you for helping us keep voice AI open and accessible! 🎉

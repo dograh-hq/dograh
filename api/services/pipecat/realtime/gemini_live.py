@@ -16,9 +16,6 @@ Layers Dograh engine integration quirks onto upstream-pristine
 - **TTSSpeakFrame as greeting trigger.** The engine queues a TTSSpeakFrame
   to kick off the first response after node setup; the service intercepts
   it and runs the initial-context path.
-- **Finalize-pending on transcriptions.** Marks the transcription emitted
-  immediately after VAD-stop as finalized, distinguishing it from
-  mid-turn partials.
 """
 
 from typing import Any
@@ -28,7 +25,6 @@ from loguru import logger
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
-    TranscriptionFrame,
     TTSSpeakFrame,
     UserMuteStartedFrame,
     UserMuteStoppedFrame,
@@ -37,7 +33,6 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.services.llm_service import FunctionCallFromLLM
-from pipecat.utils.time import time_now_iso8601
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
 
@@ -58,9 +53,6 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # Function calls emitted by Gemini mid-bot-turn are deferred here and
         # invoked when the turn ends, so they don't race the turn's audio.
         self._pending_function_calls: list[FunctionCallFromLLM] = []
-        # Tracks whether the next transcription to arrive should be marked as
-        # the finalized transcription for the current user turn.
-        self._finalize_pending: bool = False
 
     # ------------------------------------------------------------------
     # Hooks from upstream GeminiLiveLLMService
@@ -206,32 +198,3 @@ class DograhGeminiLiveLLMService(GeminiLiveLLMService):
         # a handle (e.g. node transitions before any handle was issued) are
         # followed by a function-call-result LLMContextFrame which feeds the
         # updated-context branch in _handle_context.
-
-    # ------------------------------------------------------------------
-    # Transcription: broadcast (so downstream voicemail detector and
-    # logs buffer both see it) and set finalized= for turn-boundary
-    # semantics.
-    # ------------------------------------------------------------------
-
-    async def _handle_user_started_speaking(self, frame):
-        await super()._handle_user_started_speaking(frame)
-        # A new VAD start invalidates any pending finalize from a prior stop
-        # that hasn't been paired with a transcription yet.
-        self._finalize_pending = False
-
-    async def _handle_user_stopped_speaking(self, frame):
-        await super()._handle_user_stopped_speaking(frame)
-        self._finalize_pending = True
-
-    async def _push_user_transcription(self, text: str, result=None):
-        await self._handle_user_transcription(text, True, self._settings.language)
-        finalized = self._finalize_pending
-        self._finalize_pending = False
-        await self.broadcast_frame(
-            TranscriptionFrame,
-            text=text,
-            user_id="",
-            timestamp=time_now_iso8601(),
-            result=result,
-            finalized=finalized,
-        )

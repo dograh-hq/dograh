@@ -3,7 +3,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pipecat.frames.frames import TranscriptionFrame
 from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.frame_processor import FrameDirection
 
 from api.services.pipecat.realtime.gemini_live import DograhGeminiLiveLLMService
 
@@ -84,3 +86,25 @@ async def test_disconnect_does_not_forget_previously_delivered_tool_results():
 
     service._tool_result.assert_not_awaited()
     assert service._completed_tool_calls == {"call-transition"}
+
+
+@pytest.mark.asyncio
+async def test_user_transcription_matches_upstream_upstream_push_behavior():
+    service = _make_service()
+    service._handle_user_transcription = AsyncMock()
+    service.push_frame = AsyncMock()
+    service.broadcast_frame = AsyncMock()
+
+    await service._push_user_transcription("Hi there")
+
+    service._handle_user_transcription.assert_awaited_once_with(
+        "Hi there", True, service._settings.language
+    )
+    service.broadcast_frame.assert_not_awaited()
+    service.push_frame.assert_awaited_once()
+
+    frame, direction = service.push_frame.await_args.args
+    assert isinstance(frame, TranscriptionFrame)
+    assert frame.text == "Hi there"
+    assert frame.finalized is False
+    assert direction == FrameDirection.UPSTREAM

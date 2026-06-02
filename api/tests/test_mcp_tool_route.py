@@ -16,10 +16,20 @@ Test coverage:
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
-from api.routes.tool import CreateToolRequest, McpToolDefinition, UpdateToolRequest
+from api.routes.tool import (
+    CreateToolRequest,
+    McpToolConfig,
+    McpToolDefinition,
+    UpdateToolRequest,
+    _populate_discovered_tools,
+    refresh_mcp_tools,
+)
 from api.services.workflow.tools.mcp_tool import (
     validate_mcp_definition,
 )
@@ -68,6 +78,53 @@ def test_update_tool_request_accepts_mcp_definition():
     assert isinstance(req.definition, McpToolDefinition)
     assert req.definition.type == "mcp"
     assert req.definition.config.url == "https://x/mcp"
+
+
+def test_update_tool_request_accepts_http_api_complex_parameter_types():
+    """HTTP API tools may accept structured JSON parameters."""
+    req = UpdateToolRequest(
+        name="Check Availability New Multi",
+        description="Check Availability when asked for it.",
+        definition={
+            "schema_version": 1,
+            "type": "http_api",
+            "config": {
+                "method": "POST",
+                "url": "https://automation.dograh.com/webhook/example",
+                "parameters": [
+                    {
+                        "name": "params",
+                        "type": "object",
+                        "description": (
+                            "An object containing the name and datetime in ISO format"
+                        ),
+                        "required": True,
+                    },
+                    {
+                        "name": "slots",
+                        "type": "array",
+                        "description": "Candidate availability slots.",
+                        "required": False,
+                    },
+                ],
+                "preset_parameters": [
+                    {
+                        "name": "phone_number",
+                        "type": "string",
+                        "value_template": "{{initial_context.phone_number}}",
+                        "required": True,
+                    }
+                ],
+                "timeout_ms": 5000,
+                "customMessageType": "text",
+            },
+        },
+    )
+
+    assert req.definition.type == "http_api"
+    parameters = req.definition.config.parameters
+    assert parameters[0].type == "object"
+    assert parameters[1].type == "array"
 
 
 def test_create_tool_request_accepts_mcp_with_all_fields():
@@ -279,10 +336,6 @@ async def test_post_tool_mcp_invalid_url_returns_422(test_client_factory, db_ses
 
 # ── Task 6: discovered_tools field and _populate_discovered_tools helper ──────
 
-from unittest.mock import AsyncMock, MagicMock
-
-from api.routes.tool import McpToolConfig, _populate_discovered_tools
-
 
 def test_mcp_config_accepts_discovered_tools():
     cfg = McpToolConfig(
@@ -296,10 +349,10 @@ def test_mcp_config_accepts_discovered_tools():
 
 @pytest.mark.asyncio
 async def test_populate_discovered_tools_overwrites_cache(monkeypatch):
-    import api.routes.tool as tool_mod
+    import api.services.tool_management as tool_svc
 
     monkeypatch.setattr(
-        tool_mod,
+        tool_svc,
         "discover_mcp_tools",
         AsyncMock(return_value=[{"name": "echo", "description": "Echo"}]),
     )
@@ -327,10 +380,10 @@ async def test_populate_discovered_tools_non_mcp_is_noop():
 
 @pytest.mark.asyncio
 async def test_populate_discovered_tools_server_down_sets_empty(monkeypatch):
-    import api.routes.tool as tool_mod
+    import api.services.tool_management as tool_svc
 
     monkeypatch.setattr(
-        tool_mod,
+        tool_svc,
         "discover_mcp_tools",
         AsyncMock(side_effect=RuntimeError("connection refused")),
     )
@@ -344,10 +397,6 @@ async def test_populate_discovered_tools_server_down_sets_empty(monkeypatch):
 
 
 # ── Task 7: POST /{tool_uuid}/mcp/refresh ─────────────────────────────────────
-
-from fastapi import HTTPException
-
-from api.routes.tool import refresh_mcp_tools
 
 
 def _fake_user(org_id=1):
@@ -373,19 +422,19 @@ def _mcp_tool_model(org_id=1):
 
 @pytest.mark.asyncio
 async def test_refresh_success(monkeypatch):
-    import api.routes.tool as tool_mod
+    import api.services.tool_management as tool_svc
 
     tool = _mcp_tool_model()
     monkeypatch.setattr(
-        tool_mod.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+        tool_svc.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
     )
     monkeypatch.setattr(
-        tool_mod.db_client,
+        tool_svc.db_client,
         "update_tool",
         AsyncMock(return_value=tool),
     )
     monkeypatch.setattr(
-        tool_mod,
+        tool_svc,
         "discover_mcp_tools",
         AsyncMock(return_value=[{"name": "echo", "description": "Echo"}]),
     )
@@ -396,29 +445,29 @@ async def test_refresh_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_refresh_server_down_returns_200_with_error(monkeypatch):
-    import api.routes.tool as tool_mod
+    import api.services.tool_management as tool_svc
 
     tool = _mcp_tool_model()
     monkeypatch.setattr(
-        tool_mod.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+        tool_svc.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
     )
-    monkeypatch.setattr(tool_mod.db_client, "update_tool", AsyncMock(return_value=tool))
-    monkeypatch.setattr(tool_mod, "discover_mcp_tools", AsyncMock(return_value=[]))
+    monkeypatch.setattr(tool_svc.db_client, "update_tool", AsyncMock(return_value=tool))
+    monkeypatch.setattr(tool_svc, "discover_mcp_tools", AsyncMock(return_value=[]))
     resp = await refresh_mcp_tools("tu-mcp", user=_fake_user())
     assert resp.discovered_tools == []
     assert resp.error  # non-empty human-readable message
     # update_tool should NOT be called when discovery returns empty
-    tool_mod.db_client.update_tool.assert_not_called()
+    tool_svc.db_client.update_tool.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_refresh_non_mcp_is_400(monkeypatch):
-    import api.routes.tool as tool_mod
+    import api.services.tool_management as tool_svc
 
     tool = _mcp_tool_model()
     tool.category = "http_api"
     monkeypatch.setattr(
-        tool_mod.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
+        tool_svc.db_client, "get_tool_by_uuid", AsyncMock(return_value=tool)
     )
     with pytest.raises(HTTPException) as ei:
         await refresh_mcp_tools("tu-mcp", user=_fake_user())
@@ -427,10 +476,10 @@ async def test_refresh_non_mcp_is_400(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_refresh_not_found_is_404(monkeypatch):
-    import api.routes.tool as tool_mod
+    import api.services.tool_management as tool_svc
 
     monkeypatch.setattr(
-        tool_mod.db_client, "get_tool_by_uuid", AsyncMock(return_value=None)
+        tool_svc.db_client, "get_tool_by_uuid", AsyncMock(return_value=None)
     )
     with pytest.raises(HTTPException) as ei:
         await refresh_mcp_tools("nope", user=_fake_user())

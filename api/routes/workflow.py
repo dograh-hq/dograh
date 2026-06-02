@@ -32,6 +32,7 @@ from api.services.configuration.resolve import (
 )
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
+from api.services.pricing.run_usage_response import format_public_usage_info
 from api.services.reports import generate_workflow_report_csv
 from api.services.storage import storage_fs
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
@@ -1186,6 +1187,7 @@ async def get_workflow_run(
         }
         if run.cost_info
         else None,
+        "usage_info": format_public_usage_info(run.usage_info),
         "created_at": run.created_at,
         "definition_id": run.definition_id,
         "initial_context": run.initial_context,

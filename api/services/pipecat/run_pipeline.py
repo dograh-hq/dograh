@@ -51,6 +51,7 @@ from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
 from api.services.pipecat.transport_setup import create_webrtc_transport
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
@@ -61,7 +62,6 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
-from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -830,12 +830,15 @@ async def _run_pipeline(
 
     try:
         # Run the pipeline
-        loop = asyncio.get_running_loop()
-        params = PipelineTaskParams(loop=loop)
-        await task.run(params)
+        await run_pipeline_worker(task)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
+        # scopes opened by MCPClient.start() in engine.initialize() are
+        # task-affine; this finally runs in the same task as initialize(),
+        # whereas engine.cleanup() runs in a pipecat event-handler task.
+        await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

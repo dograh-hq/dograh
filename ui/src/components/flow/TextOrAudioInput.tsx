@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Pause, Play, Search } from "lucide-react";
+import { AlertCircle, Check, ChevronDown, Pause, Play, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import type { RecordingResponseSchema } from "@/client/types.gen";
@@ -9,6 +9,25 @@ import { Popover, PopoverContentInline, PopoverTrigger } from "@/components/ui/p
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
 import { cn } from "@/lib/utils";
+
+/**
+ * Amber caveat shown next to free-text fields that are spoken aloud via TTS
+ * (greetings, transition speech, custom tool messages). Two warnings: the text
+ * is voiced verbatim (matters for multilingual flows), and realtime
+ * (speech-to-speech) models have no TTS stage, so static text is never spoken —
+ * a pre-recorded audio file should be used instead.
+ */
+export function StaticTextWarning() {
+    return (
+        <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
+            <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+                This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.
+                Realtime (speech-to-speech) models can&apos;t play static text.
+            </span>
+        </div>
+    );
+}
 
 interface TextOrAudioInputProps {
     type: 'text' | 'audio';

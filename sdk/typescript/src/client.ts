@@ -16,19 +16,48 @@ import type {
 import { ApiError, SpecMismatchError } from "./errors.js";
 import { Workflow, type SpecProvider } from "./workflow.js";
 
+type RuntimeProcess = {
+    env?: Record<string, string | undefined>;
+};
+
+export interface DograhFetchInit {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: unknown;
+}
+
+export interface DograhFetchResponse {
+    ok: boolean;
+    status: number;
+    statusText: string;
+    json(): Promise<unknown>;
+    text(): Promise<string>;
+}
+
+export type DograhFetch = (
+    url: string,
+    init?: DograhFetchInit,
+) => Promise<DograhFetchResponse>;
+
+function getRuntimeEnv(name: string): string | undefined {
+    const runtime = globalThis as typeof globalThis & { process?: RuntimeProcess };
+    return runtime.process?.env?.[name];
+}
+
 export interface DograhClientOptions {
     baseUrl?: string;
     apiKey?: string;
     /** Request timeout in ms. */
     timeoutMs?: number;
     /** Optional fetch override for tests / custom transports. */
-    fetch?: typeof globalThis.fetch;
+    fetch?: DograhFetch;
 }
 
 export class DograhClient extends _GeneratedClient implements SpecProvider {
     readonly baseUrl: string;
     readonly apiKey: string | undefined;
-    private readonly fetchImpl: typeof globalThis.fetch;
+    private readonly fetchImpl: DograhFetch;
     private readonly timeoutMs: number;
     private readonly headers: Record<string, string>;
     private readonly specCache = new Map<string, NodeSpec>();
@@ -38,13 +67,11 @@ export class DograhClient extends _GeneratedClient implements SpecProvider {
         super();
         const rawBase =
             opts.baseUrl ??
-            (typeof process !== "undefined" ? process.env.DOGRAH_API_URL : undefined) ??
+            getRuntimeEnv("DOGRAH_API_URL") ??
             "http://localhost:8000";
         this.baseUrl = rawBase.replace(/\/+$/, "");
-        this.apiKey =
-            opts.apiKey ??
-            (typeof process !== "undefined" ? process.env.DOGRAH_API_KEY : undefined);
-        this.fetchImpl = opts.fetch ?? globalThis.fetch;
+        this.apiKey = opts.apiKey ?? getRuntimeEnv("DOGRAH_API_KEY");
+        this.fetchImpl = opts.fetch ?? (globalThis.fetch as unknown as DograhFetch);
         this.timeoutMs = opts.timeoutMs ?? 30_000;
         this.headers = { Accept: "application/json" };
         if (this.apiKey) this.headers["X-API-Key"] = this.apiKey;
@@ -126,7 +153,7 @@ export class DograhClient extends _GeneratedClient implements SpecProvider {
         }
 
         const hasBody = opts?.json !== undefined;
-        const init: RequestInit = {
+        const init: DograhFetchInit = {
             method,
             headers: {
                 ...this.headers,
@@ -139,7 +166,7 @@ export class DograhClient extends _GeneratedClient implements SpecProvider {
         const timer = setTimeout(() => controller.abort(), this.timeoutMs);
         init.signal = controller.signal;
 
-        let resp: Response;
+        let resp: DograhFetchResponse;
         try {
             resp = await this.fetchImpl(url, init);
         } finally {

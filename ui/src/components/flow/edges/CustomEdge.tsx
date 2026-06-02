@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { useWorkflow, useWorkflowOptional } from "@/app/workflow/[workflowId]/contexts/WorkflowContext";
 import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
-import { TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
+import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -122,10 +122,7 @@ const EdgeDetailsDialog = ({ open, onOpenChange, data, onSave }: EdgeDetailsDial
                             recordings={recordings ?? []}
                         >
                             <>
-                                <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
-                                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                                    <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
-                                </div>
+                                <StaticTextWarning />
                                 <Textarea
                                     value={transitionSpeech}
                                     placeholder="e.g. Let me transfer you to our billing department..."

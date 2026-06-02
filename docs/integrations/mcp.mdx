@@ -1,11 +1,11 @@
 ---
 title: "MCP Server"
-description: "Connect Claude and other AI assistants to your Dograh workspace via the Model Context Protocol"
+description: "Connect Codex, Claude, and other AI assistants to your Dograh workspace via the Model Context Protocol"
 ---
 
 ## Overview
 
-Dograh exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that lets AI assistants like Claude Code, Claude Desktop, and Cursor access your workspace and documentation. Once connected, an assistant can list your agents, fetch agent definitions, and search Dograh docs on your behalf.
+Dograh exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) server that lets AI assistants like Codex, Claude Code, Claude Desktop, and Cursor access your workspace and documentation. Once connected, an assistant can list your agents, fetch agent definitions, and search Dograh docs on your behalf.
 
 ## Prerequisites
 
@@ -41,6 +41,40 @@ Verify the server is connected:
 
 ```bash
 claude mcp list
+```
+
+## Codex
+
+Open Codex's config file (`~/.codex/config.toml`) and add a `dograh` MCP server:
+
+```toml
+[mcp_servers.dograh]
+url = "https://app.dograh.com/api/v1/mcp/"
+http_headers = { "X-API-Key" = "YOUR_API_KEY" }
+```
+
+Replace `YOUR_API_KEY` with the key you generated. For self-hosted deployments, replace the URL with your backend MCP endpoint.
+
+If you prefer to keep the API key out of `config.toml`, store it in an environment variable instead:
+
+```toml
+[mcp_servers.dograh]
+url = "https://app.dograh.com/api/v1/mcp/"
+env_http_headers = { "X-API-Key" = "DOGRAH_API_KEY" }
+```
+
+Then set the API key before starting Codex:
+
+```bash
+export DOGRAH_API_KEY="YOUR_API_KEY"
+codex
+```
+
+Verify the server is registered:
+
+```bash
+codex mcp list
+codex mcp get dograh
 ```
 
 ## Claude Desktop

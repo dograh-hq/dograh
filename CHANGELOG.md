@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.33.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.32.0...dograh-v1.33.0) (2026-05-31)
+
+
+### Features
+
+* abort immediately on max call duration exceed ([c586d02](https://github.com/dograh-hq/dograh/commit/c586d02d5d7f88a5222ade71a46c2f797c89a754))
+* banner if API is not reachable ([78ba62e](https://github.com/dograh-hq/dograh/commit/78ba62e18558bb6d5407810807301cc611773d42))
+
+
+### Bug Fixes
+
+* fix inbound for Cloudonix with softphone ([e695436](https://github.com/dograh-hq/dograh/commit/e695436fb364446c8b18330d5cb22e4661a4c991))
+* store channel id in gathered context for ARI outbound ([8f10bca](https://github.com/dograh-hq/dograh/commit/8f10bcade32079af126e4e9d83061cd30936fcad))
+
 ## [1.32.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.31.0...dograh-v1.32.0) (2026-05-28)
 
 

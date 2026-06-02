@@ -19,7 +19,7 @@ from api.enums import ToolCategory
 DEFAULT_MCP_TIMEOUT_SECS = 30
 DEFAULT_MCP_SSE_READ_TIMEOUT_SECS = 300
 
-ToolParameterType = Literal["string", "number", "boolean"]
+ToolParameterType = Literal["string", "number", "boolean", "object", "array"]
 HttpMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 ToolCategoryValue = Literal[
     "http_api",
@@ -47,7 +47,9 @@ class ToolParameter(BaseModel):
     )
     type: ToolParameterType = Field(
         description="JSON type for the parameter value.",
-        json_schema_extra=_llm_hint("Allowed values are string, number, and boolean."),
+        json_schema_extra=_llm_hint(
+            "Allowed values are string, number, boolean, object, and array."
+        ),
     )
     description: str = Field(
         description="Description shown to the model for this parameter.",
@@ -65,7 +67,12 @@ class PresetToolParameter(BaseModel):
     """A parameter injected by Dograh at runtime."""
 
     name: str = Field(description="Parameter name used as a key in the request body.")
-    type: ToolParameterType = Field(description="JSON type for the resolved value.")
+    type: ToolParameterType = Field(
+        description="JSON type for the resolved value.",
+        json_schema_extra=_llm_hint(
+            "Allowed values are string, number, boolean, object, and array."
+        ),
+    )
     value_template: str = Field(
         description="Fixed value or template, e.g. {{initial_context.phone_number}}.",
         json_schema_extra=_llm_hint(

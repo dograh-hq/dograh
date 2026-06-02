@@ -80,6 +80,53 @@ def test_update_tool_request_accepts_mcp_definition():
     assert req.definition.config.url == "https://x/mcp"
 
 
+def test_update_tool_request_accepts_http_api_complex_parameter_types():
+    """HTTP API tools may accept structured JSON parameters."""
+    req = UpdateToolRequest(
+        name="Check Availability New Multi",
+        description="Check Availability when asked for it.",
+        definition={
+            "schema_version": 1,
+            "type": "http_api",
+            "config": {
+                "method": "POST",
+                "url": "https://automation.dograh.com/webhook/example",
+                "parameters": [
+                    {
+                        "name": "params",
+                        "type": "object",
+                        "description": (
+                            "An object containing the name and datetime in ISO format"
+                        ),
+                        "required": True,
+                    },
+                    {
+                        "name": "slots",
+                        "type": "array",
+                        "description": "Candidate availability slots.",
+                        "required": False,
+                    },
+                ],
+                "preset_parameters": [
+                    {
+                        "name": "phone_number",
+                        "type": "string",
+                        "value_template": "{{initial_context.phone_number}}",
+                        "required": True,
+                    }
+                ],
+                "timeout_ms": 5000,
+                "customMessageType": "text",
+            },
+        },
+    )
+
+    assert req.definition.type == "http_api"
+    parameters = req.definition.config.parameters
+    assert parameters[0].type == "object"
+    assert parameters[1].type == "array"
+
+
 def test_create_tool_request_accepts_mcp_with_all_fields():
     """All optional MCP config fields are accepted and preserved."""
     req = CreateToolRequest(

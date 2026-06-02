@@ -55,6 +55,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 const INBOUND_WEBHOOK_PATH = "/api/v1/telephony/inbound/run";
@@ -448,15 +449,4 @@ export default function TelephonyConfigurationDetailPage() {
       </AlertDialog>
     </div>
   );
-}
-
-function detailFromError(err: unknown): string {
-  if (typeof err === "string") return err;
-  const e = err as { detail?: unknown };
-  if (typeof e?.detail === "string") return e.detail;
-  if (Array.isArray(e?.detail) && e.detail.length > 0) {
-    const first = e.detail[0] as { msg?: string };
-    if (first?.msg) return first.msg;
-  }
-  return "Request failed";
 }

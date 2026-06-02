@@ -162,7 +162,11 @@ class UserClient(BaseDBClient):
         async with self.async_session() as session:
             from sqlalchemy import update
 
-            stmt = update(UserModel).where(UserModel.id == user_id).values(email=email)
+            stmt = (
+                update(UserModel)
+                .where(UserModel.id == user_id)
+                .values(email=email.lower())
+            )
             await session.execute(stmt)
             await session.commit()
 
@@ -174,9 +178,10 @@ class UserClient(BaseDBClient):
         log in as "user@example.com". Compare on lower(email) so lookups are
         robust to capitalization differences across sign-in flows.
         """
+        normalized_email = email.lower()
         async with self.async_session() as session:
             result = await session.execute(
-                select(UserModel).where(func.lower(UserModel.email) == func.lower(email))
+                select(UserModel).where(func.lower(UserModel.email) == normalized_email)
             )
             return result.scalars().first()
 
@@ -187,7 +192,7 @@ class UserClient(BaseDBClient):
         async with self.async_session() as session:
             user = UserModel(
                 provider_id=f"oss_{int(datetime.now(timezone.utc).timestamp())}_{uuid.uuid4()}",
-                email=email,
+                email=email.lower(),
                 password_hash=password_hash,
             )
             session.add(user)

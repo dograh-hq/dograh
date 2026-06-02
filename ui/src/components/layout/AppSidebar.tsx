@@ -19,6 +19,7 @@ import {
   Phone,
   Settings,
   TrendingUp,
+  UserRound,
   Workflow,
   Wrench,
 } from "lucide-react";
@@ -52,6 +53,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { useLeadForms } from "@/context/LeadFormsContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
@@ -129,7 +131,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     ],
   },
   {
-    label: "OBSERVE",
+    label: "MANAGE",
     items: [
       {
         title: "Agent Runs",
@@ -140,6 +142,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Reports",
         url: "/reports",
         icon: FileText,
+      },
+      {
+        title: "Credits & Billing",
+        url: "/billing",
+        icon: CircleDollarSign,
       },
     ],
   },
@@ -158,6 +165,7 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
+  const { openHireExpert } = useLeadForms();
   const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
   const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
@@ -253,6 +261,31 @@ export function AppSidebar() {
       </SidebarMenuButton>
     );
   };
+
+  // "Hire an Expert" CTA shown in the footer next to the user avatar.
+  // Expanded: icon + label. Collapsed: icon-only with a tooltip.
+  const hireExpertButton = isCollapsed ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          size="icon"
+          className="h-8 w-8"
+          onClick={() => openHireExpert("sidebar")}
+          aria-label="Hire an Expert"
+        >
+          <UserRound className="h-4 w-4" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <p>Hire an Expert</p>
+      </TooltipContent>
+    </Tooltip>
+  ) : (
+    <Button size="sm" className="gap-2" onClick={() => openHireExpert("sidebar")}>
+      <UserRound className="h-4 w-4" />
+      Hire an Expert
+    </Button>
+  );
 
   return (
     <Sidebar collapsible="icon" className="border-r">
@@ -367,7 +400,7 @@ export function AppSidebar() {
       >
         <div className="space-y-2">
           {provider !== "stack" && (
-            <div className={cn("flex", isCollapsed ? "justify-center" : "justify-start")}>
+            <div className={cn("flex items-center", isCollapsed ? "flex-col gap-2" : "justify-between")}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
@@ -401,11 +434,12 @@ export function AppSidebar() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {hireExpertButton}
             </div>
           )}
 
           {provider === "stack" && (
-            <div className={cn("flex", isCollapsed ? "justify-center" : "justify-start")}>
+            <div className={cn("flex items-center", isCollapsed ? "flex-col gap-2" : "justify-between")}>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
@@ -450,6 +484,7 @@ export function AppSidebar() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {hireExpertButton}
             </div>
           )}
 

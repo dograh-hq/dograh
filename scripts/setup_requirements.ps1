@@ -27,7 +27,7 @@ if (-not (Get-Command $PythonBin -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-$PyMajMin = & $PythonBin -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+$PyMajMin = & $PythonBin -c 'import sys; print(sys.version_info.major, sys.version_info.minor, sep=chr(46))'
 if ($PyMajMin -ne '3.12' -and $PyMajMin -ne '3.13') {
     $PyPath = (Get-Command $PythonBin).Source
     Write-Error "Python 3.12 or 3.13 required, found $PyMajMin at $PyPath. Activate a venv built with python3.12 or python3.13 and retry."

@@ -6,7 +6,7 @@ import { getServerBackendUrl } from "@/lib/apiClient";
 // Import version from package.json at build time
 import packageJson from "../../../../../package.json";
 
-const HEALTHCHECK_TIMEOUT_MS = 3000;
+const HEALTHCHECK_TIMEOUT_MS = 10000;
 
 function trimTrailingSlash(url: string) {
   return url.endsWith("/") ? url.slice(0, -1) : url;

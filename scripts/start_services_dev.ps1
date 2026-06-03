@@ -50,7 +50,7 @@ if (Test-Path $EnvFile) {
 if (-not $env:UVICORN_BASE_PORT)   { $env:UVICORN_BASE_PORT = '8000' }
 
 $HealthEndpoint    = '/api/v1/health'
-$HealthMaxAttempts = if ($env:HEALTH_MAX_ATTEMPTS) { [int]$env:HEALTH_MAX_ATTEMPTS } else { 30 }
+$HealthMaxAttempts = if ($env:HEALTH_MAX_ATTEMPTS) { [int]$env:HEALTH_MAX_ATTEMPTS } else { 120 }
 $HealthInterval    = if ($env:HEALTH_INTERVAL)     { [int]$env:HEALTH_INTERVAL }     else { 2 }
 
 ###############################################################################
@@ -143,7 +143,7 @@ Write-Host "Waiting for uvicorn health check at $healthUrl ..."
 $healthy = $false
 for ($attempt = 1; $attempt -le $HealthMaxAttempts; $attempt++) {
     try {
-        $resp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
         if ($resp.StatusCode -eq 200) {
             Write-Host "OK uvicorn healthy (attempt $attempt)"
             $healthy = $true

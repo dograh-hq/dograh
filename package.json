@@ -1,0 +1,32 @@
+{
+  "name": "dograh",
+  "version": "1.0.0",
+  "description": "> 💡 **Notice**: This documentation is community-maintained. If you spot any translation inaccuracies or content that has drifted from the English version, please feel free to open a PR!\r >\r > 💡 **提示**:本文档由社区共同维护。如果您发现翻译不准确,或与英文版本存在出入,欢迎随时提交 PR!",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples"
+  },
+  "scripts": {
+    "migrate": "dotenv -e api/.env -- venv/Scripts/alembic -c api/alembic.ini upgrade head",
+    "start:api": "dotenv -e api/.env -- venv/Scripts/uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir api",
+    "start:arq": "dotenv -e api/.env -- venv/Scripts/python -m arq api.tasks.arq.WorkerSettings --custom-log-dict api.tasks.arq.LOG_CONFIG",
+    "start:ui": "npm run dev --prefix ui",
+    "start": "npm run migrate && concurrently --names \"API,ARQ,UI\" --prefix-colors \"cyan.bold,yellow.bold,green.bold\" --kill-others-on-fail \"npm run start:api\" \"npm run start:arq\" \"npm run start:ui\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dograh-hq/dograh.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/dograh-hq/dograh/issues"
+  },
+  "homepage": "https://github.com/dograh-hq/dograh#readme",
+  "devDependencies": {
+    "concurrently": "^10.0.3",
+    "dotenv-cli": "^11.0.0"
+  }
+}

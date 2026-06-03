@@ -41,6 +41,7 @@ function createRequestHeaders(request: NextRequest) {
 
 function createResponseHeaders(response: Response) {
   const headers = new Headers(response.headers);
+  const setCookies = response.headers.getSetCookie();
 
   for (const header of HOP_BY_HOP_HEADERS) {
     headers.delete(header);
@@ -48,6 +49,11 @@ function createResponseHeaders(response: Response) {
 
   headers.delete("content-encoding");
   headers.delete("content-length");
+  headers.delete("set-cookie");
+
+  for (const cookie of setCookies) {
+    headers.append("set-cookie", cookie);
+  }
 
   return headers;
 }

@@ -142,6 +142,12 @@ class HttpApiConfig(BaseModel):
         default=None, description="Recording ID for an audio custom message."
     )
 
+    variable_extraction_timing: Literal["before", "after", "both"] = Field(
+        default="before",
+        description="When to run variable extraction relative to the tool call (before, after, or both)",
+    )
+
+
     @field_validator("method", mode="before")
     @classmethod
     def validate_method(cls, v: Any) -> str:

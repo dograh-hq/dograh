@@ -127,8 +127,7 @@ def validate_trigger_paths(
                 )
             )
 
-        first_node_id = seen_paths.get(trigger_path)
-        if first_node_id is None:
+        if trigger_path not in seen_paths:
             seen_paths[trigger_path] = node_id
         else:
             issues.append(

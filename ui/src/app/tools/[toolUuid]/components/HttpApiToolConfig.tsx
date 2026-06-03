@@ -1,5 +1,7 @@
 "use client";
 
+import { AlertCircle, Variable } from "lucide-react";
+
 import type { RecordingResponseSchema } from "@/client/types.gen";
 import { StaticTextWarning, TextOrAudioInput } from "@/components/flow/TextOrAudioInput";
 import {
@@ -17,6 +19,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -45,6 +48,8 @@ export interface HttpApiToolConfigProps {
     onCustomMessageTypeChange: (type: 'text' | 'audio') => void;
     customMessageRecordingId: string;
     onCustomMessageRecordingIdChange: (id: string) => void;
+    variableExtractionTiming: 'before' | 'after' | 'both';
+    onVariableExtractionTimingChange: (timing: 'before' | 'after' | 'both') => void;
     recordings?: RecordingResponseSchema[];
 }
 
@@ -73,6 +78,8 @@ export function HttpApiToolConfig({
     onCustomMessageTypeChange,
     customMessageRecordingId,
     onCustomMessageRecordingIdChange,
+    variableExtractionTiming,
+    onVariableExtractionTimingChange,
     recordings = [],
 }: HttpApiToolConfigProps) {
     return (
@@ -152,6 +159,63 @@ export function HttpApiToolConfig({
                             />
                         </div>
 
+                        <div className="grid gap-3 pt-4 border-t">
+                            <div className="flex items-center gap-2">
+                                <Variable className="h-4 w-4" />
+                                <Label>Variable Extraction Timing</Label>
+                            </div>
+                            <Label className="text-xs text-muted-foreground">
+                                Control when conversation variables are extracted for use in tool parameters
+                            </Label>
+                            <RadioGroup
+                                value={variableExtractionTiming}
+                                onValueChange={(v) => onVariableExtractionTimingChange(v as 'before' | 'after' | 'both')}
+                            >
+                                <label
+                                    htmlFor="extract-before"
+                                    className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                                        variableExtractionTiming === 'before' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                                    }`}
+                                >
+                                    <RadioGroupItem value="before" id="extract-before" className="mt-0.5" />
+                                    <div>
+                                        <p className="font-medium text-sm">Before tool call</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Extract variables from the conversation before the HTTP request. Use when URL or preset parameters depend on gathered context.
+                                        </p>
+                                    </div>
+                                </label>
+                                <label
+                                    htmlFor="extract-after"
+                                    className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                                        variableExtractionTiming === 'after' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                                    }`}
+                                >
+                                    <RadioGroupItem value="after" id="extract-after" className="mt-0.5" />
+                                    <div>
+                                        <p className="font-medium text-sm">After tool call</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Extract variables after the HTTP response returns. Use when downstream nodes need data derived from the response.
+                                        </p>
+                                    </div>
+                                </label>
+                                <label
+                                    htmlFor="extract-both"
+                                    className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                                        variableExtractionTiming === 'both' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+                                    }`}
+                                >
+                                    <RadioGroupItem value="both" id="extract-both" className="mt-0.5" />
+                                    <div>
+                                        <p className="font-medium text-sm">Both</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            Extract before and after the tool call. Ensures parameters use the latest context and the response is captured for downstream use.
+                                        </p>
+                                    </div>
+                                </label>
+                            </RadioGroup>
+                        </div>
+
                         <div className="grid gap-2 pt-4 border-t">
                             <Label>Custom Message</Label>
                             <Label className="text-xs text-muted-foreground">
@@ -166,6 +230,11 @@ export function HttpApiToolConfig({
                             >
                                 <>
                                     <StaticTextWarning />
+                                    <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
+                                        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                                        <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
+                                    </div>
+                                    
                                     <Textarea
                                         value={customMessage}
                                         onChange={(e) => onCustomMessageChange(e.target.value)}

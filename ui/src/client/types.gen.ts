@@ -1894,6 +1894,12 @@ export type HttpApiConfig = {
      * Recording ID for an audio custom message.
      */
     customMessageRecordingId?: string | null;
+    /**
+     * VariableExtractionTiming
+     *
+     * When to run variable extraction relative to the tool call (before, after, or both)
+     */
+    variable_extraction_timing?: 'before' | 'after' | 'both' | null;
 };
 
 /**

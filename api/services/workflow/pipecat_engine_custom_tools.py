@@ -378,6 +378,14 @@ class CustomToolManager:
                         )
                     )
 
+                # Determine when to run variable extraction relative to the tool call
+                extraction_timing = config.get("variable_extraction_timing", "before")
+
+                if extraction_timing in ("before", "both"):
+                    await self._engine._perform_variable_extraction_if_needed(
+                        self._engine._current_node, run_in_background=False
+                    )
+
                 result = await execute_http_tool(
                     tool=tool,
                     arguments=function_call_params.arguments,
@@ -385,6 +393,11 @@ class CustomToolManager:
                     gathered_context_vars=self._engine._gathered_context,
                     organization_id=await self.get_organization_id(),
                 )
+
+                if extraction_timing in ("after", "both"):
+                    await self._engine._perform_variable_extraction_if_needed(
+                        self._engine._current_node, run_in_background=False
+                    )
 
                 await function_call_params.result_callback(result)
 

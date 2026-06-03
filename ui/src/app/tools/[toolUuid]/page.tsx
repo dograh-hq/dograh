@@ -117,6 +117,7 @@ export default function ToolDetailPage() {
     // HTTP API form state - custom message type
     const [customMessageType, setCustomMessageType] = useState<'text' | 'audio'>('text');
     const [customMessageRecordingId, setCustomMessageRecordingId] = useState("");
+    const [variableExtractionTiming, setVariableExtractionTiming] = useState<'before' | 'after' | 'both'>('before');
 
     // MCP form state
     const [mcpUrl, setMcpUrl] = useState("");
@@ -225,6 +226,9 @@ export default function ToolDetailPage() {
                 setCustomMessage(config.customMessage || "");
                 setCustomMessageType(config.customMessageType || "text");
                 setCustomMessageRecordingId(config.customMessageRecordingId || "");
+                setVariableExtractionTiming(
+                    (config.variable_extraction_timing as 'before' | 'after' | 'both') || 'before'
+                );
 
                 // Convert headers object to array
                 if (config.headers) {
@@ -437,6 +441,7 @@ export default function ToolDetailPage() {
                             customMessage: customMessageType === 'text' ? (customMessage || undefined) : undefined,
                             customMessageType,
                             customMessageRecordingId: customMessageType === 'audio' ? (customMessageRecordingId || undefined) : undefined,
+                            variable_extraction_timing: variableExtractionTiming,
                         },
                     },
                 };
@@ -762,6 +767,8 @@ const data = await response.json();`;
                             onCustomMessageTypeChange={setCustomMessageType}
                             customMessageRecordingId={customMessageRecordingId}
                             onCustomMessageRecordingIdChange={setCustomMessageRecordingId}
+                            variableExtractionTiming={variableExtractionTiming}
+                            onVariableExtractionTimingChange={setVariableExtractionTiming}
                             recordings={recordings}
                         />
                     )}

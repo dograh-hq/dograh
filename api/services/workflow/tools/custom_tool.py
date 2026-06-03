@@ -231,6 +231,17 @@ async def execute_http_tool(
     method = config.get("method", "POST").upper()
     url = config.get("url", "")
 
+    # Build render context for template variable substitution (same as preset params)
+    initial_context = dict(call_context_vars or {})
+    render_context: Dict[str, Any] = {
+        **initial_context,
+        "initial_context": initial_context,
+        "gathered_context": dict(gathered_context_vars or {}),
+    }
+
+    # Apply template rendering to URL (supports {{variable}} in path)
+    url = render_template(url, render_context)
+
     # Get headers from config
     headers = dict(config.get("headers", {}) or {})
 

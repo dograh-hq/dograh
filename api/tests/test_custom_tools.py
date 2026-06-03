@@ -730,6 +730,116 @@ class TestExecuteHttpTool:
                 # Verify credential lookup was NOT called
                 mock_db.get_credential_by_uuid.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_url_with_initial_context_variable(self):
+        """Test that {{{{}}}} in URL path is resolved from initial_context."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-url-var",
+            name="Dynamic URL",
+            description="API with URL template",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.example.com/{{initial_context.resource}}/details",
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"id": 1}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                {},
+                call_context_vars={"resource": "orders"},
+            )
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["url"] == "https://api.example.com/orders/details"
+
+    @pytest.mark.asyncio
+    async def test_url_with_gathered_context_variable(self):
+        """Test that {{{{}}}} in URL path is resolved from gathered_context."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-url-gathered",
+            name="Dynamic URL Gathered",
+            description="API with URL template from gathered context",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.example.com/customers/{{gathered_context.customer_id}}/profile",
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"name": "John"}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(
+                tool,
+                {},
+                gathered_context_vars={"customer_id": "42"},
+            )
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["url"] == "https://api.example.com/customers/42/profile"
+
+    @pytest.mark.asyncio
+    async def test_url_without_template_variables_unchanged(self):
+        """Test that URLs without template variables are passed through unchanged."""
+        tool = MockToolModel(
+            tool_uuid="test-uuid-no-var",
+            name="Static URL",
+            description="API with static URL",
+            category="http_api",
+            definition={
+                "schema_version": 1,
+                "type": "http_api",
+                "config": {
+                    "method": "GET",
+                    "url": "https://api.example.com/static/endpoint",
+                    "timeout_ms": 5000,
+                },
+            },
+        )
+
+        with patch(
+            "api.services.workflow.tools.custom_tool.httpx.AsyncClient"
+        ) as mock_client_class:
+            mock_client = AsyncMock()
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {}
+            mock_client.request.return_value = mock_response
+            mock_client_class.return_value.__aenter__.return_value = mock_client
+
+            await execute_http_tool(tool, {})
+
+            call_kwargs = mock_client.request.call_args.kwargs
+            assert call_kwargs["url"] == "https://api.example.com/static/endpoint"
+
 
 class TestCoerceParameterValue:
     """Tests for _coerce_parameter_value function."""

@@ -141,6 +141,9 @@ export function HttpApiToolConfig({
 
                         <div className="grid gap-2">
                             <Label>Endpoint URL</Label>
+                            <Label className="text-xs text-muted-foreground">
+                                Supports {`{{variable}}`} syntax using initial and gathered context variables in the URL path
+                            </Label>
                             <UrlInput
                                 value={url}
                                 onChange={onUrlChange}

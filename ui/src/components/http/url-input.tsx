@@ -19,11 +19,29 @@ export interface UrlValidationResult {
     error?: string;
 }
 
+const DOMAIN_REGEX = /^https?:\/\/([^\/]+)/;
+
+function domainContainsTemplateVar(domain: string): boolean {
+    return domain.includes("{{") || domain.includes("}}");
+}
+
 export function validateUrl(url: string): UrlValidationResult {
     const trimmedUrl = url.trim();
 
     if (!trimmedUrl) {
         return { valid: false, error: "URL is required" };
+    }
+
+    // If the URL contains template variables, validate domain separately
+    if (trimmedUrl.includes("{{")) {
+        const domainMatch = trimmedUrl.match(DOMAIN_REGEX);
+        if (!domainMatch || domainContainsTemplateVar(domainMatch[1])) {
+            return {
+                valid: false,
+                error: "Invalid URL format. Template variables are only allowed in the URL path.",
+            };
+        }
+        return { valid: true };
     }
 
     if (!URL_REGEX.test(trimmedUrl)) {

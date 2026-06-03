@@ -206,6 +206,11 @@ async def run_per_node_qa_analysis(
         }
         try:
             parsed = parse_llm_json(raw_response)
+            # parse_llm_json can return a list (e.g. when the model emits a
+            # top-level JSON array); coerce non-dict results so the .get()
+            # lookups below don't raise AttributeError.
+            if not isinstance(parsed, dict):
+                parsed = {}
             node_result["tags"] = parsed.get("tags", [])
             node_result["summary"] = parsed.get("summary", "")
             node_result["score"] = parsed.get("call_quality_score")
@@ -296,6 +301,11 @@ async def _run_whole_call_qa_analysis(
     }
     try:
         parsed = parse_llm_json(raw_response)
+        # parse_llm_json can return a list (e.g. when the model emits a
+        # top-level JSON array); coerce non-dict results so the .get()
+        # lookups below don't raise AttributeError.
+        if not isinstance(parsed, dict):
+            parsed = {}
         node_result["tags"] = parsed.get("tags", [])
         node_result["summary"] = parsed.get("summary", "")
         node_result["score"] = parsed.get("call_quality_score")

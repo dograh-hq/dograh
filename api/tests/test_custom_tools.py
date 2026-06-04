@@ -1201,6 +1201,9 @@ class TestCustomToolManagerUnit:
             mock_engine
         )
         mock_engine.llm = mock_llm
+        mock_engine._perform_variable_extraction_if_needed = AsyncMock()
+        mock_engine._current_node = None
+        mock_engine._gathered_context = {}
 
         manager = CustomToolManager(mock_engine)
 

@@ -147,7 +147,6 @@ class HttpApiConfig(BaseModel):
         description="When to run variable extraction relative to the tool call (before, after, or both)",
     )
 
-
     @field_validator("method", mode="before")
     @classmethod
     def validate_method(cls, v: Any) -> str:

@@ -234,7 +234,7 @@ export function HttpApiToolConfig({
                                         <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
                                         <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
                                     </div>
-                                    
+
                                     <Textarea
                                         value={customMessage}
                                         onChange={(e) => onCustomMessageChange(e.target.value)}

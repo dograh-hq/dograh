@@ -118,7 +118,7 @@ For example, if your request includes:
 }
 ```
 
-You can reference the user's name in your prompt as `{{initial_context.user.name}}`.
+You can reference the user's name in your agent prompt as `{{user.name}}` — in Agent prompts, `initial_context` fields are referenced directly by name (not prefixed with `initial_context.`). See [template variables](/voice-agent/template-variables) for the exact syntax in prompts versus webhook payloads.
 
 See [Context & Variables](/core-concepts/context-and-variables) for more on how data flows through a call.
 

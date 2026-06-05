@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
 
 import pytest
+from fastapi import HTTPException
 from starlette.requests import Request
 
 from api.services.telephony.providers.vobiz.provider import VobizProvider
 from api.services.telephony.providers.vobiz.routes import (
     handle_vobiz_hangup_callback,
+    handle_vobiz_hangup_callback_by_workflow,
     handle_vobiz_ring_callback,
 )
 
@@ -225,3 +227,154 @@ async def test_vobiz_verify_inbound_signature_rejects_missing_signature():
         {},
         {},
     )
+
+
+@pytest.mark.asyncio
+async def test_vobiz_hangup_callback_rejects_missing_signature():
+    """An unsigned hangup callback must be rejected before status processing."""
+    provider = _provider()
+    form_data = {
+        "CallUUID": "call-123",
+        "CallStatus": "completed",
+        "From": "15551230001",
+        "To": "15551230002",
+        "Direction": "outbound",
+        "Duration": "12",
+    }
+    # No x-vobiz-signature-* headers — the callback is unsigned.
+    request = _request(
+        path="/api/v1/telephony/vobiz/hangup-callback/123",
+        form_data=form_data,
+    )
+
+    with (
+        patch("api.services.telephony.providers.vobiz.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.vobiz.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.vobiz.routes.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://example.test", "wss://example.test"),
+        ),
+        patch(
+            "api.services.telephony.providers.vobiz.routes._process_status_update",
+            new_callable=AsyncMock,
+        ) as process_status,
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await handle_vobiz_hangup_callback(
+                workflow_run_id=123,
+                request=request,
+            )
+
+    assert exc_info.value.status_code == 403
+    process_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_vobiz_ring_callback_rejects_missing_signature():
+    """An unsigned ring callback must be rejected before it is logged."""
+    provider = _provider()
+    form_data = {
+        "CallUUID": "call-123",
+        "CallStatus": "ringing",
+        "From": "15551230001",
+        "To": "15551230002",
+    }
+    # No x-vobiz-signature-* headers — the callback is unsigned.
+    request = _request(
+        path="/api/v1/telephony/vobiz/ring-callback/123",
+        form_data=form_data,
+    )
+
+    workflow_run = SimpleNamespace(workflow_id=7, logs={})
+
+    with (
+        patch("api.services.telephony.providers.vobiz.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.vobiz.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.vobiz.routes.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://example.test", "wss://example.test"),
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(return_value=workflow_run)
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+        db_client.update_workflow_run = AsyncMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await handle_vobiz_ring_callback(
+                workflow_run_id=123,
+                request=request,
+            )
+
+    assert exc_info.value.status_code == 403
+    db_client.update_workflow_run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_vobiz_hangup_callback_by_workflow_rejects_missing_signature():
+    """An unsigned by-workflow hangup callback must be rejected before processing."""
+    provider = _provider()
+    form_data = {
+        "CallUUID": "call-123",
+        "CallStatus": "completed",
+        "From": "15551230001",
+        "To": "15551230002",
+        "Direction": "outbound",
+        "Duration": "12",
+    }
+    # No x-vobiz-signature-* headers — the callback is unsigned.
+    request = _request(
+        path="/api/v1/telephony/vobiz/hangup-callback/workflow/7",
+        form_data=form_data,
+    )
+
+    with (
+        patch("api.services.telephony.providers.vobiz.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.vobiz.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.vobiz.routes.get_backend_endpoints",
+            new_callable=AsyncMock,
+            return_value=("https://example.test", "wss://example.test"),
+        ),
+        patch(
+            "api.services.telephony.providers.vobiz.routes._process_status_update",
+            new_callable=AsyncMock,
+        ) as process_status,
+    ):
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+        db_client.get_workflow_run_by_call_id = AsyncMock(
+            return_value=SimpleNamespace(id=123, workflow_id=7)
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await handle_vobiz_hangup_callback_by_workflow(
+                workflow_id=7,
+                request=request,
+            )
+
+    assert exc_info.value.status_code == 403
+    process_status.assert_not_awaited()

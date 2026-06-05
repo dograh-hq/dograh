@@ -1,0 +1,46 @@
+{{- /*
+Browser-visible MinIO route. Mounted under the shared API/UI hostname at
+/voice-audio/* to mirror the existing nginx pass-through. Operators who
+want a dedicated hostname can edit this template.
+*/ -}}
+{{- if and (eq .Values.exposure.mode "gatewayApi") (or (eq .Values.storage.mode "internalMinio") (eq .Values.storage.mode "externalMinio")) }}
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ include "dograh.fullname" . }}-minio
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dograh.labels" . | nindent 4 }}
+spec:
+  parentRefs:
+    {{- if .Values.exposure.gatewayApi.createGateway }}
+    - name: {{ include "dograh.fullname" . }}
+    {{- else }}
+    {{- range .Values.exposure.gatewayApi.parentRefs }}
+    - name: {{ .name }}
+      {{- if .namespace }}
+      namespace: {{ .namespace }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  {{- if .Values.exposure.gatewayApi.listenerHostname }}
+  hostnames:
+    - {{ .Values.exposure.gatewayApi.listenerHostname | quote }}
+  {{- end }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /voice-audio/
+      backendRefs:
+        {{- if eq .Values.storage.mode "internalMinio" }}
+        - name: {{ include "dograh.minioHost" . }}
+          port: 9000
+        {{- else }}
+        # externalMinio: route to a placeholder Service named
+        # <release>-minio-external. Operators must create this Service of
+        # type ExternalName pointing at storage.externalMinio.endpoint.
+        - name: {{ include "dograh.fullname" . }}-minio-external
+          port: 9000
+        {{- end }}
+{{- end }}

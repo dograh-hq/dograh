@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -81,7 +81,10 @@ async def test_reload_text_chat_session_uses_run_id_to_resolve_organization(
 @pytest.mark.asyncio
 async def test_execute_pending_turn_surfaces_original_exception_message(monkeypatch):
     session = WorkflowRunTextSessionModel(workflow_run_id=42)
-    session.session_data = {"turns": [{"id": "turn-1", "status": "pending"}], "cursor_turn_id": "turn-1"}
+    session.session_data = {
+        "turns": [{"id": "turn-1", "status": "pending"}],
+        "cursor_turn_id": "turn-1",
+    }
     session.checkpoint = None
 
     monkeypatch.setattr(
@@ -95,7 +98,9 @@ async def test_execute_pending_turn_surfaces_original_exception_message(monkeypa
         AsyncMock(),
     )
 
-    with pytest.raises(TextChatSessionExecutionError, match="Workflow has 2 start nodes"):
+    with pytest.raises(
+        TextChatSessionExecutionError, match="Workflow has 2 start nodes"
+    ):
         await execute_pending_text_chat_turn(
             workflow_id=1,
             run_id=42,

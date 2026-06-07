@@ -20,6 +20,7 @@ class CallType(Enum):
 class WorkflowRunMode(Enum):
     ARI = "ari"
     PLIVO = "plivo"
+    TONE = "tone"
     TWILIO = "twilio"
     VONAGE = "vonage"
     VOBIZ = "vobiz"

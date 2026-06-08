@@ -10,6 +10,7 @@ import { EdgeChange, NodeChange } from "@xyflow/system";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useRef } from "react";
+import { toast } from "sonner";
 
 import { useWorkflowStore } from "@/app/workflow/[workflowId]/stores/workflowStore";
 import {
@@ -306,6 +307,13 @@ export const useWorkflowState = ({
         // This avoids a race condition where rfInstance.toObject() may return
         // stale node data if React hasn't re-rendered yet after a store update.
         const { nodes: currentNodes, edges: currentEdges } = useWorkflowStore.getState();
+        const triggerCount = currentNodes.filter(
+            (n) => bySpecName.get(n.type)?.category === 'trigger',
+        ).length;
+        if (triggerCount > 1) {
+            toast.error('A workflow can only have one trigger. Remove the extra trigger node before saving.');
+            return;
+        }
         const viewport = rfInstance.current.getViewport();
         const flow = { nodes: currentNodes, edges: currentEdges, viewport };
         let result: { versionNumber?: number; versionStatus?: string } | undefined;
@@ -372,6 +380,7 @@ export const useWorkflowState = ({
         user,
         validateWorkflow,
         applyWorkflowErrors,
+        bySpecName,
     ]);
 
     // Set up keyboard shortcut for save (Cmd/Ctrl + S)

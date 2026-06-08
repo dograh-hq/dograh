@@ -657,9 +657,17 @@ class ARIConnection:
             await self._mark_ext_channel(ext_channel_id)
             await self._set_channel_run(ext_channel_id, workflow_run_id)
             await self._set_pending_bridge(ext_channel_id, channel_id, workflow_run_id)
+            # Persist the caller channel id as call_id. Inbound runs already
+            # set this in create_workflow_run, but outbound runs never do, so
+            # without this the serializer hangup (provider reads
+            # gathered_context["call_id"]) and the StasisEnd teardown both get
+            # an empty channel id and fail to hang up the live caller channel.
             await db_client.update_workflow_run(
                 run_id=int(workflow_run_id),
-                gathered_context={"ext_channel_id": ext_channel_id},
+                gathered_context={
+                    "ext_channel_id": ext_channel_id,
+                    "call_id": channel_id,
+                },
             )
 
             # 3. Create the ext media channel with the id we just registered.

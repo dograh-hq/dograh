@@ -1,0 +1,54 @@
+name: PR Conventional Labeler
+
+# Labels each PR with its conventional-commit type (feat, fix, docs, perf,
+# refactor, chore) derived from the PR title. These labels drive the changelog
+# categories in .github/release.yml when release-please generates notes.
+# chore is labeled but excluded from the changelog (see .github/release.yml),
+# preserving the previous "chore hidden" behavior.
+
+on:
+  pull_request_target:
+    types: [opened, edited, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            // Conventional-commit types we manage as labels.
+            const managedLabels = ['feat', 'fix', 'docs', 'perf', 'refactor', 'chore'];
+
+            const pr = context.payload.pull_request;
+            const title = pr.title || '';
+
+            // Matches: feat:, fix(scope):, perf!:, refactor(api)!: ...
+            const match = title.match(/^([a-zA-Z]+)(\([^)]*\))?!?:/);
+            const type = match ? match[1].toLowerCase() : null;
+            const target = managedLabels.includes(type) ? type : null;
+
+            const { owner, repo } = context.repo;
+            const issue_number = pr.number;
+            const current = pr.labels.map(l => l.name);
+
+            // Remove any managed label that no longer matches the title
+            // (e.g. PR retitled from feat: to fix:).
+            for (const label of current) {
+              if (managedLabels.includes(label) && label !== target) {
+                await github.rest.issues
+                  .removeLabel({ owner, repo, issue_number, name: label })
+                  .catch(() => {});
+              }
+            }
+
+            // Apply the matching label if not already present.
+            if (target && !current.includes(target)) {
+              await github.rest.issues.addLabels({
+                owner, repo, issue_number, labels: [target],
+              });
+            }

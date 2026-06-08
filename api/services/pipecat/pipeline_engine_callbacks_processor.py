@@ -67,7 +67,7 @@ class PipelineEngineCallbacksProcessor(FrameProcessor):
                     self._end_task_frame_pushed = True
                 else:
                     logger.debug(
-                        "Max call duration exceeded. Skipping EndTaskFrame since already sent"
+                        "Max call duration exceeded. Skipping termination since already requested"
                     )
 
     async def _generation_started(self):

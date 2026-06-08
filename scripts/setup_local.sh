@@ -150,6 +150,7 @@ fi
 ENV_STEP=$TOTAL_STEPS
 echo -e "${BLUE}[$ENV_STEP/$TOTAL_STEPS] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
+POSTGRES_PASSWORD=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
 # Container registry for Dograh images
@@ -157,6 +158,11 @@ REGISTRY=$REGISTRY
 
 # JWT secret for OSS authentication
 OSS_JWT_SECRET=$OSS_JWT_SECRET
+
+# PostgreSQL password. Used by the postgres container on first init and by the
+# API's DATABASE_URL. Do not change after the first start — the password is
+# baked into the postgres data volume when it is first created.
+POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY

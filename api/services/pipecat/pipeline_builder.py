@@ -4,7 +4,7 @@ from loguru import logger
 
 from api.services.pipecat.audio_config import AudioConfig
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.run_context import turn_var
@@ -194,7 +194,7 @@ def create_pipeline_task(
             f"out: {audio_config.transport_out_sample_rate}Hz"
         )
 
-    task = PipelineTask(
+    task = PipelineWorker(
         pipeline,
         params=pipeline_params,
         enable_tracing=True,

@@ -51,6 +51,7 @@ from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
 from api.services.pipecat.transport_setup import create_webrtc_transport
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
@@ -61,7 +62,6 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
-from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -504,10 +504,16 @@ async def _run_pipeline(
     embeddings_api_key = None
     embeddings_model = None
     embeddings_base_url = None
+    embeddings_provider = None
+    embeddings_endpoint = None
+    embeddings_api_version = None
     if user_config and user_config.embeddings:
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
+        embeddings_provider = getattr(user_config.embeddings, "provider", None)
         embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+        embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+        embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
     # Check if the workflow has any active recordings so the engine can
     # include recording response mode instructions in all node prompts.
@@ -532,6 +538,9 @@ async def _run_pipeline(
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
         embeddings_base_url=embeddings_base_url,
+        embeddings_provider=embeddings_provider,
+        embeddings_endpoint=embeddings_endpoint,
+        embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
     )
@@ -821,12 +830,15 @@ async def _run_pipeline(
 
     try:
         # Run the pipeline
-        loop = asyncio.get_running_loop()
-        params = PipelineTaskParams(loop=loop)
-        await task.run(params)
+        await run_pipeline_worker(task)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
+        # scopes opened by MCPClient.start() in engine.initialize() are
+        # task-affine; this finally runs in the same task as initialize(),
+        # whereas engine.cleanup() runs in a pipecat event-handler task.
+        await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

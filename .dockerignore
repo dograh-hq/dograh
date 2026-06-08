@@ -1,4 +1,17 @@
 api/.env
+.git
+.github
+.claude
+**/.claude
+**/.next
+**/__pycache__
+**/*.pyc
+**/node_modules
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.venv
 evals/
 api/mcp_server/ts_validator/node_modules/
 sdk/
+venv

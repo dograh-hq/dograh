@@ -495,7 +495,10 @@ export const useWorkflowState = ({
                 throw new Error(msg);
             }
 
-            setWorkflowConfigurations(configurationsWithDictionary);
+            const savedConfigurations = response.data?.workflow_configurations
+                ? (response.data.workflow_configurations as WorkflowConfigurations)
+                : configurationsWithDictionary;
+            setWorkflowConfigurations(savedConfigurations);
             // Set name directly in the store to avoid setWorkflowName which marks isDirty: true
             useWorkflowStore.setState({ workflowName: newWorkflowName });
             logger.info('Workflow configurations saved successfully');

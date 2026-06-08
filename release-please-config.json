@@ -3,6 +3,7 @@
     ".": {
       "release-type": "simple",
       "package-name": "dograh",
+      "changelog-type": "github",
       "changelog-sections": [
         {
           "type": "feat",

@@ -79,8 +79,12 @@ class McpToolSession:
         self.available: bool = False
 
     async def start(self) -> None:
-        """Connect, initialize, and cache the tool list. Never raises —
-        on any failure the session is marked unavailable."""
+        """Connect, initialize, and cache the tool list.
+
+        Never raises on a connect failure — a dead/unreachable MCP server
+        leaves the session marked unavailable (``available = False``). Genuine
+        external cancellation, KeyboardInterrupt, and SystemExit are re-raised
+        (see the CancelledError handling below and ``_degrade``)."""
         try:
             params = build_streamable_http_params(
                 url=self._url,

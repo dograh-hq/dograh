@@ -9,6 +9,7 @@ The rules are simple:
    in storage.
 """
 
+import copy
 from typing import Any, Dict, Optional
 
 from api.schemas.user_configuration import UserConfiguration
@@ -19,6 +20,7 @@ VISIBLE_CHARS = 4  # number of trailing characters to reveal
 MASK_CHAR = "*"
 MASK_MARKER = "***"  # substring that indicates a masked key
 SERVICE_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
+MODEL_OVERRIDE_FIELDS = ("llm", "tts", "stt", "realtime")
 
 
 def contains_masked_key(value: str | list[str] | None) -> bool:
@@ -65,6 +67,12 @@ def mask_key(real_key: str, visible: int = VISIBLE_CHARS) -> str:
 
     masked_part = MASK_CHAR * (len(real_key) - visible)
     return f"{masked_part}{real_key[-visible:]}"
+
+
+def _mask_secret_value(value: str | list[str]) -> str | list[str]:
+    if isinstance(value, list):
+        return [mask_key(k) for k in value]
+    return mask_key(value)
 
 
 def is_mask_of(masked: str, real_key: str) -> bool:
@@ -117,10 +125,7 @@ def _mask_service(service_cfg: Optional[ServiceConfig]) -> Optional[Dict[str, An
         if secret_field not in data or not data[secret_field]:
             continue
         raw = data[secret_field]
-        if isinstance(raw, list):
-            data[secret_field] = [mask_key(k) for k in raw]
-        else:
-            data[secret_field] = mask_key(raw)
+        data[secret_field] = _mask_secret_value(raw)
     return data
 
 
@@ -137,6 +142,28 @@ def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
         "test_phone_number": config.test_phone_number,
         "timezone": config.timezone,
     }
+
+
+def mask_workflow_configurations(config: Optional[Dict]) -> Optional[Dict]:
+    """Mask secret fields inside workflow-level model overrides for API responses."""
+    if not config:
+        return config
+
+    masked = copy.deepcopy(config)
+    model_overrides = masked.get("model_overrides")
+    if not isinstance(model_overrides, dict):
+        return masked
+
+    for section in MODEL_OVERRIDE_FIELDS:
+        override = model_overrides.get(section)
+        if not isinstance(override, dict):
+            continue
+        for secret_field in SERVICE_SECRET_FIELDS:
+            raw = override.get(secret_field)
+            if raw:
+                override[secret_field] = _mask_secret_value(raw)
+
+    return masked
 
 
 # ---------------------------------------------------------------------------

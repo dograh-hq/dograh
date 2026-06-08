@@ -1,4 +1,5 @@
 from typing import TYPE_CHECKING
+from urllib.parse import urlencode, urlparse, urlunparse
 
 import aiohttp
 from fastapi import HTTPException
@@ -7,9 +8,12 @@ from loguru import logger
 from api.constants import MPS_API_URL
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
+from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
 from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
+from pipecat.services.azure.stt import AzureSTTService, AzureSTTSettings
+from pipecat.services.azure.tts import AzureTTSService, AzureTTSSettings
 from pipecat.services.cartesia.stt import CartesiaSTTService
 from pipecat.services.cartesia.tts import (
     CartesiaTTSService,
@@ -46,6 +50,7 @@ from pipecat.services.openai.stt import (
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.openrouter.llm import OpenRouterLLMService, OpenRouterLLMSettings
 from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
+from pipecat.services.sarvam.llm import SarvamLLMService, SarvamLLMSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
@@ -60,6 +65,16 @@ from pipecat.utils.text.xml_function_tag_filter import XMLFunctionTagFilter
 
 if TYPE_CHECKING:
     from api.services.pipecat.audio_config import AudioConfig
+
+
+def _validate_runtime_service_url(url: str, field_name: str) -> None:
+    try:
+        validate_user_configured_service_url(
+            url,
+            field_name=field_name,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
 
 
 def create_stt_service(
@@ -107,9 +122,15 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.OPENAI.value:
+        kwargs = {}
+        base_url = getattr(user_config.stt, "base_url", None)
+        if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
+            kwargs["base_url"] = base_url
         return OpenAISTTService(
             api_key=user_config.stt.api_key,
             settings=OpenAISTTSettings(model=user_config.stt.model),
+            **kwargs,
         )
     elif user_config.stt.provider == ServiceProviders.GOOGLE.value:
         language = getattr(user_config.stt, "language", None) or "en-US"
@@ -147,7 +168,7 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.SARVAM.value:
-        # Map Sarvam language code to pipecat Language enum
+        language = getattr(user_config.stt, "language", None)
         language_mapping = {
             "bn-IN": Language.BN_IN,
             "gu-IN": Language.GU_IN,
@@ -161,9 +182,18 @@ def create_stt_service(
             "od-IN": Language.OR_IN,
             "en-IN": Language.EN_IN,
             "as-IN": Language.AS_IN,
+            "ur-IN": Language.UR_IN,
+            "kok-IN": Language.KOK_IN,
+            "mai-IN": Language.MAI_IN,
+            "sd-IN": Language.SD_IN,
         }
-        language = getattr(user_config.stt, "language", None)
-        pipecat_language = language_mapping.get(language, Language.HI_IN)
+        if not language or language == "unknown":
+            pipecat_language = None
+        elif language in language_mapping:
+            pipecat_language = language_mapping[language]
+        else:
+            # Unmapped BCP-47 codes pass through; Sarvam accepts them per https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
+            pipecat_language = language
         return SarvamSTTService(
             api_key=user_config.stt.api_key,
             settings=SarvamSTTSettings(
@@ -174,6 +204,7 @@ def create_stt_service(
         )
     elif user_config.stt.provider == ServiceProviders.SPEACHES.value:
         language = getattr(user_config.stt, "language", None)
+        _validate_runtime_service_url(user_config.stt.base_url, "base_url")
         return SpeachesSTTService(
             base_url=user_config.stt.base_url,
             api_key=user_config.stt.api_key or "none",
@@ -234,6 +265,21 @@ def create_stt_service(
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.AZURE_SPEECH.value:
+        from pipecat.transcriptions.language import Language as PipecatLanguage
+
+        language_code = getattr(user_config.stt, "language", None) or "en-US"
+        region = getattr(user_config.stt, "region", None) or "eastus"
+        try:
+            pipecat_language = PipecatLanguage(language_code)
+        except ValueError:
+            pipecat_language = language_code
+        return AzureSTTService(
+            api_key=user_config.stt.api_key,
+            region=region,
+            settings=AzureSTTSettings(language=pipecat_language),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid STT provider {user_config.stt.provider}"
@@ -261,12 +307,18 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
             silence_time_s=1.0,
         )
     elif user_config.tts.provider == ServiceProviders.OPENAI.value:
+        kwargs = {}
+        base_url = getattr(user_config.tts, "base_url", None)
+        if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
+            kwargs["base_url"] = base_url
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
+            **kwargs,
         )
     elif user_config.tts.provider == ServiceProviders.GOOGLE.value:
         model = getattr(user_config.tts, "model", None) or "chirp_3_hd"
@@ -301,6 +353,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         # ElevenLabs TTS uses WebSocket. Users configure base_url with an HTTP
         # scheme (matching ElevenLabs documentation, e.g.
         # https://api.eu.residency.elevenlabs.io); rewrite it to the WS scheme.
+        _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         elevenlabs_url = user_config.tts.base_url.replace("https://", "wss://").replace(
             "http://", "ws://"
         )
@@ -376,6 +429,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         tts._settings.language = language
         return tts
     elif user_config.tts.provider == ServiceProviders.SPEACHES.value:
+        _validate_runtime_service_url(user_config.tts.base_url, "base_url")
         return SpeachesTTSService(
             base_url=user_config.tts.base_url,
             api_key=user_config.tts.api_key or "none",
@@ -461,6 +515,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         ).rstrip("/")
         if not base_url.endswith("/t2a_v2"):
             base_url = f"{base_url}/t2a_v2"
+        _validate_runtime_service_url(base_url, "base_url")
 
         session = aiohttp.ClientSession()
         return MiniMaxOwnedSessionTTSService(
@@ -473,6 +528,27 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
                 voice=voice,
                 speed=speed,
             ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.AZURE_SPEECH.value:
+        region = getattr(user_config.tts, "region", None) or "eastus"
+        voice = getattr(user_config.tts, "voice", None) or "en-US-AriaNeural"
+        language = getattr(user_config.tts, "language", None) or "en-US"
+        speed = getattr(user_config.tts, "speed", None) or 1.0
+        # Map speed multiplier (0.5–2.0) to Azure SSML rate string (e.g. "1.25")
+        rate = str(speed) if speed != 1.0 else None
+        settings_kwargs: dict = {
+            "voice": voice,
+            "language": language,
+        }
+        if rate:
+            settings_kwargs["rate"] = rate
+        return AzureTTSService(
+            api_key=user_config.tts.api_key,
+            region=region,
+            settings=AzureTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,
@@ -504,6 +580,10 @@ def create_llm_service_from_provider(
     """
     logger.info(f"Creating LLM service: provider={provider}, model={model}")
     if provider == ServiceProviders.OPENAI.value:
+        kwargs = {}
+        if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
+            kwargs["base_url"] = base_url
         if "gpt-5" in model:
             return OpenAILLMService(
                 api_key=api_key,
@@ -511,10 +591,12 @@ def create_llm_service_from_provider(
                     model=model,
                     extra={"reasoning_effort": "minimal", "verbosity": "low"},
                 ),
+                **kwargs,
             )
         return OpenAILLMService(
             api_key=api_key,
             settings=OpenAILLMSettings(model=model, temperature=0.1),
+            **kwargs,
         )
     elif provider == ServiceProviders.GROQ.value:
         return GroqLLMService(
@@ -524,6 +606,7 @@ def create_llm_service_from_provider(
     elif provider == ServiceProviders.OPENROUTER.value:
         kwargs = {}
         if base_url:
+            _validate_runtime_service_url(base_url, "base_url")
             kwargs["base_url"] = base_url
         return OpenRouterLLMService(
             api_key=api_key,
@@ -543,6 +626,8 @@ def create_llm_service_from_provider(
             settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.AZURE.value:
+        if endpoint:
+            _validate_runtime_service_url(endpoint, "endpoint")
         return AzureLLMService(
             api_key=api_key,
             endpoint=endpoint,
@@ -562,18 +647,30 @@ def create_llm_service_from_provider(
             settings=AWSBedrockLLMSettings(model=model),
         )
     elif provider == ServiceProviders.SPEACHES.value:
+        base_url = base_url or "http://localhost:11434/v1"
+        _validate_runtime_service_url(base_url, "base_url")
         return SpeachesLLMService(
-            base_url=base_url or "http://localhost:11434/v1",
+            base_url=base_url,
             api_key=api_key or "none",
             settings=SpeachesLLMSettings(model=model),
         )
     elif provider == ServiceProviders.MINIMAX.value:
+        base_url = base_url or "https://api.minimax.io/v1"
+        _validate_runtime_service_url(base_url, "base_url")
         return MiniMaxLLMService(
             api_key=api_key,
-            base_url=base_url or "https://api.minimax.io/v1",
+            base_url=base_url,
             settings=MiniMaxLLMService.Settings(
                 model=model,
                 temperature=temperature if temperature is not None else 1.0,
+            ),
+        )
+    elif provider == ServiceProviders.SARVAM.value:
+        return SarvamLLMService(
+            api_key=api_key,
+            settings=SarvamLLMSettings(
+                model=model,
+                temperature=temperature if temperature is not None else 0.5,
             ),
         )
     else:
@@ -696,6 +793,58 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             location=location,
             settings=DograhGeminiLiveVertexLLMService.Settings(**settings_kwargs),
         )
+    elif provider == ServiceProviders.AZURE_REALTIME.value:
+        from api.services.pipecat.realtime.azure_realtime import (
+            DograhAzureRealtimeLLMService,
+        )
+        from pipecat.services.openai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            AudioOutput,
+            InputAudioTranscription,
+            SessionProperties,
+        )
+
+        endpoint = getattr(realtime_config, "endpoint", None) or ""
+        if not endpoint:
+            raise HTTPException(
+                status_code=400,
+                detail="Azure Realtime requires an endpoint.",
+            )
+        _validate_runtime_service_url(endpoint, "endpoint")
+        api_version = (
+            getattr(realtime_config, "api_version", None) or "2025-04-01-preview"
+        )
+        # Construct the Azure Realtime WebSocket URL
+        # https://<resource>.openai.azure.com/openai/realtime?api-version=<ver>&deployment=<model>
+        parsed_endpoint = urlparse(endpoint)
+        wss_url = urlunparse(
+            (
+                "wss",
+                parsed_endpoint.netloc,
+                "/openai/realtime",
+                "",
+                urlencode({"api-version": api_version, "deployment": model}),
+                "",
+            )
+        )
+        return DograhAzureRealtimeLLMService(
+            api_key=api_key,
+            base_url=wss_url,
+            settings=DograhAzureRealtimeLLMService.Settings(
+                model=model,
+                session_properties=SessionProperties(
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(),
+                        ),
+                        output=AudioOutput(
+                            voice=voice or "alloy",
+                        ),
+                    ),
+                ),
+            ),
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid realtime LLM provider {provider}"
@@ -709,7 +858,9 @@ def create_llm_service(user_config):
     api_key = user_config.llm.api_key
 
     kwargs = {}
-    if provider == ServiceProviders.OPENROUTER.value:
+    if provider == ServiceProviders.OPENAI.value:
+        kwargs["base_url"] = user_config.llm.base_url
+    elif provider == ServiceProviders.OPENROUTER.value:
         kwargs["base_url"] = user_config.llm.base_url
     elif provider == ServiceProviders.AZURE.value:
         kwargs["endpoint"] = user_config.llm.endpoint
@@ -725,6 +876,8 @@ def create_llm_service(user_config):
         kwargs["credentials"] = user_config.llm.credentials
     elif provider == ServiceProviders.MINIMAX.value:
         kwargs["base_url"] = user_config.llm.base_url
+        kwargs["temperature"] = user_config.llm.temperature
+    elif provider == ServiceProviders.SARVAM.value:
         kwargs["temperature"] = user_config.llm.temperature
 
     return create_llm_service_from_provider(provider, model, api_key, **kwargs)

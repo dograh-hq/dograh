@@ -1,5 +1,82 @@
 # Changelog
 
+## 1.34.0 (2026-06-03)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add mcp guides for various topic and stages for bot building by @a6kme in https://github.com/dograh-hq/dograh/pull/380
+* feat: allow overriding base URL of OpenAI STT and TTS by @developer603 in https://github.com/dograh-hq/dograh/pull/377
+* feat: add Azure AI multi-provider support (TTS, STT, Embeddings, Realtime) by @vishaldhateria in https://github.com/dograh-hq/dograh/pull/381
+### Bug Fixes
+* fix: support object and array parameters in custom HTTP tools by @mvanhorn in https://github.com/dograh-hq/dograh/pull/373
+* fix(telephony): resolve transfer context via call-sid index instead of KEYS scan by @shiminshen in https://github.com/dograh-hq/dograh/pull/387
+* fix(webrtc): enforce embed allowed-domain policy on public signaling websocket by @shiminshen in https://github.com/dograh-hq/dograh/pull/388
+* fix: use runtime BACKEND_URL for proxying by @a6kme in https://github.com/dograh-hq/dograh/pull/411
+* fix: add CORS preflight handler and ACAO header for embed config endpoint by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/403
+### Other Changes
+* Add Sarvam LLM, update Sarvam STT models, expose usage_info on run detail by @abhaybabbar in https://github.com/dograh-hq/dograh/pull/351
+* fix: make email lookup case-insensitive in get_user_by_email by @developer603 in https://github.com/dograh-hq/dograh/pull/397
+
+## New Contributors
+* @abhaybabbar made their first contribution in https://github.com/dograh-hq/dograh/pull/351
+* @mvanhorn made their first contribution in https://github.com/dograh-hq/dograh/pull/373
+* @developer603 made their first contribution in https://github.com/dograh-hq/dograh/pull/377
+* @vishaldhateria made their first contribution in https://github.com/dograh-hq/dograh/pull/381
+* @shiminshen made their first contribution in https://github.com/dograh-hq/dograh/pull/387
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.33.0...dograh-v1.34.0
+
+## [1.33.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.32.0...dograh-v1.33.0) (2026-05-31)
+
+
+### Features
+
+* abort immediately on max call duration exceed ([c586d02](https://github.com/dograh-hq/dograh/commit/c586d02d5d7f88a5222ade71a46c2f797c89a754))
+* banner if API is not reachable ([78ba62e](https://github.com/dograh-hq/dograh/commit/78ba62e18558bb6d5407810807301cc611773d42))
+
+
+### Bug Fixes
+
+* fix inbound for Cloudonix with softphone ([e695436](https://github.com/dograh-hq/dograh/commit/e695436fb364446c8b18330d5cb22e4661a4c991))
+* store channel id in gathered context for ARI outbound ([8f10bca](https://github.com/dograh-hq/dograh/commit/8f10bcade32079af126e4e9d83061cd30936fcad))
+
+## [1.32.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.31.0...dograh-v1.32.0) (2026-05-28)
+
+
+### Features
+
+* add copy-to-clipboard button for inbound webhook URL ([#359](https://github.com/dograh-hq/dograh/issues/359)) ([62d3749](https://github.com/dograh-hq/dograh/commit/62d3749219c08437774c851a9f7cae5b0fd3c299))
+* add delete button in an edge in workflow builder ([#366](https://github.com/dograh-hq/dograh/issues/366)) ([9675151](https://github.com/dograh-hq/dograh/commit/9675151549bd9c27e3ba937f458115e9900d326f))
+* add devcontainer based setup  ([#352](https://github.com/dograh-hq/dograh/issues/352)) ([0716582](https://github.com/dograh-hq/dograh/commit/0716582aa7597e2697f72313237c69b2ac0e30db))
+* add google stt and tts. add folders to organize agents ([ad2fa07](https://github.com/dograh-hq/dograh/commit/ad2fa0705882bf6ba48c5ba65cc6bfac90e105cf))
+* add MiniMax provider support (Chat + TTS) ([#309](https://github.com/dograh-hq/dograh/issues/309)) ([0e0d313](https://github.com/dograh-hq/dograh/commit/0e0d3136ca9d2986e76c982a08c957bb62e94a6f))
+* add transcript and recording public URLs in API ([3df5730](https://github.com/dograh-hq/dograh/commit/3df5730076f39c8cb981d1b5b1f4060278e75cb8))
+* add ultravox realtime and fix signature issue in telephony ([#345](https://github.com/dograh-hq/dograh/issues/345)) ([3892b58](https://github.com/dograh-hq/dograh/commit/3892b584861e4a7bec56f03950fedca5171e6079))
+* add xai grok as realtime model ([9135c2d](https://github.com/dograh-hq/dograh/commit/9135c2da1360e4d93d822375011351f2fa67f729))
+* allow overriding base URL of OpenAI models ([#368](https://github.com/dograh-hq/dograh/issues/368)) ([8a58b09](https://github.com/dograh-hq/dograh/commit/8a58b0992d588c199f6ee1f77d959efc16a2a97c))
+* stamp API key into model override at save time to survive global provider change ([#362](https://github.com/dograh-hq/dograh/issues/362)) ([5b61ad6](https://github.com/dograh-hq/dograh/commit/5b61ad645f8af066d98cec9038daa943a2c9bc9e))
+
+
+### Bug Fixes
+
+* abort docker compose when OSS_JWT_SECRET is unset ([#356](https://github.com/dograh-hq/dograh/issues/356)) ([7eecadd](https://github.com/dograh-hq/dograh/commit/7eecadd8d64c77ba4118bb6397f7eac474868bfb))
+* fix 1008 policy violation issue on ElevenLabs ([93edef3](https://github.com/dograh-hq/dograh/commit/93edef35e8a7cce0c0ebe72bbd77510a29312082))
+* fix projection to TS when fetching agnet in MCP ([bbb4f91](https://github.com/dograh-hq/dograh/commit/bbb4f91a2747c5a6b36a6675d6823396d2b44790))
+* fix service key validation in OSS ([#371](https://github.com/dograh-hq/dograh/issues/371)) ([b891091](https://github.com/dograh-hq/dograh/commit/b891091e0e2127ff704b8c3cb984b1195483cf71)), closes [#303](https://github.com/dograh-hq/dograh/issues/303)
+* fix vobiz webhook signature validation ([285de92](https://github.com/dograh-hq/dograh/commit/285de925282da9f4213bf802844f20c55127cbd8))
+* harden CORS origin allow list ([6f79bd6](https://github.com/dograh-hq/dograh/commit/6f79bd67eb2f21de9cfb3252f969e8d7f4609c9a)), closes [#322](https://github.com/dograh-hq/dograh/issues/322)
+* run api container as non-root dograh user ([#360](https://github.com/dograh-hq/dograh/issues/360)) ([573dd68](https://github.com/dograh-hq/dograh/commit/573dd68d76a689d49a2ebaca059a366331a9beb9))
+
+
+### Documentation
+
+* add github trending badge in README ([1e8f832](https://github.com/dograh-hq/dograh/commit/1e8f832bcc2174099dea5294e9fae2c4212b1e81))
+* **asterisk-ari:** add required TLS config for Dograh Cloud and reload/codec notes ([9e12d96](https://github.com/dograh-hq/dograh/commit/9e12d96ebbf9ed81c62b978a88f7964d1d0ce3da))
+* clarify Asterisk ARI WebSocket URI for Dograh Cloud vs self-hosted ([#358](https://github.com/dograh-hq/dograh/issues/358)) ([92c8dad](https://github.com/dograh-hq/dograh/commit/92c8dadd34905eb2401a742c75beb031fe586fed))
+* fix asterisk protocol in mintlify websocket client config ([a725fda](https://github.com/dograh-hq/dograh/commit/a725fda274d81e3072de9864cb63cc3eed339392))
+
 ## [1.31.0](https://github.com/dograh-hq/dograh/compare/dograh-v1.30.1...dograh-v1.31.0) (2026-05-21)
 
 

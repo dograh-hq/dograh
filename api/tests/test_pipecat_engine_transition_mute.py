@@ -15,8 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from pipecat.frames.frames import LLMContextFrame
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -31,6 +30,7 @@ from pipecat.turns.user_mute import (
     MuteUntilFirstBotCompleteUserMuteStrategy,
 )
 
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.pipecat_engine_variable_extractor import (
     VariableExtractionManager,
@@ -99,7 +99,7 @@ async def _build_engine_and_pipeline(
         ]
     )
 
-    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+    task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
     return engine, task, function_call_mute_strategy, user_context_aggregator
@@ -182,10 +182,9 @@ class TestTransitionFunctionMutesUser:
                     new_callable=AsyncMock,
                     return_value={"user_intent": "end call"},
                 ):
-                    runner = PipelineRunner()
 
                     async def run_pipeline():
-                        await runner.run(task)
+                        await run_pipeline_worker(task)
 
                     async def initialize_engine():
                         await asyncio.sleep(0.01)
@@ -257,10 +256,9 @@ class TestTransitionFunctionMutesUser:
                     new_callable=AsyncMock,
                     return_value={"user_intent": "end call"},
                 ):
-                    runner = PipelineRunner()
 
                     async def run_pipeline():
-                        await runner.run(task)
+                        await run_pipeline_worker(task)
 
                     async def initialize_engine():
                         await asyncio.sleep(0.01)

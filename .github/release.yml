@@ -1,0 +1,25 @@
+changelog:
+  exclude:
+    labels:
+      - chore
+      - "autorelease: pending"
+      - "autorelease: tagged"
+  categories:
+    - title: Features
+      labels:
+        - feat
+    - title: Bug Fixes
+      labels:
+        - fix
+    - title: Documentation
+      labels:
+        - docs
+    - title: Performance Improvements
+      labels:
+        - perf
+    - title: Code Refactoring
+      labels:
+        - refactor
+    - title: Other Changes
+      labels:
+        - "*"

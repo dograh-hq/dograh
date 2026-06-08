@@ -2,7 +2,12 @@
 
 import sentry_sdk
 
-from api.constants import DEPLOYMENT_MODE, ENABLE_TELEMETRY, SENTRY_DSN
+from api.constants import (
+    CORS_ALLOWED_ORIGINS,
+    DEPLOYMENT_MODE,
+    ENABLE_TELEMETRY,
+    SENTRY_DSN,
+)
 from api.logging_config import ENVIRONMENT, setup_logging
 
 # Set up logging and get the listener for cleanup
@@ -83,14 +88,43 @@ app = FastAPI(
 )
 
 
-# Configure CORS
+# Configure CORS.
+# OSS is typically deployed with UI and API behind a single reverse proxy
+# (same-origin, so CORS does not apply). Keep it permissive without
+# credentials — wildcard + credentials is rejected by browsers and unsafe.
+# SaaS deployments must set CORS_ALLOWED_ORIGINS to an explicit allowlist.
+if DEPLOYMENT_MODE == "oss":
+    cors_origins: list[str] = ["*"]
+    cors_allow_credentials = False
+else:
+    if not CORS_ALLOWED_ORIGINS:
+        raise RuntimeError(
+            "CORS_ALLOWED_ORIGINS must be set to an explicit origin allowlist "
+            "when DEPLOYMENT_MODE != 'oss'"
+        )
+    if "*" in CORS_ALLOWED_ORIGINS:
+        raise RuntimeError(
+            "CORS_ALLOWED_ORIGINS cannot contain '*' with credentialed requests"
+        )
+    cors_origins = CORS_ALLOWED_ORIGINS
+    cors_allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+
+def _add_public_embed_cors_middleware() -> None:
+    from api.routes.public_embed import PublicEmbedCORSMiddleware
+
+    app.add_middleware(PublicEmbedCORSMiddleware, api_prefix=API_PREFIX)
+
+
+_add_public_embed_cors_middleware()
 
 api_router = APIRouter()
 

@@ -10,7 +10,7 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     TTSSpeakFrame,
 )
-from pipecat.pipeline.task import PipelineTask
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.settings import LLMSettings
@@ -60,7 +60,7 @@ class PipecatEngine:
     def __init__(
         self,
         *,
-        task: Optional[PipelineTask] = None,
+        task: Optional[PipelineWorker] = None,
         llm: Optional["LLMService"] = None,
         inference_llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
@@ -73,6 +73,9 @@ class PipecatEngine:
         embeddings_api_key: Optional[str] = None,
         embeddings_model: Optional[str] = None,
         embeddings_base_url: Optional[str] = None,
+        embeddings_provider: Optional[str] = None,
+        embeddings_endpoint: Optional[str] = None,
+        embeddings_api_version: Optional[str] = None,
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
     ):
@@ -126,6 +129,9 @@ class PipecatEngine:
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
         self._embeddings_base_url: Optional[str] = embeddings_base_url
+        self._embeddings_provider: Optional[str] = embeddings_provider
+        self._embeddings_endpoint: Optional[str] = embeddings_endpoint
+        self._embeddings_api_version: Optional[str] = embeddings_api_version
 
         # Audio configuration (set via set_audio_config from _run_pipeline)
         self._audio_config = None
@@ -373,6 +379,9 @@ class PipecatEngine:
                     embeddings_api_key=self._embeddings_api_key,
                     embeddings_model=self._embeddings_model,
                     embeddings_base_url=self._embeddings_base_url,
+                    embeddings_provider=self._embeddings_provider,
+                    embeddings_endpoint=self._embeddings_endpoint,
+                    embeddings_api_version=self._embeddings_api_version,
                     tracing_context=self._get_otel_context(),
                 )
 
@@ -842,7 +851,7 @@ class PipecatEngine:
         """
         self.context = context
 
-    def set_task(self, task: PipelineTask) -> None:
+    def set_task(self, task: PipelineWorker) -> None:
         """Set the pipeline task.
 
         This allows setting the task after the engine has been created,
@@ -955,7 +964,15 @@ class PipecatEngine:
                 exc_info=True,
             )
 
-    async def _close_mcp_sessions(self) -> None:
+    async def close_mcp_sessions(self) -> None:
+        """Close all open MCP tool sessions.
+
+        Must run in the same task that ran initialize() (which opened the
+        sessions via _open_mcp_sessions). The MCP client's underlying anyio
+        cancel scopes are task-affine — they must be exited from the task that
+        entered them — so this is invoked from _run_pipeline's finally, not
+        from cleanup() (which runs in a pipecat event-handler task).
+        """
         for tool_uuid, session in list(self._mcp_sessions.items()):
             try:
                 await session.close()
@@ -964,7 +981,14 @@ class PipecatEngine:
         self._mcp_sessions = {}
 
     async def cleanup(self):
-        """Clean up engine resources on disconnect."""
+        """Clean up engine resources on disconnect.
+
+        MCP tool sessions are intentionally NOT closed here — see
+        close_mcp_sessions(). This method runs in a pipecat event-handler task
+        (on_pipeline_finished), a different task than the one that opened the
+        MCP sessions; closing them here raises "Attempted to exit cancel scope
+        in a different task than it was entered in".
+        """
         # Cancel any pending timeout tasks
         if (
             self._user_response_timeout_task
@@ -973,11 +997,5 @@ class PipecatEngine:
             self._user_response_timeout_task.cancel()
 
         # Cancel any in-flight background summarization.
-        # MCP sessions are closed in a finally block so they are guaranteed to
-        # run even if the summarization cleanup raises an exception.
-        try:
-            if self._context_summarization_manager:
-                await self._context_summarization_manager.cleanup()
-        finally:
-            # Close any open MCP tool sessions
-            await self._close_mcp_sessions()
+        if self._context_summarization_manager:
+            await self._context_summarization_manager.cleanup()

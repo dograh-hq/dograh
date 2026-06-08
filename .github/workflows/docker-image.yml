@@ -3,24 +3,79 @@ name: Build and Push Docker Images
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag to publish for a manual test run. Defaults to test-<short-sha>."
+        required: false
+        type: string
+      push_latest:
+        description: "Also update :latest. Leave false for test runs."
+        required: false
+        default: false
+        type: boolean
 
-# Ensure only one workflow run per branch at a time; cancel any in-progress runs on new push
+permissions:
+  contents: read
+  packages: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    env:
-      COMMIT_SHA: ${{ github.sha }}
+env:
+  REGISTRY_GHCR: ghcr.io
 
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      short_sha: ${{ steps.tags.outputs.short_sha }}
+      version: ${{ steps.tags.outputs.version }}
+      push_latest: ${{ steps.tags.outputs.push_latest }}
+    steps:
+      - name: Compute tags
+        id: tags
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            VERSION="${VERSION#dograh-}"
+            VERSION="${VERSION#v}"
+            PUSH_LATEST="true"
+          else
+            VERSION="${{ inputs.image_tag }}"
+            if [ -z "$VERSION" ]; then
+              VERSION="test-${SHORT_SHA}"
+            fi
+            PUSH_LATEST="${{ inputs.push_latest }}"
+          fi
+
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "push_latest=${PUSH_LATEST}" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: prepare
     strategy:
+      fail-fast: false
       matrix:
         service:
-          - "dograh-api|api/Dockerfile|."
-          - "dograh-ui|ui/Dockerfile|."
-
+          - name: dograh-api
+            dockerfile: api/Dockerfile
+            context: .
+          - name: dograh-ui
+            dockerfile: ui/Dockerfile
+            context: .
+        platform:
+          - name: linux/amd64
+            runner: ubuntu-24.04
+            short: amd64
+          - name: linux/arm64
+            runner: ubuntu-24.04-arm
+            short: arm64
+    runs-on: ${{ matrix.platform.runner }}
     steps:
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
@@ -38,90 +93,153 @@ jobs:
         with:
           submodules: true
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to DockerHub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Log in to GHCR
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY_GHCR }}
           username: ${{ secrets.GHCR_USERNAME }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Set build variables
-        id: build-vars
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          platforms: ${{ matrix.platform.name }}
+          outputs: 'type=image,"name=${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.name }},${{ env.REGISTRY_GHCR }}/${{ secrets.GHCR_USERNAME }}/${{ matrix.service.name }}",push-by-digest=true,name-canonical=true,push=true'
+          cache-from: type=gha,scope=${{ matrix.service.name }}-${{ matrix.platform.short }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}-${{ matrix.platform.short }}
+
+      - name: Export digest
         run: |
-          SERVICE="${{ matrix.service }}"
-          IMAGE_NAME=$(echo "$SERVICE" | cut -d '|' -f1)
-          SHORT_SHA=${COMMIT_SHA::8}
+          mkdir -p "/tmp/digests/${{ matrix.service.name }}"
+          echo "${{ steps.build.outputs.digest }}" | sed 's/^sha256://' > "/tmp/digests/${{ matrix.service.name }}/${{ matrix.platform.short }}"
 
-          # Get version from release tag (removes 'dograh-' and 'v' prefixes if present)
-          VERSION="${{ github.event.release.tag_name }}"
-          VERSION="${VERSION#dograh-}"
-          VERSION="${VERSION#v}"
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.service.name }}-${{ matrix.platform.short }}
+          path: /tmp/digests/${{ matrix.service.name }}/${{ matrix.platform.short }}
+          retention-days: 1
 
-          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+  merge:
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download API digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-dograh-api-*
+          merge-multiple: true
+          path: /tmp/digests/dograh-api
 
-      - name: Build and Push ${{ matrix.service }}
-        id: docker-build
+      - name: Download UI digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digest-dograh-ui-*
+          merge-multiple: true
+          path: /tmp/digests/dograh-ui
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to DockerHub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY_GHCR }}
+          username: ${{ secrets.GHCR_USERNAME }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Create manifest lists
+        env:
+          DH_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
+          GH_NAMESPACE: ${{ env.REGISTRY_GHCR }}/${{ secrets.GHCR_USERNAME }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          SHORT_SHA: ${{ needs.prepare.outputs.short_sha }}
+          PUSH_LATEST: ${{ needs.prepare.outputs.push_latest }}
         run: |
-          SERVICE="${{ matrix.service }}"
-          IMAGE_NAME=$(echo "$SERVICE" | cut -d '|' -f1)
-          DOCKERFILE=$(echo "$SERVICE" | cut -d '|' -f2)
-          CONTEXT=$(echo "$SERVICE" | cut -d '|' -f3)
-          SHORT_SHA=${COMMIT_SHA::8}
-          VERSION="${{ steps.build-vars.outputs.version }}"
+          inspect_digests() {
+            service="$1"
+            digest_dir="/tmp/digests/$service"
+            dh_image="$DH_NAMESPACE/$service"
+            gh_image="$GH_NAMESPACE/$service"
 
-          echo "Building and pushing image: $IMAGE_NAME"
-          echo "Dockerfile: $DOCKERFILE"
-          echo "Context: $CONTEXT"
-          echo "Version: $VERSION"
+            for digest_file in "$digest_dir"/*; do
+              digest="$(cat "$digest_file")"
+              docker buildx imagetools inspect "$dh_image@sha256:$digest" >/dev/null
+              docker buildx imagetools inspect "$gh_image@sha256:$digest" >/dev/null
+            done
+          }
 
-          echo "image_name=${IMAGE_NAME}" >> $GITHUB_OUTPUT
-          echo "dockerhub_tag=${{ secrets.DOCKERHUB_USERNAME }}/${IMAGE_NAME}:${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "ghcr_tag=ghcr.io/${{ secrets.GHCR_USERNAME }}/${IMAGE_NAME}:${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "short_sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
+          create_manifests() {
+            service="$1"
+            digest_dir="/tmp/digests/$service"
+            dh_image="$DH_NAMESPACE/$service"
+            gh_image="$GH_NAMESPACE/$service"
 
-          docker buildx build \
-            -f "$DOCKERFILE" \
-            --platform linux/amd64,linux/arm64 \
-            --tag ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:$VERSION \
-            --tag ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:$SHORT_SHA \
-            --tag ${{ secrets.DOCKERHUB_USERNAME }}/$IMAGE_NAME:latest \
-            --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:$VERSION \
-            --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:$SHORT_SHA \
-            --tag ghcr.io/${{ secrets.GHCR_USERNAME }}/$IMAGE_NAME:latest \
-            --push "$CONTEXT"
+            dh_refs=$(printf "${dh_image}@sha256:%s " $(cat "$digest_dir"/*))
+            gh_refs=$(printf "${gh_image}@sha256:%s " $(cat "$digest_dir"/*))
 
-      - name: Send Slack notification - Success
-        if: success()
+            dh_tags=(-t "$dh_image:$VERSION" -t "$dh_image:$SHORT_SHA")
+            gh_tags=(-t "$gh_image:$VERSION" -t "$gh_image:$SHORT_SHA")
+
+            if [ "$PUSH_LATEST" = "true" ]; then
+              dh_tags+=(-t "$dh_image:latest")
+              gh_tags+=(-t "$gh_image:latest")
+            fi
+
+            docker buildx imagetools create "${dh_tags[@]}" $dh_refs
+            docker buildx imagetools create "${gh_tags[@]}" $gh_refs
+          }
+
+          inspect_digests dograh-api
+          inspect_digests dograh-ui
+          create_manifests dograh-api
+          create_manifests dograh-ui
+
+  notify:
+    needs:
+      - prepare
+      - merge
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Slack success
+        if: needs.merge.result == 'success'
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         with:
           payload: |
             {
-              "text": "✅ Docker Build Successful - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.version }}) on ${{ github.ref_name }} by ${{ github.actor }}"
+              "text": "✅ Docker images built for ${{ needs.prepare.outputs.version }} on ${{ github.ref_name }} by ${{ github.actor }}"
             }
 
-      - name: Send Slack notification - Failure
-        if: failure()
+      - name: Slack failure
+        if: needs.merge.result != 'success'
         uses: slackapi/slack-github-action@v1.26.0
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         with:
           payload: |
             {
-              "text": "❌ Docker Build Failed - ${{ steps.build-vars.outputs.image_name }} (${{ steps.build-vars.outputs.version }}) on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+              "text": "❌ Docker build failed for ${{ needs.prepare.outputs.version }} on ${{ github.ref_name }} by ${{ github.actor }} - <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
             }

@@ -116,25 +116,12 @@ class TelnyxConferenceStrategy(TransferStrategy):
     async def _find_transfer_context_for_call(self, caller_call_control_id: str):
         """Find the active transfer context whose original_call_sid matches."""
         try:
-            import redis.asyncio as aioredis
+            from api.services.telephony.call_transfer_manager import (
+                get_call_transfer_manager,
+            )
 
-            from api.constants import REDIS_URL
-            from api.services.telephony.transfer_event_protocol import TransferContext
-
-            redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-            transfer_keys = await redis.keys("transfer:context:*")
-
-            for key in transfer_keys:
-                try:
-                    context_data = await redis.get(key)
-                    if context_data:
-                        context = TransferContext.from_json(context_data)
-                        if context.original_call_sid == caller_call_control_id:
-                            return context
-                except Exception:
-                    continue
-
-            return None
+            manager = await get_call_transfer_manager()
+            return await manager.find_transfer_context_for_call(caller_call_control_id)
 
         except Exception as e:
             logger.error(f"[Telnyx Transfer] Error finding transfer context: {e}")

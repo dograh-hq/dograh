@@ -71,6 +71,21 @@ useEffect(() => {
 
 The auth interceptor (which attaches the Bearer token) is only registered once auth is fully loaded. Fetching before that sends unauthenticated requests that silently fail.
 
+### API Error Handling
+
+The generated client does **not** throw on HTTP error responses — it resolves to `{ data, error }`. A `try/catch` only catches network failures, so a 4xx/5xx slips through silently if you only check `response.data`. Always check `response.error`:
+
+```tsx
+const response = await someApiCall({ ... });
+if (response.error) {
+  setError(detailFromError(response.error, "Failed to save thing"));
+  return;
+}
+// ...use response.data
+```
+
+Use `detailFromError` from `@/lib/apiError` to turn the error into a string — never render `error.detail` directly. FastAPI returns `detail` as a string for `HTTPException` but as an **array** of `{ msg, loc, ... }` objects for 422 validation errors; passing that array to React (`{error}`) crashes the page with "Objects are not valid as a React child". The helper normalizes both shapes and takes an optional fallback message.
+
 ## Development
 
 ```bash

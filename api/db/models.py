@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    func,
     text,
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -67,8 +68,17 @@ class UserModel(Base):
         back_populates="users",
     )
     is_superuser = Column(Boolean, default=False)
-    email = Column(String, unique=True, index=True, nullable=True)
+    email = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_users_email_lower",
+            func.lower(email),
+            unique=True,
+            postgresql_where=text("email IS NOT NULL"),
+        ),
+    )
 
 
 class UserConfigurationModel(Base):

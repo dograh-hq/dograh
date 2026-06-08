@@ -13,14 +13,14 @@ This guide focuses on the Dograh-specific configuration. For general Asterisk in
 
 Before setting up the ARI integration, ensure you have:
 
-- A running Asterisk instance (version 16 or later recommended)
+- A running Asterisk instance with `chan_websocket` and `res_websocket_client` modules available. Known-working setups: (a) Asterisk 22+, (b) Asterisk 20 LTS with these modules included
 - ARI module enabled in Asterisk
-- `chan_websocket` (WebSocket channel driver) enabled in your Asterisk build
+- `chan_websocket` (WebSocket channel driver) and `res_websocket_client` (loads `websocket_client.conf`) enabled in your Asterisk build. Verify with `asterisk -rx "module show like chan_websocket"` and `asterisk -rx "module show like res_websocket_client"` — both should report **Running**.
 - Network connectivity between your Dograh instance and Asterisk
 - Dograh AI instance running and accessible
 
 <Note>
-If you compiled Asterisk from source, ensure `chan_websocket` is included during the build. This module is required for external media streaming between Asterisk and Dograh. Refer to the [Asterisk build system documentation](https://docs.asterisk.org/) for details on enabling modules.
+If you compiled Asterisk from source, ensure both `chan_websocket` and `res_websocket_client` are included during the build. These modules are required for external media streaming between Asterisk and Dograh. Refer to the [Asterisk build system documentation](https://docs.asterisk.org/) for details on enabling modules.
 </Note>
 
 ## Asterisk Configuration
@@ -73,18 +73,56 @@ Replace `dograh` with the app name you configured in `ari.conf` and in Dograh.
 
 Dograh uses Asterisk's external media streaming to send and receive audio over WebSocket. Configure a WebSocket client connection that points to your Dograh instance:
 
-```ini
-[dograh]
-type = websocket_client
-uri = ws://your-dograh-host:port/api/v1/telephony/ws/ari
-protocols = media
-```
+<Tabs>
+  <Tab title="Dograh Cloud">
+    ```ini
+    [dograh]
+    type = websocket_client
+    uri = wss://api.dograh.com/api/v1/telephony/ws/ari
+    protocols = media
+    tls_enabled = yes
+    ca_list_file = /etc/ssl/certs/ca-certificates.crt
+    ```
+
+    <Note>
+    `tls_enabled = yes` is required even though the URI scheme is `wss://` — without it Asterisk will not negotiate TLS and the connection will fail. The ARI credentials (**Stasis App Name** and **App Password**) must match what you configure in the Dograh dashboard under Telephony Settings.
+    </Note>
+  </Tab>
+  <Tab title="Self-hosted">
+    ```ini
+    [dograh]
+    type = websocket_client
+    uri = ws://your-dograh-host:port/api/v1/telephony/ws/ari
+    protocols = media
+    ```
+
+    <Note>
+    Self-hosted deployments on an internal network may use an unencrypted WebSocket (`ws://`). If your Dograh instance is exposed over HTTPS, use `wss://` and the corresponding hostname instead.
+    </Note>
+  </Tab>
+</Tabs>
 
 <Note>
 The section name (e.g., `dograh`) is the **WebSocket Client Name** you'll enter in the Dograh telephony configuration. This name tells Asterisk which WebSocket connection to use for external media streaming during calls.
 </Note>
 
+<Note>
+Dograh's external media channel uses **G.711 μ-law (`ulaw`)**. Make sure any PJSIP endpoint or SIP trunk that places or receives calls through Dograh allows `ulaw` (e.g. `allow=ulaw` in the endpoint config).
+</Note>
+
 Refer to the [Asterisk WebSocket documentation](https://docs.asterisk.org/) for additional `websocket_client.conf` options and TLS configuration.
+
+### Apply the configuration changes
+
+After editing any of the files above, reload the affected Asterisk modules from the Asterisk CLI (`asterisk -rvvv`):
+
+```bash
+ari reload                                 # picks up ari.conf changes
+dialplan reload                            # picks up extensions.conf changes
+module reload res_websocket_client.so      # picks up websocket_client.conf changes
+```
+
+Changes to `http.conf` require a full Asterisk reload (`core reload`) or a service restart.
 
 ## Configuration in Dograh
 

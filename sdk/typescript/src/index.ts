@@ -26,7 +26,12 @@
  */
 
 export { DograhClient } from "./client.js";
-export type { DograhClientOptions } from "./client.js";
+export type {
+    DograhClientOptions,
+    DograhFetch,
+    DograhFetchInit,
+    DograhFetchResponse,
+} from "./client.js";
 export {
     ApiError,
     DograhSdkError,

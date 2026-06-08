@@ -243,6 +243,7 @@ if ($UseCoturn) {
 
 Write-Info "[2/$TotalSteps] Creating environment file..."
 $ossJwtSecret = New-HexSecret 32
+$postgresPassword = New-HexSecret 32
 
 $envLines = @(
     '# Container registry for Dograh images'
@@ -250,6 +251,11 @@ $envLines = @(
     ''
     '# JWT secret for OSS authentication'
     "OSS_JWT_SECRET=$ossJwtSecret"
+    ''
+    '# PostgreSQL password. Used by the postgres container on first init and by'
+    "# the API's DATABASE_URL. Do not change after the first start — the password"
+    '# is baked into the postgres data volume when it is first created.'
+    "POSTGRES_PASSWORD=$postgresPassword"
     ''
     '# Telemetry (set to false to disable)'
     "ENABLE_TELEMETRY=$EnableTelemetry"

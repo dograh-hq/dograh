@@ -15,6 +15,29 @@ from api.utils.credential_auth import build_auth_header
 PRE_CALL_FETCH_TIMEOUT_SECONDS = 10
 
 
+def _extract_initial_context(response_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Pull the context variables out of a pre-call fetch response.
+
+    The canonical key is ``initial_context``. The legacy ``dynamic_variables``
+    key is still accepted for backward compatibility, so existing endpoints
+    keep working; ``initial_context`` takes precedence when both are present.
+
+    Either key may appear at the top level or nested under ``call_inbound``:
+        {"call_inbound": {"initial_context": {...}}} | {"initial_context": {...}}
+        {"call_inbound": {"dynamic_variables": {...}}} | {"dynamic_variables": {...}}
+    """
+    container = response_data.get("call_inbound")
+    if not isinstance(container, dict):
+        container = response_data
+
+    for key in ("initial_context", "dynamic_variables"):
+        value = container.get(key)
+        if isinstance(value, dict):
+            return value
+
+    return {}
+
+
 async def execute_pre_call_fetch(
     *,
     url: str,
@@ -77,24 +100,16 @@ async def execute_pre_call_fetch(
                     )
                     return {}
 
-                # Extract dynamic_variables from Retell-compatible response
-                # Supports: {call_inbound: {dynamic_variables: {...}}}
-                #       or: {dynamic_variables: {...}}
-                dynamic_vars = {}
-                call_inbound = response_data.get("call_inbound")
-                if isinstance(call_inbound, dict):
-                    dynamic_vars = call_inbound.get("dynamic_variables", {})
-                elif "dynamic_variables" in response_data:
-                    dynamic_vars = response_data["dynamic_variables"]
-
-                if not isinstance(dynamic_vars, dict):
-                    dynamic_vars = {}
+                # Extract the variables to merge into initial_context. Prefers
+                # the canonical `initial_context` key, falling back to the
+                # legacy `dynamic_variables` key for backward compatibility.
+                initial_context_vars = _extract_initial_context(response_data)
 
                 logger.info(
                     f"Pre-call fetch: success ({response.status_code}), "
-                    f"dynamic_variables keys: {list(dynamic_vars.keys())}"
+                    f"initial_context keys: {list(initial_context_vars.keys())}"
                 )
-                return dynamic_vars
+                return initial_context_vars
             else:
                 logger.warning(
                     f"Pre-call fetch: HTTP {response.status_code} - "

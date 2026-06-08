@@ -117,6 +117,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _add_public_embed_cors_middleware() -> None:
+    from api.routes.public_embed import PublicEmbedCORSMiddleware
+
+    app.add_middleware(PublicEmbedCORSMiddleware, api_prefix=API_PREFIX)
+
+
+_add_public_embed_cors_middleware()
+
 api_router = APIRouter()
 
 # include subrouters here

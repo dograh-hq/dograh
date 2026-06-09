@@ -1,19 +1,15 @@
 "use client";
 
-import { ExternalLink, RefreshCw, Save } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
-import TimezoneSelect, { type ITimezoneOption } from "react-timezone-select";
+import { ExternalLink, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import {
-    getModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGet,
     getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get,
     getModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGet,
     migrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePost,
-    saveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPut,
     saveModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Put,
 } from "@/client/sdk.gen";
 import type {
-    OrganizationAiModelConfigurationPreferences,
     OrganizationAiModelConfigurationResponse,
     OrganizationAiModelConfigurationV2,
 } from "@/client/types.gen";
@@ -30,61 +26,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useUserConfig } from "@/context/UserConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
-
-const emptyPreferences: OrganizationAiModelConfigurationPreferences = {
-    test_phone_number: "",
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-};
-
-const timezoneSelectStyles = {
-    control: (base: Record<string, unknown>, state: { isFocused: boolean }) => ({
-        ...base,
-        minHeight: "36px",
-        fontSize: "14px",
-        backgroundColor: "var(--background)",
-        borderColor: state.isFocused ? "var(--ring)" : "var(--border)",
-        boxShadow: state.isFocused ? "0 0 0 2px color-mix(in srgb, var(--ring) 20%, transparent)" : "none",
-        "&:hover": { borderColor: "var(--border)" },
-    }),
-    menu: (base: Record<string, unknown>) => ({
-        ...base,
-        zIndex: 9999,
-        backgroundColor: "var(--popover)",
-        border: "1px solid var(--border)",
-        boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
-    }),
-    menuList: (base: Record<string, unknown>) => ({
-        ...base,
-        backgroundColor: "var(--popover)",
-        padding: 0,
-    }),
-    option: (base: Record<string, unknown>, state: { isSelected: boolean; isFocused: boolean }) => ({
-        ...base,
-        backgroundColor: state.isSelected ? "var(--accent)" : state.isFocused ? "var(--accent)" : "var(--popover)",
-        color: "var(--foreground)",
-        cursor: "pointer",
-        "&:active": { backgroundColor: "var(--accent)" },
-    }),
-    singleValue: (base: Record<string, unknown>) => ({ ...base, color: "var(--foreground)" }),
-    input: (base: Record<string, unknown>) => ({ ...base, color: "var(--foreground)" }),
-    placeholder: (base: Record<string, unknown>) => ({ ...base, color: "var(--muted-foreground)" }),
-    indicatorSeparator: (base: Record<string, unknown>) => ({ ...base, backgroundColor: "var(--border)" }),
-    dropdownIndicator: (base: Record<string, unknown>) => ({
-        ...base,
-        color: "var(--muted-foreground)",
-        "&:hover": { color: "var(--foreground)" },
-    }),
-};
-
-function getTimezoneValue(tz: ITimezoneOption | string): string {
-    return typeof tz === "string" ? tz : tz.value;
-}
 
 export default function ModelConfigurationV2({
     docsUrl,
@@ -95,16 +40,12 @@ export default function ModelConfigurationV2({
 }) {
     const auth = useAuth();
     const { refreshConfig, saveUserConfig } = useUserConfig();
-    const timezoneSelectId = useId();
     const hasFetched = useRef(false);
     const hasAppliedInitialMigrationAction = useRef(false);
 
     const [defaults, setDefaults] = useState<ModelConfigurationDefaultsV2 | null>(null);
     const [response, setResponse] = useState<OrganizationAiModelConfigurationResponse | null>(null);
-    const [preferences, setPreferences] = useState<OrganizationAiModelConfigurationPreferences>(emptyPreferences);
-    const [timezone, setTimezone] = useState<ITimezoneOption | string>(emptyPreferences.timezone || "UTC");
     const [loading, setLoading] = useState(true);
-    const [savingPreferences, setSavingPreferences] = useState(false);
     const [migrating, setMigrating] = useState(false);
     const [migrationDialogOpen, setMigrationDialogOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -121,10 +62,9 @@ export default function ModelConfigurationV2({
         const load = async () => {
             setLoading(true);
             setError(null);
-            const [defaultsResult, configResult, preferencesResult] = await Promise.all([
+            const [defaultsResult, configResult] = await Promise.all([
                 getModelConfigurationV2DefaultsApiV1OrganizationsModelConfigurationsV2DefaultsGet(),
                 getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get(),
-                getModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGet(),
             ]);
 
             if (defaultsResult.error) {
@@ -137,11 +77,6 @@ export default function ModelConfigurationV2({
                 setLoading(false);
                 return;
             }
-            if (preferencesResult.error) {
-                setError(detailFromError(preferencesResult.error, "Failed to load model configuration preferences"));
-                setLoading(false);
-                return;
-            }
 
             const nextDefaults = defaultsResult.data as ModelConfigurationDefaultsV2;
             if (!nextDefaults || !configResult.data) {
@@ -151,13 +86,6 @@ export default function ModelConfigurationV2({
             }
             setDefaults(nextDefaults);
             applyResponse(configResult.data);
-
-            const nextPreferences = preferencesResult.data || emptyPreferences;
-            setPreferences({
-                test_phone_number: nextPreferences.test_phone_number || "",
-                timezone: nextPreferences.timezone || emptyPreferences.timezone,
-            });
-            setTimezone(nextPreferences.timezone || emptyPreferences.timezone || "UTC");
             setLoading(false);
         };
 
@@ -192,30 +120,6 @@ export default function ModelConfigurationV2({
         applyResponse(result.data);
         await refreshConfig();
         setNotice("Model configuration saved");
-    };
-
-    const savePreferences = async () => {
-        setSavingPreferences(true);
-        setError(null);
-        setNotice(null);
-
-        const result = await saveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPut({
-            body: {
-                test_phone_number: preferences.test_phone_number || null,
-                timezone: getTimezoneValue(timezone),
-            },
-        });
-
-        if (result.error) {
-            setError(detailFromError(result.error, "Failed to save preferences"));
-        } else if (!result.data) {
-            setError("Failed to save preferences");
-        } else {
-            setPreferences(result.data);
-            await refreshConfig();
-            setNotice("Preferences saved");
-        }
-        setSavingPreferences(false);
     };
 
     const migrateConfiguration = async () => {
@@ -364,36 +268,6 @@ export default function ModelConfigurationV2({
                     onSave={saveConfiguration}
                 />
             )}
-
-            <div className="rounded-lg border p-5">
-                <div className="mb-4">
-                    <h2 className="text-base font-semibold">Preferences</h2>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                        <Label htmlFor="test-phone-number">Test Phone Number</Label>
-                        <Input
-                            id="test-phone-number"
-                            value={preferences.test_phone_number || ""}
-                            onChange={(event) => setPreferences({ ...preferences, test_phone_number: event.target.value })}
-                            placeholder="+15551234567"
-                        />
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Timezone</Label>
-                        <TimezoneSelect
-                            instanceId={timezoneSelectId}
-                            value={timezone}
-                            onChange={setTimezone}
-                            styles={timezoneSelectStyles}
-                        />
-                    </div>
-                </div>
-                <Button type="button" variant="outline" className="mt-5" onClick={savePreferences} disabled={savingPreferences}>
-                    <Save className="mr-2 h-4 w-4" />
-                    {savingPreferences ? "Saving..." : "Save Preferences"}
-                </Button>
-            </div>
             {migrationWarningDialog}
         </div>
     );

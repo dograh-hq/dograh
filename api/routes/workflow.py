@@ -16,9 +16,18 @@ from api.db.agent_trigger_client import TriggerPathConflictError
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
 from api.enums import CallType, PostHogEvent, StorageBackend
+from api.schemas.ai_model_configuration import OrganizationAIModelConfigurationV2
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
+from api.services.configuration.ai_model_configuration import (
+    WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
+    check_for_masked_keys_in_ai_model_configuration_v2,
+    compile_ai_model_configuration_v2,
+    convert_legacy_ai_model_configuration_to_v2,
+    get_resolved_ai_model_configuration,
+    merge_ai_model_configuration_v2_secrets,
+)
 from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import (
     mask_workflow_configurations,
@@ -955,12 +964,74 @@ async def update_workflow(
                     existing_def,
                 )
 
-        # Validate model_overrides: resolve onto global config, then
-        # run the same validator used by the user-configurations endpoint.
-        # Also stamp the current global API key into the override so the override
-        # remains functional if the global config later switches to a different provider.
+        # Validate model overrides. v2 uses a complete workflow-level model
+        # configuration; legacy v1 uses partial service overlays.
         workflow_configurations = request.workflow_configurations
-        if workflow_configurations and workflow_configurations.get("model_overrides"):
+        if workflow_configurations and workflow_configurations.get(
+            WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+        ):
+            existing_workflow = await db_client.get_workflow(
+                workflow_id, organization_id=user.selected_organization_id
+            )
+            if existing_workflow is None:
+                raise HTTPException(
+                    status_code=404, detail=f"Workflow with id {workflow_id} not found"
+                )
+            existing_draft = await db_client.get_draft_version(workflow_id)
+            existing_configs = (
+                existing_draft.workflow_configurations
+                if existing_draft
+                else existing_workflow.released_definition.workflow_configurations
+            )
+            existing_v2_override = (existing_configs or {}).get(
+                WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+            )
+            try:
+                incoming_v2_override = (
+                    OrganizationAIModelConfigurationV2.model_validate(
+                        workflow_configurations[
+                            WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY
+                        ]
+                    )
+                )
+                existing_v2_override_config = (
+                    OrganizationAIModelConfigurationV2.model_validate(
+                        existing_v2_override
+                    )
+                    if existing_v2_override
+                    else None
+                )
+                v2_override = merge_ai_model_configuration_v2_secrets(
+                    incoming_v2_override,
+                    existing_v2_override_config,
+                )
+                if existing_v2_override_config is None:
+                    resolved_config = await get_resolved_ai_model_configuration(
+                        user_id=user.id,
+                        organization_id=user.selected_organization_id,
+                    )
+                    v2_override = merge_ai_model_configuration_v2_secrets(
+                        v2_override,
+                        resolved_config.organization_configuration,
+                    )
+                check_for_masked_keys_in_ai_model_configuration_v2(v2_override)
+                effective = compile_ai_model_configuration_v2(v2_override)
+                await UserConfigurationValidator().validate(
+                    effective,
+                    organization_id=user.selected_organization_id,
+                    created_by=user.provider_id,
+                )
+            except (ValidationError, ValueError) as e:
+                raise HTTPException(status_code=422, detail=str(e))
+            workflow_configurations = {
+                **workflow_configurations,
+                WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY: v2_override.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                ),
+            }
+            workflow_configurations.pop("model_overrides", None)
+        elif workflow_configurations and workflow_configurations.get("model_overrides"):
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
             )
@@ -978,24 +1049,46 @@ async def update_workflow(
                 workflow_configurations,
                 existing_configs,
             )
-            user_config = await db_client.get_user_configurations(user.id)
+            resolved_config = await get_resolved_ai_model_configuration(
+                user_id=user.id,
+                organization_id=user.selected_organization_id,
+            )
+            user_config = resolved_config.effective
             try:
                 enriched_overrides = enrich_overrides_with_api_keys(
                     workflow_configurations["model_overrides"],
                     user_config,
                 )
                 effective = resolve_effective_config(user_config, enriched_overrides)
-                await UserConfigurationValidator().validate(
-                    effective,
-                    organization_id=user.selected_organization_id,
-                    created_by=user.provider_id,
-                )
+                if resolved_config.source == "organization_v2":
+                    v2_override = convert_legacy_ai_model_configuration_to_v2(effective)
+                    await UserConfigurationValidator().validate(
+                        compile_ai_model_configuration_v2(v2_override),
+                        organization_id=user.selected_organization_id,
+                        created_by=user.provider_id,
+                    )
+                else:
+                    await UserConfigurationValidator().validate(
+                        effective,
+                        organization_id=user.selected_organization_id,
+                        created_by=user.provider_id,
+                    )
             except ValueError as e:
                 raise HTTPException(status_code=422, detail=str(e))
-            workflow_configurations = {
-                **workflow_configurations,
-                "model_overrides": enriched_overrides,
-            }
+            if resolved_config.source == "organization_v2":
+                workflow_configurations = {
+                    **workflow_configurations,
+                    WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY: v2_override.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                    ),
+                }
+                workflow_configurations.pop("model_overrides", None)
+            else:
+                workflow_configurations = {
+                    **workflow_configurations,
+                    "model_overrides": enriched_overrides,
+                }
 
         # Reject upfront if any new trigger path collides with another
         # workflow's trigger — keeps the workflow record from

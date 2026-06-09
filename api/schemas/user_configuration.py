@@ -11,7 +11,7 @@ from api.services.configuration.registry import (
 )
 
 
-class UserConfiguration(BaseModel):
+class EffectiveAIModelConfiguration(BaseModel):
     llm: LLMConfig | None = None
     stt: STTConfig | None = None
     tts: TTSConfig | None = None
@@ -31,3 +31,7 @@ class UserConfiguration(BaseModel):
             if isinstance(realtime, dict) and not realtime.get("api_key"):
                 data.pop("realtime", None)
         return data
+
+
+# Backward-compatible alias for legacy persistence and existing call sites.
+UserConfiguration = EffectiveAIModelConfiguration

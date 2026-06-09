@@ -52,6 +52,38 @@ async def _create_user_and_workflow(
 
 
 @pytest.mark.asyncio
+async def test_text_chat_session_creation_requires_selected_organization():
+    from httpx import ASGITransport, AsyncClient
+
+    from api.app import app
+    from api.services.auth.depends import get_user
+
+    user = UserModel(provider_id="textchat-user-no-selected-org")
+
+    async def mock_get_user():
+        return user
+
+    original_override = app.dependency_overrides.get(get_user)
+    app.dependency_overrides[get_user] = mock_get_user
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/v1/workflow/123/text-chat/sessions", json={}
+            )
+    finally:
+        if original_override:
+            app.dependency_overrides[get_user] = original_override
+        else:
+            app.dependency_overrides.pop(get_user, None)
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "No organization selected"}
+
+
+@pytest.mark.asyncio
 async def test_text_chat_session_creation_executes_initial_assistant_turn(
     db_session,
     async_session,

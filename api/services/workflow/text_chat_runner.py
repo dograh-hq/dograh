@@ -32,7 +32,6 @@ from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
-from api.services.configuration.resolve import resolve_effective_config
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.pipeline_builder import create_pipeline_task
 from api.services.pipecat.pipeline_metrics_aggregator import (
@@ -410,9 +409,14 @@ async def execute_text_chat_pending_turn(
     run_definition = workflow_run.definition
     run_configs = run_definition.workflow_configurations or {}
 
-    user_config = await db_client.get_user_configurations(workflow_run.workflow.user.id)
-    user_config = resolve_effective_config(
-        user_config, run_configs.get("model_overrides")
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
+
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=workflow_run.workflow.user.id,
+        organization_id=workflow.organization_id,
+        workflow_configurations=run_configs,
     )
     if user_config.llm is None:
         raise ValueError("Text chat requires an LLM configuration")
@@ -466,9 +470,17 @@ async def execute_text_chat_pending_turn(
     embeddings_model = None
     embeddings_base_url = None
     if user_config.embeddings:
+        from api.services.configuration.ai_model_configuration import (
+            apply_managed_embeddings_base_url,
+        )
+
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
-        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+        embeddings_provider = getattr(user_config.embeddings, "provider", None)
+        embeddings_base_url = apply_managed_embeddings_base_url(
+            provider=embeddings_provider,
+            base_url=getattr(user_config.embeddings, "base_url", None),
+        )
 
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(

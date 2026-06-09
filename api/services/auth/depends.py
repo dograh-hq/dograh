@@ -1,7 +1,7 @@
 from typing import Annotated, Optional
 
 import httpx
-from fastapi import Header, HTTPException, Query, WebSocket
+from fastapi import Depends, Header, HTTPException, Query, WebSocket
 from loguru import logger
 from pydantic import ValidationError
 
@@ -119,6 +119,19 @@ async def get_user(
                         await db_client.update_user_configuration(
                             user_model.id, mps_config
                         )
+                        from api.enums import OrganizationConfigurationKey
+                        from api.services.configuration.ai_model_configuration import (
+                            convert_legacy_ai_model_configuration_to_v2,
+                        )
+
+                        model_config_v2 = convert_legacy_ai_model_configuration_to_v2(
+                            mps_config
+                        )
+                        await db_client.upsert_configuration(
+                            organization.id,
+                            OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+                            model_config_v2.model_dump(mode="json", exclude_none=True),
+                        )
 
     except Exception as exc:
         raise HTTPException(
@@ -127,6 +140,14 @@ async def get_user(
         )
 
     return user_model
+
+
+async def get_user_with_selected_organization(
+    user: Annotated[UserModel, Depends(get_user)],
+) -> UserModel:
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    return user
 
 
 async def _handle_oss_auth(authorization: str | None) -> UserModel:

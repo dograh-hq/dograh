@@ -151,19 +151,33 @@ def mask_workflow_configurations(config: Optional[Dict]) -> Optional[Dict]:
 
     masked = copy.deepcopy(config)
     model_overrides = masked.get("model_overrides")
-    if not isinstance(model_overrides, dict):
-        return masked
+    if isinstance(model_overrides, dict):
+        for section in MODEL_OVERRIDE_FIELDS:
+            override = model_overrides.get(section)
+            if not isinstance(override, dict):
+                continue
+            for secret_field in SERVICE_SECRET_FIELDS:
+                raw = override.get(secret_field)
+                if raw:
+                    override[secret_field] = _mask_secret_value(raw)
 
-    for section in MODEL_OVERRIDE_FIELDS:
-        override = model_overrides.get(section)
-        if not isinstance(override, dict):
-            continue
-        for secret_field in SERVICE_SECRET_FIELDS:
-            raw = override.get(secret_field)
-            if raw:
-                override[secret_field] = _mask_secret_value(raw)
+    v2_override = masked.get("model_configuration_v2_override")
+    if isinstance(v2_override, dict):
+        _mask_nested_service_secrets(v2_override)
 
     return masked
+
+
+def _mask_nested_service_secrets(value):
+    if isinstance(value, dict):
+        for key, nested in list(value.items()):
+            if key in SERVICE_SECRET_FIELDS and nested:
+                value[key] = _mask_secret_value(nested)
+            else:
+                _mask_nested_service_secrets(nested)
+    elif isinstance(value, list):
+        for item in value:
+            _mask_nested_service_secrets(item)
 
 
 # ---------------------------------------------------------------------------

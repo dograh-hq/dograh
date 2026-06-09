@@ -10,6 +10,9 @@ from api.db.models import (
     UserModel,
 )
 from api.services.auth.depends import get_user
+from api.services.configuration.ai_model_configuration import (
+    get_resolved_ai_model_configuration,
+)
 from api.services.configuration.check_validity import (
     APIKeyStatusResponse,
     UserConfigurationValidator,
@@ -19,6 +22,10 @@ from api.services.configuration.masking import check_for_masked_keys, mask_user_
 from api.services.configuration.merge import merge_user_configurations
 from api.services.configuration.registry import REGISTRY, ServiceType
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.organization_preferences import (
+    get_organization_preferences,
+    upsert_organization_preferences,
+)
 
 router = APIRouter(prefix="/user")
 
@@ -91,8 +98,17 @@ class UserConfigurationRequestResponseSchema(BaseModel):
 async def get_user_configurations(
     user: UserModel = Depends(get_user),
 ) -> UserConfigurationRequestResponseSchema:
-    user_configurations = await db_client.get_user_configurations(user.id)
-    masked_config = mask_user_config(user_configurations)
+    resolved_config = await get_resolved_ai_model_configuration(
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    masked_config = mask_user_config(resolved_config.effective)
+    if user.selected_organization_id:
+        preferences = await get_organization_preferences(user.selected_organization_id)
+        if preferences.test_phone_number is not None:
+            masked_config["test_phone_number"] = preferences.test_phone_number
+        if preferences.timezone is not None:
+            masked_config["timezone"] = preferences.timezone
 
     # Add organization pricing info if available
     if user.selected_organization_id:
@@ -118,34 +134,61 @@ async def update_user_configurations(
 
     # Remove organization_pricing from incoming dict as it's read-only
     incoming_dict.pop("organization_pricing", None)
+    preferences_update = {
+        key: incoming_dict.pop(key)
+        for key in ("test_phone_number", "timezone")
+        if key in incoming_dict
+    }
 
-    # Merge via helper
-    try:
-        user_configurations = merge_user_configurations(existing_config, incoming_dict)
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+    if incoming_dict:
+        # Merge via helper
+        try:
+            user_configurations = merge_user_configurations(
+                existing_config, incoming_dict
+            )
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=str(e))
 
-    try:
-        check_for_masked_keys(user_configurations)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        try:
+            check_for_masked_keys(user_configurations)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
-    try:
-        validator = UserConfigurationValidator()
-        await validator.validate(
-            user_configurations,
-            organization_id=user.selected_organization_id,
-            created_by=user.provider_id,
+        try:
+            validator = UserConfigurationValidator()
+            await validator.validate(
+                user_configurations,
+                organization_id=user.selected_organization_id,
+                created_by=user.provider_id,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=e.args[0])
+
+        user_configurations = await db_client.update_user_configuration(
+            user.id, user_configurations
         )
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=e.args[0])
+    else:
+        user_configurations = existing_config
 
-    user_configurations = await db_client.update_user_configuration(
-        user.id, user_configurations
-    )
+    if user.selected_organization_id and preferences_update:
+        preferences = await get_organization_preferences(user.selected_organization_id)
+        if "test_phone_number" in preferences_update:
+            preferences.test_phone_number = preferences_update["test_phone_number"]
+        if "timezone" in preferences_update:
+            preferences.timezone = preferences_update["timezone"]
+        await upsert_organization_preferences(
+            user.selected_organization_id,
+            preferences,
+        )
 
     # Return masked version of updated config
     masked_config = mask_user_config(user_configurations)
+    if user.selected_organization_id:
+        preferences = await get_organization_preferences(user.selected_organization_id)
+        if preferences.test_phone_number is not None:
+            masked_config["test_phone_number"] = preferences.test_phone_number
+        if preferences.timezone is not None:
+            masked_config["timezone"] = preferences.timezone
 
     # Add organization pricing info if available
     if user.selected_organization_id:
@@ -165,7 +208,11 @@ async def validate_user_configurations(
     validity_ttl_seconds: int = Query(default=60, ge=0, le=86400),
     user: UserModel = Depends(get_user),
 ) -> APIKeyStatusResponse:
-    configurations = await db_client.get_user_configurations(user.id)
+    resolved_config = await get_resolved_ai_model_configuration(
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    configurations = resolved_config.effective
 
     if (
         configurations.last_validated_at

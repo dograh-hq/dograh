@@ -10,8 +10,10 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
+from api.services.configuration.ai_model_configuration import (
+    get_effective_ai_model_configuration_for_workflow,
+)
 from api.services.configuration.registry import ServiceProviders
-from api.services.configuration.resolve import resolve_effective_config
 from api.services.mps_service_key_client import mps_service_key_client
 
 
@@ -48,17 +50,20 @@ async def check_dograh_quota(
         if quota is insufficient.
     """
     try:
-        # Get user configurations
-        user_config = await db_client.get_user_configurations(user.id)
+        organization_id = user.selected_organization_id
+        workflow_configurations = None
 
         if workflow_id is not None:
             workflow = await db_client.get_workflow_by_id(workflow_id)
             if workflow:
-                model_overrides = (workflow.workflow_configurations or {}).get(
-                    "model_overrides"
-                )
-                if model_overrides:
-                    user_config = resolve_effective_config(user_config, model_overrides)
+                organization_id = workflow.organization_id
+                workflow_configurations = workflow.workflow_configurations
+
+        user_config = await get_effective_ai_model_configuration_for_workflow(
+            user_id=user.id,
+            organization_id=organization_id,
+            workflow_configurations=workflow_configurations,
+        )
 
         # Check if user is using any Dograh service
         using_dograh = False
@@ -76,6 +81,13 @@ async def check_dograh_quota(
             using_dograh = True
             dograh_api_keys.add(user_config.tts.api_key)
 
+        if (
+            user_config.embeddings
+            and user_config.embeddings.provider == ServiceProviders.DOGRAH
+        ):
+            using_dograh = True
+            dograh_api_keys.add(user_config.embeddings.api_key)
+
         # If not using Dograh, quota check passes
         if not using_dograh:
             return QuotaCheckResult(has_quota=True)
@@ -84,7 +96,9 @@ async def check_dograh_quota(
         for api_key in dograh_api_keys:
             try:
                 usage = await mps_service_key_client.check_service_key_usage(
-                    api_key, created_by=user.provider_id
+                    api_key,
+                    organization_id=organization_id,
+                    created_by=user.provider_id,
                 )
                 remaining = usage.get("remaining_credits", 0.0)
 

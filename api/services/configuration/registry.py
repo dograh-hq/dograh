@@ -1472,11 +1472,26 @@ class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
+DOGRAH_EMBEDDING_MODELS = ["default"]
+
+
+@register_embeddings
+class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    model_config = DOGRAH_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
+    model: str = Field(
+        default="default",
+        description="Dograh-managed embedding model.",
+        json_schema_extra={"examples": DOGRAH_EMBEDDING_MODELS},
+    )
+
+
 EmbeddingsConfig = Annotated[
     Union[
         OpenAIEmbeddingsConfiguration,
         OpenRouterEmbeddingsConfiguration,
         AzureOpenAIEmbeddingsConfiguration,
+        DograhEmbeddingsConfiguration,
     ],
     Field(discriminator="provider"),
 ]

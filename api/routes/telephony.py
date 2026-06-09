@@ -53,7 +53,7 @@ class InitiateCallRequest(BaseModel):
     workflow_run_id: int | None = None
     phone_number: str | None = None
     # Optional explicit telephony config to use for the test call. If omitted,
-    # falls back to the user's per-user default (when set), then the org default.
+    # falls back to the org default.
     telephony_configuration_id: int | None = None
     # Optional caller-ID phone number to dial out from. Must belong to the
     # resolved telephony configuration; otherwise the provider picks one.
@@ -82,7 +82,12 @@ async def initiate_call(
     """Initiate a call using the configured telephony provider from web browser. This is
     supposed to be a test call method for the draft version of the agent."""
 
-    user_configuration = await db_client.get_user_configurations(user.id)
+    from api.services.organization_preferences import get_organization_preferences
+
+    preferences = await get_organization_preferences(
+        user.selected_organization_id,
+        db=db_client,
+    )
 
     # Resolve which telephony config to use: explicit request value, otherwise
     # the org's default outbound config.
@@ -116,13 +121,12 @@ async def initiate_call(
             detail="telephony_not_configured",
         )
 
-    phone_number = request.phone_number or user_configuration.test_phone_number
+    phone_number = request.phone_number or preferences.test_phone_number
 
     if not phone_number:
         raise HTTPException(
             status_code=400,
-            detail="Phone number must be provided in request or set in user "
-            "configuration",
+            detail="Phone number must be provided in request or set in organization preferences",
         )
 
     workflow = await db_client.get_workflow(

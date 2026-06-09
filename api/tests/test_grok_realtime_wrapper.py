@@ -7,7 +7,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.xai.realtime import events
 
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import GrokRealtimeLLMConfiguration
 from api.services.pipecat.realtime.grok_realtime import (
     DograhGrokRealtimeLLMService,
@@ -120,7 +120,7 @@ async def test_completed_input_transcription_is_broadcast_as_finalized():
 
 
 def test_factory_creates_dograh_grok_realtime_service():
-    user_config = UserConfiguration(
+    user_config = EffectiveAIModelConfiguration(
         is_realtime=True,
         realtime=GrokRealtimeLLMConfiguration(
             provider="grok_realtime",

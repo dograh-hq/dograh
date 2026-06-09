@@ -8,7 +8,7 @@ from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.models import UserConfigurationModel, UserModel
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 
 
 class UserClient(BaseDBClient):
@@ -65,7 +65,9 @@ class UserClient(BaseDBClient):
             )
             return result.scalars().first()
 
-    async def get_user_configurations(self, user_id: int) -> UserConfiguration:
+    async def get_user_configurations(
+        self, user_id: int
+    ) -> EffectiveAIModelConfiguration:
         async with self.async_session() as session:
             result = await session.execute(
                 select(UserConfigurationModel).where(
@@ -74,10 +76,10 @@ class UserClient(BaseDBClient):
             )
             configuration_obj = result.scalars().first()
             if not configuration_obj:
-                return UserConfiguration()
+                return EffectiveAIModelConfiguration()
 
             try:
-                return UserConfiguration.model_validate(
+                return EffectiveAIModelConfiguration.model_validate(
                     {
                         **configuration_obj.configuration,
                         "last_validated_at": configuration_obj.last_validated_at,
@@ -90,11 +92,11 @@ class UserClient(BaseDBClient):
                     f"Failed to validate user configuration for user {user_id}: {e}. "
                     "Returning default configuration."
                 )
-                return UserConfiguration()
+                return EffectiveAIModelConfiguration()
 
     async def update_user_configuration(
-        self, user_id: int, configuration: UserConfiguration
-    ) -> UserConfiguration:
+        self, user_id: int, configuration: EffectiveAIModelConfiguration
+    ) -> EffectiveAIModelConfiguration:
         async with self.async_session() as session:
             result = await session.execute(
                 select(UserConfigurationModel).where(
@@ -115,7 +117,9 @@ class UserClient(BaseDBClient):
                 await session.rollback()
                 raise e
             await session.refresh(configuration_obj)
-        return UserConfiguration.model_validate(configuration_obj.configuration)
+        return EffectiveAIModelConfiguration.model_validate(
+            configuration_obj.configuration
+        )
 
     async def update_user_configuration_last_validated_at(self, user_id: int) -> None:
         async with self.async_session() as session:

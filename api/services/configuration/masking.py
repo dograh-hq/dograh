@@ -12,7 +12,7 @@ The rules are simple:
 import copy
 from typing import Any, Dict, Optional
 
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import ServiceConfig
 from api.services.integrations import get_node_secret_fields
 
@@ -31,7 +31,7 @@ def contains_masked_key(value: str | list[str] | None) -> bool:
     return any(MASK_MARKER in k for k in keys)
 
 
-def check_for_masked_keys(config: "UserConfiguration") -> None:
+def check_for_masked_keys(config: "EffectiveAIModelConfiguration") -> None:
     """Raise ValueError if any service in *config* still has a masked secret."""
     for field in ("llm", "tts", "stt", "embeddings", "realtime"):
         service = getattr(config, field, None)
@@ -111,7 +111,7 @@ def resolve_masked_api_keys(
 
 
 # ---------------------------------------------------------------------------
-# High-level helpers for UserConfiguration objects
+# High-level helpers for EffectiveAIModelConfiguration objects
 # ---------------------------------------------------------------------------
 
 
@@ -129,7 +129,7 @@ def _mask_service(service_cfg: Optional[ServiceConfig]) -> Optional[Dict[str, An
     return data
 
 
-def mask_user_config(config: UserConfiguration) -> Dict[str, Any]:
+def mask_user_config(config: EffectiveAIModelConfiguration) -> Dict[str, Any]:
     """Return a JSON-serialisable dict of *config* with every api_key masked."""
 
     return {

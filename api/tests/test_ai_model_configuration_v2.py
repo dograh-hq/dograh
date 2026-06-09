@@ -6,7 +6,7 @@ from api.schemas.ai_model_configuration import (
     OrganizationAIModelConfigurationV2,
     compile_ai_model_configuration_v2,
 )
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
     check_for_masked_keys_in_ai_model_configuration_v2,
@@ -142,7 +142,7 @@ def test_masked_v2_configuration_masks_nested_service_keys():
 
 
 def test_legacy_all_dograh_pipeline_converts_to_dograh_v2():
-    legacy = UserConfiguration(
+    legacy = EffectiveAIModelConfiguration(
         llm=DograhLLMService(
             provider="dograh",
             api_key=["mps-secret"],
@@ -170,7 +170,7 @@ def test_legacy_all_dograh_pipeline_converts_to_dograh_v2():
 
 
 def test_legacy_mixed_dograh_pipeline_converts_to_dograh_v2():
-    legacy = UserConfiguration(
+    legacy = EffectiveAIModelConfiguration(
         llm=OpenAILLMService(
             provider="openai",
             api_key="sk-llm",
@@ -202,7 +202,7 @@ def test_legacy_mixed_dograh_pipeline_converts_to_dograh_v2():
 
 
 def test_legacy_byok_pipeline_converts_to_byok_v2():
-    legacy = UserConfiguration(
+    legacy = EffectiveAIModelConfiguration(
         llm=OpenAILLMService(
             provider="openai",
             api_key="sk-llm",
@@ -235,7 +235,7 @@ def test_legacy_byok_pipeline_converts_to_byok_v2():
 
 
 def test_workflow_model_override_migration_removes_v1_override_and_sets_v2():
-    base = UserConfiguration(
+    base = EffectiveAIModelConfiguration(
         llm=OpenAILLMService(
             provider="openai",
             api_key="sk-llm",
@@ -279,7 +279,7 @@ def test_workflow_model_override_migration_removes_v1_override_and_sets_v2():
 
 
 def test_workflow_model_override_migration_removes_invalid_v1_override_marker():
-    base = UserConfiguration()
+    base = EffectiveAIModelConfiguration()
     workflow_configurations = {
         "ambient_noise_configuration": {"enabled": False},
         "model_overrides": None,

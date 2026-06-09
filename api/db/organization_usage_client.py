@@ -19,7 +19,7 @@ from api.db.models import (
     WorkflowRunModel,
 )
 from api.enums import OrganizationConfigurationKey
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 
 
 class OrganizationUsageClient(BaseDBClient):
@@ -473,7 +473,7 @@ class OrganizationUsageClient(BaseDBClient):
                 )
                 config_obj = config_result.scalar_one_or_none()
                 if config_obj and config_obj.configuration:
-                    user_config = UserConfiguration.model_validate(
+                    user_config = EffectiveAIModelConfiguration.model_validate(
                         config_obj.configuration
                     )
                     if user_config.timezone and user_timezone == "UTC":

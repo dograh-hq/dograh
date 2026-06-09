@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.db.models import OrganizationModel, UserModel
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
@@ -38,7 +38,7 @@ async def _create_user_and_workflow(
 
     await db_session.update_user_configuration(
         user_id=user.id,
-        configuration=UserConfiguration.model_validate(USER_CONFIGURATION),
+        configuration=EffectiveAIModelConfiguration.model_validate(USER_CONFIGURATION),
     )
 
     workflow = await db_session.create_workflow(
@@ -1041,7 +1041,7 @@ async def test_text_chat_session_creation_requires_selected_org_scope(
 
     await db_session.update_user_configuration(
         user_id=user.id,
-        configuration=UserConfiguration.model_validate(USER_CONFIGURATION),
+        configuration=EffectiveAIModelConfiguration.model_validate(USER_CONFIGURATION),
     )
 
     workflow = await db_session.create_workflow(

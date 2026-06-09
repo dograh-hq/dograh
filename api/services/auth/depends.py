@@ -9,7 +9,7 @@ from api.constants import AUTH_PROVIDER, DOGRAH_MPS_SECRET_KEY, MPS_API_URL
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.services.auth.stack_auth import stackauth
 from api.services.configuration.registry import ServiceProviders
 from api.services.posthog_client import capture_event
@@ -213,7 +213,7 @@ async def _handle_api_key_auth(api_key: str) -> UserModel:
 
 async def create_user_configuration_with_mps_key(
     user_id: int, organization_id: int, user_provider_id: str
-) -> Optional[UserConfiguration]:
+) -> Optional[EffectiveAIModelConfiguration]:
     """Create user configuration using MPS service key.
 
     Args:
@@ -222,7 +222,7 @@ async def create_user_configuration_with_mps_key(
         user_provider_id: The user's provider ID (for created_by field)
 
     Returns:
-        UserConfiguration with MPS-provided API keys or None if failed
+        EffectiveAIModelConfiguration with MPS-provided API keys or None if failed
     """
 
     async with httpx.AsyncClient() as client:
@@ -285,7 +285,7 @@ async def create_user_configuration_with_mps_key(
                         "model": "default",
                     },
                 }
-                user_config = UserConfiguration(**configuration)
+                user_config = EffectiveAIModelConfiguration(**configuration)
                 return user_config
         else:
             logger.warning(

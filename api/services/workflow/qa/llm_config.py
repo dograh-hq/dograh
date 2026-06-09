@@ -42,7 +42,7 @@ async def resolve_llm_config(
 async def resolve_user_llm_config(
     workflow_run: WorkflowRunModel,
 ) -> tuple[str, str, str, dict]:
-    """Resolve the user's configured LLM (from UserConfiguration).
+    """Resolve the user's configured LLM (from EffectiveAIModelConfiguration).
 
     Returns:
         (provider, model, api_key, service_kwargs) tuple

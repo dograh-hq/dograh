@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.user import router
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import mask_key
 from api.services.configuration.registry import (
@@ -33,7 +33,7 @@ MASKED_KEY = mask_key(REAL_KEY)  # "**************************cdef"
 
 
 def _existing_openai_config():
-    return UserConfiguration(
+    return EffectiveAIModelConfiguration(
         llm=OpenAILLMService(
             provider="openai",
             api_key=REAL_KEY,
@@ -111,7 +111,7 @@ class TestMaskedKeyRejection:
         client = TestClient(app)
 
         new_key = "AIzaSyNewRealKey12345678"
-        updated = UserConfiguration(
+        updated = EffectiveAIModelConfiguration(
             llm=GoogleLLMService(
                 provider="google",
                 api_key=new_key,
@@ -178,7 +178,7 @@ class TestMaskedKeyRejection:
 
         real_credentials = '{"type":"service_account","project_id":"demo-project"}'
         masked_credentials = mask_key(real_credentials)
-        existing = UserConfiguration(
+        existing = EffectiveAIModelConfiguration(
             llm=GoogleVertexLLMConfiguration(
                 provider="google_vertex",
                 api_key=None,

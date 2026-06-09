@@ -79,6 +79,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
     AZURE_REALTIME = "azure_realtime"
+    ATLAS_CLOUD = "atlas_cloud"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -106,6 +107,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
+        ServiceProviders.ATLAS_CLOUD,
     ]
     api_key: str | list[str]
 
@@ -247,6 +249,14 @@ GOOGLE_CLOUD_PROVIDER_MODEL_CONFIG = provider_model_config("Google Cloud")
 SPEECHMATICS_PROVIDER_MODEL_CONFIG = provider_model_config("Speechmatics")
 ASSEMBLYAI_PROVIDER_MODEL_CONFIG = provider_model_config("AssemblyAI")
 GLADIA_PROVIDER_MODEL_CONFIG = provider_model_config("Gladia")
+ATLAS_CLOUD_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Atlas Cloud",
+    description=(
+        "Atlas Cloud — 59 frontier LLMs (DeepSeek-V4, Qwen3, Kimi K2, GPT-5, Gemini 2.5 Pro, Claude, Grok-4…) "
+        "via a single OpenAI-compatible endpoint. Get your API key at atlascloud.ai."
+    ),
+    provider_docs_url="https://www.atlascloud.ai/models",
+)
 SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Local Models (Speaches)",
     description=(
@@ -497,6 +507,56 @@ class MiniMaxLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+ATLAS_CLOUD_MODELS = [
+    # LLMs
+    "deepseek-ai/deepseek-v4-pro",
+    "deepseek-ai/deepseek-v4-0520",
+    "deepseek-ai/deepseek-v4-flash",
+    "deepseek-ai/deepseek-r2",
+    "deepseek-ai/deepseek-r1",
+    "moonshot-ai/kimi-k2",
+    "qwen/qwen3-235b-a22b",
+    "qwen/qwen3-32b",
+    "openai/gpt-5",
+    "openai/gpt-4.1",
+    "openai/gpt-4o",
+    "openai/o3",
+    "anthropic/claude-sonnet-4-5",
+    "anthropic/claude-opus-4",
+    "anthropic/claude-sonnet-4",
+    "google/gemini-2.5-pro",
+    "google/gemini-2.5-flash",
+    "google/gemini-2.0-flash",
+    "xai/grok-4",
+    "xai/grok-3",
+    "meta-llama/llama-4-maverick",
+    "meta-llama/llama-3.3-70b",
+    "mistral/mistral-large",
+    "minimax/minimax-m1",
+]
+
+
+@register_llm
+class AtlasCloudLLMConfiguration(BaseLLMConfiguration):
+    """Atlas Cloud — 59 frontier LLMs via a single OpenAI-compatible endpoint.
+
+    Sign up and get your API key at https://www.atlascloud.ai/.
+    Full model list: https://www.atlascloud.ai/models
+    """
+
+    model_config = ATLAS_CLOUD_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.ATLAS_CLOUD] = ServiceProviders.ATLAS_CLOUD
+    model: str = Field(
+        default="deepseek-ai/deepseek-v4-0520",
+        description="Atlas Cloud model slug in 'vendor/model' form. See https://www.atlascloud.ai/models for the full list.",
+        json_schema_extra={"examples": ATLAS_CLOUD_MODELS, "allow_custom_input": True},
+    )
+    base_url: str = Field(
+        default="https://api.atlascloud.ai/v1",
+        description="Atlas Cloud OpenAI-compatible endpoint. Override only if using a custom gateway.",
+    )
+
+
 @register_llm
 class SarvamLLMConfiguration(BaseLLMConfiguration):
     model_config = SARVAM_PROVIDER_MODEL_CONFIG
@@ -742,6 +802,7 @@ LLMConfig = Annotated[
         AWSBedrockLLMConfiguration,
         SpeachesLLMConfiguration,
         MiniMaxLLMConfiguration,
+        AtlasCloudLLMConfiguration,
         SarvamLLMConfiguration,
     ],
     Field(discriminator="provider"),

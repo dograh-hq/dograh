@@ -14,10 +14,10 @@ from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
     DOGRAH_DEFAULT_VOICE,
     DOGRAH_SPEED_OPTIONS,
-    OrganizationAIModelConfigurationPreferences,
     OrganizationAIModelConfigurationResponse,
     OrganizationAIModelConfigurationV2,
 )
+from api.schemas.organization_preferences import OrganizationPreferences
 from api.schemas.telephony_config import (
     TelephonyConfigRequest,
     TelephonyConfigurationCreateRequest,
@@ -39,13 +39,11 @@ from api.services.configuration.ai_model_configuration import (
     check_for_masked_keys_in_ai_model_configuration_v2,
     compile_ai_model_configuration_v2,
     convert_legacy_ai_model_configuration_to_v2,
-    get_organization_ai_model_configuration_preferences,
     get_organization_ai_model_configuration_v2,
     get_resolved_ai_model_configuration,
     mask_ai_model_configuration_v2,
     merge_ai_model_configuration_v2_secrets,
     migrate_workflow_model_configurations_to_v2,
-    upsert_organization_ai_model_configuration_preferences,
     upsert_organization_ai_model_configuration_v2,
 )
 from api.services.configuration.check_validity import UserConfigurationValidator
@@ -56,6 +54,10 @@ from api.services.configuration.registry import (
     REGISTRY,
     ServiceProviders,
     ServiceType,
+)
+from api.services.organization_preferences import (
+    get_organization_preferences,
+    upsert_organization_preferences,
 )
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
@@ -218,8 +220,6 @@ async def _model_configuration_v2_response(
     return OrganizationAIModelConfigurationResponse(
         configuration=mask_ai_model_configuration_v2(raw_configuration),
         effective_configuration=mask_user_config(resolved.effective),
-        preferences=resolved.preferences
-        or OrganizationAIModelConfigurationPreferences(),
         source=resolved.source,
     )
 
@@ -363,30 +363,47 @@ async def migrate_model_configuration_v2(
     )
 
 
-@router.get(
-    "/model-configurations/preferences",
-    response_model=OrganizationAIModelConfigurationPreferences,
-)
-async def get_model_configuration_preferences(
+@router.get("/preferences", response_model=OrganizationPreferences)
+async def get_preferences(
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
     organization_id = user.selected_organization_id
-    return await get_organization_ai_model_configuration_preferences(organization_id)
+    return await get_organization_preferences(organization_id)
+
+
+@router.put("/preferences", response_model=OrganizationPreferences)
+async def save_preferences(
+    request: OrganizationPreferences,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    organization_id = user.selected_organization_id
+    return await upsert_organization_preferences(
+        organization_id,
+        request,
+    )
+
+
+@router.get(
+    "/model-configurations/preferences",
+    response_model=OrganizationPreferences,
+    include_in_schema=False,
+)
+async def get_model_configuration_preferences_legacy(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    return await get_preferences(user=user)
 
 
 @router.put(
     "/model-configurations/preferences",
-    response_model=OrganizationAIModelConfigurationPreferences,
+    response_model=OrganizationPreferences,
+    include_in_schema=False,
 )
-async def save_model_configuration_preferences(
-    request: OrganizationAIModelConfigurationPreferences,
+async def save_model_configuration_preferences_legacy(
+    request: OrganizationPreferences,
     user: UserModel = Depends(get_user_with_selected_organization),
 ):
-    organization_id = user.selected_organization_id
-    return await upsert_organization_ai_model_configuration_preferences(
-        organization_id,
-        request,
-    )
+    return await save_preferences(request=request, user=user)
 
 
 def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):

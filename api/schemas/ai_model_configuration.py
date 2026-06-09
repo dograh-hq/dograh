@@ -93,15 +93,9 @@ class OrganizationAIModelConfigurationV2(BaseModel):
         return self
 
 
-class OrganizationAIModelConfigurationPreferences(BaseModel):
-    test_phone_number: str | None = None
-    timezone: str | None = None
-
-
 class OrganizationAIModelConfigurationResponse(BaseModel):
     configuration: dict | None
     effective_configuration: dict
-    preferences: OrganizationAIModelConfigurationPreferences
     source: Literal["organization_v2", "legacy_user_v1", "empty"]
 
 

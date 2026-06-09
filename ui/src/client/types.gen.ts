@@ -3581,20 +3581,6 @@ export type OpenRouterLlmConfiguration = {
 };
 
 /**
- * OrganizationAIModelConfigurationPreferences
- */
-export type OrganizationAiModelConfigurationPreferences = {
-    /**
-     * Test Phone Number
-     */
-    test_phone_number?: string | null;
-    /**
-     * Timezone
-     */
-    timezone?: string | null;
-};
-
-/**
  * OrganizationAIModelConfigurationResponse
  */
 export type OrganizationAiModelConfigurationResponse = {
@@ -3610,7 +3596,6 @@ export type OrganizationAiModelConfigurationResponse = {
     effective_configuration: {
         [key: string]: unknown;
     };
-    preferences: OrganizationAiModelConfigurationPreferences;
     /**
      * Source
      */
@@ -3631,6 +3616,20 @@ export type OrganizationAiModelConfigurationV2 = {
     mode: 'dograh' | 'byok';
     dograh?: DograhManagedAiModelConfiguration | null;
     byok?: ByokaiModelConfiguration | null;
+};
+
+/**
+ * OrganizationPreferences
+ */
+export type OrganizationPreferences = {
+    /**
+     * Test Phone Number
+     */
+    test_phone_number?: string | null;
+    /**
+     * Timezone
+     */
+    timezone?: string | null;
 };
 
 /**
@@ -10025,7 +10024,7 @@ export type MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Mi
 
 export type MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostResponse = MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostResponses[keyof MigrateModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2MigratePostResponses];
 
-export type GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetData = {
+export type GetPreferencesApiV1OrganizationsPreferencesGetData = {
     body?: never;
     headers?: {
         /**
@@ -10039,10 +10038,10 @@ export type GetModelConfigurationPreferencesApiV1OrganizationsModelConfiguration
     };
     path?: never;
     query?: never;
-    url: '/api/v1/organizations/model-configurations/preferences';
+    url: '/api/v1/organizations/preferences';
 };
 
-export type GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetErrors = {
+export type GetPreferencesApiV1OrganizationsPreferencesGetErrors = {
     /**
      * Not found
      */
@@ -10053,19 +10052,19 @@ export type GetModelConfigurationPreferencesApiV1OrganizationsModelConfiguration
     422: HttpValidationError;
 };
 
-export type GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetError = GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetErrors[keyof GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetErrors];
+export type GetPreferencesApiV1OrganizationsPreferencesGetError = GetPreferencesApiV1OrganizationsPreferencesGetErrors[keyof GetPreferencesApiV1OrganizationsPreferencesGetErrors];
 
-export type GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetResponses = {
+export type GetPreferencesApiV1OrganizationsPreferencesGetResponses = {
     /**
      * Successful Response
      */
-    200: OrganizationAiModelConfigurationPreferences;
+    200: OrganizationPreferences;
 };
 
-export type GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetResponse = GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetResponses[keyof GetModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGetResponses];
+export type GetPreferencesApiV1OrganizationsPreferencesGetResponse = GetPreferencesApiV1OrganizationsPreferencesGetResponses[keyof GetPreferencesApiV1OrganizationsPreferencesGetResponses];
 
-export type SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutData = {
-    body: OrganizationAiModelConfigurationPreferences;
+export type SavePreferencesApiV1OrganizationsPreferencesPutData = {
+    body: OrganizationPreferences;
     headers?: {
         /**
          * Authorization
@@ -10078,10 +10077,10 @@ export type SaveModelConfigurationPreferencesApiV1OrganizationsModelConfiguratio
     };
     path?: never;
     query?: never;
-    url: '/api/v1/organizations/model-configurations/preferences';
+    url: '/api/v1/organizations/preferences';
 };
 
-export type SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutErrors = {
+export type SavePreferencesApiV1OrganizationsPreferencesPutErrors = {
     /**
      * Not found
      */
@@ -10092,16 +10091,16 @@ export type SaveModelConfigurationPreferencesApiV1OrganizationsModelConfiguratio
     422: HttpValidationError;
 };
 
-export type SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutError = SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutErrors[keyof SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutErrors];
+export type SavePreferencesApiV1OrganizationsPreferencesPutError = SavePreferencesApiV1OrganizationsPreferencesPutErrors[keyof SavePreferencesApiV1OrganizationsPreferencesPutErrors];
 
-export type SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutResponses = {
+export type SavePreferencesApiV1OrganizationsPreferencesPutResponses = {
     /**
      * Successful Response
      */
-    200: OrganizationAiModelConfigurationPreferences;
+    200: OrganizationPreferences;
 };
 
-export type SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutResponse = SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutResponses[keyof SaveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPutResponses];
+export type SavePreferencesApiV1OrganizationsPreferencesPutResponse = SavePreferencesApiV1OrganizationsPreferencesPutResponses[keyof SavePreferencesApiV1OrganizationsPreferencesPutResponses];
 
 export type ListTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGetData = {
     body?: never;

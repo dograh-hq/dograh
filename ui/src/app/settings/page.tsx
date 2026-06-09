@@ -3,7 +3,7 @@
 import { ExternalLink } from "lucide-react";
 
 import { MCPSection } from "@/components/MCPSection";
-import { ModelConfigurationPreferencesSection } from "@/components/ModelConfigurationPreferencesSection";
+import { OrganizationPreferencesSection } from "@/components/OrganizationPreferencesSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
 import {
   Card,
@@ -33,7 +33,7 @@ export default function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ModelConfigurationPreferencesSection />
+            <OrganizationPreferencesSection />
           </CardContent>
         </Card>
 

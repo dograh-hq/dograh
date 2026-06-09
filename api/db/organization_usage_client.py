@@ -447,11 +447,21 @@ class OrganizationUsageClient(BaseDBClient):
             pref_result = await session.execute(
                 select(OrganizationConfigurationModel).where(
                     OrganizationConfigurationModel.organization_id == organization_id,
-                    OrganizationConfigurationModel.key
-                    == OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value,
+                    OrganizationConfigurationModel.key.in_(
+                        [
+                            OrganizationConfigurationKey.ORGANIZATION_PREFERENCES.value,
+                            OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value,
+                        ]
+                    ),
                 )
             )
-            pref_obj = pref_result.scalar_one_or_none()
+            pref_rows = pref_result.scalars().all()
+            pref_by_key = {pref.key: pref for pref in pref_rows}
+            pref_obj = pref_by_key.get(
+                OrganizationConfigurationKey.ORGANIZATION_PREFERENCES.value
+            ) or pref_by_key.get(
+                OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value
+            )
             if pref_obj and pref_obj.value:
                 user_timezone = pref_obj.value.get("timezone") or user_timezone
 

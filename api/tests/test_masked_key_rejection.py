@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI
@@ -14,14 +15,14 @@ from api.services.configuration.registry import (
 )
 
 
-def _make_test_app():
+def _make_test_app(selected_organization_id=None):
     app = FastAPI()
     app.include_router(router)
 
     mock_user = MagicMock()
     mock_user.id = 1
     mock_user.is_superuser = False
-    mock_user.selected_organization_id = None
+    mock_user.selected_organization_id = selected_organization_id
 
     app.dependency_overrides[get_user] = lambda: mock_user
     return app
@@ -210,3 +211,38 @@ class TestMaskedKeyRejection:
             )
 
             assert response.status_code == 200
+
+    def test_preference_only_update_does_not_validate_or_save_model_config(self):
+        """Saving a test phone number through the legacy endpoint must not touch models."""
+        app = _make_test_app(selected_organization_id=11)
+        client = TestClient(app)
+        preferences = SimpleNamespace(test_phone_number=None, timezone=None)
+
+        with (
+            patch("api.routes.user.db_client") as mock_db,
+            patch("api.routes.user.UserConfigurationValidator") as mock_validator,
+            patch(
+                "api.routes.user.get_organization_preferences",
+                new=AsyncMock(return_value=preferences),
+            ),
+            patch(
+                "api.routes.user.upsert_organization_preferences",
+                new=AsyncMock(return_value=preferences),
+            ) as upsert_preferences,
+        ):
+            existing = _existing_openai_config()
+            mock_db.get_user_configurations = AsyncMock(return_value=existing)
+            mock_db.update_user_configuration = AsyncMock()
+            mock_db.get_organization_by_id = AsyncMock(return_value=None)
+            mock_validator.return_value.validate = AsyncMock()
+
+            response = client.put(
+                "/user/configurations/user",
+                json={"test_phone_number": "+15551234567"},
+            )
+
+            assert response.status_code == 200
+            assert response.json()["test_phone_number"] == "+15551234567"
+            mock_db.update_user_configuration.assert_not_called()
+            mock_validator.return_value.validate.assert_not_called()
+            upsert_preferences.assert_awaited_once()

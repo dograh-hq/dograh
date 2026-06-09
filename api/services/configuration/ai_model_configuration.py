@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass
-from inspect import isawaitable
 from typing import Literal
 
 from loguru import logger
@@ -22,7 +21,6 @@ from api.schemas.ai_model_configuration import (
     BYOKPipelineAIModelConfiguration,
     BYOKRealtimeAIModelConfiguration,
     DograhManagedAIModelConfiguration,
-    OrganizationAIModelConfigurationPreferences,
     OrganizationAIModelConfigurationV2,
     compile_ai_model_configuration_v2,
 )
@@ -45,7 +43,6 @@ class ResolvedAIModelConfiguration:
     effective: EffectiveAIModelConfiguration
     source: AIModelConfigurationSource
     organization_configuration: OrganizationAIModelConfigurationV2 | None = None
-    preferences: OrganizationAIModelConfigurationPreferences | None = None
 
 
 @dataclass
@@ -60,9 +57,6 @@ async def get_resolved_ai_model_configuration(
     user_id: int | None,
     organization_id: int | None,
 ) -> ResolvedAIModelConfiguration:
-    preferences = await get_organization_ai_model_configuration_preferences(
-        organization_id
-    )
     organization_configuration = await get_organization_ai_model_configuration_v2(
         organization_id
     )
@@ -71,21 +65,18 @@ async def get_resolved_ai_model_configuration(
             effective=compile_ai_model_configuration_v2(organization_configuration),
             source="organization_v2",
             organization_configuration=organization_configuration,
-            preferences=preferences,
         )
 
     if user_id is None:
         return ResolvedAIModelConfiguration(
             effective=EffectiveAIModelConfiguration(),
             source="empty",
-            preferences=preferences,
         )
 
     legacy = await db_client.get_user_configurations(user_id)
     return ResolvedAIModelConfiguration(
         effective=legacy,
         source="legacy_user_v1" if _has_model_services(legacy) else "empty",
-        preferences=preferences,
     )
 
 
@@ -135,33 +126,6 @@ async def get_organization_ai_model_configuration_v2(
         return None
 
 
-async def get_organization_ai_model_configuration_preferences(
-    organization_id: int | None,
-    db=None,
-) -> OrganizationAIModelConfigurationPreferences:
-    if organization_id is None:
-        return OrganizationAIModelConfigurationPreferences()
-    db = db or db_client
-    row = db.get_configuration(
-        organization_id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value,
-    )
-    if isawaitable(row):
-        row = await row
-    if row is None or not row.value:
-        return OrganizationAIModelConfigurationPreferences()
-    if not isinstance(row.value, dict):
-        return OrganizationAIModelConfigurationPreferences()
-    try:
-        return OrganizationAIModelConfigurationPreferences.model_validate(row.value)
-    except ValidationError as exc:
-        logger.warning(
-            "Invalid org AI model configuration preferences for organization "
-            f"{organization_id}: {exc}. Returning defaults."
-        )
-        return OrganizationAIModelConfigurationPreferences()
-
-
 async def upsert_organization_ai_model_configuration_v2(
     organization_id: int,
     configuration: OrganizationAIModelConfigurationV2,
@@ -172,18 +136,6 @@ async def upsert_organization_ai_model_configuration_v2(
         configuration.model_dump(mode="json", exclude_none=True),
     )
     return configuration
-
-
-async def upsert_organization_ai_model_configuration_preferences(
-    organization_id: int,
-    preferences: OrganizationAIModelConfigurationPreferences,
-) -> OrganizationAIModelConfigurationPreferences:
-    await db_client.upsert_configuration(
-        organization_id,
-        OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value,
-        preferences.model_dump(mode="json", exclude_none=True),
-    )
-    return preferences
 
 
 async def migrate_workflow_model_configurations_to_v2(

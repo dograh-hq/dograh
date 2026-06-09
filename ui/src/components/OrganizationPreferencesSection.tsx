@@ -6,10 +6,10 @@ import TimezoneSelect, { type ITimezoneOption } from "react-timezone-select";
 import { toast } from "sonner";
 
 import {
-  getModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGet,
-  saveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPut,
+  getPreferencesApiV1OrganizationsPreferencesGet,
+  savePreferencesApiV1OrganizationsPreferencesPut,
 } from "@/client/sdk.gen";
-import type { OrganizationAiModelConfigurationPreferences } from "@/client/types.gen";
+import type { OrganizationPreferences } from "@/client/types.gen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -17,7 +17,7 @@ import { useUserConfig } from "@/context/UserConfigContext";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
-const emptyPreferences: OrganizationAiModelConfigurationPreferences = {
+const emptyPreferences: OrganizationPreferences = {
   test_phone_number: "",
   timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
 };
@@ -88,14 +88,14 @@ function getTimezoneValue(tz: ITimezoneOption | string): string {
   return typeof tz === "string" ? tz : tz.value;
 }
 
-export function ModelConfigurationPreferencesSection() {
+export function OrganizationPreferencesSection() {
   const { user, loading: authLoading } = useAuth();
   const { refreshConfig } = useUserConfig();
   const timezoneSelectId = useId();
   const hasFetched = useRef(false);
 
   const [preferences, setPreferences] =
-    useState<OrganizationAiModelConfigurationPreferences>(emptyPreferences);
+    useState<OrganizationPreferences>(emptyPreferences);
   const [timezone, setTimezone] = useState<ITimezoneOption | string>(
     emptyPreferences.timezone || "UTC",
   );
@@ -114,13 +114,13 @@ export function ModelConfigurationPreferencesSection() {
     setLoading(true);
     try {
       const result =
-        await getModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesGet();
+        await getPreferencesApiV1OrganizationsPreferencesGet();
 
       if (result.error) {
         toast.error(
           detailFromError(
             result.error,
-            "Failed to load model configuration preferences",
+            "Failed to load organization preferences",
           ),
         );
         return;
@@ -135,7 +135,7 @@ export function ModelConfigurationPreferencesSection() {
         nextPreferences.timezone || emptyPreferences.timezone || "UTC",
       );
     } catch {
-      toast.error("Failed to load model configuration preferences");
+      toast.error("Failed to load organization preferences");
     } finally {
       setLoading(false);
     }
@@ -146,7 +146,7 @@ export function ModelConfigurationPreferencesSection() {
     setSaving(true);
     try {
       const result =
-        await saveModelConfigurationPreferencesApiV1OrganizationsModelConfigurationsPreferencesPut(
+        await savePreferencesApiV1OrganizationsPreferencesPut(
           {
             body: {
               test_phone_number: preferences.test_phone_number || null,

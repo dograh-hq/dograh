@@ -89,6 +89,12 @@ class OrganizationConfigurationKey(Enum):
     LANGFUSE_CREDENTIALS = (
         "LANGFUSE_CREDENTIALS"  # Org-level Langfuse tracing credentials
     )
+    MODEL_CONFIGURATION_V2 = (
+        "MODEL_CONFIGURATION_V2"  # Org-level v2 AI model configuration
+    )
+    MODEL_CONFIGURATION_PREFERENCES = (
+        "MODEL_CONFIGURATION_PREFERENCES"  # Org-level model configuration preferences
+    )
 
 
 class WorkflowStatus(Enum):

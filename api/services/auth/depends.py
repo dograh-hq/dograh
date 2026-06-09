@@ -119,6 +119,19 @@ async def get_user(
                         await db_client.update_user_configuration(
                             user_model.id, mps_config
                         )
+                        from api.enums import OrganizationConfigurationKey
+                        from api.services.configuration.ai_model_configuration import (
+                            convert_legacy_ai_model_configuration_to_v2,
+                        )
+
+                        model_config_v2 = convert_legacy_ai_model_configuration_to_v2(
+                            mps_config
+                        )
+                        await db_client.upsert_configuration(
+                            organization.id,
+                            OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+                            model_config_v2.model_dump(mode="json", exclude_none=True),
+                        )
 
     except Exception as exc:
         raise HTTPException(

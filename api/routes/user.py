@@ -10,6 +10,11 @@ from api.db.models import (
     UserModel,
 )
 from api.services.auth.depends import get_user
+from api.services.configuration.ai_model_configuration import (
+    get_organization_ai_model_configuration_preferences,
+    get_resolved_ai_model_configuration,
+    upsert_organization_ai_model_configuration_preferences,
+)
 from api.services.configuration.check_validity import (
     APIKeyStatusResponse,
     UserConfigurationValidator,
@@ -91,8 +96,18 @@ class UserConfigurationRequestResponseSchema(BaseModel):
 async def get_user_configurations(
     user: UserModel = Depends(get_user),
 ) -> UserConfigurationRequestResponseSchema:
-    user_configurations = await db_client.get_user_configurations(user.id)
-    masked_config = mask_user_config(user_configurations)
+    resolved_config = await get_resolved_ai_model_configuration(
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    masked_config = mask_user_config(resolved_config.effective)
+    if resolved_config.preferences:
+        if resolved_config.preferences.test_phone_number is not None:
+            masked_config["test_phone_number"] = (
+                resolved_config.preferences.test_phone_number
+            )
+        if resolved_config.preferences.timezone is not None:
+            masked_config["timezone"] = resolved_config.preferences.timezone
 
     # Add organization pricing info if available
     if user.selected_organization_id:
@@ -144,8 +159,31 @@ async def update_user_configurations(
         user.id, user_configurations
     )
 
+    if user.selected_organization_id and (
+        request.test_phone_number is not None or request.timezone is not None
+    ):
+        preferences = await get_organization_ai_model_configuration_preferences(
+            user.selected_organization_id
+        )
+        if request.test_phone_number is not None:
+            preferences.test_phone_number = request.test_phone_number
+        if request.timezone is not None:
+            preferences.timezone = request.timezone
+        await upsert_organization_ai_model_configuration_preferences(
+            user.selected_organization_id,
+            preferences,
+        )
+
     # Return masked version of updated config
     masked_config = mask_user_config(user_configurations)
+    if user.selected_organization_id:
+        preferences = await get_organization_ai_model_configuration_preferences(
+            user.selected_organization_id
+        )
+        if preferences.test_phone_number is not None:
+            masked_config["test_phone_number"] = preferences.test_phone_number
+        if preferences.timezone is not None:
+            masked_config["timezone"] = preferences.timezone
 
     # Add organization pricing info if available
     if user.selected_organization_id:
@@ -165,7 +203,11 @@ async def validate_user_configurations(
     validity_ttl_seconds: int = Query(default=60, ge=0, le=86400),
     user: UserModel = Depends(get_user),
 ) -> APIKeyStatusResponse:
-    configurations = await db_client.get_user_configurations(user.id)
+    resolved_config = await get_resolved_ai_model_configuration(
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    configurations = resolved_config.effective
 
     if (
         configurations.last_validated_at

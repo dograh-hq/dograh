@@ -10,6 +10,7 @@ from sqlalchemy.orm import joinedload
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters
 from api.db.models import (
+    OrganizationConfigurationModel,
     OrganizationModel,
     OrganizationUsageCycleModel,
     UserConfigurationModel,
@@ -17,6 +18,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
+from api.enums import OrganizationConfigurationKey
 from api.schemas.user_configuration import UserConfiguration
 
 
@@ -440,8 +442,19 @@ class OrganizationUsageClient(BaseDBClient):
         """Get daily usage breakdown for an organization with pricing."""
 
         async with self.async_session() as session:
-            # Get user timezone if user_id is provided
+            # Get org timezone preference first, then fall back to legacy user config.
             user_timezone = "UTC"  # Default timezone
+            pref_result = await session.execute(
+                select(OrganizationConfigurationModel).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key
+                    == OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value,
+                )
+            )
+            pref_obj = pref_result.scalar_one_or_none()
+            if pref_obj and pref_obj.value:
+                user_timezone = pref_obj.value.get("timezone") or user_timezone
+
             if user_id:
                 config_result = await session.execute(
                     select(UserConfigurationModel).where(
@@ -453,7 +466,7 @@ class OrganizationUsageClient(BaseDBClient):
                     user_config = UserConfiguration.model_validate(
                         config_obj.configuration
                     )
-                    if user_config.timezone:
+                    if user_config.timezone and user_timezone == "UTC":
                         user_timezone = user_config.timezone
 
             # Validate timezone string

@@ -2,7 +2,6 @@
 
 import random
 
-from api.db import db_client
 from api.db.models import WorkflowRunModel
 from api.services.workflow.dto import QANodeData
 
@@ -54,7 +53,27 @@ async def resolve_user_llm_config(
 
     llm_config: dict = {}
     if user_id:
-        user_configuration = await db_client.get_user_configurations(user_id)
+        from api.services.configuration.ai_model_configuration import (
+            get_effective_ai_model_configuration_for_workflow,
+        )
+
+        workflow_configurations = {}
+        if workflow_run.definition:
+            workflow_configurations = (
+                workflow_run.definition.workflow_configurations or {}
+            )
+        elif workflow_run.workflow:
+            workflow_configurations = (
+                workflow_run.workflow.workflow_configurations or {}
+            )
+
+        user_configuration = await get_effective_ai_model_configuration_for_workflow(
+            user_id=user_id,
+            organization_id=workflow_run.workflow.organization_id
+            if workflow_run.workflow
+            else None,
+            workflow_configurations=workflow_configurations,
+        )
         llm_config = user_configuration.model_dump(exclude_none=True).get("llm", {})
 
     provider = llm_config.get("provider", "openai")

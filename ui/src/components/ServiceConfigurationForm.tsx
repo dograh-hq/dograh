@@ -19,7 +19,7 @@ import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 import { useUserConfig } from "@/context/UserConfigContext";
 import type { ModelOverrides } from "@/types/workflow-configurations";
 
-type ServiceSegment = "llm" | "tts" | "stt" | "embeddings" | "realtime";
+export type ServiceSegment = "llm" | "tts" | "stt" | "embeddings" | "realtime";
 
 interface SchemaProperty {
     type?: string;
@@ -35,7 +35,7 @@ interface SchemaProperty {
     docs_url?: string;
 }
 
-interface ProviderSchema {
+export interface ProviderSchema {
     title?: string;
     description?: string;
     provider_docs_url?: string;
@@ -47,6 +47,15 @@ interface ProviderSchema {
 
 interface FormValues {
     [key: string]: string | number | boolean;
+}
+
+export interface ServiceConfigurationDefaults {
+    llm: Record<string, ProviderSchema>;
+    tts: Record<string, ProviderSchema>;
+    stt: Record<string, ProviderSchema>;
+    embeddings: Record<string, ProviderSchema>;
+    realtime?: Record<string, ProviderSchema>;
+    default_providers: Partial<Record<ServiceSegment, string>>;
 }
 
 const STANDARD_TABS: { key: ServiceSegment; label: string }[] = [
@@ -90,6 +99,8 @@ export interface ServiceConfigurationFormProps {
     onSave: (config: Record<string, unknown>) => Promise<void>;
     /** Text for the submit button. Defaults to "Save Configuration". */
     submitLabel?: string;
+    configurationDefaults?: ServiceConfigurationDefaults | null;
+    initialConfig?: Record<string, unknown> | null;
 }
 
 function getProviderDisplayName(
@@ -117,6 +128,8 @@ export function ServiceConfigurationForm({
     currentOverrides,
     onSave,
     submitLabel,
+    configurationDefaults,
+    initialConfig,
 }: ServiceConfigurationFormProps) {
     const [apiError, setApiError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -165,15 +178,16 @@ export function ServiceConfigurationForm({
 
     // Build effective config source: overlay overrides onto global config
     const configSource = useMemo(() => {
-        if (mode === 'global' || !currentOverrides) return userConfig;
+        const baseConfig = initialConfig ?? userConfig;
+        if (mode === 'global' || !currentOverrides) return baseConfig;
         // Merge overrides onto global config for form initialization
-        const merged = { ...userConfig } as Record<string, unknown>;
+        const merged = { ...baseConfig } as Record<string, unknown>;
         const overrideServices: (keyof ModelOverrides)[] = ["llm", "tts", "stt", "realtime"];
         for (const svc of overrideServices) {
             if (svc === "is_realtime") continue;
             const overrideVal = currentOverrides[svc];
             if (overrideVal && typeof overrideVal === "object") {
-                const globalVal = (userConfig as Record<string, unknown> | null)?.[svc] as Record<string, unknown> | undefined;
+                const globalVal = (baseConfig as Record<string, unknown> | null)?.[svc] as Record<string, unknown> | undefined;
                 merged[svc] = { ...globalVal, ...overrideVal };
             }
         }
@@ -181,24 +195,35 @@ export function ServiceConfigurationForm({
             merged.is_realtime = currentOverrides.is_realtime;
         }
         return merged as typeof userConfig;
-    }, [mode, userConfig, currentOverrides]);
+    }, [mode, userConfig, currentOverrides, initialConfig]);
 
     useEffect(() => {
         const fetchConfigurations = async () => {
-            const response = await getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet();
-            if (!response.data) {
-                console.error("Failed to fetch configurations");
-                return;
+            let defaultsData = configurationDefaults;
+            if (!defaultsData) {
+                const response = await getDefaultConfigurationsApiV1UserConfigurationsDefaultsGet();
+                if (!response.data) {
+                    console.error("Failed to fetch configurations");
+                    return;
+                }
+                defaultsData = response.data as ServiceConfigurationDefaults;
             }
 
-            const data = response.data as Record<string, unknown>;
-            const realtimeSchemas = (data.realtime || {}) as Record<string, ProviderSchema>;
+            const realtimeSchemas = (defaultsData.realtime || {}) as Record<string, ProviderSchema>;
+            const pickDefaultProvider = (
+                service: ServiceSegment,
+                schemaMap: Record<string, ProviderSchema>,
+            ) => {
+                const preferred = defaultsData.default_providers?.[service];
+                if (preferred && schemaMap[preferred]) return preferred;
+                return Object.keys(schemaMap)[0] || "";
+            };
 
             setSchemas({
-                llm: response.data.llm as Record<string, ProviderSchema>,
-                tts: response.data.tts as Record<string, ProviderSchema>,
-                stt: response.data.stt as Record<string, ProviderSchema>,
-                embeddings: response.data.embeddings as Record<string, ProviderSchema>,
+                llm: defaultsData.llm,
+                tts: defaultsData.tts,
+                stt: defaultsData.stt,
+                embeddings: defaultsData.embeddings,
                 realtime: realtimeSchemas,
             });
 
@@ -210,10 +235,10 @@ export function ServiceConfigurationForm({
 
             const defaultValues: Record<string, string | number | boolean> = {};
             const selectedProviders: Record<ServiceSegment, string> = {
-                llm: response.data.default_providers.llm,
-                tts: response.data.default_providers.tts,
-                stt: response.data.default_providers.stt,
-                embeddings: response.data.default_providers.embeddings,
+                llm: pickDefaultProvider("llm", defaultsData.llm),
+                tts: pickDefaultProvider("tts", defaultsData.tts),
+                stt: pickDefaultProvider("stt", defaultsData.stt),
+                embeddings: pickDefaultProvider("embeddings", defaultsData.embeddings),
                 realtime: "",
             };
 
@@ -237,7 +262,7 @@ export function ServiceConfigurationForm({
 
                 const schemaSource = service === "realtime"
                     ? realtimeSchemas
-                    : response.data![service as "llm" | "tts" | "stt" | "embeddings"] as Record<string, ProviderSchema> | undefined;
+                    : defaultsData[service as "llm" | "tts" | "stt" | "embeddings"] as Record<string, ProviderSchema> | undefined;
 
                 if (src?.provider) {
                     Object.entries(src).forEach(([field, value]) => {
@@ -296,7 +321,7 @@ export function ServiceConfigurationForm({
 
             // Detect custom inputs
             const detectedCustomInput: Record<string, boolean> = {};
-            const allSchemas = { ...response.data, realtime: realtimeSchemas } as unknown as Record<string, Record<string, ProviderSchema>>;
+            const allSchemas = { ...defaultsData, realtime: realtimeSchemas } as unknown as Record<string, Record<string, ProviderSchema>>;
             (["llm", "tts", "stt", "embeddings", "realtime"] as ServiceSegment[]).forEach(service => {
                 const provider = selectedProviders[service];
                 const providerSchema = allSchemas[service]?.[provider];
@@ -337,7 +362,7 @@ export function ServiceConfigurationForm({
         };
         fetchConfigurations();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [reset, configSource]);
+    }, [reset, configSource, configurationDefaults]);
 
     // Reset voice when TTS model changes if the provider has model-dependent voice options
     const ttsModel = watch("tts_model");

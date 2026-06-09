@@ -369,6 +369,10 @@ async def search_chunks(
 
     try:
         # Import here to avoid circular dependency
+        from api.services.configuration.ai_model_configuration import (
+            apply_managed_embeddings_base_url,
+            get_resolved_ai_model_configuration,
+        )
         from api.services.configuration.registry import ServiceProviders
         from api.services.gen_ai import (
             AzureOpenAIEmbeddingService,
@@ -376,10 +380,15 @@ async def search_chunks(
         )
 
         # Try to get user's embeddings configuration
-        user_config = await db_client.get_user_configurations(user.id)
+        resolved_config = await get_resolved_ai_model_configuration(
+            user_id=user.id,
+            organization_id=user.selected_organization_id,
+        )
+        user_config = resolved_config.effective
         embeddings_api_key = None
         embeddings_model = None
         embeddings_provider = None
+        embeddings_base_url = None
         embeddings_endpoint = None
         embeddings_api_version = None
 
@@ -388,6 +397,10 @@ async def search_chunks(
             embeddings_model = user_config.embeddings.model
             embeddings_provider = getattr(user_config.embeddings, "provider", None)
             embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+            embeddings_base_url = apply_managed_embeddings_base_url(
+                provider=embeddings_provider,
+                base_url=getattr(user_config.embeddings, "base_url", None),
+            )
             embeddings_api_version = getattr(
                 user_config.embeddings, "api_version", None
             )
@@ -406,9 +419,7 @@ async def search_chunks(
                 db_client=db_client,
                 api_key=embeddings_api_key,
                 model_id=embeddings_model or "text-embedding-3-small",
-                base_url=getattr(user_config.embeddings, "base_url", None)
-                if user_config.embeddings
-                else None,
+                base_url=embeddings_base_url,
             )
 
         # Perform search

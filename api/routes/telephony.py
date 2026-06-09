@@ -82,7 +82,15 @@ async def initiate_call(
     """Initiate a call using the configured telephony provider from web browser. This is
     supposed to be a test call method for the draft version of the agent."""
 
+    from api.services.configuration.ai_model_configuration import (
+        get_organization_ai_model_configuration_preferences,
+    )
+
     user_configuration = await db_client.get_user_configurations(user.id)
+    preferences = await get_organization_ai_model_configuration_preferences(
+        user.selected_organization_id,
+        db=db_client,
+    )
 
     # Resolve which telephony config to use: explicit request value, otherwise
     # the org's default outbound config.
@@ -116,7 +124,11 @@ async def initiate_call(
             detail="telephony_not_configured",
         )
 
-    phone_number = request.phone_number or user_configuration.test_phone_number
+    phone_number = (
+        request.phone_number
+        or preferences.test_phone_number
+        or user_configuration.test_phone_number
+    )
 
     if not phone_number:
         raise HTTPException(

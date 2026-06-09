@@ -195,14 +195,17 @@ async def run_pipeline_telephony(
     # Resolve effective user config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
-    from api.services.configuration.resolve import resolve_effective_config
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
 
-    user_config = await db_client.get_user_configurations(user_id)
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = resolve_effective_config(
-        user_config, run_configs.get("model_overrides")
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=user_id,
+        organization_id=workflow.organization_id if workflow else None,
+        workflow_configurations=run_configs,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -272,15 +275,18 @@ async def run_pipeline_smallwebrtc(
     # Resolve workflow_run + effective user_config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
-    from api.services.configuration.resolve import resolve_effective_config
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
 
     workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
-    user_config = await db_client.get_user_configurations(user_id)
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = resolve_effective_config(
-        user_config, run_configs.get("model_overrides")
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=user_id,
+        organization_id=workflow.organization_id if workflow else None,
+        workflow_configurations=run_configs,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -380,11 +386,14 @@ async def _run_pipeline(
     # Resolve model overrides from the version onto global user config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
-        from api.services.configuration.resolve import resolve_effective_config
+        from api.services.configuration.ai_model_configuration import (
+            get_effective_ai_model_configuration_for_workflow,
+        )
 
-        user_config = await db_client.get_user_configurations(user_id)
-        user_config = resolve_effective_config(
-            user_config, run_configs.get("model_overrides")
+        user_config = await get_effective_ai_model_configuration_for_workflow(
+            user_id=user_id,
+            organization_id=workflow.organization_id,
+            workflow_configurations=run_configs,
         )
     else:
         user_config = resolved_user_config
@@ -508,10 +517,17 @@ async def _run_pipeline(
     embeddings_endpoint = None
     embeddings_api_version = None
     if user_config and user_config.embeddings:
+        from api.services.configuration.ai_model_configuration import (
+            apply_managed_embeddings_base_url,
+        )
+
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
         embeddings_provider = getattr(user_config.embeddings, "provider", None)
-        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+        embeddings_base_url = apply_managed_embeddings_base_url(
+            provider=embeddings_provider,
+            base_url=getattr(user_config.embeddings, "base_url", None),
+        )
         embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
         embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 

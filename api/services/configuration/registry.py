@@ -56,6 +56,7 @@ class ServiceProviders(str, Enum):
     DEEPGRAM = "deepgram"
     GROQ = "groq"
     OPENROUTER = "openrouter"
+    INWORLD = "inworld"
     CARTESIA = "cartesia"
     # NEUPHONIC = "neuphonic"
     ELEVENLABS = "elevenlabs"
@@ -87,6 +88,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
+        ServiceProviders.INWORLD,
         ServiceProviders.ELEVENLABS,
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
@@ -240,6 +242,14 @@ GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
 DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
+INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Inworld",
+    description=(
+        "Inworld AI streaming text-to-speech with built-in and cloned voices. "
+        "Defaults to the Ashley system voice on inworld-tts-2."
+    ),
+    provider_docs_url="https://docs.inworld.ai/tts/tts",
+)
 SARVAM_PROVIDER_MODEL_CONFIG = provider_model_config("Sarvam")
 CAMB_PROVIDER_MODEL_CONFIG = provider_model_config("Camb.ai")
 RIME_PROVIDER_MODEL_CONFIG = provider_model_config("Rime")
@@ -912,6 +922,9 @@ class DograhTTSService(BaseTTSConfiguration):
 
 
 CARTESIA_TTS_MODELS = ["sonic-3"]
+INWORLD_TTS_MODELS = ["inworld-tts-2"]
+INWORLD_TTS_VOICES = ["Ashley"]
+INWORLD_TTS_LANGUAGES = ["en-US"]
 
 
 @register_tts
@@ -933,6 +946,46 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
         ge=0.5,
         le=2.0,
         description="Volume multiplier for generated speech.",
+    )
+
+
+@register_tts
+class InworldTTSConfiguration(BaseTTSConfiguration):
+    model_config = INWORLD_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.INWORLD] = ServiceProviders.INWORLD
+    model: str = Field(
+        default="inworld-tts-2",
+        description="Inworld TTS model.",
+        json_schema_extra={"examples": INWORLD_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="Ashley",
+        description=(
+            "Inworld voice ID. Use Ashley for the default warm English voice, "
+            "or a workspace voice ID for a cloned/custom voice."
+        ),
+        json_schema_extra={"examples": INWORLD_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for synthesis.",
+        json_schema_extra={
+            "examples": INWORLD_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.25,
+        le=4.0,
+        description="Speech speed multiplier.",
+    )
+    delivery_mode: Literal["STABLE", "BALANCED", "CREATIVE"] = Field(
+        default="BALANCED",
+        description=(
+            "Controls stability versus expressiveness for inworld-tts-2 "
+            "(STABLE, BALANCED, or CREATIVE)."
+        ),
     )
 
 
@@ -1127,6 +1180,7 @@ TTSConfig = Annotated[
         OpenAITTSService,
         ElevenlabsTTSConfiguration,
         CartesiaTTSConfiguration,
+        InworldTTSConfiguration,
         DograhTTSService,
         SarvamTTSConfiguration,
         CambTTSConfiguration,

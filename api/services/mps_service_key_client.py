@@ -353,6 +353,40 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def create_correlation_id(
+        self,
+        *,
+        service_key: str,
+        workflow_run_id: int | None = None,
+    ) -> dict:
+        """Mint a server-generated correlation ID for managed model services."""
+        payload: dict[str, int] = {}
+        if workflow_run_id is not None:
+            payload["workflow_run_id"] = workflow_run_id
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/service-keys/correlation-id/self",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {service_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to create correlation ID: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to create correlation ID: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
     async def transcribe_audio(
         self,
         audio_data: bytes,

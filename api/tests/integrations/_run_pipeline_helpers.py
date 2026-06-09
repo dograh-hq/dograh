@@ -203,7 +203,7 @@ async def create_workflow_run_rows(
     Returns:
         Tuple of (workflow_run, user, workflow).
     """
-    from api.schemas.user_configuration import EffectiveAIModelConfiguration
+    from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 
     org = OrganizationModel(provider_id=f"test-org-{provider_id_suffix}")
     async_session.add(org)

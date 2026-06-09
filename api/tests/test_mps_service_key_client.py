@@ -87,3 +87,44 @@ async def test_check_service_key_usage_uses_bearer_self_usage(monkeypatch):
             "Content-Type": "application/json",
         },
     )
+
+
+@pytest.mark.asyncio
+async def test_create_correlation_id_uses_bearer_auth(monkeypatch):
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, json, headers):
+            calls.append(("POST", url, json, headers))
+            return _Response(200, {"correlation_id": "mps-corr-123"})
+
+    monkeypatch.setattr(
+        "api.services.mps_service_key_client.httpx.AsyncClient", FakeAsyncClient
+    )
+
+    client = MPSServiceKeyClient()
+
+    assert await client.create_correlation_id(
+        service_key="mps_sk_paid",
+        workflow_run_id=42,
+    ) == {"correlation_id": "mps-corr-123"}
+    assert calls == [
+        (
+            "POST",
+            f"{client.base_url}/api/v1/service-keys/correlation-id/self",
+            {"workflow_run_id": 42},
+            {
+                "Authorization": "Bearer mps_sk_paid",
+                "Content-Type": "application/json",
+            },
+        )
+    ]

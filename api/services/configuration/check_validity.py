@@ -8,7 +8,7 @@ from groq import Groq
 #     from pyneuphonic import Neuphonic
 # except ImportError:
 #     Neuphonic = None
-from api.schemas.user_configuration import (
+from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
 from api.services.configuration.registry import ServiceConfig, ServiceProviders

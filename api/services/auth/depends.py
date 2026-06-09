@@ -9,7 +9,7 @@ from api.constants import AUTH_PROVIDER, DOGRAH_MPS_SECRET_KEY, MPS_API_URL
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.auth.stack_auth import stackauth
 from api.services.configuration.registry import ServiceProviders
 from api.services.posthog_client import capture_event
@@ -285,8 +285,8 @@ async def create_user_configuration_with_mps_key(
                         "model": "default",
                     },
                 }
-                user_config = EffectiveAIModelConfiguration(**configuration)
-                return user_config
+                effective_config = EffectiveAIModelConfiguration(**configuration)
+                return effective_config
         else:
             logger.warning(
                 f"Failed to get MPS service key: {response.status_code} - {response.text}"

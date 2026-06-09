@@ -12,7 +12,7 @@ The rules are simple:
 import copy
 from typing import Any, Dict, Optional
 
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import ServiceConfig
 from api.services.integrations import get_node_secret_fields
 

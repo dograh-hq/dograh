@@ -1053,13 +1053,15 @@ async def update_workflow(
                 user_id=user.id,
                 organization_id=user.selected_organization_id,
             )
-            user_config = resolved_config.effective
+            effective_config = resolved_config.effective
             try:
                 enriched_overrides = enrich_overrides_with_api_keys(
                     workflow_configurations["model_overrides"],
-                    user_config,
+                    effective_config,
                 )
-                effective = resolve_effective_config(user_config, enriched_overrides)
+                effective = resolve_effective_config(
+                    effective_config, enriched_overrides
+                )
                 if resolved_config.source == "organization_v2":
                     v2_override = convert_legacy_ai_model_configuration_to_v2(effective)
                     await UserConfigurationValidator().validate(

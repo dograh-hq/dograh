@@ -9,7 +9,7 @@ Module under test: api.services.configuration.resolve
 
 import pytest
 
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
     contains_masked_key,
     mask_workflow_configurations,

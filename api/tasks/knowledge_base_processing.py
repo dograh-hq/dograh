@@ -166,18 +166,22 @@ async def process_knowledge_base_document(
                 user_id=document.created_by,
                 organization_id=document.organization_id,
             )
-            user_config = resolved_config.effective
-            if user_config.embeddings:
-                embeddings_provider = getattr(user_config.embeddings, "provider", None)
-                embeddings_api_key = user_config.embeddings.api_key
-                embeddings_model = user_config.embeddings.model
+            effective_config = resolved_config.effective
+            if effective_config.embeddings:
+                embeddings_provider = getattr(
+                    effective_config.embeddings, "provider", None
+                )
+                embeddings_api_key = effective_config.embeddings.api_key
+                embeddings_model = effective_config.embeddings.model
                 embeddings_base_url = apply_managed_embeddings_base_url(
                     provider=embeddings_provider,
-                    base_url=getattr(user_config.embeddings, "base_url", None),
+                    base_url=getattr(effective_config.embeddings, "base_url", None),
                 )
-                embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+                embeddings_endpoint = getattr(
+                    effective_config.embeddings, "endpoint", None
+                )
                 embeddings_api_version = getattr(
-                    user_config.embeddings, "api_version", None
+                    effective_config.embeddings, "api_version", None
                 )
                 logger.info(
                     f"Using user embeddings config: provider={embeddings_provider}, "

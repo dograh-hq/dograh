@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import (
     REGISTRY,
     ServiceType,

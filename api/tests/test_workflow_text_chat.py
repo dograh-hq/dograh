@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.db.models import OrganizationModel, UserModel
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 

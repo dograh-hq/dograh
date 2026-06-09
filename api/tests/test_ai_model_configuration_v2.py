@@ -3,10 +3,10 @@ from pydantic import ValidationError
 
 from api.schemas.ai_model_configuration import (
     DograhManagedAIModelConfiguration,
+    EffectiveAIModelConfiguration,
     OrganizationAIModelConfigurationV2,
     compile_ai_model_configuration_v2,
 )
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.ai_model_configuration import (
     WORKFLOW_MODEL_CONFIGURATION_V2_OVERRIDE_KEY,
     check_for_masked_keys_in_ai_model_configuration_v2,
@@ -49,6 +49,7 @@ def test_dograh_v2_compiles_to_effective_managed_pipeline_with_embeddings():
     assert effective.stt.language == "multi"
     assert effective.embeddings.provider == "dograh"
     assert effective.embeddings.model == "default"
+    assert effective.managed_service_version == 2
 
 
 def test_dograh_v2_rejects_non_predefined_speed():

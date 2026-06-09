@@ -42,6 +42,8 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  --color-cta: var(--cta);
+  --color-cta-foreground: var(--cta-foreground);
 }
 
 :root {
@@ -77,6 +79,9 @@
   --sidebar-ring: oklch(0.708 0 0);
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+  /* Single restrained warm accent — used only on primary CTAs + focus rings. */
+  --cta: oklch(0.72 0.15 65);
+  --cta-foreground: oklch(0.16 0.02 60);
 }
 
 .dark {
@@ -111,6 +116,9 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  /* Warm accent, slightly brighter against the near-black surfaces. */
+  --cta: oklch(0.78 0.16 67);
+  --cta-foreground: oklch(0.16 0.02 60);
 }
 
 @layer base {
@@ -134,4 +142,46 @@
 
 .animate-spin-slow {
   animation: spin-slow 3s linear infinite;
+}
+
+@layer components {
+  /* CSS-only audio-waveform motif for the auth brand panel. A row of bars that
+     breathe at staggered intervals, evoking live voice. Decorative only. */
+  .auth-waveform {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 3.5rem;
+  }
+
+  .auth-waveform span {
+    display: block;
+    width: 0.25rem;
+    border-radius: 9999px;
+    background: linear-gradient(
+      to top,
+      color-mix(in oklch, var(--cta) 70%, transparent),
+      color-mix(in oklch, var(--cta) 25%, transparent)
+    );
+    animation: auth-wave 1.4s ease-in-out infinite;
+    transform-origin: center;
+  }
+
+  .auth-waveform span:nth-child(1) { animation-delay: 0s; height: 35%; }
+  .auth-waveform span:nth-child(2) { animation-delay: 0.15s; height: 65%; }
+  .auth-waveform span:nth-child(3) { animation-delay: 0.3s; height: 100%; }
+  .auth-waveform span:nth-child(4) { animation-delay: 0.45s; height: 55%; }
+  .auth-waveform span:nth-child(5) { animation-delay: 0.6s; height: 80%; }
+  .auth-waveform span:nth-child(6) { animation-delay: 0.3s; height: 45%; }
+  .auth-waveform span:nth-child(7) { animation-delay: 0.15s; height: 70%; }
+  .auth-waveform span:nth-child(8) { animation-delay: 0s; height: 30%; }
+
+  @keyframes auth-wave {
+    0%, 100% { transform: scaleY(0.4); opacity: 0.7; }
+    50% { transform: scaleY(1); opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .auth-waveform span { animation: none; }
+  }
 }

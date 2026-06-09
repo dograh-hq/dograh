@@ -3,79 +3,73 @@
 export type LeadSource =
   | "sidebar"
   | "billing_card"
+  | "billing_custom_pricing"
   | "builder_nudge"
-  | "topup"
-  | "hire_expert";
+  | "hire_expert"
+  | "onboarding"
+  | "pricing_custom_volume"
+  | "landing_contact";
 
-export type LeadKind = "topup" | "hire_expert" | "enterprise";
+export type LeadKind = "hire_expert" | "enterprise";
 
-// Top-up: expected monthly call volume. ">20k" unlocks the volume-pricing block.
-export const TOPUP_VOLUME_OPTIONS = [
-  { value: "0-5k", label: "0–5k calls/month" },
-  { value: "5k-20k", label: "5k–20k calls/month" },
-  { value: ">20k", label: ">20k calls/month" },
-] as const;
-
-// The value that gates the volume-pricing qualifier block.
-export const VOLUME_PRICING_GATE = ">20k";
-
-// Top-up volume-pricing qualifier: company size (small-business scale).
-export const TOPUP_COMPANY_SIZE_OPTIONS = [
-  { value: "only_me", label: "Only me" },
-  { value: "2-10", label: "2–10" },
-  { value: "10-100", label: "10–100" },
-  { value: "100-1000", label: "100–1000" },
-  { value: "1000+", label: "1000+" },
-] as const;
-
-// Hire-an-Expert timeline.
-export const HIRE_TIMELINE_OPTIONS = [
-  { value: "asap", label: "ASAP" },
-  { value: "2-4_weeks", label: "2–4 weeks" },
-  { value: "1-2_months", label: "1–2 months" },
-  { value: "flexible", label: "Flexible" },
-  { value: "exploring", label: "Exploring" },
-] as const;
-
-// Hire-an-Expert expected monthly call volume.
-export const HIRE_VOLUME_OPTIONS = [
+// Monthly call-volume buckets. Values MUST match the backend qualifier enum
+// (user_onboarding flows): "0-5k" | "5k-100k" | "100k+" | "not-sure".
+export const VOLUME_OPTIONS = [
   { value: "0-5k", label: "0–5k" },
   { value: "5k-100k", label: "5k–100k" },
   { value: "100k+", label: "100k+" },
+  { value: "not-sure", label: "Not sure" },
+] as const;
+
+// Hire-an-Expert expected monthly call volume (shared bucket set).
+export const HIRE_VOLUME_OPTIONS = VOLUME_OPTIONS;
+
+// Enterprise monthly call volume (shared bucket set).
+export const ENTERPRISE_VOLUME_OPTIONS = VOLUME_OPTIONS;
+
+// Lead sources for which the Enterprise modal surfaces the conditional
+// "Need enterprise deployment (SSO, on-prem, data residency)?" question.
+// Other entry points hide it and default the payload to "yes".
+export const ENTERPRISE_DEPLOYMENT_SOURCES: readonly LeadSource[] = [
+  "billing_custom_pricing",
+  "pricing_custom_volume",
+  "landing_contact",
+];
+
+// Enterprise deployment need (conditional — see ENTERPRISE_DEPLOYMENT_SOURCES).
+export const ENTERPRISE_DEPLOYMENT_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
+  { value: "maybe", label: "Maybe" },
+] as const;
+
+// ---------------------------------------------------------------------------
+// Post-signup onboarding form options
+// ---------------------------------------------------------------------------
+
+// Onboarding: where do you plan to use this (highest-signal question — keep exact).
+export const ONBOARDING_USAGE_CONTEXT_OPTIONS = [
+  { value: "for_my_clients", label: "For my clients" },
+  { value: "for_my_company", label: "For my company" },
+  { value: "personal", label: "Personal use case" },
+  { value: "exploring", label: "Just exploring" },
+] as const;
+
+// Onboarding: what best describes you.
+export const ONBOARDING_PERSONA_OPTIONS = [
+  { value: "enterprise_midmarket", label: "Enterprise / Mid-Market" },
+  { value: "agency", label: "Agency / consultancy building for clients" },
+  { value: "local_business", label: "Local business" },
+  { value: "startup", label: "Startup" },
+  { value: "solo", label: "Solo founder / builder" },
+] as const;
+
+// Persona values that unlock the on-prem conditional question.
+export const ONBOARDING_ONPREM_PERSONAS: readonly string[] = ["enterprise_midmarket"];
+
+// Onboarding: on-prem deployment need (conditional on Enterprise/Mid-Market).
+export const ONBOARDING_ONPREM_OPTIONS = [
+  { value: "yes", label: "Yes" },
+  { value: "no", label: "No" },
   { value: "not_sure", label: "Not sure" },
-] as const;
-
-// Hire-an-Expert current stage.
-export const HIRE_STAGE_OPTIONS = [
-  { value: "live_process", label: "Have a live process we want to automate" },
-  { value: "idea_no_process", label: "Have an idea, no process yet" },
-  { value: "researching", label: "Just researching" },
-  { value: "built_need_help", label: "Already built something, need help fixing" },
-] as const;
-
-// Enterprise industry.
-export const ENTERPRISE_INDUSTRY_OPTIONS = [
-  { value: "financial_services", label: "Financial services" },
-  { value: "healthcare", label: "Healthcare" },
-  { value: "insurance", label: "Insurance" },
-  { value: "government", label: "Government" },
-  { value: "telecom", label: "Telecom" },
-  { value: "bpo", label: "BPO" },
-  { value: "other", label: "Other" },
-] as const;
-
-// Enterprise company size (enterprise scale — intentionally different from top-up's).
-export const ENTERPRISE_COMPANY_SIZE_OPTIONS = [
-  { value: "50-200", label: "50–200" },
-  { value: "200-1000", label: "200–1000" },
-  { value: "1000-5000", label: "1000–5000" },
-  { value: "5000+", label: "5000+" },
-] as const;
-
-// Enterprise timeline.
-export const ENTERPRISE_TIMELINE_OPTIONS = [
-  { value: "this_quarter", label: "This quarter" },
-  { value: "next_quarter", label: "Next quarter" },
-  { value: "6_months", label: "6 months" },
-  { value: "exploring", label: "Exploring" },
 ] as const;

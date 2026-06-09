@@ -1,19 +1,22 @@
 "use client";
 
 import { UserRound } from "lucide-react";
+import posthog from "posthog-js";
 import { useCallback, useEffect, useState } from "react";
 
 import { getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet } from "@/client/sdk.gen";
 import type { MpsCreditsResponse } from "@/client/types.gen";
+import { BuyCreditsControl } from "@/components/billing/BuyCreditsControl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { PostHogEvent } from "@/constants/posthog-events";
 import { useLeadForms } from "@/context/LeadFormsContext";
 import { useAuth } from "@/lib/auth";
 
 export function DograhCreditsCard() {
   const auth = useAuth();
-  const { openHireExpert, openTopUp } = useLeadForms();
+  const { openHireExpert, openEnterprise } = useLeadForms();
   const [mpsCredits, setMpsCredits] = useState<MpsCreditsResponse | null>(null);
   const [isLoadingCredits, setIsLoadingCredits] = useState(true);
 
@@ -80,16 +83,31 @@ export function DograhCreditsCard() {
           </p>
         )}
 
-        {/* Footer CTAs — card ends with an action */}
-        <div className="mt-6 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-sm text-muted-foreground">Running low?</span>
-          <div className="flex flex-wrap gap-2 sm:justify-end">
-            <Button variant="outline" className="gap-2" onClick={() => openHireExpert("billing_card")}>
-              <UserRound className="h-4 w-4" />
-              Hire an Expert
-            </Button>
-            <Button onClick={() => openTopUp("billing_card")}>Request top-up</Button>
+        {/* Footer CTAs — card ends with self-serve + done-for-you actions */}
+        <div className="mt-6 space-y-4 border-t pt-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Running low?</p>
+              <p className="text-sm text-muted-foreground">Top up instantly, or have us build it for you.</p>
+            </div>
+            <div className="flex flex-col items-stretch gap-3 sm:items-end">
+              <BuyCreditsControl />
+              <Button variant="outline" className="gap-2" onClick={() => openHireExpert("billing_card")}>
+                <UserRound className="h-4 w-4" />
+                Hire an Expert
+              </Button>
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              posthog.capture(PostHogEvent.CUSTOM_PRICING_CLICKED);
+              openEnterprise("billing_custom_pricing");
+            }}
+            className="text-xs text-muted-foreground underline decoration-dashed underline-offset-4 hover:text-foreground"
+          >
+            Contact Us: Custom pricing for committed monthly volume
+          </button>
         </div>
       </CardContent>
     </Card>

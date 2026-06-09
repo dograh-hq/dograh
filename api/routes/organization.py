@@ -34,7 +34,7 @@ from api.schemas.telephony_phone_number import (
     PhoneNumberUpdateRequest,
     ProviderSyncStatus,
 )
-from api.services.auth.depends import get_user
+from api.services.auth.depends import get_user, get_user_with_selected_organization
 from api.services.configuration.ai_model_configuration import (
     check_for_masked_keys_in_ai_model_configuration_v2,
     compile_ai_model_configuration_v2,
@@ -193,12 +193,6 @@ async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
 # ---------------------------------------------------------------------------
 
 
-def _require_selected_organization(user: UserModel) -> int:
-    if not user.selected_organization_id:
-        raise HTTPException(status_code=400, detail="No organization selected")
-    return user.selected_organization_id
-
-
 def _byok_provider_schemas(service_type: ServiceType) -> dict[str, dict]:
     return {
         provider: model_cls.model_json_schema()
@@ -231,8 +225,9 @@ async def _model_configuration_v2_response(
 
 
 @router.get("/model-configurations/v2/defaults")
-async def get_model_configuration_v2_defaults(user: UserModel = Depends(get_user)):
-    _require_selected_organization(user)
+async def get_model_configuration_v2_defaults(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
     byok_default_providers = {
         service: provider
         for service, provider in DEFAULT_SERVICE_PROVIDERS.items()
@@ -271,8 +266,9 @@ async def get_model_configuration_v2_defaults(user: UserModel = Depends(get_user
     "/model-configurations/v2",
     response_model=OrganizationAIModelConfigurationResponse,
 )
-async def get_model_configuration_v2(user: UserModel = Depends(get_user)):
-    _require_selected_organization(user)
+async def get_model_configuration_v2(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
     return await _model_configuration_v2_response(user=user)
 
 
@@ -282,9 +278,9 @@ async def get_model_configuration_v2(user: UserModel = Depends(get_user)):
 )
 async def save_model_configuration_v2(
     request: OrganizationAIModelConfigurationV2,
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_user_with_selected_organization),
 ):
-    organization_id = _require_selected_organization(user)
+    organization_id = user.selected_organization_id
     existing = await get_organization_ai_model_configuration_v2(organization_id)
     configuration = merge_ai_model_configuration_v2_secrets(request, existing)
     try:
@@ -309,8 +305,9 @@ async def save_model_configuration_v2(
 
 
 @router.get("/model-configurations/v2/migration-preview")
-async def preview_model_configuration_v2_migration(user: UserModel = Depends(get_user)):
-    _require_selected_organization(user)
+async def preview_model_configuration_v2_migration(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
     legacy = await db_client.get_user_configurations(user.id)
     try:
         configuration = convert_legacy_ai_model_configuration_to_v2(legacy)
@@ -330,9 +327,9 @@ async def preview_model_configuration_v2_migration(user: UserModel = Depends(get
 )
 async def migrate_model_configuration_v2(
     force: bool = Query(default=False),
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_user_with_selected_organization),
 ):
-    organization_id = _require_selected_organization(user)
+    organization_id = user.selected_organization_id
     existing = await get_organization_ai_model_configuration_v2(organization_id)
     if existing is not None and not force:
         raise HTTPException(
@@ -370,8 +367,10 @@ async def migrate_model_configuration_v2(
     "/model-configurations/preferences",
     response_model=OrganizationAIModelConfigurationPreferences,
 )
-async def get_model_configuration_preferences(user: UserModel = Depends(get_user)):
-    organization_id = _require_selected_organization(user)
+async def get_model_configuration_preferences(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    organization_id = user.selected_organization_id
     return await get_organization_ai_model_configuration_preferences(organization_id)
 
 
@@ -381,9 +380,9 @@ async def get_model_configuration_preferences(user: UserModel = Depends(get_user
 )
 async def save_model_configuration_preferences(
     request: OrganizationAIModelConfigurationPreferences,
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_user_with_selected_organization),
 ):
-    organization_id = _require_selected_organization(user)
+    organization_id = user.selected_organization_id
     return await upsert_organization_ai_model_configuration_preferences(
         organization_id,
         request,

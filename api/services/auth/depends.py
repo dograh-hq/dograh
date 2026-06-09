@@ -1,7 +1,7 @@
 from typing import Annotated, Optional
 
 import httpx
-from fastapi import Header, HTTPException, Query, WebSocket
+from fastapi import Depends, Header, HTTPException, Query, WebSocket
 from loguru import logger
 from pydantic import ValidationError
 
@@ -140,6 +140,14 @@ async def get_user(
         )
 
     return user_model
+
+
+async def get_user_with_selected_organization(
+    user: Annotated[UserModel, Depends(get_user)],
+) -> UserModel:
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="No organization selected")
+    return user
 
 
 async def _handle_oss_auth(authorization: str | None) -> UserModel:

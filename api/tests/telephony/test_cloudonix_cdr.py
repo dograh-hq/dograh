@@ -64,6 +64,21 @@ async def test_cdr_route_handles_null_session():
     assert result == {"status": "error", "message": "Missing call_id field"}
 
 
+@pytest.mark.asyncio
+async def test_cdr_route_handles_string_session():
+    """A CDR payload with a non-object session is handled gracefully."""
+    request = _json_request(b'{"domain": "acme.cloudonix.io", "session": "abc"}')
+
+    with patch(
+        "api.services.telephony.providers.cloudonix.routes.db_client"
+    ) as db_client:
+        db_client.get_workflow_run_by_call_id = AsyncMock(return_value=None)
+
+        result = await handle_cloudonix_cdr(request)
+
+    assert result == {"status": "error", "message": "Missing call_id field"}
+
+
 def test_from_cloudonix_cdr_tolerates_missing_session_and_disposition():
     """``from_cloudonix_cdr`` must not crash on a partial CDR payload."""
     # Missing both session and disposition.
@@ -77,6 +92,15 @@ def test_from_cloudonix_cdr_tolerates_missing_session_and_disposition():
     )
     assert req.call_id == ""
     assert req.status == ""
+
+
+def test_from_cloudonix_cdr_tolerates_string_session():
+    """``from_cloudonix_cdr`` treats a non-object session as missing call_id."""
+    req = StatusCallbackRequest.from_cloudonix_cdr(
+        {"session": "abc", "disposition": "ANSWER"}
+    )
+    assert req.call_id == ""
+    assert req.status == "completed"
 
 
 def test_from_cloudonix_cdr_maps_disposition_and_session_token():

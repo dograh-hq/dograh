@@ -36,6 +36,10 @@ from api.services.telephony.providers.vobiz.config import (
     VobizConfigurationRequest,
     VobizConfigurationResponse,
 )
+from api.services.telephony.providers.voicelink.config import (
+    VoiceLinkConfigurationRequest,
+    VoiceLinkConfigurationResponse,
+)
 from api.services.telephony.providers.vonage.config import (
     VonageConfigurationRequest,
     VonageConfigurationResponse,
@@ -52,6 +56,7 @@ TelephonyConfigRequest = Annotated[
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
         VobizConfigurationRequest,
+        VoiceLinkConfigurationRequest,
         VonageConfigurationRequest,
     ],
     Field(discriminator="provider"),
@@ -70,6 +75,7 @@ class TelephonyConfigurationResponse(BaseModel):
     plivo: Optional[PlivoConfigurationResponse] = None
     vonage: Optional[VonageConfigurationResponse] = None
     vobiz: Optional[VobizConfigurationResponse] = None
+    voicelink: Optional[VoiceLinkConfigurationResponse] = None
     cloudonix: Optional[CloudonixConfigurationResponse] = None
     ari: Optional[ARIConfigurationResponse] = None
     telnyx: Optional[TelnyxConfigurationResponse] = None
@@ -146,6 +152,8 @@ __all__ = [
     "TwilioConfigurationResponse",
     "VobizConfigurationRequest",
     "VobizConfigurationResponse",
+    "VoiceLinkConfigurationRequest",
+    "VoiceLinkConfigurationResponse",
     "VonageConfigurationRequest",
     "VonageConfigurationResponse",
 ]

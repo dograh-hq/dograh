@@ -82,6 +82,17 @@ _UI_METADATA = ProviderUIMetadata(
             type="string-array",
             description="VoiceLink DID numbers in registered form",
         ),
+        ProviderUIField(
+            name="client_id",
+            label="Client ID",
+            type="text",
+            required=False,
+            description=(
+                "VoiceLink client id for this account. Optional — the KYC "
+                "section uses it to scope KYC to this client; when unset, "
+                "KYC acts on the reseller's own account."
+            ),
+        ),
     ],
 )
 

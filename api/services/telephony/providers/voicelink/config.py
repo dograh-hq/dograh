@@ -43,6 +43,14 @@ class VoiceLinkConfigurationRequest(BaseModel):
         default_factory=list,
         description="List of VoiceLink DID numbers in registered form",
     )
+    client_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "VoiceLink client id this configuration belongs to. Optional — "
+            "used by the KYC section to scope reseller KYC calls to this "
+            "client. When unset, KYC calls act on the reseller's own KYC."
+        ),
+    )
 
     @model_validator(mode="after")
     def _require_credentials(self) -> "VoiceLinkConfigurationRequest":
@@ -64,3 +72,4 @@ class VoiceLinkConfigurationResponse(BaseModel):
     bearer_token: Optional[str] = None  # Masked
     did_number: str
     from_numbers: List[str]
+    client_id: Optional[str] = None

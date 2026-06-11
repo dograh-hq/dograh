@@ -107,6 +107,13 @@ class OrganizationModel(Base):
 
     price_per_second_usd = Column(Float, nullable=True)
 
+    # VoiceLink reseller provisioning (best-effort at signup; see
+    # services/voicelink_clients). status: "provisioned" | "pending".
+    voicelink_client_id = Column(String(64), nullable=True)
+    voicelink_username = Column(String(128), nullable=True)
+    voicelink_status = Column(String(32), nullable=True)
+    voicelink_error = Column(Text, nullable=True)
+
     # Relationships
     users = relationship(
         "UserModel",

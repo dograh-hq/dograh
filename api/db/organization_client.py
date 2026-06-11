@@ -1,16 +1,22 @@
 from datetime import datetime, timezone
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
 from api.db.base_client import BaseDBClient
 from api.db.models import (
     APIKeyModel,
     OrganizationModel,
+    UserModel,
     organization_users_association,
 )
 from api.utils.api_key import generate_api_key
+
+# Sentinel so update_organization_voicelink can distinguish "not passed"
+# from an explicit None (used to clear a field).
+_UNSET = object()
 
 
 class OrganizationClient(BaseDBClient):
@@ -90,6 +96,72 @@ class OrganizationClient(BaseDBClient):
                 await session.refresh(organization)
                 return organization, was_created
             return organization, False
+
+    async def get_organization_with_users(
+        self, organization_id: int
+    ) -> Optional[OrganizationModel]:
+        """Get an organization with its member users eagerly loaded."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(OrganizationModel)
+                .options(selectinload(OrganizationModel.users))
+                .where(OrganizationModel.id == organization_id)
+            )
+            return result.scalars().first()
+
+    async def list_organizations_with_users(
+        self, exclude_user_id: Optional[int] = None
+    ) -> List[OrganizationModel]:
+        """List organizations with member users eagerly loaded.
+
+        When ``exclude_user_id`` is given, organizations that the user belongs
+        to are omitted (used by the admin clients view to hide the superuser's
+        own organization).
+        """
+        async with self.async_session() as session:
+            query = (
+                select(OrganizationModel)
+                .options(selectinload(OrganizationModel.users))
+                .order_by(OrganizationModel.created_at.desc())
+            )
+            if exclude_user_id is not None:
+                query = query.where(
+                    ~OrganizationModel.users.any(UserModel.id == exclude_user_id)
+                )
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def update_organization_voicelink(
+        self,
+        organization_id: int,
+        *,
+        client_id=_UNSET,
+        username=_UNSET,
+        status=_UNSET,
+        error=_UNSET,
+    ) -> Optional[OrganizationModel]:
+        """Partially update the org's VoiceLink provisioning fields.
+
+        Only the keyword arguments that are passed are written; pass an
+        explicit ``None`` to clear a field.
+        """
+        async with self.async_session() as session:
+            organization = await session.get(OrganizationModel, organization_id)
+            if organization is None:
+                return None
+
+            if client_id is not _UNSET:
+                organization.voicelink_client_id = client_id
+            if username is not _UNSET:
+                organization.voicelink_username = username
+            if status is not _UNSET:
+                organization.voicelink_status = status
+            if error is not _UNSET:
+                organization.voicelink_error = error
+
+            await session.commit()
+            await session.refresh(organization)
+            return organization
 
     async def add_user_to_organization(
         self, user_id: int, organization_id: int

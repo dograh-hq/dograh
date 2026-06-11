@@ -8,6 +8,7 @@ from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResp
 from api.services.auth.admin_emails import promote_if_admin_email
 from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
 from api.services.posthog_client import capture_event
+from api.services.voicelink_clients import provision_voicelink_client_for_signup
 from api.utils.auth import create_jwt_token, hash_password, verify_password
 
 router = APIRouter(
@@ -55,6 +56,16 @@ async def signup(request: SignupRequest):
         logger.warning(
             "Failed to create default configuration for OSS user", exc_info=True
         )
+
+    # Best-effort: create a VoiceLink client for the new org. Never fails
+    # signup; skips ADMIN_EMAILS users and unset reseller credentials. The
+    # plaintext password is forwarded to VoiceLink only — never logged.
+    await provision_voicelink_client_for_signup(
+        organization_id=organization.id,
+        email=request.email,
+        password=request.password,
+        name=request.name,
+    )
 
     # Create JWT token
     token = create_jwt_token(user.id, request.email)

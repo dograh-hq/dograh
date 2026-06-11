@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from loguru import logger
 from pydantic import BaseModel
 
+from api.routes.admin_clients import router as admin_clients_router
 from api.routes.agent_builder import router as agent_builder_router
 from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
@@ -57,6 +58,7 @@ router.include_router(public_download_router)
 router.include_router(workflow_embed_router)
 router.include_router(knowledge_base_router)
 router.include_router(kyc_router)
+router.include_router(admin_clients_router)
 router.include_router(workflow_recording_router)
 router.include_router(folder_router)
 router.include_router(auth_router)

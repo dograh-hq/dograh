@@ -227,8 +227,8 @@ export function AppSidebar() {
         asChild
         tooltip={tooltip}
         className={cn(
-          "hover:bg-accent hover:text-accent-foreground",
-          isItemActive && "bg-accent text-accent-foreground"
+          "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+          isItemActive && "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
         )}
       >
         <Link
@@ -319,7 +319,7 @@ export function AppSidebar() {
             )}
           </div>
 
-          <SidebarTrigger className={cn("hover:bg-accent", isCollapsed && "mx-auto")}>
+          <SidebarTrigger className={cn("hover:bg-sidebar-accent", isCollapsed && "mx-auto")}>
             {isCollapsed ? (
               <ChevronRight className="h-4 w-4" />
             ) : (
@@ -479,7 +479,7 @@ export function AppSidebar() {
                   <div className="notranslate" translate="no">
                     <ThemeToggle
                       showLabel={false}
-                      className="hover:bg-accent hover:text-accent-foreground"
+                      className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                     />
                   </div>
                 </TooltipTrigger>
@@ -491,7 +491,7 @@ export function AppSidebar() {
               <div className="notranslate" translate="no">
                 <ThemeToggle
                   showLabel={true}
-                  className="hover:bg-accent hover:text-accent-foreground"
+                  className="hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 />
               </div>
             )}

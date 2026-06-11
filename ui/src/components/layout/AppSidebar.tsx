@@ -13,11 +13,13 @@ import {
   FileText,
   Home,
   Key,
+  LayoutDashboard,
   LogOut,
   type LucideIcon,
   Megaphone,
   Phone,
   Settings,
+  ShieldCheck,
   TrendingUp,
   Workflow,
   Wrench,
@@ -81,9 +83,19 @@ const NAV_SECTIONS: SidebarNavSection[] = [
   {
     items: [
       {
+        title: "Home",
+        url: "/home",
+        icon: Home,
+      },
+      {
         title: "Overview",
         url: "/overview",
-        icon: Home,
+        icon: LayoutDashboard,
+      },
+      {
+        title: "KYC",
+        url: "/kyc",
+        icon: ShieldCheck,
       },
     ],
   },
@@ -184,10 +196,11 @@ export function AppSidebar() {
   // Version info from app config context
   const versionInfo = config ? { ui: config.uiVersion, api: config.apiVersion } : null;
 
-  // Check for updates only on self-hosted (OSS) deployments — cloud is managed for the user.
+  // Check for updates only on self-hosted (OSS) deployments — cloud is managed
+  // for the user. Updating is an ops/admin concern, so skip the lookup for clients.
   const { latest: latestRelease, isBehind, isLatest } = useLatestReleaseVersion(
     versionInfo?.ui,
-    { enabled: config?.deploymentMode === "oss" },
+    { enabled: config?.deploymentMode === "oss" && isAdmin },
   );
 
   const isActive = (path: string) => pathname.startsWith(path);
@@ -287,7 +300,8 @@ export function AppSidebar() {
                 </span>
               )}
             </Link>
-            {isBehind && latestRelease && (
+            {/* Update affordance is an ops concern — only admins/superusers see it */}
+            {isAdmin && isBehind && latestRelease && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <a
@@ -305,7 +319,7 @@ export function AppSidebar() {
                 </TooltipContent>
               </Tooltip>
             )}
-            {isLatest && (
+            {isAdmin && isLatest && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="inline-flex items-center rounded-md border bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">

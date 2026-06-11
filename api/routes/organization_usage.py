@@ -25,14 +25,8 @@ class CurrentUsageResponse(BaseModel):
     period_start: str
     period_end: str
     used_dograh_tokens: float
-    quota_dograh_tokens: int
-    percentage_used: float
-    next_refresh_date: str
-    quota_enabled: bool
     total_duration_seconds: int
-    # New USD fields
     used_amount_usd: Optional[float] = None
-    quota_amount_usd: Optional[float] = None
     currency: Optional[str] = None
     price_per_second_usd: Optional[float] = None
 
@@ -134,7 +128,7 @@ class DailyUsageBreakdownResponse(BaseModel):
 
 @router.get("/usage/current-period", response_model=CurrentUsageResponse)
 async def get_current_period_usage(user: UserModel = Depends(get_user)):
-    """Get current billing period usage for the user's organization."""
+    """Get current reporting-period usage for the user's organization."""
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 

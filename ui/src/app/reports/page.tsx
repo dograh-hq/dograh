@@ -1,14 +1,12 @@
 'use client';
 
 import { addDays, format, subDays } from 'date-fns';
-import { Calendar, ChevronLeft, ChevronRight, CreditCard, Download, Loader2 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { client } from '@/client/client.gen';
 import {
   getDailyReportApiV1OrganizationsReportsDailyGet,
   getDailyRunsDetailApiV1OrganizationsReportsDailyRunsGet,
-  getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get,
   getPreferencesApiV1OrganizationsPreferencesGet,
   getWorkflowOptionsApiV1OrganizationsReportsWorkflowsGet
 } from '@/client/sdk.gen';
@@ -19,7 +17,6 @@ import { Card } from '@/components/ui/card';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 
 import { DispositionChart } from './components/DispositionChart';
@@ -53,10 +50,6 @@ interface DailyReport {
   }>;
 }
 
-type CreditPurchaseUrlResponse = {
-  checkout_url: string;
-};
-
 export default function ReportsPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedWorkflow, setSelectedWorkflow] = useState<string>('all');
@@ -64,9 +57,6 @@ export default function ReportsPage() {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [canBuyCredits, setCanBuyCredits] = useState(false);
-  const [purchaseLoading, setPurchaseLoading] = useState(false);
-  const [purchaseError, setPurchaseError] = useState<string | null>(null);
   const [timezone, setTimezone] = useState('America/New_York');
   const auth = useAuth();
 
@@ -103,50 +93,6 @@ export default function ReportsPage() {
     };
     fetchPreferences();
   }, [auth.isAuthenticated]);
-
-  useEffect(() => {
-    if (auth.loading) return;
-
-    if (!auth.isAuthenticated) {
-      setCanBuyCredits(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    const fetchCreditPurchaseAvailability = async () => {
-      try {
-        const response = await getModelConfigurationV2ApiV1OrganizationsModelConfigurationsV2Get();
-        if (cancelled) return;
-
-        if (response.error || !response.data) {
-          setCanBuyCredits(false);
-          return;
-        }
-
-        const configuration = response.data.configuration as {
-          mode?: unknown;
-          dograh?: unknown;
-        } | null;
-        setCanBuyCredits(
-          response.data.source === 'organization_v2' &&
-          configuration?.mode === 'dograh' &&
-          Boolean(configuration.dograh)
-        );
-      } catch (err) {
-        console.error('Failed to check credit purchase availability:', err);
-        if (!cancelled) {
-          setCanBuyCredits(false);
-        }
-      }
-    };
-
-    fetchCreditPurchaseAvailability();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [auth.loading, auth.isAuthenticated]);
 
   // Fetch report data when date or workflow changes
   useEffect(() => {
@@ -249,41 +195,6 @@ export default function ReportsPage() {
     }
   };
 
-  const handleBuyCredits = async () => {
-    if (!auth.isAuthenticated || purchaseLoading) return;
-
-    setPurchaseLoading(true);
-    setPurchaseError(null);
-
-    try {
-      const response = await client.post<
-        { 200: CreditPurchaseUrlResponse },
-        { detail?: unknown }
-      >({
-        url: '/api/v1/organizations/usage/mps-credits/purchase-url',
-      });
-
-      if (response.error) {
-        throw new Error(
-          detailFromError(response.error, 'Failed to create credit purchase URL')
-        );
-      }
-
-      const checkoutUrl = response.data?.checkout_url;
-      if (!checkoutUrl) {
-        throw new Error('Failed to create credit purchase URL');
-      }
-
-      window.location.href = checkoutUrl;
-    } catch (err) {
-      console.error('Failed to create credit purchase URL:', err);
-      setPurchaseError(
-        err instanceof Error ? err.message : 'Failed to create credit purchase URL'
-      );
-      setPurchaseLoading(false);
-    }
-  };
-
   const isToday = format(selectedDate, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd');
 
   return (
@@ -291,27 +202,7 @@ export default function ReportsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="space-y-2">
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-3xl font-bold">Daily Reports</h1>
-            {canBuyCredits && (
-              <Button
-                size="sm"
-                onClick={handleBuyCredits}
-                disabled={purchaseLoading}
-                className="flex items-center gap-2"
-              >
-                {purchaseLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <CreditCard className="h-4 w-4" />
-                )}
-                Buy Credits
-              </Button>
-            )}
-          </div>
-          {purchaseError && (
-            <p className="text-sm text-red-500">{purchaseError}</p>
-          )}
+          <h1 className="text-3xl font-bold">Daily Reports</h1>
         </div>
 
         {/* Date Navigation & Workflow Selector */}

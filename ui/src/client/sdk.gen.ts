@@ -1239,7 +1239,7 @@ export const reactivateServiceKeyApiV1UserServiceKeysServiceKeyIdReactivatePut =
 /**
  * Get Current Period Usage
  *
- * Get current billing period usage for the user's organization.
+ * Get current reporting-period usage for the user's organization.
  */
 export const getCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGet = <ThrowOnError extends boolean = false>(options?: Options<GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetData, ThrowOnError>) => (options?.client ?? client).get<GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetResponses, GetCurrentPeriodUsageApiV1OrganizationsUsageCurrentPeriodGetErrors, ThrowOnError>({ url: '/api/v1/organizations/usage/current-period', ...options });
 

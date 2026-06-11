@@ -1643,22 +1643,6 @@ export type CurrentUsageResponse = {
      */
     used_dograh_tokens: number;
     /**
-     * Quota Dograh Tokens
-     */
-    quota_dograh_tokens: number;
-    /**
-     * Percentage Used
-     */
-    percentage_used: number;
-    /**
-     * Next Refresh Date
-     */
-    next_refresh_date: string;
-    /**
-     * Quota Enabled
-     */
-    quota_enabled: boolean;
-    /**
      * Total Duration Seconds
      */
     total_duration_seconds: number;
@@ -1666,10 +1650,6 @@ export type CurrentUsageResponse = {
      * Used Amount Usd
      */
     used_amount_usd?: number | null;
-    /**
-     * Quota Amount Usd
-     */
-    quota_amount_usd?: number | null;
     /**
      * Currency
      */

@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/table';
 import { useUserConfig } from '@/context/UserConfigContext';
 import { useAuth } from '@/lib/auth';
+import { BRAND } from '@/lib/brand';
 import { usageFilterAttributes } from '@/lib/filterAttributes';
 import { decodeFiltersFromURL, encodeFiltersToURL } from '@/lib/filters';
 import { ActiveFilter, DateRangeValue } from '@/types/filters';
@@ -412,9 +413,9 @@ export default function UsagePage() {
                 {/* MPS Credits Card */}
                 <Card className="mb-6">
                     <CardHeader>
-                        <CardTitle>Dograh Model Credits</CardTitle>
+                        <CardTitle>{BRAND.name} Model Credits</CardTitle>
                         <CardDescription>
-                            These track usage of Dograh models using Dograh Service Keys.
+                            These track usage of {BRAND.name} models using {BRAND.name} Service Keys.
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -444,7 +445,7 @@ export default function UsagePage() {
                                 )}
                             </div>
                         ) : (
-                            <p className="text-muted-foreground">No Dograh service keys configured. Set up a service key in your model configuration to see usage.</p>
+                            <p className="text-muted-foreground">No {BRAND.name} service keys configured. Set up a service key in your model configuration to see usage.</p>
                         )}
                     </CardContent>
                 </Card>
@@ -580,7 +581,7 @@ export default function UsagePage() {
                                     <div className="mt-4 p-3 bg-muted rounded-md">
                                         <p className="text-sm text-muted-foreground">
                                             Total for filtered period: <span className="font-semibold text-foreground">
-                                                {usageHistory.total_dograh_tokens.toLocaleString()} Dograh Tokens
+                                                {usageHistory.total_dograh_tokens.toLocaleString()} {BRAND.name} Tokens
                                             </span>
                                             {' • '}
                                             <span className="font-semibold text-foreground">

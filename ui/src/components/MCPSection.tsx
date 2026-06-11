@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
 
 export function MCPSection() {
   const backendUrl =
@@ -62,7 +63,7 @@ export function MCPSection() {
         For step-by-step setup with Claude Code, Claude Desktop, Cursor, and
         other clients, see the{" "}
         <Link
-          href="https://docs.dograh.com/integrations/mcp"
+          href={INTEGRATION_DOCUMENTATION_URLS.mcp}
           target="_blank"
           rel="noopener noreferrer"
           className="text-primary underline hover:no-underline"

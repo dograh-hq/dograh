@@ -11,6 +11,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { BRAND } from "@/lib/brand";
 
 export default function SettingsPage() {
   return (
@@ -27,10 +29,10 @@ export default function SettingsPage() {
           <CardHeader>
             <CardTitle>MCP Server</CardTitle>
             <CardDescription>
-              Let AI agents access your Dograh workspace and documentation via
+              Let AI agents access your {BRAND.name} workspace and documentation via
               the Model Context Protocol.{" "}
               <a
-                href="https://docs.dograh.com/integrations/mcp"
+                href={INTEGRATION_DOCUMENTATION_URLS.mcp}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"
@@ -50,7 +52,7 @@ export default function SettingsPage() {
             <CardDescription>
               Configure Langfuse tracing for your voice agent calls.{" "}
               <a
-                href="https://docs.dograh.com/configurations/tracing"
+                href={INTEGRATION_DOCUMENTATION_URLS.tracing}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"

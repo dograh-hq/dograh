@@ -1,4 +1,16 @@
-const DOCS_BASE = "https://docs.dograh.com";
+// White-label: allow the deployment owner to point docs links at their own
+// documentation site. Falls back to the upstream public docs.
+const DOCS_BASE = process.env.NEXT_PUBLIC_BRAND_DOCS_URL || "https://docs.dograh.com";
+
+export const DOCS_HOME_URL = DOCS_BASE;
+
+export const INTEGRATION_DOCUMENTATION_URLS = {
+    mcp: `${DOCS_BASE}/integrations/mcp`,
+    tracing: `${DOCS_BASE}/configurations/tracing`,
+    telephonyOverview: `${DOCS_BASE}/integrations/telephony/overview`,
+    telephonyInbound: `${DOCS_BASE}/integrations/telephony/inbound`,
+    deploymentUpdate: `${DOCS_BASE}/deployment/update`,
+} as const;
 
 export const NODE_DOCUMENTATION_URLS: Record<string, string> = {
     startCall: `${DOCS_BASE}/voice-agent/start-call`,

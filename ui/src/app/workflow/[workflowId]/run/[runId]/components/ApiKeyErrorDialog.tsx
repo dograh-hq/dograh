@@ -2,6 +2,7 @@ import { AlertCircle, CreditCard, Key } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BRAND } from "@/lib/brand";
 
 interface ApiKeyErrorDialogProps {
     open: boolean;
@@ -42,7 +43,7 @@ export const ApiKeyErrorDialog = ({
                                 <p className="font-medium text-foreground">{error}</p>
                                 {isQuotaError && (
                                     <p className="text-muted-foreground">
-                                        Your Dograh service credits are too low to start a call.
+                                        Your {BRAND.name} service credits are too low to start a call.
                                     </p>
                                 )}
                             </div>

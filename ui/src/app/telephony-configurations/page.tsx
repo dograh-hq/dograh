@@ -45,6 +45,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useAuth } from "@/lib/auth";
 
@@ -156,7 +157,7 @@ export default function TelephonyConfigurationsPage() {
               Connect one or more telephony provider accounts. Each campaign uses one
               configuration; inbound calls are routed to the right one by account ID.{" "}
               <a
-                href="https://docs.dograh.com/integrations/telephony/overview"
+                href={INTEGRATION_DOCUMENTATION_URLS.telephonyOverview}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"

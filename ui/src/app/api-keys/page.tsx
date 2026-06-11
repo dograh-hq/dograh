@@ -22,6 +22,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAppConfig } from '@/context/AppConfigContext';
 import { useAuth } from '@/lib/auth';
+import { BRAND } from '@/lib/brand';
 import logger from '@/lib/logger';
 
 export default function APIKeysPage() {
@@ -324,7 +325,7 @@ export default function APIKeysPage() {
                 <div className="max-w-6xl mx-auto">
                     <div className="mb-8">
                         <h1 className="text-3xl font-bold mb-2">Developer Portal</h1>
-                        <p className="text-muted-foreground">Manage your API keys to access Dograh services programmatically</p>
+                        <p className="text-muted-foreground">Manage your API keys to access {BRAND.name} services programmatically</p>
                     </div>
 
                     {error && (
@@ -446,9 +447,9 @@ export default function APIKeysPage() {
                         <CardHeader>
                             <div className="flex justify-between items-center">
                                 <div>
-                                    <CardTitle>Dograh Service Keys</CardTitle>
+                                    <CardTitle>{BRAND.name} Service Keys</CardTitle>
                                     <CardDescription>
-                                        Manage service keys for accessing Dograh AI services (LLM, TTS, STT)
+                                        Manage service keys for accessing {BRAND.name} AI services (LLM, TTS, STT)
                                     </CardDescription>
                                 </div>
                                 <div className="flex gap-2">
@@ -470,11 +471,11 @@ export default function APIKeysPage() {
                                             <Plus className="w-4 h-4 mr-2" />
                                             Create Service Key
                                         </Button>
-                                    ) : (
+                                    ) : BRAND.showCommunityLinks ? (
                                         <span className="text">
                                             To generate additional service keys, <a href="https://app.dograh.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Sign up on app.dograh.com</a>
                                         </span>
-                                    )}
+                                    ) : null}
                                 </div>
                             </div>
                         </CardHeader>
@@ -646,7 +647,7 @@ export default function APIKeysPage() {
                     <DialogHeader>
                         <DialogTitle>Create New Service Key</DialogTitle>
                         <DialogDescription>
-                            Create a service key to access Dograh AI services (LLM, TTS, STT)
+                            Create a service key to access {BRAND.name} AI services (LLM, TTS, STT)
                         </DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
@@ -699,7 +700,7 @@ export default function APIKeysPage() {
                             </div>
                             <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                                 <p className="text-sm text-blue-600 dark:text-blue-500">
-                                    This key provides access to Dograh AI services including LLM, Text-to-Speech, and Speech-to-Text.
+                                    This key provides access to {BRAND.name} AI services including LLM, Text-to-Speech, and Speech-to-Text.
                                     {createdServiceKey.expires_at && (
                                         <span className="block mt-1">
                                             Expires on: {formatDate(createdServiceKey.expires_at)}

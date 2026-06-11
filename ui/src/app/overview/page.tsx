@@ -5,10 +5,14 @@ import Link from 'next/link';
 import { GitHubStarBadge } from '@/components/layout/GitHubStarBadge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DOCS_HOME_URL } from '@/constants/documentation';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { useAuth } from '@/lib/auth';
+import { BRAND } from '@/lib/brand';
 
 export default function OverviewPage() {
     const { user, provider } = useAuth();
+    const { isAdmin } = useIsAdmin();
     const isOSSMode = provider !== 'stack';
 
     return (
@@ -19,13 +23,13 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle className="text-3xl">
                             {isOSSMode ? (
-                                "Welcome to Dograh"
+                                `Welcome to ${BRAND.name}`
                             ) : (
                                 `Welcome${user?.displayName ? `, ${user.displayName.split(' ')[0]}` : ''}!`
                             )}
                         </CardTitle>
                         <CardDescription className="text-lg mt-2">
-                            {isOSSMode ? (
+                            {isOSSMode && BRAND.showCommunityLinks ? (
                                 <>
                                     Open source alternative to Vapi. Help us support the project by giving us a star on GitHub.
                                 </>
@@ -35,7 +39,7 @@ export default function OverviewPage() {
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
-                        {isOSSMode && (
+                        {isOSSMode && BRAND.showCommunityLinks && (
                             <div className="mb-6">
                                 <GitHubStarBadge label="Star us on GitHub" showCount source="overview_page" />
                             </div>
@@ -61,21 +65,23 @@ export default function OverviewPage() {
                         </CardContent>
                     </Card>
 
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Configure Services</CardTitle>
-                            <CardDescription>
-                                Set up your AI services like LLM, TTS, and STT providers
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                            <Button asChild variant="outline">
-                                <Link href="/model-configurations">
-                                    Configure Models
-                                </Link>
-                            </Button>
-                        </CardContent>
-                    </Card>
+                    {isAdmin && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Configure Services</CardTitle>
+                                <CardDescription>
+                                    Set up your AI services like LLM, TTS, and STT providers
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Button asChild variant="outline">
+                                    <Link href="/model-configurations">
+                                        Configure Models
+                                    </Link>
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    )}
                 </div>
 
                 {/* Resources Section */}
@@ -83,29 +89,31 @@ export default function OverviewPage() {
                     <CardHeader>
                         <CardTitle>Resources</CardTitle>
                         <CardDescription>
-                            Get help and learn more about Dograh
+                            Get help and learn more about {BRAND.name}
                         </CardDescription>
                     </CardHeader>
                     <CardContent>
                         <div className="flex flex-wrap gap-4">
                             <Button asChild variant="outline">
                                 <a
-                                    href="https://docs.dograh.com"
+                                    href={DOCS_HOME_URL}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                 >
                                     Documentation
                                 </a>
                             </Button>
-                            <Button asChild variant="outline">
-                                <a
-                                    href="https://github.com/dograh-hq/dograh/issues"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    Report an Issue
-                                </a>
-                            </Button>
+                            {BRAND.showCommunityLinks && (
+                                <Button asChild variant="outline">
+                                    <a
+                                        href="https://github.com/dograh-hq/dograh/issues"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                    >
+                                        Report an Issue
+                                    </a>
+                                </Button>
+                            )}
                         </div>
                     </CardContent>
                 </Card>

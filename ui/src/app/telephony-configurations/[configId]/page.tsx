@@ -55,6 +55,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAuth } from "@/lib/auth";
 
 export default function TelephonyConfigurationDetailPage() {
@@ -261,7 +262,7 @@ export default function TelephonyConfigurationDetailPage() {
               Numbers used as caller ID for outbound and accepted for inbound matching.
               SIP URIs and extensions are supported alongside PSTN numbers.{" "}
               <a
-                href="https://docs.dograh.com/integrations/telephony/inbound"
+                href={INTEGRATION_DOCUMENTATION_URLS.telephonyInbound}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-0.5 underline"

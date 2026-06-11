@@ -4,6 +4,7 @@ import posthog from "posthog-js";
 import { useEffect, useState } from "react";
 
 import { PostHogEvent } from "@/constants/posthog-events";
+import { BRAND } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 interface GitHubStarBadgeProps {
@@ -17,7 +18,7 @@ export function GitHubStarBadge({ className, label, showCount, source }: GitHubS
   const [starCount, setStarCount] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!showCount) return;
+    if (!showCount || !BRAND.showCommunityLinks) return;
     fetch("https://api.github.com/repos/dograh-hq/dograh")
       .then((res) => res.json())
       .then((data) => {
@@ -30,6 +31,11 @@ export function GitHubStarBadge({ className, label, showCount, source }: GitHubS
   }, [showCount]);
 
   const hasCount = showCount && starCount;
+
+  // White-label deployments hide upstream community branding entirely.
+  if (!BRAND.showCommunityLinks) {
+    return null;
+  }
 
   return (
     <a

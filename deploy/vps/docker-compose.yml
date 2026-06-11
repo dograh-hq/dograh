@@ -1,0 +1,157 @@
+# Production compose for the Auto4You VPS (165.22.216.189).
+#
+# - Images are PREBUILT on GitHub Actions (.github/workflows/saas-images.yml)
+#   and pulled from GHCR. The 2GB box cannot build Next.js — never `--build` here.
+# - TLS is terminated by Caddy (api.auto4you.in / app.auto4you.in); postgres,
+#   redis and minio are NOT published to the host.
+# - DB migrations run automatically: the api image's entrypoint
+#   (scripts/start_services_docker.sh) executes `alembic upgrade head` on boot.
+# - The MinIO bucket (voice-audio) is auto-created by the api on first boot
+#   (api/services/filesystem/minio.py), so no mc bootstrap container is needed.
+#
+# Usage:
+#   docker compose pull && TAG=<short-sha> docker compose up -d   # or rely on :saas
+#
+# Mirrors the upstream root docker-compose.yaml service defs (healthchecks,
+# env, depends_on), minus the nginx/coturn/cloudflared profiles.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    # Password must match REDIS_URL in .env.api (upstream default: redissecret).
+    command: >
+      --requirepass redissecret
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  api:
+    image: ghcr.io/${GH_OWNER:-harddiikk}/voice-engine-api:${TAG:-saas}
+    restart: unless-stopped
+    env_file:
+      - .env.api
+    volumes:
+      - shared-tmp:/tmp
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health').read()\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app-network
+
+  ui:
+    image: ghcr.io/${GH_OWNER:-harddiikk}/voice-engine-ui:${TAG:-saas}
+    restart: unless-stopped
+    env_file:
+      - .env.ui
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - app-network
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_started
+      ui:
+        condition: service_started
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio-data:
+  shared-tmp:
+  caddy_data:
+  caddy_config:
+
+networks:
+  app-network:
+    driver: bridge

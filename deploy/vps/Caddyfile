@@ -1,0 +1,30 @@
+# Caddy config for the Auto4You VPS.
+# Automatic HTTPS via Let's Encrypt — both domains must already point at this
+# box (they do: api.auto4you.in / app.auto4you.in -> 165.22.216.189).
+
+{
+	# Optional: set an email for Let's Encrypt expiry notices.
+	# email you@example.com
+}
+
+api.auto4you.in {
+	# Call recordings / transcripts: the api builds public file URLs as
+	# https://api.auto4you.in/voice-audio/<object> (MINIO_PUBLIC_ENDPOINT +
+	# bucket name) — proxy that path straight to MinIO, same as upstream's
+	# nginx `/voice-audio/` location.
+	handle /voice-audio/* {
+		reverse_proxy minio:9000
+	}
+
+	# Everything else (REST + telephony/WebRTC WebSockets) goes to the api.
+	# reverse_proxy handles WebSocket upgrades natively and streams
+	# responses without buffering.
+	handle {
+		reverse_proxy api:8000
+	}
+}
+
+app.auto4you.in {
+	encode gzip
+	reverse_proxy ui:3010
+}

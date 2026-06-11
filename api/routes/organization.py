@@ -55,6 +55,10 @@ from api.services.configuration.registry import (
     ServiceProviders,
     ServiceType,
 )
+from api.services.organization_context import (
+    OrganizationContextResponse,
+    get_organization_context,
+)
 from api.services.organization_preferences import (
     get_organization_preferences,
     upsert_organization_preferences,
@@ -127,6 +131,12 @@ class TelephonyConfigWarningsResponse(BaseModel):
     """
 
     telnyx_missing_webhook_public_key_count: int
+
+
+@router.get("/context", response_model=OrganizationContextResponse)
+async def get_current_organization_context(user: UserModel = Depends(get_user)):
+    """Return organization-scoped configuration signals owned by Dograh."""
+    return await get_organization_context(user)
 
 
 @router.get(

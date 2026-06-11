@@ -12,8 +12,8 @@ import SpinLoader from "@/components/SpinLoader";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/context/AppConfigContext";
 import { OnboardingProvider } from "@/context/OnboardingContext";
+import { OrgConfigProvider } from "@/context/OrgConfigContext";
 import { TelephonyConfigWarningsProvider } from "@/context/TelephonyConfigWarningsContext";
-import { UserConfigProvider } from "@/context/UserConfigContext";
 import { AuthProvider } from "@/lib/auth";
 
 
@@ -65,7 +65,7 @@ export default function RootLayout({
           <AuthProvider>
             <AppConfigProvider>
               <Suspense fallback={<SpinLoader />}>
-                <UserConfigProvider>
+                <OrgConfigProvider>
                   <TelephonyConfigWarningsProvider>
                     <OnboardingProvider>
                       <PostHogIdentify />
@@ -76,7 +76,7 @@ export default function RootLayout({
                       <ChatwootWidget />
                     </OnboardingProvider>
                   </TelephonyConfigWarningsProvider>
-                </UserConfigProvider>
+                </OrgConfigProvider>
               </Suspense>
             </AppConfigProvider>
           </AuthProvider>

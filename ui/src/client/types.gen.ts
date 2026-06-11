@@ -3108,6 +3108,117 @@ export type LoginRequest = {
 };
 
 /**
+ * MPSBillingAccountResponse
+ */
+export type MpsBillingAccountResponse = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Organization Id
+     */
+    organization_id: number;
+    /**
+     * Billing Mode
+     */
+    billing_mode: string;
+    /**
+     * Cached Balance Credits
+     */
+    cached_balance_credits: number;
+    /**
+     * Currency
+     */
+    currency: string;
+};
+
+/**
+ * MPSBillingCreditsResponse
+ */
+export type MpsBillingCreditsResponse = {
+    /**
+     * Billing Version
+     */
+    billing_version: 'legacy' | 'v2';
+    /**
+     * Total Credits Used
+     */
+    total_credits_used?: number;
+    /**
+     * Remaining Credits
+     */
+    remaining_credits?: number;
+    /**
+     * Total Quota
+     */
+    total_quota?: number;
+    account?: MpsBillingAccountResponse | null;
+    /**
+     * Ledger Entries
+     */
+    ledger_entries?: Array<MpsCreditLedgerEntryResponse>;
+};
+
+/**
+ * MPSCreditLedgerEntryResponse
+ */
+export type MpsCreditLedgerEntryResponse = {
+    /**
+     * Id
+     */
+    id: number;
+    /**
+     * Entry Type
+     */
+    entry_type: string;
+    /**
+     * Origin
+     */
+    origin?: string | null;
+    /**
+     * Credits Delta
+     */
+    credits_delta: number;
+    /**
+     * Balance After
+     */
+    balance_after: number;
+    /**
+     * Amount Minor
+     */
+    amount_minor?: number | null;
+    /**
+     * Amount Currency
+     */
+    amount_currency?: string | null;
+    /**
+     * Payment Order Id
+     */
+    payment_order_id?: number | null;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Created At
+     */
+    created_at: string;
+};
+
+/**
+ * MPSCreditPurchaseUrlResponse
+ */
+export type MpsCreditPurchaseUrlResponse = {
+    /**
+     * Checkout Url
+     */
+    checkout_url: string;
+};
+
+/**
  * MPSCreditsResponse
  */
 export type MpsCreditsResponse = {
@@ -3616,6 +3727,43 @@ export type OrganizationAiModelConfigurationV2 = {
     mode: 'dograh' | 'byok';
     dograh?: DograhManagedAiModelConfiguration | null;
     byok?: ByokaiModelConfiguration | null;
+};
+
+/**
+ * OrganizationContextResponse
+ */
+export type OrganizationContextResponse = {
+    /**
+     * Organization Id
+     */
+    organization_id?: number | null;
+    /**
+     * Organization Provider Id
+     */
+    organization_provider_id?: string | null;
+    model_services: OrganizationModelServicesContext;
+};
+
+/**
+ * OrganizationModelServicesContext
+ */
+export type OrganizationModelServicesContext = {
+    /**
+     * Config Source
+     */
+    config_source: 'organization_v2' | 'legacy_user_v1' | 'empty';
+    /**
+     * Has Model Configuration V2
+     */
+    has_model_configuration_v2: boolean;
+    /**
+     * Managed Service Version
+     */
+    managed_service_version?: number | null;
+    /**
+     * Uses Managed Service V2
+     */
+    uses_managed_service_v2: boolean;
 };
 
 /**
@@ -9750,6 +9898,45 @@ export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses = {
 
 export type UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponse = UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses[keyof UnarchiveToolApiV1ToolsToolUuidUnarchivePostResponses];
 
+export type GetCurrentOrganizationContextApiV1OrganizationsContextGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/context';
+};
+
+export type GetCurrentOrganizationContextApiV1OrganizationsContextGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetCurrentOrganizationContextApiV1OrganizationsContextGetError = GetCurrentOrganizationContextApiV1OrganizationsContextGetErrors[keyof GetCurrentOrganizationContextApiV1OrganizationsContextGetErrors];
+
+export type GetCurrentOrganizationContextApiV1OrganizationsContextGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OrganizationContextResponse;
+};
+
+export type GetCurrentOrganizationContextApiV1OrganizationsContextGetResponse = GetCurrentOrganizationContextApiV1OrganizationsContextGetResponses[keyof GetCurrentOrganizationContextApiV1OrganizationsContextGetResponses];
+
 export type GetTelephonyProvidersMetadataApiV1OrganizationsTelephonyProvidersMetadataGetData = {
     body?: never;
     headers?: {
@@ -11268,6 +11455,89 @@ export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses = {
 };
 
 export type GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponse = GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses[keyof GetMpsCreditsApiV1OrganizationsUsageMpsCreditsGetResponses];
+
+export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/v1/organizations/billing/credits';
+};
+
+export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetError = GetBillingCreditsApiV1OrganizationsBillingCreditsGetErrors[keyof GetBillingCreditsApiV1OrganizationsBillingCreditsGetErrors];
+
+export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MpsBillingCreditsResponse;
+};
+
+export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetResponse = GetBillingCreditsApiV1OrganizationsBillingCreditsGetResponses[keyof GetBillingCreditsApiV1OrganizationsBillingCreditsGetResponses];
+
+export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/organizations/usage/mps-credits/purchase-url';
+};
+
+export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostError = CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostErrors[keyof CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostErrors];
+
+export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: MpsCreditPurchaseUrlResponse;
+};
+
+export type CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponse = CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses[keyof CreateMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPostResponses];
 
 export type GetUsageHistoryApiV1OrganizationsUsageRunsGetData = {
     body?: never;

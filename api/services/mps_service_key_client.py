@@ -390,6 +390,36 @@ class MPSServiceKeyClient:
                 response=response,
             )
 
+    async def get_credit_ledger(
+        self,
+        organization_id: int,
+        limit: int = 50,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """Get the MPS v2 billing account balance and recent credit ledger."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/ledger",
+                params={"limit": limit},
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to get MPS credit ledger: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to get MPS credit ledger: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
     async def create_correlation_id(
         self,
         *,

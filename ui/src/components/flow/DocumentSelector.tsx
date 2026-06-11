@@ -115,8 +115,8 @@ export const DocumentSelector = ({
                                     htmlFor={`doc-${doc.document_uuid}`}
                                     className="flex items-center gap-2 cursor-pointer"
                                 >
-                                    <div className="w-8 h-8 rounded-md bg-blue-500/10 flex items-center justify-center flex-shrink-0">
-                                        <FileText className="w-4 h-4 text-blue-500" />
+                                    <div className="w-8 h-8 rounded-md bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center flex-shrink-0">
+                                        <FileText className="w-4 h-4 text-zinc-600 dark:text-zinc-300" />
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <div className="text-sm font-medium truncate">

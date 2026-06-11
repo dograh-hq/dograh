@@ -9,7 +9,7 @@ export const ConnectionStatus = ({ connectionStatus }: ConnectionStatusProps) =>
 
     if (connectionStatus === 'connecting') {
         return (
-            <div className="flex items-center justify-center space-x-2 text-blue-600">
+            <div className="flex items-center justify-center space-x-2 text-zinc-600">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span className="text-sm font-medium">Establishing Connection...</span>
             </div>

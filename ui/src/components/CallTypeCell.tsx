@@ -38,7 +38,7 @@ export function CallTypeCell({
                 <span className="inline-flex items-center gap-1">
                     <ChannelIcon className="h-4 w-4 text-muted-foreground" />
                     <DirectionIcon
-                        className={`h-3.5 w-3.5 ${isInbound ? "text-emerald-600" : "text-blue-600"}`}
+                        className={`h-3.5 w-3.5 ${isInbound ? "text-emerald-600" : "text-zinc-600"}`}
                     />
                 </span>
             </TooltipTrigger>

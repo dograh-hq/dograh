@@ -302,9 +302,9 @@ export const WorkflowEditorHeader = ({
             <div className="flex items-center gap-3">
                 {/* Read-only banner when viewing a historical version */}
                 {isViewingHistoricalVersion && (
-                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-blue-500/30 bg-blue-500/10">
-                        <Eye className="w-4 h-4 text-blue-400" />
-                        <span className="text-sm text-blue-400">
+                    <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-zinc-300 bg-zinc-100 dark:border-zinc-700 dark:bg-zinc-800">
+                        <Eye className="w-4 h-4 text-zinc-500" />
+                        <span className="text-sm text-zinc-600 dark:text-zinc-300">
                             Viewing {activeVersionLabel} — Read only
                         </span>
                     </div>

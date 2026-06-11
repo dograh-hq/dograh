@@ -698,8 +698,8 @@ export default function APIKeysPage() {
                                     </Button>
                                 </div>
                             </div>
-                            <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-                                <p className="text-sm text-blue-600 dark:text-blue-500">
+                            <div className="p-4 bg-muted border rounded-lg">
+                                <p className="text-sm text-muted-foreground">
                                     This key provides access to {BRAND.name} AI services including LLM, Text-to-Speech, and Speech-to-Text.
                                     {createdServiceKey.expires_at && (
                                         <span className="block mt-1">

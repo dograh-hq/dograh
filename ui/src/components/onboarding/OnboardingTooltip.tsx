@@ -84,18 +84,18 @@ export const OnboardingTooltip = ({
         >
             {/* Arrow pointing up */}
             <div
-                className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-blue-500 rotate-45"
+                className="absolute -top-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-zinc-900 rotate-45"
                 style={{
                     boxShadow: '-2px -2px 4px rgba(0, 0, 0, 0.1)'
                 }}
             />
 
             {/* Tooltip content */}
-            <div className="relative bg-blue-500 text-white rounded-lg shadow-2xl p-6 max-w-sm">
+            <div className="relative bg-zinc-900 text-white rounded-lg shadow-2xl p-6 max-w-sm">
                 {/* Close button */}
                 <button
                     onClick={onDismiss}
-                    className="absolute top-2 right-2 p-1 hover:bg-blue-600 rounded-full transition-colors"
+                    className="absolute top-2 right-2 p-1 hover:bg-zinc-700 rounded-full transition-colors"
                     aria-label="Close tooltip"
                 >
                     <X className="h-4 w-4" />
@@ -113,7 +113,7 @@ export const OnboardingTooltip = ({
                 <div className="flex items-center justify-end gap-3">
                     <button
                         onClick={onDismiss}
-                        className="bg-white text-blue-500 px-4 py-1.5 rounded font-medium text-sm hover:bg-blue-50 transition-colors cursor-pointer"
+                        className="bg-white text-zinc-900 px-4 py-1.5 rounded font-medium text-sm hover:bg-zinc-100 transition-colors cursor-pointer"
                     >
                         Close
                     </button>
@@ -124,7 +124,7 @@ export const OnboardingTooltip = ({
                                 onNext?.();
                                 onDismiss();
                             }}
-                            className="bg-white text-blue-500 px-4 py-1.5 rounded font-medium text-sm hover:bg-blue-50 transition-colors"
+                            className="bg-white text-zinc-900 px-4 py-1.5 rounded font-medium text-sm hover:bg-zinc-100 transition-colors"
                         >
                             Next
                         </button>

@@ -235,9 +235,9 @@ export default function WorkflowRunPage() {
                                 <CardTitle className="text-2xl">
                                     {isTextChatRun ? 'Text Chat Session' : 'Agent Run Completed'}
                                 </CardTitle>
-                                <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-sky-500/15' : 'bg-emerald-500/20'}`}>
+                                <div className={`h-8 w-8 rounded-full flex items-center justify-center ${isTextChatRun ? 'bg-zinc-500/15' : 'bg-emerald-500/20'}`}>
                                     {isTextChatRun ? (
-                                        <FileText className="h-5 w-5 text-sky-500" />
+                                        <FileText className="h-5 w-5 text-zinc-500" />
                                     ) : (
                                         <svg className="h-5 w-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />

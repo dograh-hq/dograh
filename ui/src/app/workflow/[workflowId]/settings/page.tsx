@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { UnsavedChangesProvider, useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useAuth } from "@/lib/auth";
 import logger from "@/lib/logger";
 import {
@@ -1124,6 +1125,7 @@ function WorkflowSettingsInner({
 }) {
     const router = useRouter();
     const { dirtySections, confirmNavigate } = useUnsavedChangesContext();
+    const { isAdmin } = useIsAdmin();
 
     const [isEmbedDialogOpen, setIsEmbedDialogOpen] = useState(false);
     const [activeSection, setActiveSection] = useState("general");
@@ -1218,7 +1220,8 @@ function WorkflowSettingsInner({
                                 onSave={saveWorkflowConfigurations}
                             />
 
-                            {/* Model Overrides */}
+                            {/* Model Overrides — admin-only (provider/API key configuration) */}
+                            {isAdmin && (
                             <Card id="models">
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2 text-base">
@@ -1249,6 +1252,7 @@ function WorkflowSettingsInner({
                                     />
                                 </CardContent>
                             </Card>
+                            )}
 
                             {/* Template Variables */}
                             <TemplateVariablesSection
@@ -1325,7 +1329,7 @@ function WorkflowSettingsInner({
                         <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                             On this page
                         </p>
-                        {NAV_ITEMS.map((item) => (
+                        {NAV_ITEMS.filter((item) => item.id !== "models" || isAdmin).map((item) => (
                             <a
                                 key={item.id}
                                 href={`#${item.id}`}

@@ -27,6 +27,7 @@ interface UserConfigContextType {
     error: Error | null;
     refreshConfig: () => Promise<void>;
     permissions: TeamPermission[];
+    permissionsLoaded: boolean;
     user: AuthUser | null;
     organizationPricing: OrganizationPricing | null;
 }
@@ -39,6 +40,7 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
     const [error, setError] = useState<Error | null>(null);
     const [organizationPricing, setOrganizationPricing] = useState<OrganizationPricing | null>(null);
     const [permissions, setPermissions] = useState<TeamPermission[]>([]);
+    const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
     const auth = useAuth();
 
@@ -81,6 +83,7 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
             } else {
                 setPermissions([{ id: 'admin' }]);
             }
+            setPermissionsLoaded(true);
         };
 
         fetchPermissions();
@@ -187,6 +190,7 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
                 error,
                 refreshConfig,
                 permissions,
+                permissionsLoaded,
                 user: auth.user,
                 organizationPricing,
             }}

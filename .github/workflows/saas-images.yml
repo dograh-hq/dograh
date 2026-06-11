@@ -1,0 +1,105 @@
+name: saas-images
+# Build the white-labeled SaaS deployment images (api + ui) and push to GHCR
+# under our fork's namespace. Sibling of overlay-image.yml (which keeps the
+# legacy single-image build for main / phase-2 branches).
+#
+# Tags pushed (per image, on every run):
+#   - ghcr.io/<owner>/voice-engine-api:<short-sha>  +  :saas
+#   - ghcr.io/<owner>/voice-engine-ui:<short-sha>   +  :saas
+#
+# IMPORTANT (ui): Next.js inlines NEXT_PUBLIC_* at BUILD time. The build args
+# below bake the production backend URL + branding into the ui bundle. To
+# change branding or domains, edit the build-args here and rebuild — runtime
+# env vars will NOT override them.
+
+on:
+  push:
+    branches:
+      - feat/voicelink-saas
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: api
+            dockerfile: api/Dockerfile
+            build-args: ""
+          - image: ui
+            dockerfile: ui/Dockerfile
+            # NEXT_PUBLIC_* are inlined into the client bundle at build time.
+            # NEXT_PUBLIC_BACKEND_URL must point at the public API domain
+            # because the ui (app.auto4you.in) and api (api.auto4you.in) are
+            # served on different hosts — the window.location.origin fallback
+            # in ui/src/lib/apiClient.ts would hit the wrong host.
+            build-args: |
+              NEXT_PUBLIC_BACKEND_URL=https://api.auto4you.in
+              NEXT_PUBLIC_BRAND_NAME=Auto4You Voice
+              NEXT_PUBLIC_CLIENT_MODE=true
+    steps:
+      # The api image build is large; reclaim runner disk first.
+      - name: Free disk space
+        if: matrix.image == 'api'
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Lowercase owner
+        id: owner
+        run: echo "name=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute tags
+        id: tags
+        run: |
+          IMG="ghcr.io/${{ steps.owner.outputs.name }}/voice-engine-${{ matrix.image }}"
+          SHORT="${{ steps.sha.outputs.short }}"
+          echo "list=$IMG:$SHORT,$IMG:saas" >> "$GITHUB_OUTPUT"
+          echo "Tagging: $IMG:$SHORT $IMG:saas"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.list }}
+          build-args: ${{ matrix.build-args }}
+          cache-from: type=gha,scope=saas-${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=saas-${{ matrix.image }}

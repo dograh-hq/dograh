@@ -51,11 +51,14 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
+import { BRAND } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
 type SidebarNavItem = {
@@ -63,6 +66,8 @@ type SidebarNavItem = {
   url: string;
   icon: LucideIcon;
   showsTelephonyWarning?: boolean;
+  /** Only visible to org admins (model/provider/API-key/engine settings). */
+  adminOnly?: boolean;
 };
 
 type SidebarNavSection = {
@@ -99,12 +104,14 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Models",
         url: "/model-configurations",
         icon: Brain,
+        adminOnly: true,
       },
       {
         title: "Telephony",
         url: "/telephony-configurations",
         icon: Phone,
         showsTelephonyWarning: true,
+        adminOnly: true,
       },
       {
         title: "Tools",
@@ -125,6 +132,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Developers",
         url: "/api-keys",
         icon: Key,
+        adminOnly: true,
       },
     ],
   },
@@ -158,6 +166,7 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
+  const { isAdmin } = useIsAdmin();
   const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
   const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
@@ -264,7 +273,11 @@ export function AppSidebar() {
               className="notranslate flex items-center gap-2 px-2 text-xl font-bold"
               translate="no"
             >
-              Dograh
+              {BRAND.logoUrl && (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={BRAND.logoUrl} alt={BRAND.name} className="h-6 w-auto" />
+              )}
+              {BRAND.name}
               {versionInfo && (
                 <span
                   className="notranslate text-xs font-normal text-muted-foreground"
@@ -278,7 +291,7 @@ export function AppSidebar() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <a
-                    href="https://docs.dograh.com/deployment/update"
+                    href={INTEGRATION_DOCUMENTATION_URLS.deploymentUpdate}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 rounded-md border bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-900 transition-opacity hover:opacity-80 dark:bg-amber-950 dark:text-amber-200"
@@ -351,11 +364,13 @@ export function AppSidebar() {
               </SidebarGroupLabel>
             )}
             <SidebarMenu>
-              {section.items.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarLink item={item} />
-                </SidebarMenuItem>
-              ))}
+              {section.items
+                .filter((item) => !item.adminOnly || isAdmin)
+                .map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarLink item={item} />
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroup>
         ))}
@@ -391,10 +406,12 @@ export function AppSidebar() {
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Platform Settings
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                      <Settings className="mr-2 h-4 w-4" />
+                      Platform Settings
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign out
@@ -436,10 +453,12 @@ export function AppSidebar() {
                     <Settings className="mr-2 h-4 w-4" />
                     Account settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
-                    <Settings className="mr-2 h-4 w-4" />
-                    Platform Settings
-                  </DropdownMenuItem>
+                  {isAdmin && (
+                    <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
+                      <Settings className="mr-2 h-4 w-4" />
+                      Platform Settings
+                    </DropdownMenuItem>
+                  )}
                   <DropdownMenuItem onClick={() => router.push("/usage")} className="cursor-pointer">
                     <CircleDollarSign className="mr-2 h-4 w-4" />
                     Usage

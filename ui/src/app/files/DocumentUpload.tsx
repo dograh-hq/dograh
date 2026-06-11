@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { useAppConfig } from '@/context/AppConfigContext';
+import { BRAND } from '@/lib/brand';
 import logger from '@/lib/logger';
 
 interface DocumentUploadProps {
@@ -39,8 +40,8 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
       <div className="text-xs text-amber-900 dark:text-amber-200">
         <p className="font-medium">Processed by an external service</p>
         <p className="mt-1">
-          Uploaded documents are sent to Dograh&apos;s managed Model Proxy Service for
-          parsing and chunking. Dograh Model Proxy Service does not store or read your documents -
+          Uploaded documents are sent to {BRAND.name}&apos;s managed Model Proxy Service for
+          parsing and chunking. The {BRAND.name} Model Proxy Service does not store or read your documents -
           the extracted text and embeddings are returned and stored locally in your
           self-hosted database.
         </p>

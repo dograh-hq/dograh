@@ -9,6 +9,7 @@ import React, { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import { PostHogEvent } from "@/constants/posthog-events";
+import { BRAND } from "@/lib/brand";
 
 import { AppSidebar } from "./AppSidebar";
 import { GitHubStarBadge } from "./GitHubStarBadge";
@@ -22,9 +23,10 @@ function AppHeader() {
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu" className="md:hidden">
           <Menu className="h-5 w-5" />
         </Button>
-        <Link href="/" className="text-lg font-bold md:hidden">Dograh</Link>
+        <Link href="/" className="text-lg font-bold md:hidden">{BRAND.name}</Link>
       </div>
       <div className="flex items-center gap-3">
+        {BRAND.showCommunityLinks && (
         <Button variant="ghost" size="sm" asChild>
           <a
             href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ"
@@ -39,6 +41,7 @@ function AppHeader() {
             <span className="hidden sm:inline">Join Slack</span>
           </a>
         </Button>
+        )}
         <GitHubStarBadge source="app_header" />
       </div>
     </header>

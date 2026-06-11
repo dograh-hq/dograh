@@ -15,6 +15,7 @@ import { OnboardingProvider } from "@/context/OnboardingContext";
 import { TelephonyConfigWarningsProvider } from "@/context/TelephonyConfigWarningsContext";
 import { UserConfigProvider } from "@/context/UserConfigContext";
 import { AuthProvider } from "@/lib/auth";
+import { BRAND } from "@/lib/brand";
 
 
 const geistSans = Geist({
@@ -28,8 +29,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dograh",
-  description: "Open Source Voice Assistant Workflow Builder",
+  title: BRAND.name,
+  description: BRAND.tagline,
+  ...(BRAND.logoUrl ? { icons: { icon: BRAND.logoUrl } } : {}),
 };
 
 export default function RootLayout({

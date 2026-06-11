@@ -176,7 +176,7 @@ class _ToolDocumentRefsMixin(BaseModel):
 @node_spec(
     name="startCall",
     display_name="Start Call",
-    description="Entry point of the workflow — plays a greeting and opens the conversation.",
+    description="Entry point of the workflow - plays a greeting and opens the conversation.",
     llm_hint=(
         "The entry point of every workflow (exactly one required). Plays an "
         "optional greeting, can fetch context from an external API before the "
@@ -344,7 +344,7 @@ class StartCallNodeData(
 @node_spec(
     name="agentNode",
     display_name="Agent Node",
-    description="Conversational step — the LLM runs one focused exchange.",
+    description="Conversational step - the LLM runs one focused exchange.",
     llm_hint=(
         "Mid-call step executed by the LLM. Most workflows are a chain of agent "
         "nodes connected by edges that describe transition conditions. Each agent "
@@ -613,9 +613,9 @@ class GlobalNodeData(BaseNodeData, _PromptedNodeDataMixin):
             "description": (
                 "Path segment that uniquely identifies "
                 "this trigger. Used in both URLs:\n"
-                "  • Production: `/api/v1/public/agent/<trigger_path>` — executes "
+                "  • Production: `/api/v1/public/agent/<trigger_path>` - executes "
                 "the published agent.\n"
-                "  • Test: `/api/v1/public/agent/test/<trigger_path>` — executes "
+                "  • Test: `/api/v1/public/agent/test/<trigger_path>` - executes "
                 "the latest draft.\n"
                 "Can be customized to a descriptive value up to 36 characters "
                 "using letters, numbers, hyphens, or underscores."
@@ -708,7 +708,7 @@ class TriggerNodeData(BaseNodeData):
             "display_name": "Payload Template",
             "description": (
                 "JSON body of the request. Values are Jinja-rendered against the "
-                "run context — `{{workflow_run_id}}`, `{{gathered_context.foo}}`, "
+                "run context - `{{workflow_run_id}}`, `{{gathered_context.foo}}`, "
                 "`{{annotations.qa_xxx}}`, etc."
             ),
             "ui_type": PropertyType.json,

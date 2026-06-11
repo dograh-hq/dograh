@@ -6,20 +6,46 @@
 // Base URL of the user_onboarding service; unset → calls are skipped (no-op).
 const BASE_URL = process.env.NEXT_PUBLIC_ONBOARDING_API_URL;
 
+// Bound every call so a slow/hung service can never freeze the UI (the onboarding
+// modal used to await this with no timeout). Best-effort: failures are surfaced
+// via console.error (captured as Sentry breadcrumbs) but never thrown.
+const TIMEOUT_MS = 6000;
+
 // POST a JSON body to the onboarding service with the Dograh auth token attached.
 async function post(path: string, token: string, body: unknown): Promise<void> {
-  if (!BASE_URL) return; // service not configured — skip silently
+  if (!BASE_URL) {
+    // Misconfig would otherwise be invisible: a token-bearing submit dropped on
+    // the floor while PostHog still records the event as "submitted".
+    if (token) {
+      console.error(
+        `[onboarding] NEXT_PUBLIC_ONBOARDING_API_URL is unset — "${path}" not persisted to the onboarding service`,
+      );
+    }
+    return;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    await fetch(`${BASE_URL}${path}`, {
+    const res = await fetch(`${BASE_URL}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
-  } catch {
-    // Best-effort: PostHog already captured the event; never block the user.
+    // fetch does not reject on 4xx/5xx — check explicitly so dropped leads are
+    // at least observable.
+    if (!res.ok) {
+      console.error(`[onboarding] POST ${path} failed with HTTP ${res.status}`);
+    }
+  } catch (err) {
+    // Network error, or the timeout aborted the request. Never block the user.
+    console.error(`[onboarding] POST ${path} did not complete:`, err);
+  } finally {
+    clearTimeout(timer);
   }
 }
 

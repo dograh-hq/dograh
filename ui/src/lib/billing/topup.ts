@@ -14,5 +14,9 @@ export async function startTopUp(amountUsd: number): Promise<void> {
 // Minimum self-serve top-up amount in USD.
 export const MIN_TOPUP_USD = 5;
 
+// Maximum self-serve top-up amount in USD (guards against fat-finger typos
+// before the real Razorpay order is created).
+export const MAX_TOPUP_USD = 10000;
+
 // Preset chip amounts (USD).
 export const TOPUP_PRESETS = [5, 10, 25, 50, 100] as const;

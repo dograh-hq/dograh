@@ -31,10 +31,12 @@ interface LeadModalShellProps {
   primary: { label: string; onClick: () => void; disabled?: boolean; loading?: boolean };
   // Optional ghost secondary (e.g. Cancel / Skip).
   secondary?: { label: string; onClick: () => void; disabled?: boolean };
-  // Optional helper rendered in the footer beside the actions (e.g. a link).
+  // Optional helper rendered in the footer below the actions (e.g. a link).
   helper?: ReactNode;
   // Optional trust line beneath the footer (we pass <FormTrustLine/>).
   trustLine?: ReactNode;
+  // Optional layer floated ON TOP of the whole modal (e.g. the captcha popup).
+  overlay?: ReactNode;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   // Forwarded to DialogContent so callers can lock dismissal (onboarding gate).
@@ -51,6 +53,7 @@ export function LeadModalShell({
   secondary,
   helper,
   trustLine,
+  overlay,
   open,
   onOpenChange,
   contentProps,
@@ -93,33 +96,39 @@ export function LeadModalShell({
         {/* Scrollable body */}
         <div className="max-h-[60vh] overflow-y-auto px-6 py-5">{children}</div>
 
-        {/* Sticky footer */}
+        {/* Sticky footer — actions first, then the optional helper line BELOW
+            the buttons, then the trust line at the very bottom. */}
         <div className="space-y-3 border-t border-border/60 bg-background/80 px-6 py-4 backdrop-blur-sm">
-          <div className="flex flex-col-reverse items-stretch gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-xs text-muted-foreground">{helper}</div>
-            <div className="flex items-center justify-end gap-2">
-              {secondary && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={secondary.onClick}
-                  disabled={secondary.disabled}
-                >
-                  {secondary.label}
-                </Button>
-              )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+            {secondary && (
               <Button
                 type="button"
-                onClick={primary.onClick}
-                disabled={primary.disabled || primary.loading}
-                className="bg-cta text-cta-foreground shadow-xs hover:bg-cta/90 focus-visible:ring-cta/50"
+                variant="ghost"
+                onClick={secondary.onClick}
+                disabled={secondary.disabled}
               >
-                {primary.loading ? "Submitting…" : primary.label}
+                {secondary.label}
               </Button>
-            </div>
+            )}
+            <Button
+              type="button"
+              onClick={primary.onClick}
+              disabled={primary.disabled || primary.loading}
+              className="bg-cta text-cta-foreground shadow-xs hover:bg-cta/90 focus-visible:ring-cta/50"
+            >
+              {primary.loading ? "Submitting…" : primary.label}
+            </Button>
           </div>
+          {helper && <div className="text-center text-xs text-muted-foreground">{helper}</div>}
           {trustLine}
         </div>
+
+        {/* Optional popup floated on top of the entire modal (captcha, etc.). */}
+        {overlay && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/85 p-6 backdrop-blur-sm">
+            {overlay}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

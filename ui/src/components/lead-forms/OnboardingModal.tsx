@@ -1,15 +1,9 @@
 "use client";
 
+import { Rocket } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -21,32 +15,47 @@ import {
 } from "@/components/ui/select";
 import { useAuth } from "@/lib/auth";
 
+import { CaptchaChallenge } from "./CaptchaChallenge";
+import {
+  EMPTY_ENTERPRISE_FIELDS,
+  type EnterpriseFieldsValue,
+  EnterpriseLeadFields,
+} from "./EnterpriseLeadFields";
+import { validateWorkEmail } from "./isPersonalEmail";
 import {
   ONBOARDING_ONPREM_OPTIONS,
   ONBOARDING_ONPREM_PERSONAS,
   ONBOARDING_PERSONA_OPTIONS,
   ONBOARDING_USAGE_CONTEXT_OPTIONS,
 } from "./leadFieldOptions";
+import { LeadModalShell } from "./LeadModalShell";
+import { submitLead } from "./submitLead";
 import { type OnboardingAnswers, skipOnboarding, submitOnboarding } from "./submitOnboarding";
 
 interface OnboardingModalProps {
   open: boolean;
   // Called after a tracked outcome (submit or skip) to dismiss the gate.
   onComplete: () => void;
-  // Opens the existing EnterpriseModal, prefilled with what we already collected.
-  onOpenEnterprise: (prefill: { company?: string }) => void;
 }
 
-export function OnboardingModal({ open, onComplete, onOpenEnterprise }: OnboardingModalProps) {
-  const { getAccessToken } = useAuth();  // Dograh token for the onboarding service
+export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
+  const { getAccessToken } = useAuth(); // Dograh token for the onboarding service
   const [companyName, setCompanyName] = useState("");
   const [usageContext, setUsageContext] = useState("");
   const [persona, setPersona] = useState("");
   const [onPremNeed, setOnPremNeed] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Inline on-prem expansion: the FULL enterprise form, submitted through the
+  // same /api/v1/leads/enterprise path as the standalone Enterprise modal.
+  const [onPremExpanded, setOnPremExpanded] = useState(false);
+  const [ef, setEf] = useState<EnterpriseFieldsValue>(EMPTY_ENTERPRISE_FIELDS);
+  const [efEmailError, setEfEmailError] = useState<string | null>(null);
+  const [captchaActive, setCaptchaActive] = useState(false);
+
   const showOnPrem = ONBOARDING_ONPREM_PERSONAS.includes(persona);
   const showManagedNote = showOnPrem && onPremNeed === "yes";
+  const wantsOnPrem = showManagedNote && onPremExpanded;
 
   const answers = (): OnboardingAnswers => ({
     companyName: companyName.trim() || undefined,
@@ -55,127 +64,215 @@ export function OnboardingModal({ open, onComplete, onOpenEnterprise }: Onboardi
     onPremNeed: showOnPrem ? onPremNeed || undefined : undefined,
   });
 
-  const handleSubmit = async () => {
-    setSubmitting(true);
-    try {
-      const token = await getAccessToken().catch(() => undefined);
-      await submitOnboarding(answers(), token);
-      onComplete();
-    } catch {
-      // Submission is best-effort. Never block the user from reaching the
-      // product — treat a failure as complete.
-      onComplete();
-    }
+  const onEfChange = (patch: Partial<EnterpriseFieldsValue>) => {
+    setEf((v) => ({ ...v, ...patch }));
+    if ("workEmail" in patch) setEfEmailError(null);
   };
 
-  const handleSkip = async () => {
-    // Skipping is itself signal — capture whatever was filled.
-    try {
-      const token = await getAccessToken().catch(() => undefined);
-      await skipOnboarding(answers(), token);
-    } finally {
-      onComplete();
-    }
+  const expandOnPrem = () => {
+    setOnPremExpanded(true);
+    // Seed company from what we already collected (don't clobber edits).
+    setEf((v) => (v.company ? v : { ...v, company: companyName.trim() }));
   };
+
+  const collapseOnPrem = () => {
+    setOnPremExpanded(false);
+    setCaptchaActive(false);
+    setEfEmailError(null);
+  };
+
+  // Best-effort persistence must never trap the user behind this hard gate.
+  // Dismiss immediately, then fire the token + network work in the background.
+  const finish = (skipped: boolean, withEnterprise: boolean) => {
+    if (submitting) return;
+    setSubmitting(true);
+    const data = answers();
+    const efSnapshot = withEnterprise ? { ...ef } : null;
+    onComplete();
+    void (async () => {
+      const token = await getAccessToken().catch(() => undefined);
+      try {
+        if (skipped) await skipOnboarding(data, token);
+        else await submitOnboarding(data, token);
+        // Two distinct submissions on success: onboarding answers above, and the
+        // enterprise on-prem lead here (same endpoint as the standalone form).
+        if (efSnapshot) {
+          await submitLead({
+            kind: "enterprise",
+            source: "onboarding",
+            payload: {
+              name: efSnapshot.name,
+              company: efSnapshot.company || companyName.trim() || undefined,
+              jobTitle: efSnapshot.jobTitle,
+              workEmail: efSnapshot.workEmail,
+              phone: efSnapshot.phone,
+              volume: efSnapshot.volume,
+              // They already answered on-prem = yes; deployment intent is implied.
+              deployment: "yes",
+              agentGoal: efSnapshot.agentGoal,
+            },
+            token,
+          });
+        }
+      } catch {
+        // Swallowed — the user is already in the product; network calls are
+        // bounded by a timeout in onboardingServiceClient.
+      }
+    })();
+  };
+
+  const handleSubmit = () => {
+    // Onboarding answers are all optional, so we only gate on the enterprise
+    // fields when the user has actually engaged the on-prem section.
+    if (wantsOnPrem) {
+      const err = validateWorkEmail(ef.workEmail);
+      if (err) { setEfEmailError(err); return; }
+      if (!ef.name.trim() || !ef.company.trim() || !ef.phone.trim() || !ef.volume) {
+        toast.error("Please complete the on-prem details below, or remove that section.");
+        return;
+      }
+      // Pop the anti-spam check on top of the modal before sending the lead.
+      setCaptchaActive(true);
+      return;
+    }
+    finish(false, false);
+  };
+
+  // Runs once the captcha popup is verified (on-prem path).
+  const submitWithOnPrem = () => {
+    setCaptchaActive(false);
+    finish(false, true);
+  };
+
+  const handleSkip = () => finish(true, false);
 
   return (
-    <Dialog open={open}>
-      <DialogContent
-        // No tracked-outcome-free exits: block Escape, outside-click, and hide
-        // the built-in close (×). The only ways out are Skip or Get started.
-        className="max-w-md [&>button]:hidden"
-        onEscapeKeyDown={(e) => e.preventDefault()}
-        onPointerDownOutside={(e) => e.preventDefault()}
-        onInteractOutside={(e) => e.preventDefault()}
-      >
-        <DialogHeader>
-          <DialogTitle>Welcome to Dograh</DialogTitle>
-          <DialogDescription>
-            A few quick questions so we can tailor your experience. Takes ~20 seconds.
-          </DialogDescription>
-        </DialogHeader>
+    <LeadModalShell
+      open={open}
+      // Hard gate: no outside/escape close, hide the built-in ×. The only exits
+      // are Skip or Get started.
+      onOpenChange={() => {}}
+      contentProps={{
+        className: "[&>button]:hidden",
+        onEscapeKeyDown: (e) => e.preventDefault(),
+        onPointerDownOutside: (e) => e.preventDefault(),
+        onInteractOutside: (e) => e.preventDefault(),
+      }}
+      icon={Rocket}
+      eyebrow="Welcome"
+      title="Welcome to Dograh"
+      description="A few quick questions so we can tailor your experience. Takes ~20 seconds."
+      primary={{ label: "Get started", onClick: handleSubmit, disabled: submitting }}
+      secondary={{ label: "Skip for now", onClick: handleSkip, disabled: submitting }}
+      overlay={captchaActive ? <CaptchaChallenge onVerified={submitWithOnPrem} onCancel={() => setCaptchaActive(false)} /> : undefined}
+    >
+      <div className="grid gap-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="ob-company">
+            Company name <span className="text-muted-foreground">(optional)</span>
+          </Label>
+          <Input id="ob-company" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+        </div>
 
-        <div className="grid gap-4 py-2">
-          <div className="space-y-1.5">
-            <Label htmlFor="ob-company">
-              Company name <span className="text-muted-foreground">(optional)</span>
-            </Label>
-            <Input id="ob-company" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-          </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ob-usage">Where do you plan to use this?</Label>
+          <Select value={usageContext} onValueChange={setUsageContext}>
+            <SelectTrigger id="ob-usage"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectContent>
+              {ONBOARDING_USAGE_CONTEXT_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
-          <div className="space-y-1.5">
-            <Label>Where do you plan to use this?</Label>
-            <Select value={usageContext} onValueChange={setUsageContext}>
-              <SelectTrigger><SelectValue placeholder="Select one" /></SelectTrigger>
-              <SelectContent>
-                {ONBOARDING_USAGE_CONTEXT_OPTIONS.map((o) => (
-                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="ob-persona">What best describes you?</Label>
+          <Select
+            value={persona}
+            onValueChange={(v) => {
+              setPersona(v);
+              // Leaving the on-prem-eligible persona resets the conditional answer
+              // and any inline enterprise lead.
+              if (!ONBOARDING_ONPREM_PERSONAS.includes(v)) {
+                setOnPremNeed("");
+                collapseOnPrem();
+              }
+            }}
+          >
+            <SelectTrigger id="ob-persona"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectContent>
+              {ONBOARDING_PERSONA_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
+        {showOnPrem && (
           <div className="space-y-1.5">
-            <Label>What best describes you?</Label>
+            <Label htmlFor="ob-onprem">Do you need on-prem deployment for compliance &amp; data residency?</Label>
             <Select
-              value={persona}
+              value={onPremNeed}
               onValueChange={(v) => {
-                setPersona(v);
-                // Reset the conditional answer if they leave the on-prem-eligible persona.
-                if (!ONBOARDING_ONPREM_PERSONAS.includes(v)) setOnPremNeed("");
+                setOnPremNeed(v);
+                if (v !== "yes") collapseOnPrem();
               }}
             >
-              <SelectTrigger><SelectValue placeholder="Select one" /></SelectTrigger>
+              <SelectTrigger id="ob-onprem"><SelectValue placeholder="Select one" /></SelectTrigger>
               <SelectContent>
-                {ONBOARDING_PERSONA_OPTIONS.map((o) => (
+                {ONBOARDING_ONPREM_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
 
-          {showOnPrem && (
-            <div className="space-y-1.5 rounded-md border-l-2 border-primary bg-muted/40 p-3">
-              <Label>Do you need on-prem deployment for compliance &amp; data residency?</Label>
-              <Select value={onPremNeed} onValueChange={setOnPremNeed}>
-                <SelectTrigger><SelectValue placeholder="Select one" /></SelectTrigger>
-                <SelectContent>
-                  {ONBOARDING_ONPREM_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-
-              {showManagedNote && (
-                <div className="mt-2 space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    We provide a <span className="font-medium text-foreground">Managed On-Prem solution</span> for
-                    enterprises to ensure compliance and data security. Share your contact and our team will reach out.
+            {showManagedNote && (
+              <div className="mt-2 space-y-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    We offer a <span className="font-medium text-foreground">Managed On-Prem</span> deployment
+                    for compliance and data residency.
                   </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onOpenEnterprise({ company: companyName.trim() || undefined })}
-                  >
-                    Talk to us about on-prem
-                  </Button>
-                  <p className="text-xs text-muted-foreground">Optional — you can skip and continue.</p>
+                  {onPremExpanded && (
+                    <button
+                      type="button"
+                      onClick={collapseOnPrem}
+                      className="shrink-0 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    >
+                      Remove
+                    </button>
+                  )}
                 </div>
-              )}
-            </div>
-          )}
-        </div>
 
-        <div className="flex items-center justify-between gap-2">
-          <Button variant="ghost" onClick={handleSkip} disabled={submitting}>
-            Skip for now
-          </Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
-            {submitting ? "Saving…" : "Get started"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+                {!onPremExpanded ? (
+                  <button
+                    type="button"
+                    onClick={expandOnPrem}
+                    className="text-xs font-medium text-cta underline-offset-4 hover:underline"
+                  >
+                    Talk to us about on-prem →
+                  </button>
+                ) : (
+                  <div className="space-y-3">
+                    <EnterpriseLeadFields
+                      idPrefix="ob-op"
+                      value={ef}
+                      onChange={onEfChange}
+                      workEmailRequired
+                      showDeployment={false}
+                      emailError={efEmailError}
+                    />
+                    <p className="text-[0.7rem] text-muted-foreground">
+                      Our team will reach out about on-prem. Prefer not to? Click &ldquo;Remove&rdquo;.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </LeadModalShell>
   );
 }

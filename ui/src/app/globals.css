@@ -184,4 +184,27 @@
   @media (prefers-reduced-motion: reduce) {
     .auth-waveform span { animation: none; }
   }
+
+  /* Atmospheric app background — premium dark depth instead of flat black.
+     Decorative only; applied to content areas via the .app-surface class so it
+     cascades to every page without per-page edits. Light mode stays clean. */
+  .app-surface {
+    background-color: var(--background);
+  }
+  .dark .app-surface {
+    background-image:
+      radial-gradient(55rem 32rem at 100% 100%, color-mix(in oklch, var(--cta) 13%, transparent), transparent 55%),
+      radial-gradient(48rem 30rem at 0% 100%, color-mix(in oklch, var(--primary) 10%, transparent), transparent 52%),
+      linear-gradient(0deg, color-mix(in oklch, var(--foreground) 4%, transparent), transparent 38%);
+    background-repeat: no-repeat;
+  }
+
+  /* Faint warm wash at the bottom of the sidebar for subtle depth (dark only). */
+  .dark .app-sidebar-surface {
+    background-image: linear-gradient(
+      0deg,
+      color-mix(in oklch, var(--cta) 8%, transparent),
+      transparent 32%
+    );
+  }
 }

@@ -16,10 +16,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/lib/auth";
 
+import { CaptchaChallenge } from "./CaptchaChallenge";
 import { FormTrustLine } from "./FormTrustLine";
 import { HIRE_VOLUME_OPTIONS, type LeadSource } from "./leadFieldOptions";
 import { LeadModalShell } from "./LeadModalShell";
-import { MathCaptcha } from "./MathCaptcha";
 import { PhoneField } from "./PhoneField";
 import { submitLead } from "./submitLead";
 
@@ -38,30 +38,37 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
   const [agentGoal, setAgentGoal] = useState("");
   const [phone, setPhone] = useState("");
   const [volume, setVolume] = useState("");
-  const [captchaValid, setCaptchaValid] = useState(false);
+  const [captchaActive, setCaptchaActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const reset = () => {
     setName(""); setCompany(""); setJobTitle(""); setAgentGoal("");
-    setPhone(""); setVolume(""); setCaptchaValid(false); setSubmitting(false);
+    setPhone(""); setVolume(""); setCaptchaActive(false); setSubmitting(false);
   };
 
-  const canSubmit =
+  // Required fields, independent of the anti-spam check (which is revealed only
+  // after the first submit click — see handleSubmit).
+  const baseValid =
     Boolean(name.trim()) &&
     Boolean(company.trim()) &&
     Boolean(agentGoal.trim()) &&
     Boolean(phone.trim()) &&
-    Boolean(volume) &&
-    captchaValid &&
-    !submitting;
+    Boolean(volume);
 
-  const handleSubmit = async () => {
-    if (!name.trim() || !company.trim() || !agentGoal.trim() || !phone.trim() || !volume) {
+  const canSubmit = baseValid && !submitting;
+
+  // Validate, then pop the anti-spam check on top of the modal.
+  const handleSubmit = () => {
+    if (!baseValid) {
       toast.error("Please fill in all required fields");
       return;
     }
-    if (!captchaValid) { toast.error("Please answer the quick check"); return; }
+    setCaptchaActive(true);
+  };
 
+  // Runs once the captcha popup is verified.
+  const doSubmit = async () => {
+    setCaptchaActive(false);
     setSubmitting(true);
     try {
       // Resolve the token best-effort; submission still succeeds via PostHog if it fails.
@@ -72,7 +79,7 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
         payload: { name, company, jobTitle, agentGoal, phone, volume },
         token,
       });
-      toast.success("Thanks — we'll reach out about building your agent.");
+      toast.success("Thanks - we'll reach out about building your agent.");
       reset();
       onOpenChange(false);
     } catch {
@@ -101,6 +108,7 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
         </button>
       }
       trustLine={<FormTrustLine />}
+      overlay={captchaActive ? <CaptchaChallenge onVerified={doSubmit} onCancel={() => setCaptchaActive(false)} /> : undefined}
     >
       <div className="grid gap-4">
         <div className="grid gap-4 sm:grid-cols-2">
@@ -138,9 +146,9 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
             <PhoneField id="hire-phone" value={phone} onChange={setPhone} required />
           </div>
           <div className="space-y-1.5">
-            <Label>Expected monthly call volume</Label>
+            <Label htmlFor="hire-volume">Expected monthly call volume</Label>
             <Select value={volume} onValueChange={setVolume}>
-              <SelectTrigger><SelectValue placeholder="Select" /></SelectTrigger>
+              <SelectTrigger id="hire-volume"><SelectValue placeholder="Select" /></SelectTrigger>
               <SelectContent>
                 {HIRE_VOLUME_OPTIONS.map((o) => (
                   <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
@@ -150,7 +158,6 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
           </div>
         </div>
 
-        <MathCaptcha id="hire-captcha" onValidChange={setCaptchaValid} />
       </div>
     </LeadModalShell>
   );

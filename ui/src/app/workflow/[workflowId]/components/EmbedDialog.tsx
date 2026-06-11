@@ -323,7 +323,7 @@ export function EmbedDialog({
                                             <div className="space-y-2">
                                                 <div className="font-medium">Headless (Bring Your Own UI)</div>
                                                 <div className="text-xs text-muted-foreground">
-                                                    No UI — drive calls from your own buttons via the JS API
+                                                    No UI - drive calls from your own buttons via the JS API
                                                 </div>
                                             </div>
                                         </button>
@@ -436,7 +436,7 @@ export function EmbedDialog({
                                                 <h4 className="font-medium mb-2">Integration Instructions</h4>
                                                 <ul className="text-sm space-y-2 text-muted-foreground">
                                                     <li>• Add the embed script tag to your page (see below).</li>
-                                                    <li>• The widget renders no UI — render your own buttons.</li>
+                                                    <li>• The widget renders no UI - render your own buttons.</li>
                                                     <li>• Call <code className="text-xs">window.DograhWidget.start()</code> to begin a call.</li>
                                                     <li>• Call <code className="text-xs">window.DograhWidget.end()</code> to end it.</li>
                                                     <li>• Subscribe to <code className="text-xs">onCallStart</code>, <code className="text-xs">onCallEnd</code>, <code className="text-xs">onStatusChange</code>, <code className="text-xs">onError</code> to drive your UI.</li>
@@ -445,12 +445,12 @@ export function EmbedDialog({
                                             </div>
 
                                             <div className="rounded-lg bg-blue-50 dark:bg-blue-950/20 p-4 border border-blue-200 dark:border-blue-800">
-                                                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example — track status in your own state</h4>
+                                                <h4 className="font-medium mb-2 text-blue-900 dark:text-blue-100">Example - track status in your own state</h4>
                                                 <p className="text-xs text-blue-900/80 dark:text-blue-100/80 mb-2">
                                                     Mirror the call status into a variable you control, then render whatever UI you like from it. The status values are <code className="text-xs">idle</code>, <code className="text-xs">connecting</code>, <code className="text-xs">connected</code>, <code className="text-xs">failed</code>.
                                                 </p>
                                                 <pre className="text-xs overflow-x-auto">
-                                                    <code className="text-blue-800 dark:text-blue-200">{`// Vanilla JS — keep your own state, render however you want
+                                                    <code className="text-blue-800 dark:text-blue-200">{`// Vanilla JS - keep your own state, render however you want
 let callStatus = 'idle';
 
 window.DograhWidget?.onStatusChange((status) => {

@@ -268,7 +268,7 @@ export const PhoneCallDialog = ({
                             {telephonyConfigs.map((config) => (
                                 <SelectItem key={config.id} value={String(config.id)}>
                                     {config.name} ({config.provider})
-                                    {config.is_default_outbound ? " — default" : ""}
+                                    {config.is_default_outbound ? " - default" : ""}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -294,8 +294,8 @@ export const PhoneCallDialog = ({
                             <SelectContent>
                                 {fromPhoneNumbers.map((phone) => (
                                     <SelectItem key={phone.id} value={String(phone.id)}>
-                                        {phone.label ? `${phone.label} — ${phone.address}` : phone.address}
-                                        {phone.is_default_caller_id ? " — default" : ""}
+                                        {phone.label ? `${phone.label} - ${phone.address}` : phone.address}
+                                        {phone.is_default_caller_id ? " - default" : ""}
                                     </SelectItem>
                                 ))}
                             </SelectContent>

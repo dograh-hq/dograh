@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 
 export type TooltipKey = 'web_call' | 'customize_workflow';
-export type OnboardingActionKey = 'web_call_started';
+export type OnboardingActionKey = 'web_call_started' | 'welcome_form_completed';
 
 interface OnboardingState {
     seenTooltips: TooltipKey[];

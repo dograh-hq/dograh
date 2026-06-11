@@ -1,0 +1,82 @@
+"use client";
+
+// Anti-spam quick-check shown as a popup ON TOP of a lead form (via the
+// LeadModalShell `overlay` slot) so it can't be scrolled past or missed.
+// Generates a fresh sum each time it mounts; calls onVerified once the correct
+// answer is confirmed, onCancel to dismiss back to the form.
+
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+export function CaptchaChallenge({
+  onVerified,
+  onCancel,
+}: {
+  onVerified: () => void;
+  onCancel: () => void;
+}) {
+  const [a, setA] = useState(0);
+  const [b, setB] = useState(0);
+  const [answer, setAnswer] = useState("");
+
+  // Fresh challenge whenever this mounts (the parent mounts it on demand).
+  // Math.random is allowed in the browser runtime (not a workflow script).
+  const regenerate = () => {
+    setA(Math.floor(Math.random() * 8) + 1);
+    setB(Math.floor(Math.random() * 8) + 1);
+    setAnswer("");
+  };
+  useEffect(() => {
+    regenerate();
+  }, []);
+
+  const confirm = () => {
+    if (answer.trim() !== "" && parseInt(answer, 10) === a + b) {
+      onVerified();
+    } else {
+      toast.error("That's not quite right - try again.");
+      regenerate();
+    }
+  };
+
+  return (
+    <div className="w-full max-w-xs space-y-4 rounded-xl border border-border/60 bg-card p-5 shadow-xl">
+      <div className="space-y-1">
+        <p className="text-sm font-semibold">Quick check</p>
+        <p className="text-xs text-muted-foreground">Confirm you&apos;re human before we send this.</p>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="captcha-answer">
+          What is {a} + {b}?
+        </Label>
+        <Input
+          id="captcha-answer"
+          inputMode="numeric"
+          autoFocus
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") confirm();
+          }}
+          placeholder="Answer"
+        />
+      </div>
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          onClick={confirm}
+          className="bg-cta text-cta-foreground shadow-xs hover:bg-cta/90 focus-visible:ring-cta/50"
+        >
+          Confirm &amp; submit
+        </Button>
+      </div>
+    </div>
+  );
+}

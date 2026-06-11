@@ -257,12 +257,12 @@ SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
 )
 AZURE_SPEECH_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Azure Speech Services",
-    description="Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.",
+    description="Azure Cognitive Services Speech - TTS and STT via the Azure Speech SDK.",
     provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/speech-service/",
 )
 AZURE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Azure OpenAI Realtime",
-    description="Azure OpenAI Realtime API — low-latency speech-to-speech conversations.",
+    description="Azure OpenAI Realtime API - low-latency speech-to-speech conversations.",
     provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/realtime-audio-quickstart",
 )
 
@@ -360,7 +360,7 @@ class GoogleVertexLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(
         default=None,
         description=(
-            "Not used for Vertex AI — authentication is via the service account "
+            "Not used for Vertex AI - authentication is via the service account "
             "in `credentials` (or ADC). Leave blank."
         ),
     )
@@ -425,7 +425,7 @@ class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
     provider: Literal[ServiceProviders.AWS_BEDROCK] = ServiceProviders.AWS_BEDROCK
     model: str = Field(
         default="us.amazon.nova-pro-v1:0",
-        description="Bedrock model ID — include the region inference-profile prefix (e.g. 'us.').",
+        description="Bedrock model ID - include the region inference-profile prefix (e.g. 'us.').",
         json_schema_extra={"examples": AWS_BEDROCK_MODELS, "allow_custom_input": True},
     )
     aws_access_key: str = Field(
@@ -442,7 +442,7 @@ class AWSBedrockLLMConfiguration(BaseLLMConfiguration):
     )
     api_key: str | list[str] | None = Field(
         default=None,
-        description="Not used for Bedrock — authentication is via the AWS credentials above. Leave blank.",
+        description="Not used for Bedrock - authentication is via the AWS credentials above. Leave blank.",
     )
 
 
@@ -682,7 +682,7 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(
         default=None,
         description=(
-            "Not used for Vertex AI — authentication is via the service account "
+            "Not used for Vertex AI - authentication is via the service account "
             "in `credentials` (or ADC). Leave blank."
         ),
     )

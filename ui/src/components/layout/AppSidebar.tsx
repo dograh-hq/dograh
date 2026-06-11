@@ -27,6 +27,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useRef } from "react";
 
+import { BrandLogo } from "@/components/BrandLogo";
 import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import {
@@ -226,8 +227,8 @@ export function AppSidebar() {
         asChild
         tooltip={tooltip}
         className={cn(
-          "hover:bg-accent hover:text-accent-foreground",
-          isItemActive && "bg-accent text-accent-foreground"
+          "transition-colors hover:bg-accent hover:text-accent-foreground",
+          isItemActive && "bg-cta/10 font-medium text-foreground hover:bg-cta/15"
         )}
       >
         <Link
@@ -236,7 +237,10 @@ export function AppSidebar() {
           className={cn("relative", isCollapsed && "justify-center")}
           translate="no"
         >
-          <Icon className="h-4 w-4 shrink-0" />
+          {isItemActive && !isCollapsed && (
+            <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-cta" aria-hidden />
+          )}
+          <Icon className={cn("h-4 w-4 shrink-0", isItemActive && "text-cta")} />
           <span
             className={cn("notranslate min-w-0 flex-1 truncate", isCollapsed && "sr-only")}
             translate="no"
@@ -288,16 +292,16 @@ export function AppSidebar() {
   );
 
   return (
-    <Sidebar collapsible="icon" className="border-r">
+    <Sidebar collapsible="icon" className="app-sidebar-surface border-r border-border/60">
       <SidebarHeader className="border-b px-2 py-3 notranslate" translate="no">
         <div className="flex items-center justify-between">
           <div className={cn("flex items-center gap-2", isCollapsed && "hidden")}>
             <Link
               href="/"
-              className="notranslate flex items-center gap-2 px-2 text-xl font-bold"
+              className="notranslate flex items-center gap-2 px-1"
               translate="no"
             >
-              Dograh
+              <BrandLogo mark className="h-6" />
               {versionInfo && (
                 <span
                   className="notranslate text-xs font-normal text-muted-foreground"
@@ -321,7 +325,7 @@ export function AppSidebar() {
                   </a>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>Latest: {latestRelease} — click to see the update guide</p>
+                  <p>Latest: {latestRelease} - click to see the update guide</p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -473,10 +477,6 @@ export function AppSidebar() {
                   <DropdownMenuItem onClick={() => router.push("/settings")} className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
                     Platform Settings
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push("/usage")} className="cursor-pointer">
-                    <CircleDollarSign className="mr-2 h-4 w-4" />
-                    Usage
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />

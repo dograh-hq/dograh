@@ -19,7 +19,7 @@ function AppHeader() {
   const { toggleSidebar } = useSidebar();
 
   return (
-    <header className="sticky top-0 z-50 flex items-center justify-between border-b bg-background px-4 py-2">
+    <header className="sticky top-0 z-50 flex items-center justify-between border-b border-border/60 bg-background/70 px-4 py-2 backdrop-blur-md supports-[backdrop-filter]:bg-background/55">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu" className="md:hidden">
           <Menu className="h-5 w-5" />
@@ -120,7 +120,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
               {!isWorkflowEditor && <AppHeader />}
               {/* Optional header area for specific pages */}
               {headerActions && (
-                <header className="sticky top-0 z-50 w-full border-b bg-background">
+                <header className="sticky top-0 z-50 w-full border-b border-border/60 bg-background/70 backdrop-blur-md supports-[backdrop-filter]:bg-background/55">
                   <div className="container mx-auto px-4 py-4">
                     <div className="flex items-center justify-center">
                       {headerActions}
@@ -141,14 +141,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({
               )}
 
               {/* Main content area */}
-              <main className="flex-1">
+              <main className="app-surface flex-1">
                 {children}
               </main>
             </SidebarInset>
           </div>
         </LeadFormsProvider>
       ) : (
-        <div className="flex-1 w-full">
+        <div className="app-surface w-full flex-1">
           <BackendStatusBanner />
           {children}
         </div>

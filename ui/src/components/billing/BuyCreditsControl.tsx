@@ -1,30 +1,40 @@
 "use client";
 
-// Compact self-serve "Buy Credits" control for the billing card. Preset amount
-// chips plus a custom amount (min $5) feed the Razorpay seam in
-// @/lib/billing/topup. Analytics: chip selection and the buy click are captured
-// for funnel analysis. The seam currently throws "not wired yet"; we surface
-// that as a calm inline note rather than an error toast.
+// Compact self-serve "Buy Credits" control. The amount chips + custom input live
+// in a popover that only opens when the user clicks "Buy Credits" — so the
+// billing card stays clean until they intend to top up. Presets + custom (min $5)
+// feed the Razorpay seam in @/lib/billing/topup, which currently throws "not
+// wired yet"; we surface that as a calm inline note rather than an error toast.
 
 import posthog from "posthog-js";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PostHogEvent } from "@/constants/posthog-events";
-import { MIN_TOPUP_USD, startTopUp, TOPUP_PRESETS } from "@/lib/billing/topup";
+import { MAX_TOPUP_USD, MIN_TOPUP_USD, startTopUp, TOPUP_PRESETS } from "@/lib/billing/topup";
 import { cn } from "@/lib/utils";
 
-export function BuyCreditsControl() {
+// Round to whole cents and reject non-positive / non-finite input so a typo
+// (e.g. "5.999", "-1", "abc") can't produce a NaN or fractional-cent order.
+const parseAmount = (raw: string): number | null => {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.round(n * 100) / 100;
+};
+
+export function BuyCreditsControl({ className }: { className?: string }) {
+  const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [custom, setCustom] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // The effective amount: a parsed custom value takes precedence when present.
-  const customAmount = custom.trim() ? Number(custom) : null;
+  const customAmount = custom.trim() ? parseAmount(custom) : null;
   const amount = customAmount ?? selected;
-  const valid = amount != null && Number.isFinite(amount) && amount >= MIN_TOPUP_USD;
+  const valid = amount != null && amount >= MIN_TOPUP_USD && amount <= MAX_TOPUP_USD;
 
   const selectPreset = (value: number) => {
     setSelected(value);
@@ -37,8 +47,8 @@ export function BuyCreditsControl() {
     setCustom(raw);
     setSelected(null);
     setError(null);
-    const parsed = Number(raw);
-    if (raw.trim() && Number.isFinite(parsed) && parsed >= MIN_TOPUP_USD) {
+    const parsed = parseAmount(raw);
+    if (parsed != null && parsed >= MIN_TOPUP_USD && parsed <= MAX_TOPUP_USD) {
       posthog.capture(PostHogEvent.BUY_CREDITS_AMOUNT_SELECTED, { amount: parsed });
     }
   };
@@ -59,52 +69,66 @@ export function BuyCreditsControl() {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap gap-2">
-        {TOPUP_PRESETS.map((value) => (
-          <button
-            key={value}
-            type="button"
-            onClick={() => selectPreset(value)}
-            aria-pressed={selected === value}
-            className={cn(
-              "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
-              "border-input text-foreground hover:bg-accent",
-              selected === value && "border-cta bg-cta/10 text-foreground ring-1 ring-cta/40",
-            )}
-          >
-            ${value}
-          </button>
-        ))}
-        <div className="relative">
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-            $
-          </span>
-          <Input
-            inputMode="decimal"
-            value={custom}
-            onChange={(e) => onCustomChange(e.target.value)}
-            placeholder="Custom"
-            aria-label={`Custom amount (min $${MIN_TOPUP_USD})`}
-            className="h-9 w-28 pl-5"
-          />
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          className={cn(
+            "bg-cta text-cta-foreground shadow-xs hover:bg-cta/90 focus-visible:ring-cta/50",
+            className,
+          )}
+        >
+          Buy Credits
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 space-y-3">
+        <div className="space-y-0.5">
+          <p className="text-sm font-medium">Top up credits</p>
+          <p className="text-xs text-muted-foreground">Pick an amount (min ${MIN_TOPUP_USD}).</p>
         </div>
-      </div>
 
-      {error ? (
-        <p className="text-xs text-muted-foreground">{error}</p>
-      ) : (
-        <p className="text-xs text-muted-foreground">Minimum ${MIN_TOPUP_USD}.</p>
-      )}
+        <div className="flex flex-wrap gap-2">
+          {TOPUP_PRESETS.map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => selectPreset(value)}
+              aria-pressed={selected === value}
+              className={cn(
+                "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
+                "border-input text-foreground hover:bg-accent",
+                selected === value && "border-cta bg-cta/10 text-foreground ring-1 ring-cta/40",
+              )}
+            >
+              ${value}
+            </button>
+          ))}
+          <div className="relative">
+            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+              $
+            </span>
+            <Input
+              inputMode="decimal"
+              value={custom}
+              onChange={(e) => onCustomChange(e.target.value)}
+              placeholder="Custom"
+              aria-label={`Custom amount (min $${MIN_TOPUP_USD})`}
+              className="h-9 w-24 pl-5"
+            />
+          </div>
+        </div>
 
-      <Button
-        type="button"
-        onClick={onBuy}
-        disabled={!valid || busy}
-        className="bg-cta text-cta-foreground shadow-xs hover:bg-cta/90 focus-visible:ring-cta/50"
-      >
-        {busy ? "Starting…" : "Buy Credits"}
-      </Button>
-    </div>
+        {error && <p className="text-xs text-muted-foreground">{error}</p>}
+
+        <Button
+          type="button"
+          onClick={onBuy}
+          disabled={!valid || busy}
+          className="w-full bg-cta text-cta-foreground shadow-xs hover:bg-cta/90 focus-visible:ring-cta/50"
+        >
+          {busy ? "Starting…" : valid && amount != null ? `Buy $${amount}` : "Buy Credits"}
+        </Button>
+      </PopoverContent>
+    </Popover>
   );
 }

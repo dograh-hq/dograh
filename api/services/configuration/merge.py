@@ -113,6 +113,13 @@ def merge_user_configurations(
     if "timezone" in incoming_partial:
         merged["timezone"] = incoming_partial["timezone"]
 
+    # Onboarding gate flags — overwrite only when supplied (set once on submit/skip).
+    if "onboarding_completed_at" in incoming_partial:
+        merged["onboarding_completed_at"] = incoming_partial["onboarding_completed_at"]
+
+    if "onboarding_skipped" in incoming_partial:
+        merged["onboarding_skipped"] = incoming_partial["onboarding_skipped"]
+
     return UserConfiguration.model_validate(merged)
 
 

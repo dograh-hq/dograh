@@ -24,7 +24,11 @@ export function DograhCreditsCard() {
     if (!auth.isAuthenticated) return;
     try {
       const response = await getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet();
-      if (response.data) {
+      // The generated client resolves to { data, error } and does NOT throw on
+      // 4xx/5xx (see ui/AGENTS.md) — check error explicitly.
+      if (response.error) {
+        console.error("Failed to fetch MPS credits:", response.error);
+      } else if (response.data) {
         setMpsCredits(response.data);
       }
     } catch (error) {
@@ -74,7 +78,7 @@ export function DograhCreditsCard() {
             </div>
 
             {mpsCredits.total_quota > 0 && (
-              <Progress value={(mpsCredits.total_credits_used / mpsCredits.total_quota) * 100} className="h-3" />
+              <Progress value={Math.min(100, (mpsCredits.total_credits_used / mpsCredits.total_quota) * 100)} className="h-3" />
             )}
           </div>
         ) : (
@@ -83,20 +87,23 @@ export function DograhCreditsCard() {
           </p>
         )}
 
-        {/* Footer CTAs — card ends with self-serve + done-for-you actions */}
+        {/* Footer CTAs — self-serve + done-for-you side by side, with the
+            custom-pricing link directly beneath. */}
         <div className="mt-6 space-y-4 border-t pt-4">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Running low?</p>
-              <p className="text-sm text-muted-foreground">Top up instantly, or have us build it for you.</p>
-            </div>
-            <div className="flex flex-col items-stretch gap-3 sm:items-end">
-              <BuyCreditsControl />
-              <Button variant="outline" className="gap-2" onClick={() => openHireExpert("billing_card")}>
-                <UserRound className="h-4 w-4" />
-                Hire an Expert
-              </Button>
-            </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Running low?</p>
+            <p className="text-sm text-muted-foreground">Top up instantly, or have us build it for you.</p>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <BuyCreditsControl className="w-full sm:flex-1" />
+            <Button
+              variant="outline"
+              className="w-full gap-2 sm:flex-1"
+              onClick={() => openHireExpert("billing_card")}
+            >
+              <UserRound className="h-4 w-4" />
+              Hire an Expert
+            </Button>
           </div>
           <button
             type="button"
@@ -104,9 +111,9 @@ export function DograhCreditsCard() {
               posthog.capture(PostHogEvent.CUSTOM_PRICING_CLICKED);
               openEnterprise("billing_custom_pricing");
             }}
-            className="text-xs text-muted-foreground underline decoration-dashed underline-offset-4 hover:text-foreground"
+            className="block text-xs text-muted-foreground underline decoration-dashed underline-offset-4 hover:text-foreground"
           >
-            Contact Us: Custom pricing for committed monthly volume
+            Book a Strategy Call: custom pricing for committed volume
           </button>
         </div>
       </CardContent>

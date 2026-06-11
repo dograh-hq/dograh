@@ -116,7 +116,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:3010 || exit 1",
         ]
       interval: 30s
       timeout: 10s

@@ -5,6 +5,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
 from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResponse
+from api.services.auth.admin_emails import promote_if_admin_email
 from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
 from api.services.posthog_client import capture_event
 from api.utils.auth import create_jwt_token, hash_password, verify_password
@@ -29,6 +30,9 @@ async def signup(request: SignupRequest):
         password_hash=hashed,
         name=request.name,
     )
+
+    # Promote to superuser if the email is configured in ADMIN_EMAILS
+    user = await promote_if_admin_email(user)
 
     # Create organization for the user
     org_provider_id = f"org_{user.provider_id}"
@@ -72,6 +76,7 @@ async def signup(request: SignupRequest):
             name=request.name,
             organization_id=organization.id,
             provider_id=user.provider_id,
+            is_superuser=bool(user.is_superuser),
         ),
     )
 
@@ -86,6 +91,9 @@ async def login(request: LoginRequest):
     # Verify password
     if not verify_password(request.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Promote to superuser if the email is configured in ADMIN_EMAILS
+    user = await promote_if_admin_email(user)
 
     # Create JWT token
     token = create_jwt_token(user.id, user.email)
@@ -106,6 +114,7 @@ async def login(request: LoginRequest):
             email=user.email,
             organization_id=user.selected_organization_id,
             provider_id=user.provider_id,
+            is_superuser=bool(user.is_superuser),
         ),
     )
 
@@ -117,4 +126,5 @@ async def get_current_user(user: UserModel = Depends(get_user)):
         email=user.email,
         organization_id=user.selected_organization_id,
         provider_id=user.provider_id,
+        is_superuser=bool(user.is_superuser),
     )

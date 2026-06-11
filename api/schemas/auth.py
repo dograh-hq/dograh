@@ -25,6 +25,7 @@ class UserResponse(BaseModel):
     name: str | None = None
     organization_id: int | None = None
     provider_id: str | None = None
+    is_superuser: bool = False
 
 
 class AuthResponse(BaseModel):

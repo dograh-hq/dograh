@@ -71,7 +71,7 @@ async def get_auth_user(
 ) -> AuthUserResponse:
     return {
         "id": user.id,
-        "is_superuser": user.is_superuser,
+        "is_superuser": bool(user.is_superuser),
     }
 
 

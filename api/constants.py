@@ -27,6 +27,9 @@ REDIS_URL = os.environ["REDIS_URL"]
 
 DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")
 AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
+# Comma-separated list of emails that are promoted to superuser on
+# local-auth signup/login (e.g. "owner@example.com,ops@example.com").
+ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "")
 DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 

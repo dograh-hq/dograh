@@ -174,7 +174,14 @@ TEMPLATES: dict[str, dict] = {
 }
 
 
-def fill_template_string(template: str, *, business_name: str, industry: str, details: str, language: str) -> str:
+def fill_template_string(
+    template: str,
+    *,
+    business_name: str,
+    industry: str,
+    details: str,
+    language: str,
+) -> str:
     """Fill a template string's placeholders with the business details."""
     return template.format(
         business_name=business_name,

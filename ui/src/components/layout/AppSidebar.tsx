@@ -21,6 +21,7 @@ import {
   Settings,
   ShieldCheck,
   TrendingUp,
+  Users,
   Workflow,
   Wrench,
 } from "lucide-react";
@@ -56,6 +57,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
+import { useUserConfig } from "@/context/UserConfigContext";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
@@ -70,6 +72,8 @@ type SidebarNavItem = {
   showsTelephonyWarning?: boolean;
   /** Only visible to org admins (model/provider/API-key/engine settings). */
   adminOnly?: boolean;
+  /** Only visible to superusers (deployment owner; stricter than adminOnly). */
+  superuserOnly?: boolean;
 };
 
 type SidebarNavSection = {
@@ -163,6 +167,17 @@ const NAV_SECTIONS: SidebarNavSection[] = [
       },
     ],
   },
+  {
+    label: "ADMIN",
+    items: [
+      {
+        title: "Clients",
+        url: "/clients",
+        icon: Users,
+        superuserOnly: true,
+      },
+    ],
+  },
 ];
 
 // Lazy load SelectedTeamSwitcher - we'll pass selectedTeam from our context
@@ -179,6 +194,7 @@ export function AppSidebar() {
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
   const { isAdmin } = useIsAdmin();
+  const { isSuperuser } = useUserConfig();
   const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
   const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
@@ -361,33 +377,41 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent className={cn("notranslate", isCollapsed && "px-0")} translate="no">
-        {NAV_SECTIONS.map((section, index) => (
-          <SidebarGroup
-            key={section.label ?? "overview"}
-            className={index === 0 ? "mt-2" : "mt-6"}
-          >
-            {section.label && (
-              <SidebarGroupLabel
-                className={cn(
-                  "notranslate text-xs font-semibold uppercase tracking-wider text-muted-foreground",
-                  isCollapsed && "hidden"
-                )}
-                translate="no"
-              >
-                {section.label}
-              </SidebarGroupLabel>
-            )}
-            <SidebarMenu>
-              {section.items
-                .filter((item) => !item.adminOnly || isAdmin)
-                .map((item) => (
+        {NAV_SECTIONS.map((section, index) => {
+          const visibleItems = section.items.filter(
+            (item) =>
+              (!item.adminOnly || isAdmin) &&
+              (!item.superuserOnly || isSuperuser)
+          );
+          if (visibleItems.length === 0) {
+            return null;
+          }
+          return (
+            <SidebarGroup
+              key={section.label ?? "overview"}
+              className={index === 0 ? "mt-2" : "mt-6"}
+            >
+              {section.label && (
+                <SidebarGroupLabel
+                  className={cn(
+                    "notranslate text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                    isCollapsed && "hidden"
+                  )}
+                  translate="no"
+                >
+                  {section.label}
+                </SidebarGroupLabel>
+              )}
+              <SidebarMenu>
+                {visibleItems.map((item) => (
                   <SidebarMenuItem key={item.title}>
                     <SidebarLink item={item} />
                   </SidebarMenuItem>
                 ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        ))}
+              </SidebarMenu>
+            </SidebarGroup>
+          );
+        })}
       </SidebarContent>
 
       <SidebarFooter

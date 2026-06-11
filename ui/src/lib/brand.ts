@@ -16,7 +16,8 @@
  *   NEXT_PUBLIC_BRAND_COMMUNITY    - "true" to show upstream community links
  *                                    (GitHub star badge, Slack invite). Default hidden.
  *   NEXT_PUBLIC_CLIENT_MODE        - "true" to force the client-safe UI (hide model/provider/
- *                                    API-key/engine settings) for ALL users regardless of role.
+ *                                    API-key/engine settings) for everyone except superusers
+ *                                    (UserModel.is_superuser — see useIsAdmin).
  *
  * NOTE: process.env.NEXT_PUBLIC_* must be referenced statically (property
  * access on process.env) for Next.js to inline them — do not loop/index.
@@ -38,7 +39,8 @@ export const BRAND = {
 
 /**
  * When true, the UI behaves as a pure client deployment: all model/provider/
- * API-key/engine configuration surfaces are hidden for every user, even org
- * admins. Useful when a deployment is exclusively client-facing.
+ * API-key/engine configuration surfaces are hidden for every user EXCEPT
+ * platform superusers (the deployment owner). Useful when a deployment is
+ * client-facing but the owner still needs Models/Telephony/etc.
  */
 export const CLIENT_MODE = process.env.NEXT_PUBLIC_CLIENT_MODE === "true";

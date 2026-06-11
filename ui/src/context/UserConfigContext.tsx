@@ -3,7 +3,7 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { client } from '@/client/client.gen';
-import { getUserConfigurationsApiV1UserConfigurationsUserGet, updateUserConfigurationsApiV1UserConfigurationsUserPut } from '@/client/sdk.gen';
+import { getAuthUserApiV1UserAuthUserGet, getUserConfigurationsApiV1UserConfigurationsUserGet, updateUserConfigurationsApiV1UserConfigurationsUserPut } from '@/client/sdk.gen';
 import type { UserConfigurationRequestResponseSchema } from '@/client/types.gen';
 import { setupAuthInterceptor } from '@/lib/apiClient';
 import type { AuthUser } from '@/lib/auth';
@@ -28,6 +28,9 @@ interface UserConfigContextType {
     refreshConfig: () => Promise<void>;
     permissions: TeamPermission[];
     permissionsLoaded: boolean;
+    /** Platform-level superuser flag (UserModel.is_superuser on the backend). */
+    isSuperuser: boolean;
+    superuserLoaded: boolean;
     user: AuthUser | null;
     organizationPricing: OrganizationPricing | null;
 }
@@ -41,6 +44,8 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
     const [organizationPricing, setOrganizationPricing] = useState<OrganizationPricing | null>(null);
     const [permissions, setPermissions] = useState<TeamPermission[]>([]);
     const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+    const [isSuperuser, setIsSuperuser] = useState(false);
+    const [superuserLoaded, setSuperuserLoaded] = useState(false);
 
     const auth = useAuth();
 
@@ -51,6 +56,7 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
     // Track initialization
     const hasFetchedConfig = useRef(false);
     const hasFetchedPermissions = useRef(false);
+    const hasFetchedSuperuser = useRef(false);
 
     // Register the auth interceptor synchronously during render (not in useEffect)
     // so it's in place before any child effects fire API calls.
@@ -88,6 +94,32 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
 
         fetchPermissions();
     }, [auth.loading, auth.provider]);
+
+    // Fetch the platform-level superuser flag once when auth is ready.
+    // Works for both auth providers via the backend's /user/auth/user endpoint.
+    useEffect(() => {
+        if (auth.loading || hasFetchedSuperuser.current) {
+            return;
+        }
+        hasFetchedSuperuser.current = true;
+
+        const fetchSuperuser = async () => {
+            if (!authRef.current.isAuthenticated) {
+                setSuperuserLoaded(true);
+                return;
+            }
+            try {
+                const response = await getAuthUserApiV1UserAuthUserGet();
+                setIsSuperuser(!!response.data?.is_superuser);
+            } catch {
+                setIsSuperuser(false);
+            } finally {
+                setSuperuserLoaded(true);
+            }
+        };
+
+        fetchSuperuser();
+    }, [auth.loading, auth.isAuthenticated]);
 
     // Fetch user config once when auth is ready
     useEffect(() => {
@@ -191,6 +223,8 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
                 refreshConfig,
                 permissions,
                 permissionsLoaded,
+                isSuperuser,
+                superuserLoaded,
                 user: auth.user,
                 organizationPricing,
             }}

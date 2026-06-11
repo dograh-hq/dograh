@@ -7,10 +7,13 @@ from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from api.constants import DEPLOYMENT_MODE
+from api.constants import DEPLOYMENT_MODE, UI_APP_URL
 from api.db import db_client
 from api.db.models import UserModel
-from api.services.auth.depends import get_user
+from api.services.auth.depends import get_user, get_user_with_selected_organization
+from api.services.configuration.ai_model_configuration import (
+    get_resolved_ai_model_configuration,
+)
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.reports import generate_usage_runs_report_csv
 from api.utils.artifacts import artifact_url
@@ -38,6 +41,10 @@ class MPSCreditsResponse(BaseModel):
     total_credits_used: float
     remaining_credits: float
     total_quota: float
+
+
+class MPSCreditPurchaseUrlResponse(BaseModel):
+    checkout_url: str
 
 
 class WorkflowRunUsageResponse(BaseModel):
@@ -140,6 +147,66 @@ async def get_mps_credits(user: UserModel = Depends(get_user)):
     except Exception as e:
         logger.error(f"Failed to fetch MPS credits: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post(
+    "/usage/mps-credits/purchase-url",
+    response_model=MPSCreditPurchaseUrlResponse,
+)
+async def create_mps_credit_purchase_url(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    """Create a checkout URL for organizations using Dograh-managed MPS v2."""
+    if DEPLOYMENT_MODE == "oss":
+        raise HTTPException(
+            status_code=404,
+            detail="Credit purchases are not available in OSS mode",
+        )
+
+    organization_id = user.selected_organization_id
+    assert organization_id is not None
+    resolved = await get_resolved_ai_model_configuration(
+        user_id=user.id,
+        organization_id=organization_id,
+    )
+    if (
+        resolved.source != "organization_v2"
+        or resolved.effective.managed_service_version != 2
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Credit purchases are available only for organizations using "
+                "Dograh managed model configuration v2"
+            ),
+        )
+
+    try:
+        session = await mps_service_key_client.create_credit_purchase_url(
+            organization_id=organization_id,
+            created_by=str(user.provider_id),
+            return_url=f"{UI_APP_URL.rstrip('/')}/reports",
+            billing_details={
+                "source": "dograh_reports",
+                "dograh_user_id": str(user.id),
+                "dograh_provider_id": str(user.provider_id),
+            },
+        )
+    except Exception as exc:
+        logger.error(f"Failed to create MPS credit purchase URL: {exc}")
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to create credit purchase URL",
+        )
+
+    checkout_url = session.get("checkout_url")
+    if not checkout_url:
+        logger.error(f"MPS checkout session response missing checkout_url: {session}")
+        raise HTTPException(
+            status_code=502,
+            detail="MPS checkout session response missing checkout_url",
+        )
+    return MPSCreditPurchaseUrlResponse(checkout_url=checkout_url)
 
 
 FILTERS_DESCRIPTION = """\

@@ -353,6 +353,43 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def create_credit_purchase_url(
+        self,
+        organization_id: int,
+        created_by: Optional[str] = None,
+        return_url: Optional[str] = None,
+        billing_details: Optional[dict] = None,
+    ) -> dict:
+        """Create a short-lived MPS checkout URL for adding organization credits."""
+        payload = {
+            "created_by": created_by,
+            "return_url": return_url,
+            "billing_details": billing_details or {},
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/checkout-sessions",
+                json=payload,
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to create MPS credit purchase URL: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to create MPS credit purchase URL: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
     async def create_correlation_id(
         self,
         *,

@@ -20,7 +20,7 @@ async def test_openai_realtime_messages_append_frame_sends_conversation_item():
 
     await service._handle_messages_append(
         LLMMessagesAppendFrame(
-            [{"role": "user", "content": "Are you still there?"}],
+            [{"role": "system", "content": "Are you still there?"}],
             run_llm=True,
         )
     )
@@ -28,7 +28,7 @@ async def test_openai_realtime_messages_append_frame_sends_conversation_item():
     service.send_client_event.assert_awaited_once()
     event = service.send_client_event.await_args.args[0]
     assert isinstance(event, events.ConversationItemCreateEvent)
-    assert event.item.role == "user"
+    assert event.item.role == "system"
     assert event.item.type == "message"
     assert event.item.content == [
         events.ItemContent(type="input_text", text="Are you still there?")
@@ -53,7 +53,7 @@ async def test_user_idle_handler_uses_realtime_append_path():
     assert frame.run_llm is True
     assert frame.messages == [
         {
-            "role": "user",
+            "role": "system",
             "content": "The user has been quiet. Politely and briefly ask if they're still there in the language that the user has been speaking so far.",
         }
     ]

@@ -4,6 +4,7 @@ This client communicates with the Model Proxy Service (MPS) for service key mana
 Service keys are stored and managed entirely in MPS, not in the local database.
 """
 
+import asyncio
 from typing import List, Optional
 
 import httpx
@@ -420,6 +421,34 @@ class MPSServiceKeyClient:
                 response=response,
             )
 
+    async def get_billing_account_status(
+        self,
+        organization_id: int,
+        created_by: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Get an existing MPS v2 billing account without creating one."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/status",
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to get MPS billing account status: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to get MPS billing account status: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
     async def create_correlation_id(
         self,
         *,
@@ -453,6 +482,76 @@ class MPSServiceKeyClient:
                 request=response.request,
                 response=response,
             )
+
+    async def report_platform_usage(
+        self,
+        *,
+        organization_id: int,
+        correlation_id: Optional[str] = None,
+        duration_seconds: Optional[float] = None,
+        workflow_run_id: int | None = None,
+        metadata: Optional[dict] = None,
+        max_attempts: int = 3,
+    ) -> dict:
+        """Report hosted Dograh platform usage for a completed workflow run."""
+        if DEPLOYMENT_MODE == "oss":
+            raise ValueError("OSS deployments must not report platform usage to MPS")
+        if not correlation_id and duration_seconds is None:
+            raise ValueError(
+                "Platform usage reports require correlation_id or duration_seconds"
+            )
+
+        payload: dict = {
+            "metadata": metadata or {},
+        }
+        if correlation_id:
+            payload["correlation_id"] = correlation_id
+        if duration_seconds is not None:
+            payload["duration_seconds"] = duration_seconds
+        if workflow_run_id is not None:
+            payload["workflow_run_id"] = workflow_run_id
+
+        max_attempts = max(1, max_attempts)
+        last_response: httpx.Response | None = None
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for attempt in range(1, max_attempts + 1):
+                response = await client.post(
+                    (
+                        f"{self.base_url}/api/v1/billing/accounts/"
+                        f"{organization_id}/platform-usage"
+                    ),
+                    json=payload,
+                    headers=self._get_headers(organization_id=organization_id),
+                )
+                last_response = response
+
+                if response.status_code == 200:
+                    return response.json()
+
+                should_retry = (
+                    response.status_code == 409
+                    and "usage_not_ready" in response.text
+                    and attempt < max_attempts
+                )
+                if should_retry:
+                    await asyncio.sleep(attempt)
+                    continue
+
+                logger.error(
+                    "Failed to report platform usage: "
+                    f"{response.status_code} - {response.text}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Failed to report platform usage: {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+
+        raise httpx.HTTPStatusError(
+            "Failed to report platform usage",
+            request=last_response.request,
+            response=last_response,
+        )
 
     async def transcribe_audio(
         self,

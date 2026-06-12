@@ -11,9 +11,6 @@ from api.constants import DEPLOYMENT_MODE, UI_APP_URL
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user, get_user_with_selected_organization
-from api.services.configuration.ai_model_configuration import (
-    get_resolved_ai_model_configuration,
-)
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.reports import generate_usage_runs_report_csv
 from api.utils.artifacts import artifact_url
@@ -58,6 +55,14 @@ class MPSCreditLedgerEntryResponse(BaseModel):
     amount_minor: Optional[int] = None
     amount_currency: Optional[str] = None
     payment_order_id: Optional[int] = None
+    metric_code: Optional[str] = None
+    correlation_id: Optional[str] = None
+    aggregation_key: Optional[str] = None
+    usage_event_id: Optional[int] = None
+    workflow_run_id: Optional[int] = None
+    workflow_id: Optional[int] = None
+    billable_quantity: Optional[float] = None
+    quantity_unit: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
 
@@ -69,6 +74,15 @@ class MPSBillingCreditsResponse(BaseModel):
     total_quota: float = 0.0
     account: Optional[MPSBillingAccountResponse] = None
     ledger_entries: List[MPSCreditLedgerEntryResponse] = Field(default_factory=list)
+
+
+def _optional_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 class WorkflowRunUsageResponse(BaseModel):
@@ -173,15 +187,17 @@ async def get_mps_credits(user: UserModel = Depends(get_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-async def _uses_mps_billing_v2(user: UserModel, organization_id: int) -> bool:
-    resolved = await get_resolved_ai_model_configuration(
-        user_id=user.id,
+async def _get_mps_billing_account_status(
+    user: UserModel, organization_id: int
+) -> Optional[dict]:
+    return await mps_service_key_client.get_billing_account_status(
         organization_id=organization_id,
+        created_by=str(user.provider_id),
     )
-    return (
-        resolved.source == "organization_v2"
-        and resolved.effective.managed_service_version == 2
-    )
+
+
+def _is_mps_billing_v2(account: Optional[dict]) -> bool:
+    return bool(account and account.get("billing_mode") == "v2")
 
 
 async def _legacy_mps_credits_response(user: UserModel) -> MPSBillingCreditsResponse:
@@ -217,7 +233,8 @@ async def get_billing_credits(
             return await _legacy_mps_credits_response(user)
 
         organization_id = user.selected_organization_id
-        if not await _uses_mps_billing_v2(user, organization_id):
+        account_status = await _get_mps_billing_account_status(user, organization_id)
+        if not _is_mps_billing_v2(account_status):
             return await _legacy_mps_credits_response(user)
 
         ledger = await mps_service_key_client.get_credit_ledger(
@@ -227,6 +244,22 @@ async def get_billing_credits(
         )
         account = ledger.get("account") or {}
         ledger_entries = ledger.get("ledger_entries") or []
+        workflow_ids_by_run_id: dict[int, int] = {}
+        workflow_run_ids = {
+            workflow_run_id
+            for entry in ledger_entries
+            if (workflow_run_id := _optional_int(entry.get("workflow_run_id")))
+            is not None
+        }
+        for workflow_run_id in workflow_run_ids:
+            workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+            if (
+                workflow_run
+                and workflow_run.workflow
+                and workflow_run.workflow.organization_id == organization_id
+            ):
+                workflow_ids_by_run_id[workflow_run_id] = workflow_run.workflow_id
+
         balance = float(account.get("cached_balance_credits") or 0.0)
         total_debits = sum(
             abs(float(entry.get("credits_delta") or 0.0))
@@ -256,6 +289,20 @@ async def get_billing_credits(
                     amount_minor=entry.get("amount_minor"),
                     amount_currency=entry.get("amount_currency"),
                     payment_order_id=entry.get("payment_order_id"),
+                    metric_code=entry.get("metric_code"),
+                    correlation_id=entry.get("correlation_id"),
+                    aggregation_key=entry.get("aggregation_key"),
+                    usage_event_id=_optional_int(entry.get("usage_event_id")),
+                    workflow_run_id=_optional_int(entry.get("workflow_run_id")),
+                    workflow_id=workflow_ids_by_run_id.get(
+                        _optional_int(entry.get("workflow_run_id"))
+                    )
+                    if entry.get("workflow_run_id") is not None
+                    else None,
+                    billable_quantity=float(entry["billable_quantity"])
+                    if entry.get("billable_quantity") is not None
+                    else None,
+                    quantity_unit=entry.get("quantity_unit"),
                     metadata=entry.get("metadata") or {},
                     created_at=str(entry["created_at"]),
                 )
@@ -285,19 +332,12 @@ async def create_mps_credit_purchase_url(
 
     organization_id = user.selected_organization_id
     assert organization_id is not None
-    resolved = await get_resolved_ai_model_configuration(
-        user_id=user.id,
-        organization_id=organization_id,
-    )
-    if (
-        resolved.source != "organization_v2"
-        or resolved.effective.managed_service_version != 2
-    ):
+    account_status = await _get_mps_billing_account_status(user, organization_id)
+    if not _is_mps_billing_v2(account_status):
         raise HTTPException(
             status_code=403,
             detail=(
-                "Credit purchases are available only for organizations using "
-                "Dograh managed model configuration v2"
+                "Credit purchases are available only for organizations using billing v2"
             ),
         )
 

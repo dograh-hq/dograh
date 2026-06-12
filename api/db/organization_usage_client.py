@@ -96,43 +96,6 @@ class OrganizationUsageClient(BaseDBClient):
         )
         return cycle_result.scalar_one()
 
-    async def update_usage_after_run(
-        self,
-        organization_id: int,
-        actual_tokens: float,
-        duration_seconds: float = 0,
-        charge_usd: float | None = None,
-    ) -> None:
-        """Update usage after a workflow run completes with actual token count and duration.
-
-        This method is fully atomic and safe for concurrent access from multiple processes.
-        """
-        async with self.async_session() as session:
-            # Get or create current cycle within the same session/transaction
-            cycle = await self._get_or_create_current_cycle_impl(
-                organization_id, session, commit=False
-            )
-
-            # Acquire a row-level lock for atomic update
-            result = await session.execute(
-                select(OrganizationUsageCycleModel)
-                .where(OrganizationUsageCycleModel.id == cycle.id)
-                .with_for_update(skip_locked=False)
-            )
-            cycle_locked = result.scalar_one()
-
-            # Update usage atomically
-            cycle_locked.used_dograh_tokens += actual_tokens
-            cycle_locked.total_duration_seconds += int(round(duration_seconds))
-
-            # Update USD amount if provided
-            if charge_usd is not None:
-                if cycle_locked.used_amount_usd is None:
-                    cycle_locked.used_amount_usd = 0
-                cycle_locked.used_amount_usd += charge_usd
-
-            await session.commit()
-
     async def get_current_usage(self, organization_id: int) -> dict:
         """Get current reporting-period usage information."""
         async with self.async_session() as session:
@@ -178,7 +141,7 @@ class OrganizationUsageClient(BaseDBClient):
                 .join(UserModel, WorkflowModel.user_id == UserModel.id)
                 .where(
                     UserModel.selected_organization_id == organization_id,
-                    WorkflowRunModel.cost_info.isnot(None),
+                    WorkflowRunModel.usage_info.isnot(None),
                 )
                 .order_by(WorkflowRunModel.created_at.desc())
             )
@@ -231,19 +194,8 @@ class OrganizationUsageClient(BaseDBClient):
             total_tokens = 0
             total_duration_seconds = 0
             for run in runs:
-                if run.cost_info:
-                    # Try to get dograh_token_usage first (new format)
-                    dograh_tokens = run.cost_info.get("dograh_token_usage", 0)
-                    # If not present, calculate from total_cost_usd (old format)
-                    if dograh_tokens == 0 and "total_cost_usd" in run.cost_info:
-                        dograh_tokens = round(
-                            float(run.cost_info["total_cost_usd"]) * 100, 2
-                        )
-                    # Get call duration
-                    call_duration = run.cost_info.get("call_duration_seconds", 0)
-                else:
-                    dograh_tokens = 0
-                    call_duration = 0
+                dograh_tokens = 0
+                call_duration = (run.usage_info or {}).get("call_duration_seconds", 0)
                 total_tokens += dograh_tokens
                 total_duration_seconds += int(round(call_duration))
 
@@ -317,13 +269,14 @@ class OrganizationUsageClient(BaseDBClient):
                     WorkflowRunModel.initial_context,
                     WorkflowRunModel.gathered_context,
                     WorkflowRunModel.cost_info,
+                    WorkflowRunModel.usage_info,
                     WorkflowRunModel.public_access_token,
                 )
                 .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
                 .join(UserModel, WorkflowModel.user_id == UserModel.id)
                 .where(
                     UserModel.selected_organization_id == organization_id,
-                    WorkflowRunModel.cost_info.isnot(None),
+                    WorkflowRunModel.usage_info.isnot(None),
                 )
                 .order_by(WorkflowRunModel.created_at.desc())
             )
@@ -418,7 +371,7 @@ class OrganizationUsageClient(BaseDBClient):
                 select(
                     date_expr.label("date"),
                     func.sum(
-                        WorkflowRunModel.cost_info["call_duration_seconds"].as_float()
+                        WorkflowRunModel.usage_info["call_duration_seconds"].as_float()
                     ).label("total_seconds"),
                     func.count(WorkflowRunModel.id).label("call_count"),
                 )

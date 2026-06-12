@@ -162,14 +162,12 @@ async def run_pipeline_telephony(
         workflow_id: Workflow being executed.
         workflow_run_id: Workflow run row.
         user_id: Owner of the workflow.
-        call_id: Provider call identifier (stored in cost_info for billing).
+        call_id: Provider call identifier.
         transport_kwargs: Provider-specific kwargs forwarded to the transport
             factory (e.g. stream_sid + call_sid for Twilio).
     """
     logger.debug(f"Running {provider_name} pipeline for workflow_run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
-
-    await db_client.update_workflow_run(workflow_run_id, cost_info={"call_id": call_id})
 
     workflow = await db_client.get_workflow(workflow_id, user_id)
     if workflow:

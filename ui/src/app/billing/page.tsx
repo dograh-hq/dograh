@@ -1,11 +1,13 @@
 "use client";
 
 import { CircleDollarSign, CreditCard, RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { createMpsCreditPurchaseUrlApiV1OrganizationsUsageMpsCreditsPurchaseUrlPost, getBillingCreditsApiV1OrganizationsBillingCreditsGet } from "@/client/sdk.gen";
-import type { MpsBillingCreditsResponse } from "@/client/types.gen";
+import type { MpsBillingCreditsResponse, MpsCreditLedgerEntryResponse } from "@/client/types.gen";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -19,7 +21,6 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { useAppConfig } from "@/context/AppConfigContext";
-import { useOrgConfig } from "@/context/OrgConfigContext";
 import { useAuth } from "@/lib/auth";
 
 const formatCredits = (value: number | null | undefined) => (
@@ -50,18 +51,58 @@ const formatDate = (value: string) => (
     })
 );
 
+const metricLabels: Record<string, string> = {
+    voice_minutes: "Voice usage",
+    platform_usage: "Platform usage",
+};
+
+const formatTitleCase = (value: string | null | undefined) => (
+    value ? value.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase()) : "-"
+);
+
+const getLedgerEntryLabel = (entry: MpsCreditLedgerEntryResponse) => {
+    if (entry.metric_code) {
+        return metricLabels[entry.metric_code] ?? formatTitleCase(entry.metric_code);
+    }
+
+    if (entry.entry_type === "grant") {
+        return "Credit grant";
+    }
+
+    if (entry.entry_type === "purchase") {
+        return "Credit purchase";
+    }
+
+    return formatTitleCase(entry.entry_type);
+};
+
+const formatBillableQuantity = (entry: MpsCreditLedgerEntryResponse) => {
+    if (entry.billable_quantity == null || !entry.quantity_unit) {
+        return null;
+    }
+
+    const unit = entry.quantity_unit === "minute" ? "min" : entry.quantity_unit;
+    return `${formatCredits(entry.billable_quantity)} ${unit}`;
+};
+
+const getRunHref = (entry: MpsCreditLedgerEntryResponse) => {
+    if (!entry.workflow_id || !entry.workflow_run_id) {
+        return null;
+    }
+
+    return `/workflow/${entry.workflow_id}/run/${entry.workflow_run_id}`;
+};
+
 export default function BillingPage() {
     const auth = useAuth();
     const { config } = useAppConfig();
-    const { orgContext, loading: orgConfigLoading } = useOrgConfig();
     const [credits, setCredits] = useState<MpsBillingCreditsResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [purchasing, setPurchasing] = useState(false);
 
-    const isManagedServiceV2 = Boolean(orgContext?.model_services.uses_managed_service_v2);
-    const isBillingV2 = isManagedServiceV2 && credits?.billing_version === "v2";
-    const canPurchaseCredits = isManagedServiceV2 && config?.deploymentMode !== "oss";
+    const isBillingV2 = credits?.billing_version === "v2";
+    const canPurchaseCredits = isBillingV2 && config?.deploymentMode !== "oss";
     const totalQuota = credits?.total_quota ?? 0;
     const remainingCredits = credits?.remaining_credits ?? 0;
     const usedCredits = credits?.total_credits_used ?? 0;
@@ -132,7 +173,7 @@ export default function BillingPage() {
         }
     };
 
-    if (loading || orgConfigLoading) {
+    if (loading) {
         return (
             <div className="container mx-auto p-6 space-y-6">
                 <div className="space-y-2">
@@ -206,13 +247,14 @@ export default function BillingPage() {
                     </CardHeader>
                     <CardContent>
                         {ledgerEntries.length > 0 ? (
-                            <div className="bg-card border rounded-lg overflow-hidden shadow-sm">
+                            <div className="bg-card border rounded-lg overflow-x-auto shadow-sm">
                                 <Table>
                                     <TableHeader>
                                         <TableRow className="bg-muted/50">
                                             <TableHead>Date</TableHead>
-                                            <TableHead>Type</TableHead>
+                                            <TableHead>Activity</TableHead>
                                             <TableHead>Origin</TableHead>
+                                            <TableHead>Run</TableHead>
                                             <TableHead className="text-right">Delta</TableHead>
                                             <TableHead className="text-right">Balance</TableHead>
                                             <TableHead className="text-right">Amount</TableHead>
@@ -221,11 +263,39 @@ export default function BillingPage() {
                                     <TableBody>
                                         {ledgerEntries.map((entry) => {
                                             const delta = entry.credits_delta ?? 0;
+                                            const runHref = getRunHref(entry);
+                                            const billableQuantity = formatBillableQuantity(entry);
                                             return (
                                                 <TableRow key={entry.id}>
                                                     <TableCell>{formatDate(entry.created_at)}</TableCell>
-                                                    <TableCell className="capitalize">{entry.entry_type.replaceAll("_", " ")}</TableCell>
-                                                    <TableCell>{entry.origin || "-"}</TableCell>
+                                                    <TableCell>
+                                                        <div className="flex flex-col gap-1">
+                                                            <span className="font-medium">{getLedgerEntryLabel(entry)}</span>
+                                                            {billableQuantity && (
+                                                                <span className="text-xs text-muted-foreground">{billableQuantity}</span>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {entry.origin ? (
+                                                            <Badge variant="secondary">{formatTitleCase(entry.origin)}</Badge>
+                                                        ) : (
+                                                            "-"
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {entry.workflow_run_id ? (
+                                                            runHref ? (
+                                                                <Link className="font-medium text-primary hover:underline" href={runHref}>
+                                                                    #{entry.workflow_run_id}
+                                                                </Link>
+                                                            ) : (
+                                                                <span>#{entry.workflow_run_id}</span>
+                                                            )
+                                                        ) : (
+                                                            "-"
+                                                        )}
+                                                    </TableCell>
                                                     <TableCell className={`text-right font-medium ${delta >= 0 ? "text-green-600" : "text-destructive"}`}>
                                                         {delta >= 0 ? "+" : ""}
                                                         {formatCredits(delta)}
@@ -251,7 +321,6 @@ export default function BillingPage() {
                 <Card>
                     <CardHeader>
                         <CardTitle>Credit Usage</CardTitle>
-                        <CardDescription>Current legacy MPS credit allocation.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <Progress value={usagePercent} />

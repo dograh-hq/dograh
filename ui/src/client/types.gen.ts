@@ -3177,6 +3177,38 @@ export type MpsCreditLedgerEntryResponse = {
      */
     payment_order_id?: number | null;
     /**
+     * Metric Code
+     */
+    metric_code?: string | null;
+    /**
+     * Correlation Id
+     */
+    correlation_id?: string | null;
+    /**
+     * Aggregation Key
+     */
+    aggregation_key?: string | null;
+    /**
+     * Usage Event Id
+     */
+    usage_event_id?: number | null;
+    /**
+     * Workflow Run Id
+     */
+    workflow_run_id?: number | null;
+    /**
+     * Workflow Id
+     */
+    workflow_id?: number | null;
+    /**
+     * Billable Quantity
+     */
+    billable_quantity?: number | null;
+    /**
+     * Quantity Unit
+     */
+    quantity_unit?: string | null;
+    /**
      * Metadata
      */
     metadata?: {

@@ -15,6 +15,7 @@ from api.services.configuration.ai_model_configuration import (
     merge_ai_model_configuration_v2_secrets,
     migrate_workflow_configuration_model_override_to_v2,
 )
+from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.masking import mask_key
 from api.services.configuration.registry import (
     DeepgramSTTConfiguration,
@@ -22,6 +23,8 @@ from api.services.configuration.registry import (
     DograhSTTService,
     DograhTTSService,
     ElevenlabsTTSConfiguration,
+    GoogleLLMService,
+    GoogleRealtimeLLMConfiguration,
     OpenAIEmbeddingsConfiguration,
     OpenAILLMService,
 )
@@ -91,6 +94,67 @@ def test_byok_v2_rejects_dograh_provider():
                 },
             }
         )
+
+
+@pytest.mark.asyncio
+async def test_byok_realtime_validator_does_not_require_stt_or_tts():
+    config = OrganizationAIModelConfigurationV2.model_validate(
+        {
+            "mode": "byok",
+            "byok": {
+                "mode": "realtime",
+                "realtime": {
+                    "realtime": {
+                        "provider": "google_realtime",
+                        "api_key": "google-realtime-key",
+                        "model": "gemini-3.1-flash-live-preview",
+                        "voice": "Puck",
+                        "language": "en",
+                    },
+                    "llm": {
+                        "provider": "google",
+                        "api_key": "google-llm-key",
+                        "model": "gemini-2.0-flash",
+                    },
+                },
+            },
+        }
+    )
+    effective = compile_ai_model_configuration_v2(config)
+
+    assert effective.is_realtime is True
+    assert effective.stt is None
+    assert effective.tts is None
+    assert await UserConfigurationValidator().validate(effective) == {
+        "status": [{"model": "all", "message": "ok"}]
+    }
+
+
+@pytest.mark.asyncio
+async def test_pipeline_validator_requires_stt_and_tts_when_not_realtime():
+    effective = EffectiveAIModelConfiguration(
+        llm=GoogleLLMService(
+            provider="google",
+            api_key="google-llm-key",
+            model="gemini-2.0-flash",
+        ),
+        realtime=GoogleRealtimeLLMConfiguration(
+            provider="google_realtime",
+            api_key="google-realtime-key",
+            model="gemini-3.1-flash-live-preview",
+            voice="Puck",
+            language="en",
+        ),
+        is_realtime=False,
+    )
+
+    with pytest.raises(ValueError) as exc_info:
+        await UserConfigurationValidator().validate(effective)
+
+    assert exc_info.value.args[0] == [
+        {"model": "stt", "message": "API key is missing"},
+        {"model": "tts", "message": "API key is missing"},
+    ]
 
 
 def test_masked_dograh_key_is_preserved_when_saving_same_mode():

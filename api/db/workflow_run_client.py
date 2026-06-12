@@ -16,6 +16,7 @@ from api.db.models import (
 )
 from api.enums import CallType, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
+from api.services.workflow.run_usage_response import format_public_cost_info
 
 
 class WorkflowRunClient(BaseDBClient):
@@ -312,26 +313,9 @@ class WorkflowRunClient(BaseDBClient):
                         "is_completed": run.is_completed,
                         "recording_url": run.recording_url,
                         "transcript_url": run.transcript_url,
-                        "cost_info": {
-                            "dograh_token_usage": (
-                                run.cost_info.get("dograh_token_usage")
-                                if run.cost_info
-                                and "dograh_token_usage" in run.cost_info
-                                else round(
-                                    float(run.cost_info.get("total_cost_usd", 0)) * 100,
-                                    2,
-                                )
-                                if run.cost_info and "total_cost_usd" in run.cost_info
-                                else 0
-                            ),
-                            "call_duration_seconds": int(
-                                round(run.cost_info.get("call_duration_seconds") or 0)
-                            )
-                            if run.cost_info
-                            else None,
-                        }
-                        if run.cost_info
-                        else None,
+                        "cost_info": format_public_cost_info(
+                            run.cost_info, run.usage_info
+                        ),
                         "definition_id": run.definition_id,
                         "initial_context": run.initial_context,
                         "gathered_context": run.gathered_context,

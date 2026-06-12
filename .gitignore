@@ -22,4 +22,5 @@ node_modules/
 
 # Superpowers brainstorm mockups (local only)
 .superpowers/
+docs/superpowers/
 .gstack/

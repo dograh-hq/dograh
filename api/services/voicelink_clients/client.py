@@ -43,7 +43,15 @@ class VoiceLinkClientsClient(VoiceLinkKycClient):
         except VoiceLinkKycError as e:
             raise VoiceLinkClientError(str(e))
 
-        if status in (200, 201) and isinstance(data, dict) and data.get("status"):
+        # _api_request may hand back either the raw envelope ({status, message,
+        # data}) or an already-unwrapped payload ({client_id: …}). Only treat an
+        # EXPLICIT status:false as an envelope failure — a 2xx without a status
+        # key is a success (live API returns 201 {status:true, data:{client_id}}).
+        if (
+            status in (200, 201)
+            and isinstance(data, dict)
+            and data.get("status", True) is not False
+        ):
             logger.info(
                 f"VoiceLink client created for username {payload.get('username')}"
             )

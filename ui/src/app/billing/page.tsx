@@ -1,7 +1,14 @@
 "use client";
 
-import { CircleDollarSign, CreditCard, RefreshCw } from "lucide-react";
+import {
+    ChevronLeft,
+    ChevronRight,
+    CircleDollarSign,
+    CreditCard,
+    RefreshCw,
+} from "lucide-react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -22,6 +29,8 @@ import {
 } from "@/components/ui/table";
 import { useAppConfig } from "@/context/AppConfigContext";
 import { useAuth } from "@/lib/auth";
+
+const LEDGER_PAGE_SIZE = 50;
 
 const formatCredits = (value: number | null | undefined) => (
     (value ?? 0).toLocaleString(undefined, {
@@ -93,13 +102,26 @@ const getRunHref = (entry: MpsCreditLedgerEntryResponse) => {
     return `/workflow/${entry.workflow_id}/run/${entry.workflow_run_id}`;
 };
 
+const getPageFromSearchParams = (
+    searchParams: { get: (name: string) => string | null },
+) => {
+    const pageParam = searchParams.get("page");
+    const page = pageParam ? Number.parseInt(pageParam, 10) : 1;
+    return Number.isFinite(page) && page > 0 ? page : 1;
+};
+
 export default function BillingPage() {
+    const router = useRouter();
+    const searchParams = useSearchParams();
     const auth = useAuth();
     const { config } = useAppConfig();
     const [credits, setCredits] = useState<MpsBillingCreditsResponse | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [purchasing, setPurchasing] = useState(false);
+    const [currentPage, setCurrentPage] = useState(
+        () => getPageFromSearchParams(searchParams),
+    );
 
     const isBillingV2 = credits?.billing_version === "v2";
     const canPurchaseCredits = isBillingV2 && config?.deploymentMode !== "oss";
@@ -109,8 +131,14 @@ export default function BillingPage() {
     const usagePercent = totalQuota > 0 ? Math.min(100, Math.round((usedCredits / totalQuota) * 100)) : 0;
 
     const ledgerEntries = useMemo(() => credits?.ledger_entries ?? [], [credits?.ledger_entries]);
+    const ledgerPage = credits?.page ?? currentPage;
+    const ledgerTotalCount = credits?.total_count ?? ledgerEntries.length;
+    const ledgerTotalPages = credits?.total_pages ?? 0;
 
-    const fetchCredits = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
+    const fetchCredits = useCallback(async (
+        page: number,
+        { silent = false }: { silent?: boolean } = {},
+    ) => {
         if (auth.loading) {
             return;
         }
@@ -128,7 +156,7 @@ export default function BillingPage() {
 
         try {
             const response = await getBillingCreditsApiV1OrganizationsBillingCreditsGet({
-                query: { limit: 50 },
+                query: { page, limit: LEDGER_PAGE_SIZE },
             });
 
             if (response.error) {
@@ -146,11 +174,36 @@ export default function BillingPage() {
     }, [auth.isAuthenticated, auth.loading]);
 
     useEffect(() => {
-        fetchCredits();
-    }, [fetchCredits]);
+        const nextPage = getPageFromSearchParams(searchParams);
+        setCurrentPage((previousPage) => (
+            previousPage === nextPage ? previousPage : nextPage
+        ));
+    }, [searchParams]);
+
+    useEffect(() => {
+        fetchCredits(currentPage);
+    }, [currentPage, fetchCredits]);
 
     const handleRefresh = () => {
-        fetchCredits({ silent: true });
+        fetchCredits(currentPage, { silent: true });
+    };
+
+    const updateUrlPage = useCallback((page: number) => {
+        const newParams = new URLSearchParams(searchParams.toString());
+        if (page > 1) {
+            newParams.set("page", page.toString());
+        } else {
+            newParams.delete("page");
+        }
+
+        const queryString = newParams.toString();
+        router.push(queryString ? `/billing?${queryString}` : "/billing");
+    }, [router, searchParams]);
+
+    const handlePageChange = (page: number) => {
+        const nextPage = Math.max(1, page);
+        setCurrentPage(nextPage);
+        updateUrlPage(nextPage);
     };
 
     const handlePurchaseCredits = async () => {
@@ -233,7 +286,7 @@ export default function BillingPage() {
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm text-muted-foreground">
-                            {isBillingV2 ? "Recent ledger debit total" : "Current allocation usage"}
+                            {isBillingV2 ? "Total ledger debits" : "Current allocation usage"}
                         </p>
                     </CardContent>
                 </Card>
@@ -313,6 +366,33 @@ export default function BillingPage() {
                         ) : (
                             <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
                                 No ledger entries yet
+                            </div>
+                        )}
+                        {ledgerTotalPages > 1 && (
+                            <div className="flex items-center justify-between mt-6">
+                                <p className="text-sm text-muted-foreground">
+                                    Page {ledgerPage} of {ledgerTotalPages} ({ledgerTotalCount} total entries)
+                                </p>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handlePageChange(ledgerPage - 1)}
+                                        disabled={ledgerPage <= 1 || loading || refreshing}
+                                    >
+                                        <ChevronLeft className="h-4 w-4" />
+                                        Previous
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => handlePageChange(ledgerPage + 1)}
+                                        disabled={ledgerPage >= ledgerTotalPages || loading || refreshing}
+                                    >
+                                        Next
+                                        <ChevronRight className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             </div>
                         )}
                     </CardContent>

@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
 
-type ModelMode = "dograh" | "byok";
+type ModelMode = "realtime" | "dograh" | "byok";
 
 interface DograhDefaults {
     voices: string[];
@@ -125,24 +125,35 @@ function effectiveConfigToLegacyShape(config: Record<string, unknown> | null): R
     };
 }
 
-function emptyByokInitialConfig(): Record<string, unknown> {
+function emptyByokInitialConfig(isRealtime: boolean): Record<string, unknown> {
     return {
-        is_realtime: false,
+        is_realtime: isRealtime,
     };
 }
 
+// The v2 editor surfaces realtime ("Speech to Speech") and pipeline (BYOK) as
+// separate tabs, so each tab gets its own initial config. A tab is pre-filled
+// only when the saved (or effective) configuration matches that tab's mode;
+// otherwise it starts empty so the other tab's data does not leak across.
 function getByokInitialConfig(
     configuration: Record<string, unknown> | null,
     effectiveConfiguration: Record<string, unknown> | null,
+    wantRealtime: boolean,
 ): Record<string, unknown> {
-    const byokConfiguration = byokConfigToLegacyShape(configuration);
-    if (byokConfiguration) return byokConfiguration;
+    const matchesTab = (config: Record<string, unknown> | null) =>
+        config ? Boolean(config.is_realtime) === wantRealtime : false;
 
-    if (configuration?.mode === "dograh" || isDograhEffectiveConfig(effectiveConfiguration)) {
-        return emptyByokInitialConfig();
+    const byokConfiguration = byokConfigToLegacyShape(configuration);
+    if (byokConfiguration) {
+        return matchesTab(byokConfiguration) ? byokConfiguration : emptyByokInitialConfig(wantRealtime);
     }
 
-    return effectiveConfigToLegacyShape(effectiveConfiguration) || emptyByokInitialConfig();
+    if (configuration?.mode === "dograh" || isDograhEffectiveConfig(effectiveConfiguration)) {
+        return emptyByokInitialConfig(wantRealtime);
+    }
+
+    const effective = effectiveConfigToLegacyShape(effectiveConfiguration);
+    return matchesTab(effective) ? (effective as Record<string, unknown>) : emptyByokInitialConfig(wantRealtime);
 }
 
 function buildDograhState(
@@ -185,10 +196,12 @@ function preferredMode(
     configuration: Record<string, unknown> | null,
     effectiveConfiguration: Record<string, unknown> | null,
 ): ModelMode {
-    if (configuration?.mode === "dograh" || configuration?.mode === "byok") {
-        return configuration.mode;
+    if (configuration?.mode === "dograh") return "dograh";
+    if (configuration?.mode === "byok") {
+        return asRecord(configuration.byok)?.mode === "realtime" ? "realtime" : "byok";
     }
-    return isDograhEffectiveConfig(effectiveConfiguration) ? "dograh" : "byok";
+    if (isDograhEffectiveConfig(effectiveConfiguration)) return "dograh";
+    return Boolean(effectiveConfiguration?.is_realtime) ? "realtime" : "byok";
 }
 
 function hasRequiredApiKey(
@@ -249,7 +262,8 @@ export function AIModelConfigurationV2Editor({
         speed: defaults.dograh.defaults.speed,
         language: defaults.dograh.defaults.language,
     }));
-    const [byokInitialConfig, setByokInitialConfig] = useState<Record<string, unknown> | null>(null);
+    const [realtimeInitialConfig, setRealtimeInitialConfig] = useState<Record<string, unknown> | null>(null);
+    const [pipelineInitialConfig, setPipelineInitialConfig] = useState<Record<string, unknown> | null>(null);
     const [isSavingDograh, setIsSavingDograh] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -258,7 +272,8 @@ export function AIModelConfigurationV2Editor({
         const rawEffectiveConfiguration = asRecord(effectiveConfiguration);
         setMode(preferredMode(rawConfiguration, rawEffectiveConfiguration));
         setDograh(buildDograhState(defaults, rawConfiguration, rawEffectiveConfiguration));
-        setByokInitialConfig(getByokInitialConfig(rawConfiguration, rawEffectiveConfiguration));
+        setRealtimeInitialConfig(getByokInitialConfig(rawConfiguration, rawEffectiveConfiguration, true));
+        setPipelineInitialConfig(getByokInitialConfig(rawConfiguration, rawEffectiveConfiguration, false));
     }, [configuration, defaults, effectiveConfiguration]);
 
     const saveDograhConfiguration = async () => {
@@ -322,28 +337,30 @@ export function AIModelConfigurationV2Editor({
             )}
 
             <Tabs value={mode} onValueChange={(value) => setMode(value as ModelMode)} className="space-y-6">
-                <TabsList className="grid w-full grid-cols-2">
+                <TabsList className="grid w-full grid-cols-3">
+                    <TabsTrigger value="realtime">Speech to Speech</TabsTrigger>
                     <TabsTrigger value="dograh">Dograh</TabsTrigger>
                     <TabsTrigger value="byok">BYOK</TabsTrigger>
                 </TabsList>
 
+                <TabsContent value="realtime" className="mt-0">
+                    <p className="mb-4 text-sm text-muted-foreground">
+                        A single speech-to-speech model handles the conversation in realtime (no separate transcriber or voice). An LLM is still required for variable extraction and QA.
+                    </p>
+                    <ServiceConfigurationForm
+                        key={`realtime-${JSON.stringify(realtimeInitialConfig)}`}
+                        mode="global"
+                        forceRealtime
+                        configurationDefaults={defaultsForByok}
+                        initialConfig={realtimeInitialConfig}
+                        submitLabel={submitLabel}
+                        onSave={saveByokConfiguration}
+                    />
+                </TabsContent>
+
                 <TabsContent value="dograh" className="mt-0">
                     <div className="rounded-lg border p-5">
                         <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="space-y-2 sm:col-span-2">
-                                <Label htmlFor="dograh-api-key">API Key</Label>
-                                <div className="relative">
-                                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                    <Input
-                                        id="dograh-api-key"
-                                        className="pl-9"
-                                        value={dograh.api_key}
-                                        onChange={(event) => setDograh({ ...dograh, api_key: event.target.value })}
-                                        placeholder="Enter API key"
-                                    />
-                                </div>
-                            </div>
-
                             <div className="space-y-2">
                                 <Label>Voice</Label>
                                 <Select value={dograh.voice} onValueChange={(voice) => setDograh({ ...dograh, voice })}>
@@ -394,6 +411,20 @@ export function AIModelConfigurationV2Editor({
                                     </SelectContent>
                                 </Select>
                             </div>
+
+                            <div className="space-y-2 sm:col-span-2">
+                                <Label htmlFor="dograh-api-key">API Key</Label>
+                                <div className="relative">
+                                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                    <Input
+                                        id="dograh-api-key"
+                                        className="pl-9"
+                                        value={dograh.api_key}
+                                        onChange={(event) => setDograh({ ...dograh, api_key: event.target.value })}
+                                        placeholder="Enter API key"
+                                    />
+                                </div>
+                            </div>
                         </div>
 
                         <Button type="button" className="mt-6 w-full" onClick={saveDograhConfiguration} disabled={isSavingDograh}>
@@ -405,10 +436,11 @@ export function AIModelConfigurationV2Editor({
 
                 <TabsContent value="byok" className="mt-0">
                     <ServiceConfigurationForm
-                        key={JSON.stringify(byokInitialConfig)}
+                        key={`byok-${JSON.stringify(pipelineInitialConfig)}`}
                         mode="global"
+                        forceRealtime={false}
                         configurationDefaults={defaultsForByok}
-                        initialConfig={byokInitialConfig}
+                        initialConfig={pipelineInitialConfig}
                         submitLabel={submitLabel}
                         onSave={saveByokConfiguration}
                     />

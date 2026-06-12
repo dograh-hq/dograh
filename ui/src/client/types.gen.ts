@@ -3138,6 +3138,22 @@ export type MpsBillingCreditsResponse = {
      * Ledger Entries
      */
     ledger_entries?: Array<MpsCreditLedgerEntryResponse>;
+    /**
+     * Total Count
+     */
+    total_count?: number;
+    /**
+     * Page
+     */
+    page?: number;
+    /**
+     * Limit
+     */
+    limit?: number;
+    /**
+     * Total Pages
+     */
+    total_pages?: number;
 };
 
 /**
@@ -11482,6 +11498,10 @@ export type GetBillingCreditsApiV1OrganizationsBillingCreditsGetData = {
     };
     path?: never;
     query?: {
+        /**
+         * Page
+         */
+        page?: number;
         /**
          * Limit
          */

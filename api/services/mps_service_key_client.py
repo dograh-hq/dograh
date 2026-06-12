@@ -394,6 +394,7 @@ class MPSServiceKeyClient:
     async def get_credit_ledger(
         self,
         organization_id: int,
+        page: int = 1,
         limit: int = 50,
         created_by: Optional[str] = None,
     ) -> dict:
@@ -401,7 +402,7 @@ class MPSServiceKeyClient:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(
                 f"{self.base_url}/api/v1/billing/accounts/{organization_id}/ledger",
-                params={"limit": limit},
+                params={"page": page, "limit": limit},
                 headers=self._get_headers(
                     organization_id=organization_id,
                     created_by=created_by,
@@ -445,6 +446,34 @@ class MPSServiceKeyClient:
             )
             raise httpx.HTTPStatusError(
                 f"Failed to get MPS billing account status: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
+    async def ensure_billing_account_v2(
+        self,
+        organization_id: int,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """Create or return the MPS v2 billing account for an organization."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/balance",
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to ensure MPS billing account v2: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to ensure MPS billing account v2: {response.text}",
                 request=response.request,
                 response=response,
             )

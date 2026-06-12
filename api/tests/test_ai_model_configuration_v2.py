@@ -1,9 +1,13 @@
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 from pydantic import ValidationError
 
 from api.schemas.ai_model_configuration import (
     DograhManagedAIModelConfiguration,
     EffectiveAIModelConfiguration,
+    OrganizationAIModelConfigurationResponse,
     OrganizationAIModelConfigurationV2,
     compile_ai_model_configuration_v2,
 )
@@ -358,3 +362,98 @@ def test_workflow_model_override_migration_removes_invalid_v1_override_marker():
     assert changed is True
     assert "model_overrides" not in migrated
     assert migrated["ambient_noise_configuration"] == {"enabled": False}
+
+
+@pytest.mark.asyncio
+async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
+    monkeypatch,
+):
+    from api.routes import organization as organization_routes
+
+    legacy = EffectiveAIModelConfiguration(
+        llm=DograhLLMService(
+            provider="dograh",
+            api_key=["mps-secret"],
+            model="default",
+        ),
+        tts=DograhTTSService(
+            provider="dograh",
+            api_key=["mps-secret"],
+            model="default",
+            voice="default",
+        ),
+        stt=DograhSTTService(
+            provider="dograh",
+            api_key=["mps-secret"],
+            model="default",
+        ),
+    )
+    expected_response = OrganizationAIModelConfigurationResponse(
+        configuration={"version": 2, "mode": "dograh"},
+        effective_configuration={},
+        source="organization_v2",
+    )
+
+    class FakeValidator:
+        async def validate(self, *args, **kwargs):
+            return {"status": [{"model": "all", "message": "ok"}]}
+
+    ensure_billing = AsyncMock(return_value={"billing_mode": "v2"})
+    upsert = AsyncMock()
+    migrate_workflows = AsyncMock()
+
+    monkeypatch.setattr(organization_routes, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(
+        organization_routes,
+        "get_organization_ai_model_configuration_v2",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        organization_routes.db_client,
+        "get_user_configurations",
+        AsyncMock(return_value=legacy),
+    )
+    monkeypatch.setattr(
+        organization_routes,
+        "UserConfigurationValidator",
+        lambda: FakeValidator(),
+    )
+    monkeypatch.setattr(
+        organization_routes,
+        "ensure_hosted_mps_billing_account_v2",
+        ensure_billing,
+    )
+    monkeypatch.setattr(
+        organization_routes,
+        "upsert_organization_ai_model_configuration_v2",
+        upsert,
+    )
+    monkeypatch.setattr(
+        organization_routes,
+        "migrate_workflow_model_configurations_to_v2",
+        migrate_workflows,
+    )
+    monkeypatch.setattr(
+        organization_routes,
+        "_model_configuration_v2_response",
+        AsyncMock(return_value=expected_response),
+    )
+
+    user = SimpleNamespace(
+        id=7,
+        provider_id="provider-123",
+        selected_organization_id=42,
+    )
+
+    response = await organization_routes.migrate_model_configuration_v2(
+        force=False,
+        user=user,
+    )
+
+    ensure_billing.assert_awaited_once_with(42, created_by="provider-123")
+    upsert.assert_awaited_once()
+    migrate_workflows.assert_awaited_once_with(
+        organization_id=42,
+        fallback_user_config=legacy,
+    )
+    assert response == expected_response

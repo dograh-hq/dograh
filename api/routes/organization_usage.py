@@ -74,6 +74,10 @@ class MPSBillingCreditsResponse(BaseModel):
     total_quota: float = 0.0
     account: Optional[MPSBillingAccountResponse] = None
     ledger_entries: List[MPSCreditLedgerEntryResponse] = Field(default_factory=list)
+    total_count: int = 0
+    page: int = 1
+    limit: int = 50
+    total_pages: int = 0
 
 
 def _optional_int(value: Any) -> Optional[int]:
@@ -224,10 +228,11 @@ async def _legacy_mps_credits_response(user: UserModel) -> MPSBillingCreditsResp
 
 @router.get("/billing/credits", response_model=MPSBillingCreditsResponse)
 async def get_billing_credits(
+    page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     user: UserModel = Depends(get_user),
 ):
-    """Return legacy MPS credits or v2 billing ledger details for the org."""
+    """Return legacy MPS credits or paginated v2 billing ledger details for the org."""
     try:
         if DEPLOYMENT_MODE == "oss" or not user.selected_organization_id:
             return await _legacy_mps_credits_response(user)
@@ -239,11 +244,18 @@ async def get_billing_credits(
 
         ledger = await mps_service_key_client.get_credit_ledger(
             organization_id=organization_id,
+            page=page,
             limit=limit,
             created_by=str(user.provider_id),
         )
         account = ledger.get("account") or {}
         ledger_entries = ledger.get("ledger_entries") or []
+        total_count = int(ledger.get("total_count") or len(ledger_entries))
+        response_limit = int(ledger.get("limit") or limit)
+        total_pages = int(
+            ledger.get("total_pages")
+            or ((total_count + response_limit - 1) // response_limit)
+        )
         workflow_ids_by_run_id: dict[int, int] = {}
         workflow_run_ids = {
             workflow_run_id
@@ -266,6 +278,8 @@ async def get_billing_credits(
             for entry in ledger_entries
             if float(entry.get("credits_delta") or 0.0) < 0
         )
+        if ledger.get("total_debits_credits") is not None:
+            total_debits = float(ledger["total_debits_credits"])
 
         return MPSBillingCreditsResponse(
             billing_version="v2",
@@ -308,6 +322,10 @@ async def get_billing_credits(
                 )
                 for entry in ledger_entries
             ],
+            total_count=total_count,
+            page=int(ledger.get("page") or page),
+            limit=response_limit,
+            total_pages=total_pages,
         )
     except HTTPException:
         raise

@@ -1256,7 +1256,7 @@ export const getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet = <ThrowOnError e
 /**
  * Get Billing Credits
  *
- * Return legacy MPS credits or v2 billing ledger details for the org.
+ * Return legacy MPS credits or paginated v2 billing ledger details for the org.
  */
 export const getBillingCreditsApiV1OrganizationsBillingCreditsGet = <ThrowOnError extends boolean = false>(options?: Options<GetBillingCreditsApiV1OrganizationsBillingCreditsGetData, ThrowOnError>) => (options?.client ?? client).get<GetBillingCreditsApiV1OrganizationsBillingCreditsGetResponses, GetBillingCreditsApiV1OrganizationsBillingCreditsGetErrors, ThrowOnError>({ url: '/api/v1/organizations/billing/credits', ...options });
 

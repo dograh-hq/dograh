@@ -101,6 +101,13 @@ export interface ServiceConfigurationFormProps {
     submitLabel?: string;
     configurationDefaults?: ServiceConfigurationDefaults | null;
     initialConfig?: Record<string, unknown> | null;
+    /**
+     * When set, locks the realtime/pipeline mode to this value and hides the
+     * in-form toggle. The v2 editor uses this to surface realtime
+     * ("Speech to Speech") and pipeline (BYOK) as separate top-level tabs.
+     * Leave undefined to keep the user-controllable toggle (legacy + overrides).
+     */
+    forceRealtime?: boolean;
 }
 
 function getProviderDisplayName(
@@ -130,10 +137,11 @@ export function ServiceConfigurationForm({
     submitLabel,
     configurationDefaults,
     initialConfig,
+    forceRealtime,
 }: ServiceConfigurationFormProps) {
     const [apiError, setApiError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
-    const [isRealtime, setIsRealtime] = useState(false);
+    const [isRealtime, setIsRealtime] = useState(forceRealtime ?? false);
     const { userConfig } = useUserConfig();
     const [schemas, setSchemas] = useState<Record<ServiceSegment, Record<string, ProviderSchema>>>({
         llm: {},
@@ -227,9 +235,9 @@ export function ServiceConfigurationForm({
                 realtime: realtimeSchemas,
             });
 
-            // Restore realtime toggle
+            // Restore realtime toggle (skip when the parent locks the mode)
             const configData = configSource as Record<string, unknown> | null;
-            if (configData?.is_realtime) {
+            if (forceRealtime === undefined && configData?.is_realtime) {
                 setIsRealtime(true);
             }
 
@@ -867,22 +875,24 @@ export function ServiceConfigurationForm({
 
     return (
         <form onSubmit={handleSubmit(onSubmit)}>
-            {/* Realtime toggle */}
-            <div className="flex items-center justify-between mb-4 p-4 border rounded-lg">
-                <div>
-                    <Label htmlFor="realtime-toggle" className="text-sm font-medium">
-                        Realtime Mode
-                    </Label>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                        Uses a single speech-to-speech model (no separate STT/TTS). An LLM is still required for variable extraction and QA.
-                    </p>
+            {/* Realtime toggle — hidden when the parent locks the mode (v2 tabs) */}
+            {forceRealtime === undefined && (
+                <div className="flex items-center justify-between mb-4 p-4 border rounded-lg">
+                    <div>
+                        <Label htmlFor="realtime-toggle" className="text-sm font-medium">
+                            Realtime Mode
+                        </Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Uses a single speech-to-speech model (no separate STT/TTS). An LLM is still required for variable extraction and QA.
+                        </p>
+                    </div>
+                    <Switch
+                        id="realtime-toggle"
+                        checked={isRealtime}
+                        onCheckedChange={setIsRealtime}
+                    />
                 </div>
-                <Switch
-                    id="realtime-toggle"
-                    checked={isRealtime}
-                    onCheckedChange={setIsRealtime}
-                />
-            </div>
+            )}
 
             <Card>
                 <CardContent className="pt-6">

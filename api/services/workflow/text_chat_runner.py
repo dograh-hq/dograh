@@ -421,7 +421,19 @@ async def execute_text_chat_pending_turn(
     if user_config.llm is None:
         raise ValueError("Text chat requires an LLM configuration")
 
-    llm = create_llm_service(user_config)
+    from api.services.managed_model_services import (
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        ensure_mps_correlation_id,
+    )
+
+    base_initial_context = dict(workflow_run.initial_context or {})
+    mps_correlation_id = await ensure_mps_correlation_id(
+        ai_model_config=user_config,
+        workflow_run_id=workflow_run_id,
+        initial_context=base_initial_context,
+    )
+
+    llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
     inference_llm = llm
 
     runtime_configuration = {
@@ -429,9 +441,15 @@ async def execute_text_chat_pending_turn(
         "llm_model": user_config.llm.model,
     }
     initial_context = {
-        **(workflow_run.initial_context or {}),
+        **base_initial_context,
         "runtime_configuration": runtime_configuration,
     }
+    if mps_correlation_id:
+        initial_context[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
+    await db_client.update_workflow_run(
+        workflow_run_id,
+        initial_context=initial_context,
+    )
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(run_definition.workflow_json)

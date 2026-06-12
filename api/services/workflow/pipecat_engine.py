@@ -35,6 +35,7 @@ import asyncio
 
 from loguru import logger
 
+from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_context_composer import (
@@ -382,6 +383,9 @@ class PipecatEngine:
                     embeddings_provider=self._embeddings_provider,
                     embeddings_endpoint=self._embeddings_endpoint,
                     embeddings_api_version=self._embeddings_api_version,
+                    correlation_id=self._call_context_vars.get(
+                        MPS_CORRELATION_ID_CONTEXT_KEY
+                    ),
                     tracing_context=self._get_otel_context(),
                 )
 

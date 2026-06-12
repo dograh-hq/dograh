@@ -41,12 +41,15 @@ from api.services.configuration.resolve import (
 )
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.posthog_client import capture_event
-from api.services.pricing.run_usage_response import format_public_usage_info
 from api.services.reports import generate_workflow_report_csv
 from api.services.storage import storage_fs
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
+from api.services.workflow.run_usage_response import (
+    format_public_cost_info,
+    format_public_usage_info,
+)
 from api.services.workflow.trigger_paths import (
     TriggerPathIssue,
     ensure_trigger_paths,
@@ -1053,13 +1056,15 @@ async def update_workflow(
                 user_id=user.id,
                 organization_id=user.selected_organization_id,
             )
-            user_config = resolved_config.effective
+            effective_config = resolved_config.effective
             try:
                 enriched_overrides = enrich_overrides_with_api_keys(
                     workflow_configurations["model_overrides"],
-                    user_config,
+                    effective_config,
                 )
-                effective = resolve_effective_config(user_config, enriched_overrides)
+                effective = resolve_effective_config(
+                    effective_config, enriched_overrides
+                )
                 if resolved_config.source == "organization_v2":
                     v2_override = convert_legacy_ai_model_configuration_to_v2(effective)
                     await UserConfigurationValidator().validate(
@@ -1264,22 +1269,7 @@ async def get_workflow_run(
         "transcript_public_url": artifact_url(public_access_token, "transcript"),
         "recording_public_url": artifact_url(public_access_token, "recording"),
         "public_access_token": public_access_token,
-        "cost_info": {
-            "dograh_token_usage": (
-                run.cost_info.get("dograh_token_usage")
-                if run.cost_info and "dograh_token_usage" in run.cost_info
-                else round(float(run.cost_info.get("total_cost_usd", 0)) * 100, 2)
-                if run.cost_info and "total_cost_usd" in run.cost_info
-                else 0
-            ),
-            "call_duration_seconds": int(
-                round(run.cost_info.get("call_duration_seconds"))
-            )
-            if run.cost_info and run.cost_info.get("call_duration_seconds") is not None
-            else None,
-        }
-        if run.cost_info
-        else None,
+        "cost_info": format_public_cost_info(run.cost_info, run.usage_info),
         "usage_info": format_public_usage_info(run.usage_info),
         "created_at": run.created_at,
         "definition_id": run.definition_id,

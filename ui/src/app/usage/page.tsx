@@ -6,8 +6,8 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
 import { toast } from 'sonner';
 
-import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getPreferencesApiV1OrganizationsPreferencesGet, getUsageHistoryApiV1OrganizationsUsageRunsGet, savePreferencesApiV1OrganizationsPreferencesPut } from '@/client/sdk.gen';
-import type { DailyUsageBreakdownResponse, MpsCreditsResponse, OrganizationPreferences, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
+import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getPreferencesApiV1OrganizationsPreferencesGet, getUsageHistoryApiV1OrganizationsUsageRunsGet, savePreferencesApiV1OrganizationsPreferencesPut } from '@/client/sdk.gen';
+import type { DailyUsageBreakdownResponse, OrganizationPreferences, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
 import { CallTypeCell } from '@/components/CallTypeCell';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
@@ -15,7 +15,6 @@ import { MediaPreviewButton, MediaPreviewDialog } from '@/components/MediaPrevie
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
 import {
     Table,
     TableBody,
@@ -38,10 +37,6 @@ export default function UsagePage() {
     const searchParams = useSearchParams();
     const { organizationPricing } = useUserConfig();
     const auth = useAuth();
-
-    // MPS credits state
-    const [mpsCredits, setMpsCredits] = useState<MpsCreditsResponse | null>(null);
-    const [isLoadingCredits, setIsLoadingCredits] = useState(true);
 
     // Usage history state
     const [usageHistory, setUsageHistory] = useState<UsageHistoryResponse | null>(null);
@@ -77,21 +72,6 @@ export default function UsagePage() {
     const [preferences, setPreferences] = useState<OrganizationPreferences>({});
     const [preferencesLoading, setPreferencesLoading] = useState(true);
     const timezoneSelectId = useId(); // Stable ID for react-select to prevent hydration mismatch
-
-    // Fetch MPS credits
-    const fetchMpsCredits = useCallback(async () => {
-        if (!auth.isAuthenticated) return;
-        try {
-            const response = await getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet();
-            if (response.data) {
-                setMpsCredits(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch MPS credits:', error);
-        } finally {
-            setIsLoadingCredits(false);
-        }
-    }, [auth.isAuthenticated]);
 
     // Translate the FilterBuilder state into the query-param shape the
     // backend expects. Shared between the listing fetch and the CSV export
@@ -251,10 +231,9 @@ export default function UsagePage() {
     // Initial load - fetch when auth becomes available
     useEffect(() => {
         if (auth.isAuthenticated) {
-            fetchMpsCredits();
             fetchUsageHistory(currentPage, appliedFilters);
         }
-    }, [auth.isAuthenticated, currentPage, appliedFilters, fetchUsageHistory, fetchMpsCredits]);
+    }, [auth.isAuthenticated, currentPage, appliedFilters, fetchUsageHistory]);
 
     // Fetch daily usage when organizationPricing becomes available
     useEffect(() => {
@@ -428,46 +407,6 @@ export default function UsagePage() {
                     </div>
                 </div>
 
-                {/* MPS Credits Card */}
-                <Card className="mb-6">
-                    <CardHeader>
-                        <CardTitle>Dograh Model Credits</CardTitle>
-                        <CardDescription>
-                            These track usage of Dograh models using Dograh Service Keys.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoadingCredits ? (
-                            <div className="animate-pulse space-y-4">
-                                <div className="h-4 bg-muted rounded w-1/4"></div>
-                                <div className="h-8 bg-muted rounded"></div>
-                                <div className="h-4 bg-muted rounded w-1/3"></div>
-                            </div>
-                        ) : mpsCredits ? (
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-baseline">
-                                    <div>
-                                        <p className="text-2xl font-bold">
-                                            {mpsCredits.total_credits_used.toFixed(2)} <span className="text-lg font-normal text-muted-foreground">/ {mpsCredits.total_quota.toFixed(2)}</span>
-                                        </p>
-                                        <p className="text-sm text-muted-foreground">Credits Used</p>
-                                    </div>
-                                    <div className="text-right">
-                                        <p className="text-lg font-semibold">{mpsCredits.remaining_credits.toFixed(2)}</p>
-                                        <p className="text-sm text-muted-foreground">Remaining</p>
-                                    </div>
-                                </div>
-
-                                {mpsCredits.total_quota > 0 && (
-                                    <Progress value={(mpsCredits.total_credits_used / mpsCredits.total_quota) * 100} className="h-3" />
-                                )}
-                            </div>
-                        ) : (
-                            <p className="text-muted-foreground">No Dograh service keys configured. Set up a service key in your model configuration to see usage.</p>
-                        )}
-                    </CardContent>
-                </Card>
-
                 {/* Daily Usage Table - Only for paid organizations */}
                 {organizationPricing?.price_per_second_usd && (
                     <div className="mb-6">
@@ -535,9 +474,9 @@ export default function UsagePage() {
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Date</TableHead>
                                                 <TableHead className="font-semibold text-right">Duration</TableHead>
-                                                <TableHead className="font-semibold text-right">
-                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Tokens'}
-                                                </TableHead>
+                                                {organizationPricing?.price_per_second_usd && (
+                                                    <TableHead className="font-semibold text-right">Cost (USD)</TableHead>
+                                                )}
                                                 <TableHead className="font-semibold">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -574,12 +513,14 @@ export default function UsagePage() {
                                                     <TableCell className="text-right">
                                                         {formatDuration(run.call_duration_seconds)}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
-                                                        {organizationPricing?.price_per_second_usd && run.charge_usd !== undefined && run.charge_usd !== null
-                                                            ? `$${run.charge_usd.toFixed(2)}`
-                                                            : run.dograh_token_usage.toLocaleString()
-                                                        }
-                                                    </TableCell>
+                                                    {organizationPricing?.price_per_second_usd && (
+                                                        <TableCell className="text-right font-medium">
+                                                            {run.charge_usd !== undefined && run.charge_usd !== null
+                                                                ? `$${run.charge_usd.toFixed(2)}`
+                                                                : '-'
+                                                            }
+                                                        </TableCell>
+                                                    )}
                                                     <TableCell>
                                                         <MediaPreviewButton
                                                             recordingUrl={run.recording_url}

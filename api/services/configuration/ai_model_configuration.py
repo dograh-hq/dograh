@@ -21,10 +21,10 @@ from api.schemas.ai_model_configuration import (
     BYOKPipelineAIModelConfiguration,
     BYOKRealtimeAIModelConfiguration,
     DograhManagedAIModelConfiguration,
+    EffectiveAIModelConfiguration,
     OrganizationAIModelConfigurationV2,
     compile_ai_model_configuration_v2,
 )
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
     SERVICE_SECRET_FIELDS,
     contains_masked_key,

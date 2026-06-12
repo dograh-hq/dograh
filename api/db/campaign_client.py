@@ -9,6 +9,7 @@ from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
 from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
 from api.schemas.workflow import WorkflowRunResponseSchema
+from api.services.workflow.run_usage_response import format_public_cost_info
 
 
 class CampaignClient(BaseDBClient):
@@ -215,26 +216,9 @@ class CampaignClient(BaseDBClient):
                         "is_completed": run.is_completed,
                         "recording_url": run.recording_url,
                         "transcript_url": run.transcript_url,
-                        "cost_info": {
-                            "dograh_token_usage": (
-                                run.cost_info.get("dograh_token_usage")
-                                if run.cost_info
-                                and "dograh_token_usage" in run.cost_info
-                                else round(
-                                    float(run.cost_info.get("total_cost_usd", 0)) * 100,
-                                    2,
-                                )
-                                if run.cost_info and "total_cost_usd" in run.cost_info
-                                else 0
-                            ),
-                            "call_duration_seconds": int(
-                                round(run.cost_info.get("call_duration_seconds") or 0)
-                            )
-                            if run.cost_info
-                            else None,
-                        }
-                        if run.cost_info
-                        else None,
+                        "cost_info": format_public_cost_info(
+                            run.cost_info, run.usage_info
+                        ),
                         "definition_id": run.definition_id,
                         "initial_context": run.initial_context,
                         "gathered_context": run.gathered_context,
@@ -662,7 +646,7 @@ class CampaignClient(BaseDBClient):
         async with self.async_session() as session:
             conditions = [
                 WorkflowRunModel.is_completed.is_(True),
-                WorkflowRunModel.cost_info["call_duration_seconds"]
+                WorkflowRunModel.usage_info["call_duration_seconds"]
                 .as_string()
                 .isnot(None),
             ]
@@ -685,6 +669,7 @@ class CampaignClient(BaseDBClient):
                     WorkflowRunModel.initial_context,
                     WorkflowRunModel.gathered_context,
                     WorkflowRunModel.cost_info,
+                    WorkflowRunModel.usage_info,
                     WorkflowRunModel.public_access_token,
                 )
                 .where(*conditions)

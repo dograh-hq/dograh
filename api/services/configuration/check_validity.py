@@ -8,7 +8,7 @@ from groq import Groq
 #     from pyneuphonic import Neuphonic
 # except ImportError:
 #     Neuphonic = None
-from api.schemas.user_configuration import (
+from api.schemas.ai_model_configuration import (
     EffectiveAIModelConfiguration,
 )
 from api.services.configuration.registry import ServiceConfig, ServiceProviders
@@ -75,21 +75,21 @@ class UserConfigurationValidator:
         status_list = []
 
         status_list.extend(self._validate_service(configuration.llm, "llm"))
-        status_list.extend(self._validate_service(configuration.stt, "stt"))
-        status_list.extend(self._validate_service(configuration.tts, "tts"))
-        # Embeddings is optional - only validate if configured
-        status_list.extend(
-            self._validate_service(
-                configuration.embeddings, "embeddings", required=False
-            )
-        )
-        # Realtime is optional - only validate if is_realtime is enabled
         if configuration.is_realtime:
             status_list.extend(
                 self._validate_service(
                     configuration.realtime, "realtime", required=True
                 )
             )
+        else:
+            status_list.extend(self._validate_service(configuration.stt, "stt"))
+            status_list.extend(self._validate_service(configuration.tts, "tts"))
+        # Embeddings is optional - only validate if configured
+        status_list.extend(
+            self._validate_service(
+                configuration.embeddings, "embeddings", required=False
+            )
+        )
 
         if status_list:
             raise ValueError(status_list)

@@ -5,7 +5,11 @@ from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
+from api.constants import (
+    DEFAULT_CAMPAIGN_RETRY_CONFIG,
+    DEFAULT_ORG_CONCURRENCY_LIMIT,
+    DEPLOYMENT_MODE,
+)
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.telephony_configuration_client import TelephonyConfigurationInUseError
@@ -54,6 +58,11 @@ from api.services.configuration.registry import (
     REGISTRY,
     ServiceProviders,
     ServiceType,
+)
+from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
+from api.services.organization_context import (
+    OrganizationContextResponse,
+    get_organization_context,
 )
 from api.services.organization_preferences import (
     get_organization_preferences,
@@ -127,6 +136,12 @@ class TelephonyConfigWarningsResponse(BaseModel):
     """
 
     telnyx_missing_webhook_public_key_count: int
+
+
+@router.get("/context", response_model=OrganizationContextResponse)
+async def get_current_organization_context(user: UserModel = Depends(get_user)):
+    """Return organization-scoped configuration signals owned by Dograh."""
+    return await get_organization_context(user)
 
 
 @router.get(
@@ -348,6 +363,23 @@ async def migrate_model_configuration_v2(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=exc.args[0])
+
+    if DEPLOYMENT_MODE != "oss":
+        try:
+            await ensure_hosted_mps_billing_account_v2(
+                organization_id,
+                created_by=str(user.provider_id),
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to initialize MPS billing v2 account for organization {}: {}",
+                organization_id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to initialize MPS billing v2 account",
+            )
 
     await upsert_organization_ai_model_configuration_v2(
         organization_id,

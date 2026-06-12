@@ -162,14 +162,12 @@ async def run_pipeline_telephony(
         workflow_id: Workflow being executed.
         workflow_run_id: Workflow run row.
         user_id: Owner of the workflow.
-        call_id: Provider call identifier (stored in cost_info for billing).
+        call_id: Provider call identifier.
         transport_kwargs: Provider-specific kwargs forwarded to the transport
             factory (e.g. stream_sid + call_sid for Twilio).
     """
     logger.debug(f"Running {provider_name} pipeline for workflow_run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
-
-    await db_client.update_workflow_run(workflow_run_id, cost_info={"call_id": call_id})
 
     workflow = await db_client.get_workflow(workflow_id, user_id)
     if workflow:
@@ -340,7 +338,7 @@ async def _run_pipeline(
     if workflow_run.is_completed:
         raise HTTPException(status_code=400, detail="Workflow run already completed")
 
-    merged_call_context_vars = workflow_run.initial_context
+    merged_call_context_vars = dict(workflow_run.initial_context or {})
     # If there is some extra call_context_vars, fold them in. Persistence
     # happens once below, after runtime_configuration is also resolved.
     if call_context_vars:
@@ -398,6 +396,19 @@ async def _run_pipeline(
     else:
         user_config = resolved_user_config
 
+    from api.services.managed_model_services import (
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        ensure_mps_correlation_id,
+    )
+
+    mps_correlation_id = await ensure_mps_correlation_id(
+        ai_model_config=user_config,
+        workflow_run_id=workflow_run_id,
+        initial_context=merged_call_context_vars,
+    )
+    if mps_correlation_id:
+        merged_call_context_vars[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
+
     # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
     is_realtime = user_config.is_realtime and user_config.realtime is not None
 
@@ -409,11 +420,23 @@ async def _run_pipeline(
         # Realtime services don't implement run_inference, so create a
         # separate text LLM for variable extraction and other out-of-band
         # inference calls.
-        inference_llm = create_llm_service(user_config)
+        inference_llm = create_llm_service(
+            user_config,
+            correlation_id=mps_correlation_id,
+        )
     else:
-        stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
-        tts = create_tts_service(user_config, audio_config)
-        llm = create_llm_service(user_config)
+        stt = create_stt_service(
+            user_config,
+            audio_config,
+            keyterms=keyterms,
+            correlation_id=mps_correlation_id,
+        )
+        tts = create_tts_service(
+            user_config,
+            audio_config,
+            correlation_id=mps_correlation_id,
+        )
+        llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
 
     # Stamp the providers/models actually resolved for this run onto
@@ -695,7 +718,10 @@ async def _run_pipeline(
         # Create a separate LLM instance for the voicemail sub-pipeline
         # (can't share with main pipeline as it would mess up frame linking)
         if voicemail_config.get("use_workflow_llm", True):
-            voicemail_llm = create_llm_service(user_config)
+            voicemail_llm = create_llm_service(
+                user_config,
+                correlation_id=mps_correlation_id,
+            )
         else:
             voicemail_llm = create_llm_service_from_provider(
                 provider=voicemail_config.get("provider", "openai"),

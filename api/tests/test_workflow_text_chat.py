@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from api.db.models import OrganizationModel, UserModel
-from api.schemas.user_configuration import EffectiveAIModelConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
@@ -176,11 +176,7 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
     assert "Start" in (created["gathered_context"] or {}).get("nodes_visited", [])
     workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
     assert workflow_run is not None
-    assert workflow_run.cost_info[
-        "call_duration_seconds"
-    ] == workflow_run.usage_info.get("call_duration_seconds", 0)
-    assert "cost_breakdown" in workflow_run.cost_info
-    assert "dograh_token_usage" in workflow_run.cost_info
+    assert "call_duration_seconds" in workflow_run.usage_info
     assert _log_texts(run_payload["logs"], "rtf-bot-text") == [
         "Hello from the workflow tester."
     ]
@@ -296,11 +292,7 @@ async def test_text_chat_message_executes_assistant_turn(
     assert "Start" in (payload["gathered_context"] or {}).get("nodes_visited", [])
     workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
     assert workflow_run is not None
-    assert workflow_run.cost_info[
-        "call_duration_seconds"
-    ] == workflow_run.usage_info.get("call_duration_seconds", 0)
-    assert "cost_breakdown" in workflow_run.cost_info
-    assert "dograh_token_usage" in workflow_run.cost_info
+    assert "call_duration_seconds" in workflow_run.usage_info
     assert _log_texts(run_payload["logs"], "rtf-user-transcription") == ["Hi there"]
     assert _log_texts(run_payload["logs"], "rtf-bot-text") == [
         "Welcome to the workflow tester.",

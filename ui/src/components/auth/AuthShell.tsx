@@ -26,8 +26,9 @@ export function AuthShell({
 }) {
   return (
     <div className="grid min-h-screen w-full bg-background lg:grid-cols-[55%_45%]">
-      {/* Form column (LEFT) — scrolls and stays centered so tall forms never clip. */}
-      <main className="flex min-h-screen flex-col overflow-y-auto">
+      {/* Form column (LEFT) — scrolls and stays centered so tall forms never
+          clip. Carries the giant faded "dograh" imprint along its bottom. */}
+      <main className="auth-imprint flex min-h-screen flex-col overflow-y-auto">
         <div className="flex min-h-full items-center justify-center p-6 sm:p-10">
           <div className="w-full max-w-md space-y-6 rounded-2xl border border-border/60 bg-card p-6 shadow-lg sm:p-8">
             {/* Mobile-only wordmark (brand panel is hidden) */}

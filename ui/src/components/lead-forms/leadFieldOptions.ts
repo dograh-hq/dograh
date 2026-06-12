@@ -8,7 +8,8 @@ export type LeadSource =
   | "hire_expert"
   | "onboarding"
   | "pricing_custom_volume"
-  | "landing_contact";
+  | "landing_contact"
+  | "auth_page";
 
 export type LeadKind = "hire_expert" | "enterprise";
 
@@ -34,6 +35,7 @@ export const ENTERPRISE_DEPLOYMENT_SOURCES: readonly LeadSource[] = [
   "billing_custom_pricing",
   "pricing_custom_volume",
   "landing_contact",
+  "auth_page",
 ];
 
 // Enterprise deployment need (conditional — see ENTERPRISE_DEPLOYMENT_SOURCES).

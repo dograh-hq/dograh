@@ -82,6 +82,11 @@
   /* Single restrained warm accent — used only on primary CTAs + focus rings. */
   --cta: oklch(0.72 0.15 65);
   --cta-foreground: oklch(0.16 0.02 60);
+  /* Giant faded "dograh" wordmark (authentic Proxima Nova letterforms traced
+     from the brand logo PNG — the font is commercial, so the lettering ships
+     as static artwork in /public; fill + 0.9% opacity are baked into the
+     files). Theme-switched here; consumed by .app-surface and .auth-imprint. */
+  --brand-imprint: url("/brand-imprint-light.svg");
 }
 
 .dark {
@@ -119,6 +124,7 @@
   /* Warm accent, slightly brighter against the near-black surfaces. */
   --cta: oklch(0.78 0.16 67);
   --cta-foreground: oklch(0.16 0.02 60);
+  --brand-imprint: url("/brand-imprint-dark.svg");
 }
 
 @layer base {
@@ -185,26 +191,135 @@
     .auth-waveform span { animation: none; }
   }
 
-  /* Atmospheric app background — premium dark depth instead of flat black.
-     Decorative only; applied to content areas via the .app-surface class so it
-     cascades to every page without per-page edits. Light mode stays clean. */
+  /* Matte app background — flat charcoal (dark) / soft paper (light), NO
+     gradients, with one subtle graphic in BOTH themes: the giant faded
+     "dograh" wordmark (--brand-imprint, defined in :root/.dark) pinned to
+     the bottom of the viewport, echoing the dograh.com footer. */
+  /* NOTE: background-attachment: fixed positions in VIEWPORT space but only
+     paints inside .app-surface, which starts right of the ~270px sidebar —
+     the +135px x-shift recentres the wordmark on the VISIBLE canvas. */
   .app-surface {
-    background-color: var(--background);
+    background-color: oklch(0.984 0.001 80);
+    background-image: var(--brand-imprint);
+    background-size: min(68vw, 980px) auto;
+    background-position: calc(50% + 135px) calc(100% - 24px);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+  /* Sidebar is offcanvas on small screens — true centre there. */
+  @media (max-width: 767px) {
+    .app-surface {
+      background-position: center calc(100% - 24px);
+    }
   }
   .dark .app-surface {
-    background-image:
-      radial-gradient(55rem 32rem at 100% 100%, color-mix(in oklch, var(--cta) 13%, transparent), transparent 55%),
-      radial-gradient(48rem 30rem at 0% 100%, color-mix(in oklch, var(--primary) 10%, transparent), transparent 52%),
-      linear-gradient(0deg, color-mix(in oklch, var(--foreground) 4%, transparent), transparent 38%);
+    background-color: oklch(0.165 0.002 80);
+  }
+
+  /* Giant faded "dograh" imprint for the auth pages (applied to the AuthShell
+     form column, shared by Stack + OSS login/signup). Same --brand-imprint as
+     .app-surface; element-relative here (no fixed attachment), so it centers
+     and scales to whatever element carries the class. */
+  .auth-imprint {
+    background-image: var(--brand-imprint);
+    background-size: min(86%, 920px) auto;
+    background-position: center calc(100% - 32px);
     background-repeat: no-repeat;
   }
 
-  /* Faint warm wash at the bottom of the sidebar for subtle depth (dark only). */
-  .dark .app-sidebar-surface {
-    background-image: linear-gradient(
-      0deg,
-      color-mix(in oklch, var(--cta) 8%, transparent),
-      transparent 32%
-    );
-  }
+}
+
+/* ---------------------------------------------------------------------------
+   UN-LAYERED overrides. These intentionally live OUTSIDE @layer blocks:
+   they restyle elements that carry Tailwind utility classes (bg-sidebar,
+   rounded-lg, shadow-sm, border-*) and utilities sit in a later cascade
+   layer than @layer components — un-layered author CSS beats both.
+--------------------------------------------------------------------------- */
+
+/* Floating-dock sidebar: detached rounded panel. Targets the shadcn sidebar's
+   inner panel; applied via .app-sidebar-dock on <Sidebar variant="floating">. */
+.app-sidebar-dock [data-slot="sidebar-inner"] {
+  border-radius: 1.25rem;
+  overflow: hidden;
+}
+/* Flat carbon-charcoal panel with a soft light glow along the LEFT edge:
+   a 1px highlight line plus an inner bloom fading rightwards. */
+.dark .app-sidebar-dock [data-slot="sidebar-inner"] {
+  border-color: rgb(255 255 255 / 0.1);
+  background-color: oklch(0.18 0.002 80);
+  box-shadow:
+    inset 1px 0 0 rgb(255 255 255 / 0.1),
+    inset 3px 0 6px -4px rgb(255 255 255 / 0.08),
+    0 24px 50px -14px rgb(0 0 0 / 0.85);
+}
+
+/* Card surface ("Crosshatch + Top-Lit Edge", user-approved 2026-06-11 after a
+   3-round design board): a 45° hairline twill weave at 1% laid over the panel
+   colour, plus — dark mode only — a brighter SOLID top border, like light
+   catching the machined top edge of the panel. Applied app-wide by the Card
+   primitive (components/ui/card.tsx). Un-layered so border-top-color beats
+   the border-border/60 utility. No gradients (user constraint). */
+.card-weave {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M0 0l12 12M12 0L0 12' stroke='%23000000' stroke-opacity='.015' fill='none'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+}
+.dark .card-weave {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12'%3E%3Cpath d='M0 0l12 12M12 0L0 12' stroke='%23ffffff' stroke-opacity='.01' fill='none'/%3E%3C/svg%3E");
+  border-top-color: rgb(255 255 255 / 0.2);
+}
+
+/* Lead-form shell ("Ledger" treatment, user-approved 2026-06-11): neutral
+   charcoal slab where ONLY the header band is darker (body and footer share
+   the slab colour), muted compact labels, and underline-only fields with an
+   amber underline on focus. Applied by LeadModalShell; CaptchaChallenge
+   reuses slab + underline. */
+.dark .lead-form-slab {
+  background-color: oklch(0.215 0 0);
+  border-color: rgb(255 255 255 / 0.1);
+}
+/* Muted, compact labels — the big white default labels read amateurish. */
+.lead-form-underline label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+/* Ghost placeholders: present on every field, but barely-there. */
+.lead-form-underline :is(input, textarea)::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.14;
+}
+.lead-form-underline [data-slot="select-trigger"][data-placeholder] {
+  color: color-mix(in oklab, var(--muted-foreground) 17%, transparent);
+}
+/* Underline-only fields: transparent box, hairline bottom border, amber
+   underline on the focused control. Compact heights keep rows tight. */
+.lead-form-underline :is(input, textarea, [data-slot="select-trigger"]) {
+  background-color: transparent;
+  border-top: 0;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  padding-left: 2px;
+  padding-right: 2px;
+}
+.lead-form-underline :is(input, [data-slot="select-trigger"]) {
+  height: 2.125rem;
+}
+.lead-form-underline textarea {
+  min-height: 3.25rem;
+}
+/* The phone country selector ships its own box — flatten it to match. */
+.lead-form-underline .react-international-phone-country-selector-button {
+  border: 0 !important;
+  border-bottom: 1px solid var(--border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.lead-form-underline :is(input, textarea, [data-slot="select-trigger"]):focus-visible,
+.lead-form-underline [data-slot="select-trigger"][data-state="open"] {
+  outline: none;
+  box-shadow: none;
+  border-bottom-color: var(--cta);
 }

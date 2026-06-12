@@ -1,26 +1,38 @@
 "use client";
 
-// Bland-style enterprise call-to-action rendered inside the auth brand panel.
-// Links out to the main marketing site's enterprise intake form rather than the
-// in-app modal, since the visitor is not yet authenticated here. Shared by the
-// Stack Auth handler and the local/OSS auth pages.
+// Enterprise call-to-action rendered inside the auth brand panel. Opens the
+// SAME in-app Enterprise lead modal used post-login (not the marketing site's
+// /contact page). The visitor is typically NOT authenticated here: the modal
+// requires a work email in that case, and submitLead persists the lead through
+// the user_onboarding service's public contact-sales endpoint instead of the
+// token-gated /leads/enterprise. Shared by the Stack Auth handler and the
+// local/OSS auth pages.
 
+import posthog from "posthog-js";
+import { useState } from "react";
+
+import { EnterpriseModal } from "@/components/lead-forms/EnterpriseModal";
 import { Button } from "@/components/ui/button";
+import { PostHogEvent } from "@/constants/posthog-events";
 
 export function AuthEnterpriseCTA() {
+  const [open, setOpen] = useState(false);
+
+  const openModal = () => {
+    setOpen(true);
+    posthog.capture(PostHogEvent.ENTERPRISE_LEAD_OPENED, { source: "auth_page" });
+  };
+
   return (
-    <a
-      href="https://dograh.com/contact?intent=enterprise"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block"
-    >
+    <>
       <Button
         variant="outline"
+        onClick={openModal}
         className="w-full border-white/20 bg-white/5 text-zinc-100 hover:bg-white/10 hover:text-white"
       >
         Enterprise Enquiry
       </Button>
-    </a>
+      <EnterpriseModal open={open} onOpenChange={setOpen} source="auth_page" />
+    </>
   );
 }

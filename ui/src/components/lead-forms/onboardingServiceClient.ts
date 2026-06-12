@@ -11,16 +11,15 @@ const BASE_URL = process.env.NEXT_PUBLIC_ONBOARDING_API_URL;
 // via console.error (captured as Sentry breadcrumbs) but never thrown.
 const TIMEOUT_MS = 6000;
 
-// POST a JSON body to the onboarding service with the Dograh auth token attached.
-async function post(path: string, token: string, body: unknown): Promise<void> {
+// POST a JSON body to the onboarding service. The Dograh auth token is attached
+// when supplied; public endpoints (contact-sales) are called without one.
+async function post(path: string, token: string | undefined, body: unknown): Promise<void> {
   if (!BASE_URL) {
-    // Misconfig would otherwise be invisible: a token-bearing submit dropped on
-    // the floor while PostHog still records the event as "submitted".
-    if (token) {
-      console.error(
-        `[onboarding] NEXT_PUBLIC_ONBOARDING_API_URL is unset — "${path}" not persisted to the onboarding service`,
-      );
-    }
+    // Misconfig would otherwise be invisible: a submit dropped on the floor
+    // while PostHog still records the event as "submitted".
+    console.error(
+      `[onboarding] NEXT_PUBLIC_ONBOARDING_API_URL is unset — "${path}" not persisted to the onboarding service`,
+    );
     return;
   }
 
@@ -31,7 +30,7 @@ async function post(path: string, token: string, body: unknown): Promise<void> {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -62,6 +61,15 @@ export async function postLeadToService(
   body: Record<string, unknown>,
 ): Promise<void> {
   await post(LEAD_PATH[kind], token, body);
+}
+
+// Persist a logged-out enterprise lead via the PUBLIC contact-sales endpoint
+// (no auth; the service applies a honeypot + per-IP rate limit). It runs the
+// same unified enterprise flow as the authenticated /leads/enterprise path.
+export async function postContactSalesToService(
+  body: Record<string, unknown>,
+): Promise<void> {
+  await post("/api/v1/contact-sales", undefined, body);
 }
 
 // Persist an onboarding submission (or skip — body carries `skipped`).

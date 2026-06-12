@@ -28,7 +28,7 @@ interface EnterpriseModalProps {
 }
 
 export function EnterpriseModal({ open, onOpenChange, source, prefill }: EnterpriseModalProps) {
-  const { getAccessToken, isAuthenticated } = useAuth(); // Dograh token for the onboarding service
+  const { getAccessToken } = useAuth(); // Dograh token for the onboarding service
   const [value, setValue] = useState<EnterpriseFieldsValue>(EMPTY_ENTERPRISE_FIELDS);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [captchaActive, setCaptchaActive] = useState(false);
@@ -38,8 +38,6 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
   // pricing-custom-volume entry points; elsewhere it is hidden and the payload
   // defaults to "yes".
   const showDeployment = ENTERPRISE_DEPLOYMENT_SOURCES.includes(source);
-  // Work email is mandatory only when the visitor is logged out.
-  const workEmailRequired = !isAuthenticated;
 
   const reset = () => {
     setValue(EMPTY_ENTERPRISE_FIELDS);
@@ -66,19 +64,18 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
   const baseValid =
     Boolean(value.name.trim()) &&
     Boolean(value.company.trim()) &&
+    Boolean(value.jobTitle.trim()) &&
+    Boolean(value.workEmail.trim()) &&
     Boolean(value.phone.trim()) &&
-    Boolean(value.volume) &&
-    (!workEmailRequired || Boolean(value.workEmail.trim()));
+    Boolean(value.volume);
 
   const canSubmit = baseValid && !submitting;
 
   // Validate, then pop the anti-spam check on top of the modal.
   const handleSubmit = () => {
-    if (workEmailRequired || value.workEmail.trim()) {
-      const err = validateWorkEmail(value.workEmail);
-      if (err) { setEmailError(err); return; }
-    }
-    if (!value.name.trim() || !value.company.trim() || !value.phone.trim() || !value.volume) {
+    const err = validateWorkEmail(value.workEmail);
+    if (err) { setEmailError(err); return; }
+    if (!value.name.trim() || !value.company.trim() || !value.jobTitle.trim() || !value.phone.trim() || !value.volume) {
       toast.error("Please fill in all required fields");
       return;
     }
@@ -134,7 +131,6 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
         idPrefix="ent"
         value={value}
         onChange={onFieldsChange}
-        workEmailRequired={workEmailRequired}
         showDeployment={showDeployment}
         emailError={emailError}
       />

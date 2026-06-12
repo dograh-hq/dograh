@@ -127,7 +127,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
     if (wantsOnPrem) {
       const err = validateWorkEmail(ef.workEmail);
       if (err) { setEfEmailError(err); return; }
-      if (!ef.name.trim() || !ef.company.trim() || !ef.phone.trim() || !ef.volume) {
+      if (!ef.name.trim() || !ef.company.trim() || !ef.jobTitle.trim() || !ef.phone.trim() || !ef.volume) {
         toast.error("Please complete the on-prem details below, or remove that section.");
         return;
       }
@@ -171,7 +171,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
           <Label htmlFor="ob-company">
             Company name <span className="text-muted-foreground">(optional)</span>
           </Label>
-          <Input id="ob-company" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+          <Input id="ob-company" placeholder="Acme Inc." value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
         </div>
 
         <div className="space-y-1.5">
@@ -259,7 +259,6 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
                       idPrefix="ob-op"
                       value={ef}
                       onChange={onEfChange}
-                      workEmailRequired
                       showDeployment={false}
                       emailError={efEmailError}
                     />

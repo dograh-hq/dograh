@@ -227,8 +227,9 @@ export function AppSidebar() {
         asChild
         tooltip={tooltip}
         className={cn(
-          "transition-colors hover:bg-accent hover:text-accent-foreground",
-          isItemActive && "bg-cta/10 font-medium text-foreground hover:bg-cta/15"
+          "rounded-xl transition-colors hover:bg-accent hover:text-accent-foreground",
+          isItemActive &&
+            "bg-cta/15 font-semibold text-foreground hover:bg-cta/20 hover:text-foreground"
         )}
       >
         <Link
@@ -238,9 +239,17 @@ export function AppSidebar() {
           translate="no"
         >
           {isItemActive && !isCollapsed && (
-            <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-cta" aria-hidden />
+            <span
+              className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-cta"
+              aria-hidden
+            />
           )}
-          <Icon className={cn("h-4 w-4 shrink-0", isItemActive && "text-cta")} />
+          <Icon
+            className={cn(
+              "h-4 w-4 shrink-0",
+              isItemActive && "text-cta drop-shadow-[0_0_6px_rgba(240,170,70,0.8)]"
+            )}
+          />
           <span
             className={cn("notranslate min-w-0 flex-1 truncate", isCollapsed && "sr-only")}
             translate="no"
@@ -266,18 +275,43 @@ export function AppSidebar() {
     );
   };
 
-  // "Hire an Expert" CTA shown in the footer next to the user avatar.
-  // Expanded: icon + label. Collapsed: icon-only with a tooltip.
+  // Footer identity trigger: avatar initials only (no name), in a subtle
+  // bordered circle. Same treatment expanded and collapsed.
+  const displayIdentity =
+    user?.displayName ||
+    (user as { primaryEmail?: string } | undefined)?.primaryEmail ||
+    (user as LocalUser | undefined)?.email ||
+    "";
+  const userInitials =
+    displayIdentity
+      .split(/[\s@]/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s: string) => s[0]?.toUpperCase())
+      .join("") || "U";
+
+  const userChipTrigger = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-7 w-7 shrink-0 cursor-pointer rounded-full border border-border/80 bg-muted/40 hover:bg-muted/60"
+    >
+      <span className="text-xs font-medium">{userInitials}</span>
+    </Button>
+  );
+
+  // "Hire an Expert" CTA, rendered INSIDE the shared footer pill next to the
+  // profile icon. Expanded: label pill filling the row. Collapsed: icon-only.
   const hireExpertButton = isCollapsed ? (
     <Tooltip>
       <TooltipTrigger asChild>
         <Button
           size="icon"
-          className="h-8 w-8"
+          className="h-7 w-7 rounded-full"
           onClick={() => openHireExpert("sidebar")}
           aria-label="Hire an Expert"
         >
-          <UserRound className="h-4 w-4" />
+          <UserRound className="h-3.5 w-3.5" />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="right">
@@ -285,15 +319,19 @@ export function AppSidebar() {
       </TooltipContent>
     </Tooltip>
   ) : (
-    <Button size="sm" className="gap-2" onClick={() => openHireExpert("sidebar")}>
-      <UserRound className="h-4 w-4" />
+    <Button
+      size="sm"
+      className="h-7 gap-1.5 rounded-full px-3 text-xs"
+      onClick={() => openHireExpert("sidebar")}
+    >
+      <UserRound className="h-3.5 w-3.5" />
       Hire an Expert
     </Button>
   );
 
   return (
-    <Sidebar collapsible="icon" className="app-sidebar-surface border-r border-border/60">
-      <SidebarHeader className="border-b px-2 py-3 notranslate" translate="no">
+    <Sidebar collapsible="icon" variant="floating" className="app-sidebar-dock py-4">
+      <SidebarHeader className="px-2 py-3 notranslate" translate="no">
         <div className="flex items-center justify-between">
           <div className={cn("flex items-center gap-2", isCollapsed && "hidden")}>
             <Link
@@ -399,25 +437,20 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter
-        className={cn("border-t p-4 notranslate", isCollapsed && "p-2")}
+        className={cn("p-3 notranslate", isCollapsed && "p-2")}
         translate="no"
       >
         <div className="space-y-2">
           {provider !== "stack" && (
-            <div className={cn("flex items-center", isCollapsed ? "flex-col gap-2" : "justify-between")}>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-1 rounded-full border border-border/60 bg-muted/30 p-1",
+                isCollapsed && "flex-col"
+              )}
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
-                    <span className="text-xs font-medium">
-                      {(user?.displayName || (user as LocalUser | undefined)?.email || "")
-                        .split(/[\s@]/)
-                        .filter(Boolean)
-                        .slice(0, 2)
-                        .map((s: string) => s[0]?.toUpperCase())
-                        .join("")
-                        || "U"}
-                    </span>
-                  </Button>
+                  {userChipTrigger}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start" className="w-56">
                   <DropdownMenuLabel className="font-normal">
@@ -443,20 +476,15 @@ export function AppSidebar() {
           )}
 
           {provider === "stack" && (
-            <div className={cn("flex items-center", isCollapsed ? "flex-col gap-2" : "justify-between")}>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-1 rounded-full border border-border/60 bg-muted/30 p-1",
+                isCollapsed && "flex-col"
+              )}
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
-                    <span className="text-xs font-medium">
-                      {(user?.displayName || (user as { primaryEmail?: string })?.primaryEmail || "")
-                        .split(/[\s@]/)
-                        .filter(Boolean)
-                        .slice(0, 2)
-                        .map((s: string) => s[0]?.toUpperCase())
-                        .join("")
-                        || "U"}
-                    </span>
-                  </Button>
+                  {userChipTrigger}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start" className="w-56">
                   <DropdownMenuLabel className="font-normal">
@@ -488,29 +516,20 @@ export function AppSidebar() {
             </div>
           )}
 
-          <div className={cn("mt-2 border-t pt-2", isCollapsed && "flex justify-center")}>
-            {isCollapsed ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="notranslate" translate="no">
-                    <ThemeToggle
-                      showLabel={false}
-                      className="hover:bg-accent hover:text-accent-foreground"
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>Toggle theme</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div className="notranslate" translate="no">
-                <ThemeToggle
-                  showLabel={true}
-                  className="hover:bg-accent hover:text-accent-foreground"
-                />
-              </div>
-            )}
+          <div className="mt-1 flex justify-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="notranslate" translate="no">
+                  <ThemeToggle
+                    showLabel={false}
+                    className="rounded-full hover:bg-accent hover:text-accent-foreground"
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side={isCollapsed ? "right" : "top"}>
+                <p>Toggle theme</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </SidebarFooter>

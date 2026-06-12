@@ -51,6 +51,7 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
   const baseValid =
     Boolean(name.trim()) &&
     Boolean(company.trim()) &&
+    Boolean(jobTitle.trim()) &&
     Boolean(agentGoal.trim()) &&
     Boolean(phone.trim()) &&
     Boolean(volume);
@@ -114,19 +115,17 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
             <Label htmlFor="hire-name">Name</Label>
-            <Input id="hire-name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input id="hire-name" placeholder="Your full name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="hire-company">Company name</Label>
-            <Input id="hire-company" value={company} onChange={(e) => setCompany(e.target.value)} />
+            <Input id="hire-company" placeholder="Acme Inc." value={company} onChange={(e) => setCompany(e.target.value)} />
           </div>
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="hire-title">
-            Job title <span className="text-muted-foreground">(optional)</span>
-          </Label>
-          <Input id="hire-title" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
+          <Label htmlFor="hire-title">Job title</Label>
+          <Input id="hire-title" placeholder="VP Operations" value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} />
         </div>
 
         <div className="space-y-1.5">

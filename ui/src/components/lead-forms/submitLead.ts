@@ -8,7 +8,7 @@ import posthog from "posthog-js";
 import { PostHogEvent } from "@/constants/posthog-events";
 
 import type { LeadKind, LeadSource } from "./leadFieldOptions";
-import { postLeadToService } from "./onboardingServiceClient";
+import { postContactSalesToService, postLeadToService } from "./onboardingServiceClient";
 
 const SUBMIT_EVENT: Record<LeadKind, string> = {
   hire_expert: PostHogEvent.HIRE_EXPERT_SUBMITTED,
@@ -31,5 +31,11 @@ export async function submitLead({ kind, source, payload, token }: SubmitLeadArg
   // Persist to the separate user_onboarding service (best-effort).
   if (token) {
     await postLeadToService(kind, token, { source, ...payload });
+  } else if (kind === "enterprise") {
+    // Logged-out visitor (e.g. the auth-page Enterprise Enquiry CTA): the
+    // public contact-sales endpoint persists the lead and runs the same
+    // unified enterprise flow server-side, keyed off `workEmail` (which the
+    // form requires when unauthenticated).
+    await postContactSalesToService({ source, ...payload });
   }
 }

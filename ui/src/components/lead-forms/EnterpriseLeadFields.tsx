@@ -50,8 +50,6 @@ interface EnterpriseLeadFieldsProps {
   idPrefix: string;
   value: EnterpriseFieldsValue;
   onChange: (patch: Partial<EnterpriseFieldsValue>) => void;
-  // Work email is mandatory only when the visitor is logged out.
-  workEmailRequired: boolean;
   // The deployment question is surfaced only for certain entry points; elsewhere
   // it is hidden and the caller defaults the payload to "yes".
   showDeployment: boolean;
@@ -62,7 +60,6 @@ export function EnterpriseLeadFields({
   idPrefix: p,
   value,
   onChange,
-  workEmailRequired,
   showDeployment,
   emailError,
 }: EnterpriseLeadFieldsProps) {
@@ -71,25 +68,21 @@ export function EnterpriseLeadFields({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label htmlFor={`${p}-name`}>Name</Label>
-          <Input id={`${p}-name`} value={value.name} onChange={(e) => onChange({ name: e.target.value })} />
+          <Input id={`${p}-name`} placeholder="Your full name" value={value.name} onChange={(e) => onChange({ name: e.target.value })} />
         </div>
         <div className="space-y-1.5">
           <Label htmlFor={`${p}-company`}>Company name</Label>
-          <Input id={`${p}-company`} value={value.company} onChange={(e) => onChange({ company: e.target.value })} />
+          <Input id={`${p}-company`} placeholder="Acme Inc." value={value.company} onChange={(e) => onChange({ company: e.target.value })} />
         </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor={`${p}-title`}>
-            Job title <span className="text-muted-foreground">(optional)</span>
-          </Label>
-          <Input id={`${p}-title`} value={value.jobTitle} onChange={(e) => onChange({ jobTitle: e.target.value })} />
+          <Label htmlFor={`${p}-title`}>Job title</Label>
+          <Input id={`${p}-title`} placeholder="VP Operations" value={value.jobTitle} onChange={(e) => onChange({ jobTitle: e.target.value })} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor={`${p}-email`}>
-            Work email{!workEmailRequired && <span className="text-muted-foreground"> (optional)</span>}
-          </Label>
+          <Label htmlFor={`${p}-email`}>Work email</Label>
           <Input
             id={`${p}-email`}
             type="email"

@@ -1,5 +1,7 @@
 import "server-only";
 
+import { getServerBackendUrl } from "@/lib/apiClient";
+
 let cachedAuthProvider: string | null = null;
 
 /**
@@ -12,7 +14,7 @@ export async function getAuthProvider(): Promise<string> {
   }
 
   try {
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+    const backendUrl = getServerBackendUrl();
     const res = await fetch(`${backendUrl}/api/v1/health`, {
       next: { revalidate: 300 },
     });

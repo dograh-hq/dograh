@@ -114,11 +114,13 @@ class StatusCallbackRequest(BaseModel):
             "NOANSWER": "no-answer",
         }
 
-        disposition = data.get("disposition", "")
+        disposition = data.get("disposition") or ""
         status = disposition_map.get(disposition.upper(), disposition.lower())
+        session = data.get("session")
+        call_id = session.get("token") if isinstance(session, dict) else ""
 
         return cls(
-            call_id=data.get("session").get("token"),
+            call_id=call_id or "",
             status=status,
             from_number=data.get("from"),
             to_number=data.get("to"),

@@ -78,7 +78,10 @@ def _validate_runtime_service_url(url: str, field_name: str) -> None:
 
 
 def create_stt_service(
-    user_config, audio_config: "AudioConfig", keyterms: list[str] | None = None
+    user_config,
+    audio_config: "AudioConfig",
+    keyterms: list[str] | None = None,
+    correlation_id: str | None = None,
 ):
     """Create and return appropriate STT service based on user configuration
 
@@ -160,6 +163,7 @@ def create_stt_service(
         return DograhSTTService(
             base_url=base_url,
             api_key=user_config.stt.api_key,
+            correlation_id=correlation_id,
             settings=DograhSTTSettings(
                 model=user_config.stt.model,
                 language=language,
@@ -286,7 +290,9 @@ def create_stt_service(
         )
 
 
-def create_tts_service(user_config, audio_config: "AudioConfig"):
+def create_tts_service(
+    user_config, audio_config: "AudioConfig", correlation_id: str | None = None
+):
     """Create and return appropriate TTS service based on user configuration
 
     Args:
@@ -404,6 +410,7 @@ def create_tts_service(user_config, audio_config: "AudioConfig"):
         return DograhTTSService(
             base_url=base_url,
             api_key=user_config.tts.api_key,
+            correlation_id=correlation_id,
             settings=DograhTTSSettings(
                 model=user_config.tts.model,
                 voice=user_config.tts.voice,
@@ -564,6 +571,7 @@ def create_llm_service_from_provider(
     model: str,
     api_key: str | None,
     *,
+    correlation_id: str | None = None,
     base_url: str | None = None,
     endpoint: str | None = None,
     aws_access_key: str | None = None,
@@ -637,6 +645,7 @@ def create_llm_service_from_provider(
         return DograhLLMService(
             base_url=f"{MPS_API_URL}/api/v1/llm",
             api_key=api_key,
+            correlation_id=correlation_id,
             settings=OpenAILLMSettings(model=model),
         )
     elif provider == ServiceProviders.AWS_BEDROCK.value:
@@ -851,7 +860,7 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         )
 
 
-def create_llm_service(user_config):
+def create_llm_service(user_config, correlation_id: str | None = None):
     """Create and return appropriate LLM service based on user configuration."""
     provider = user_config.llm.provider
     model = user_config.llm.model
@@ -880,4 +889,10 @@ def create_llm_service(user_config):
     elif provider == ServiceProviders.SARVAM.value:
         kwargs["temperature"] = user_config.llm.temperature
 
-    return create_llm_service_from_provider(provider, model, api_key, **kwargs)
+    return create_llm_service_from_provider(
+        provider,
+        model,
+        api_key,
+        correlation_id=correlation_id,
+        **kwargs,
+    )

@@ -24,13 +24,20 @@ Watch the following video to learn about Dograh’s capabilities.
 
 ## Setting up
 
-Get the platform up and running using Docker with a single command on your local computer. If you are looking to deploy the platform on a server different than your local machine, please check the [Deployment](deployment/introduction) section.
+Get the platform up and running using Docker with a small startup script on your local computer. If you are looking to deploy the platform on a server different than your local machine, please check the [Deployment](deployment/introduction) section.
 
-<Note>We collect anonymous usage data to improve the product. You can opt out by setting the `ENABLE_TELEMETRY` to `false` in the below command.</Note>
+<Note>We collect anonymous usage data to improve the product. You can opt out by setting `ENABLE_TELEMETRY=false` before running the startup script.</Note>
 
-```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
+<CodeGroup>
+```bash macOS/Linux
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
+```powershell Windows
+Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
+Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1
+.\start_docker.ps1
+```
+</CodeGroup>
 
 Please check [Prerequisites](getting-started/prerequisites) for the system requirements and [Troubleshooting](getting-started/troubleshooting) for common issues.
 

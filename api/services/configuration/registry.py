@@ -911,7 +911,7 @@ class DograhTTSService(BaseTTSConfiguration):
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 
 
-CARTESIA_TTS_MODELS = ["sonic-3"]
+CARTESIA_TTS_MODELS = ["sonic-3.5", "sonic-3"]
 
 
 @register_tts
@@ -919,7 +919,7 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     model_config = CARTESIA_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
-        default="sonic-3",
+        default="sonic-3.5",
         description="Cartesia TTS model.",
         json_schema_extra={"examples": CARTESIA_TTS_MODELS},
     )
@@ -1472,11 +1472,26 @@ class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
+DOGRAH_EMBEDDING_MODELS = ["default"]
+
+
+@register_embeddings
+class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    model_config = DOGRAH_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
+    model: str = Field(
+        default="default",
+        description="Dograh-managed embedding model.",
+        json_schema_extra={"examples": DOGRAH_EMBEDDING_MODELS},
+    )
+
+
 EmbeddingsConfig = Annotated[
     Union[
         OpenAIEmbeddingsConfiguration,
         OpenRouterEmbeddingsConfiguration,
         AzureOpenAIEmbeddingsConfiguration,
+        DograhEmbeddingsConfiguration,
     ],
     Field(discriminator="provider"),
 ]

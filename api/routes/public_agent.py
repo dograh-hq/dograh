@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from api.db import db_client
 from api.enums import TriggerState, WorkflowStatus
-from api.services.quota_service import check_dograh_quota_by_user_id
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.factory import (
     get_default_telephony_provider,
     get_telephony_provider_by_id,
@@ -179,14 +179,6 @@ async def _execute_resolved_target(
     """Shared execution path once the target workflow has been resolved."""
     execution_user_id = _get_execution_user_id(target.workflow)
 
-    # Check Dograh quota using the workflow owner's config and model overrides.
-    quota_result = await check_dograh_quota_by_user_id(
-        execution_user_id,
-        workflow_id=target.workflow.id,
-    )
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
-
     # Get telephony provider — either the caller-specified config (validated
     # against the workflow's org) or the org's default config.
     if request.telephony_configuration_id is not None:
@@ -267,6 +259,15 @@ async def _execute_resolved_target(
         f"(mode={'test' if use_draft else 'production'}) "
         f"to phone number {request.phone_number}"
     )
+
+    # Check Dograh quota after the run exists so hosted v2 can mint and store
+    # the MPS correlation id before the provider starts the call.
+    quota_result = await authorize_workflow_run_start(
+        workflow_id=target.workflow.id,
+        workflow_run_id=workflow_run.id,
+    )
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # 9. Construct webhook URL for telephony provider callback
     backend_endpoint, _ = await get_backend_endpoints()

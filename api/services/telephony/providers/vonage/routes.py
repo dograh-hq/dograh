@@ -66,34 +66,6 @@ async def handle_vonage_events(
         logger.error(f"[run {workflow_run_id}] Workflow run not found")
         return {"status": "error", "message": "Workflow run not found"}
 
-    # For a completed call that includes cost info, capture it immediately
-    if event_data.get("status") == "completed":
-        # Vonage sometimes includes price info in the webhook
-        if "price" in event_data or "rate" in event_data:
-            try:
-                if workflow_run.cost_info:
-                    # Store immediate cost info if available
-                    cost_info = workflow_run.cost_info.copy()
-                    if "price" in event_data:
-                        cost_info["vonage_webhook_price"] = float(event_data["price"])
-                    if "rate" in event_data:
-                        cost_info["vonage_webhook_rate"] = float(event_data["rate"])
-                    if "duration" in event_data:
-                        cost_info["vonage_webhook_duration"] = int(
-                            event_data["duration"]
-                        )
-
-                    await db_client.update_workflow_run(
-                        run_id=workflow_run_id, cost_info=cost_info
-                    )
-                    logger.info(
-                        f"[run {workflow_run_id}] Captured Vonage cost info from webhook"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[run {workflow_run_id}] Failed to capture Vonage cost from webhook: {e}"
-                )
-
     # Get workflow and provider
     workflow = await db_client.get_workflow_by_id(workflow_run.workflow_id)
     if not workflow:

@@ -19,6 +19,13 @@ interface UseWebSocketRTCProps {
     onNodeTransition?: (transition: ConversationNodeTransitionItem) => void;
 }
 
+const HANDLED_SERVICE_ERROR_TYPES = new Set([
+    'quota_exceeded',
+    'insufficient_credits',
+    'invalid_service_key',
+    'quota_check_failed',
+]);
+
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables, onNodeTransition }: UseWebSocketRTCProps) => {
     const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'failed'>('idle');
     const [connectionActive, setConnectionActive] = useState(false);
@@ -265,9 +272,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
                         case 'error':
                             // Check if this is a quota/service key error
-                            if (message.payload?.error_type === 'quota_exceeded' ||
-                                message.payload?.error_type === 'invalid_service_key' ||
-                                message.payload?.error_type === 'quota_check_failed') {
+                            if (HANDLED_SERVICE_ERROR_TYPES.has(message.payload?.error_type)) {
                                 // Log as info since it's a handled business logic case
                                 logger.info('Quota/service key error, showing user dialog:', message.payload.message);
 

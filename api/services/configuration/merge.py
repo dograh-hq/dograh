@@ -7,7 +7,7 @@ stored, while honouring masked API keys.
 import copy
 from typing import Dict
 
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
     MODEL_OVERRIDE_FIELDS,
     SERVICE_SECRET_FIELDS,
@@ -66,9 +66,9 @@ def _merge_service_secret_fields(
 
 
 def merge_user_configurations(
-    existing: UserConfiguration, incoming_partial: Dict[str, dict]
-) -> UserConfiguration:
-    """Merge *incoming_partial* onto *existing* and return a new UserConfiguration.
+    existing: EffectiveAIModelConfiguration, incoming_partial: Dict[str, dict]
+) -> EffectiveAIModelConfiguration:
+    """Merge *incoming_partial* onto *existing* and return a new EffectiveAIModelConfiguration.
 
     *incoming_partial* is the body of the PUT request (already `model_dump()`ed or
     extracted via Pydantic `model_dump`).
@@ -113,14 +113,14 @@ def merge_user_configurations(
     if "timezone" in incoming_partial:
         merged["timezone"] = incoming_partial["timezone"]
 
-    # Onboarding gate flags — overwrite only when supplied (set once on submit/skip).
+    # Onboarding gate flags: overwrite only when supplied.
     if "onboarding_completed_at" in incoming_partial:
         merged["onboarding_completed_at"] = incoming_partial["onboarding_completed_at"]
 
     if "onboarding_skipped" in incoming_partial:
         merged["onboarding_skipped"] = incoming_partial["onboarding_skipped"]
 
-    return UserConfiguration.model_validate(merged)
+    return EffectiveAIModelConfiguration.model_validate(merged)
 
 
 def merge_workflow_configuration_secrets(

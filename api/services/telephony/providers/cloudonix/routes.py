@@ -103,7 +103,8 @@ async def handle_cloudonix_cdr(request: Request):
         return {"status": "error", "message": "Missing domain field"}
 
     # Extract call_id to find workflow run
-    call_id = cdr_data.get("session").get("token")
+    session = cdr_data.get("session")
+    call_id = session.get("token") if isinstance(session, dict) else None
     logger.info(f"Cloudonix CDR data for call id {call_id} - {cdr_data}")
     if not call_id:
         logger.warning("Cloudonix CDR missing call_id field")

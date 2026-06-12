@@ -32,7 +32,6 @@ from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
-from api.services.configuration.resolve import resolve_effective_config
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.pipeline_builder import create_pipeline_task
 from api.services.pipecat.pipeline_metrics_aggregator import (
@@ -410,14 +409,31 @@ async def execute_text_chat_pending_turn(
     run_definition = workflow_run.definition
     run_configs = run_definition.workflow_configurations or {}
 
-    user_config = await db_client.get_user_configurations(workflow_run.workflow.user.id)
-    user_config = resolve_effective_config(
-        user_config, run_configs.get("model_overrides")
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
+
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=workflow_run.workflow.user.id,
+        organization_id=workflow.organization_id,
+        workflow_configurations=run_configs,
     )
     if user_config.llm is None:
         raise ValueError("Text chat requires an LLM configuration")
 
-    llm = create_llm_service(user_config)
+    from api.services.managed_model_services import (
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        ensure_mps_correlation_id,
+    )
+
+    base_initial_context = dict(workflow_run.initial_context or {})
+    mps_correlation_id = await ensure_mps_correlation_id(
+        ai_model_config=user_config,
+        workflow_run_id=workflow_run_id,
+        initial_context=base_initial_context,
+    )
+
+    llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
     inference_llm = llm
 
     runtime_configuration = {
@@ -425,9 +441,15 @@ async def execute_text_chat_pending_turn(
         "llm_model": user_config.llm.model,
     }
     initial_context = {
-        **(workflow_run.initial_context or {}),
+        **base_initial_context,
         "runtime_configuration": runtime_configuration,
     }
+    if mps_correlation_id:
+        initial_context[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
+    await db_client.update_workflow_run(
+        workflow_run_id,
+        initial_context=initial_context,
+    )
 
     workflow_graph = WorkflowGraph(
         ReactFlowDTO.model_validate(run_definition.workflow_json)
@@ -466,9 +488,17 @@ async def execute_text_chat_pending_turn(
     embeddings_model = None
     embeddings_base_url = None
     if user_config.embeddings:
+        from api.services.configuration.ai_model_configuration import (
+            apply_managed_embeddings_base_url,
+        )
+
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
-        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+        embeddings_provider = getattr(user_config.embeddings, "provider", None)
+        embeddings_base_url = apply_managed_embeddings_base_url(
+            provider=embeddings_provider,
+            base_url=getattr(user_config.embeddings, "base_url", None),
+        )
 
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
@@ -606,8 +636,10 @@ async def execute_text_chat_pending_turn(
                 "Transportless text chat pipeline failed while closing run {}",
                 workflow_run_id,
             )
+            await engine.close_mcp_sessions()
             await engine.cleanup()
             raise
+        await engine.close_mcp_sessions()
         await engine.cleanup()
 
     gathered_context = await engine.get_gathered_context()

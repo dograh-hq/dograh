@@ -140,6 +140,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         icon: TrendingUp,
       },
       {
+        title: "Billing",
+        url: "/billing",
+        icon: CircleDollarSign,
+      },
+      {
         title: "Reports",
         url: "/reports",
         icon: FileText,

@@ -636,8 +636,10 @@ async def execute_text_chat_pending_turn(
                 "Transportless text chat pipeline failed while closing run {}",
                 workflow_run_id,
             )
+            await engine.close_mcp_sessions()
             await engine.cleanup()
             raise
+        await engine.close_mcp_sessions()
         await engine.cleanup()
 
     gathered_context = await engine.get_gathered_context()

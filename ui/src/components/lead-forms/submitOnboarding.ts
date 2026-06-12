@@ -1,8 +1,8 @@
 // Submission seam for the post-signup onboarding form.
 // Fires a PostHog capture (submit or skip) AND, when a token is supplied, POSTs
 // the answers to the separate user_onboarding service (best-effort). The "show
-// once per user" flag itself is stamped on the Dograh user-config by the caller
-// (LeadFormsContext.completeOnboarding), not here — that needs the saveUserConfig hook.
+// once per user" flag itself is stamped on the server-backed onboarding state
+// by the caller (LeadFormsContext.completeOnboarding → OnboardingContext), not here.
 
 import posthog from "posthog-js";
 

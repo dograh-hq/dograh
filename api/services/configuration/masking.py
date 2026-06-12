@@ -141,10 +141,6 @@ def mask_user_config(config: EffectiveAIModelConfiguration) -> Dict[str, Any]:
         "is_realtime": config.is_realtime,
         "test_phone_number": config.test_phone_number,
         "timezone": config.timezone,
-        # Onboarding gate flags (not secrets) — surfaced so the UI can decide
-        # whether to show the post-signup onboarding form on boot.
-        "onboarding_completed_at": config.onboarding_completed_at,
-        "onboarding_skipped": config.onboarding_skipped,
     }
 
 

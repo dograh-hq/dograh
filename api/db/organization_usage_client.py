@@ -18,7 +18,7 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import OrganizationConfigurationKey
+from api.enums import OrganizationConfigurationKey, UserConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 
 
@@ -343,7 +343,9 @@ class OrganizationUsageClient(BaseDBClient):
             if user_id:
                 config_result = await session.execute(
                     select(UserConfigurationModel).where(
-                        UserConfigurationModel.user_id == user_id
+                        UserConfigurationModel.user_id == user_id,
+                        UserConfigurationModel.key
+                        == UserConfigurationKey.MODEL_CONFIGURATION.value,
                     )
                 )
                 config_obj = config_result.scalar_one_or_none()

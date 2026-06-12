@@ -229,7 +229,7 @@ class WorkflowGraph:
                     kind=ItemKind.workflow,
                     id=None,
                     field=None,
-                    message="Workflow has no start node - exactly one is required",
+                    message="Workflow has no start node — exactly one is required",
                 )
             )
         elif len(start_nodes) > 1:
@@ -239,7 +239,7 @@ class WorkflowGraph:
                     id=None,
                     field=None,
                     message=(
-                        f"Workflow has {len(start_nodes)} start nodes - "
+                        f"Workflow has {len(start_nodes)} start nodes — "
                         f"exactly one is required"
                     ),
                 )

@@ -34,10 +34,6 @@ class EffectiveAIModelConfiguration(BaseModel):
     test_phone_number: str | None = None
     timezone: str | None = None
     last_validated_at: datetime | None = None
-    # Post-signup onboarding gate: set once the user submits or skips the
-    # onboarding form, so it shows only once per user.
-    onboarding_completed_at: datetime | None = None
-    onboarding_skipped: bool = False
 
     @model_validator(mode="before")
     @classmethod

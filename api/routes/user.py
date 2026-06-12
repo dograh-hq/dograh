@@ -9,6 +9,7 @@ from api.db import db_client
 from api.db.models import (
     UserModel,
 )
+from api.schemas.onboarding_state import OnboardingState, OnboardingStateUpdate
 from api.services.auth.depends import get_user
 from api.services.configuration.ai_model_configuration import (
     get_resolved_ai_model_configuration,
@@ -25,6 +26,10 @@ from api.services.mps_service_key_client import mps_service_key_client
 from api.services.organization_preferences import (
     get_organization_preferences,
     upsert_organization_preferences,
+)
+from api.services.user_onboarding import (
+    get_onboarding_state,
+    update_onboarding_state,
 )
 
 router = APIRouter(prefix="/user")
@@ -92,9 +97,6 @@ class UserConfigurationRequestResponseSchema(BaseModel):
     test_phone_number: str | None = None
     timezone: str | None = None
     organization_pricing: dict[str, Union[float, str, bool]] | None = None
-    # Post-signup onboarding gate. Set once on submit/skip.
-    onboarding_completed_at: datetime | None = None
-    onboarding_skipped: bool | None = None
 
 
 @router.get("/configurations/user")
@@ -204,6 +206,21 @@ async def update_user_configurations(
             }
 
     return masked_config
+
+
+@router.get("/onboarding-state")
+async def get_user_onboarding_state(
+    user: UserModel = Depends(get_user),
+) -> OnboardingState:
+    return await get_onboarding_state(user.id)
+
+
+@router.put("/onboarding-state")
+async def update_user_onboarding_state(
+    request: OnboardingStateUpdate,
+    user: UserModel = Depends(get_user),
+) -> OnboardingState:
+    return await update_onboarding_state(user.id, request)
 
 
 @router.get("/configurations/user/validate")

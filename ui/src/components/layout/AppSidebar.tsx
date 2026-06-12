@@ -148,12 +148,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Reports",
         url: "/reports",
         icon: FileText,
-      },
-      {
-        title: "Credits & Billing",
-        url: "/billing",
-        icon: CircleDollarSign,
-      },
+      }
     ],
   },
 ];

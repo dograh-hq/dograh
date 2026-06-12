@@ -55,6 +55,7 @@ export default async function Handler(props: unknown) {
   }
   const normalizedSegment = segment.toLowerCase().replace(/-/g, "");
   const isAuthForm = segment !== "" && !FULL_PAGE_ROUTES.has(normalizedSegment);
+  const showBackButton = !new Set(["signin", "login"]).has(normalizedSegment);
 
   const handler = (
     <StackTheme theme={stackAuthDarkTheme}>
@@ -65,7 +66,7 @@ export default async function Handler(props: unknown) {
   if (isAuthForm) {
     return (
       <AuthShell enterpriseSlot={<AuthEnterpriseCTA />}>
-        <BackButton />
+        {showBackButton && <BackButton />}
         {handler}
       </AuthShell>
     );

@@ -10,15 +10,7 @@ import type { LeadSource } from "@/components/lead-forms/leadFieldOptions";
 import { OnboardingModal } from "@/components/lead-forms/OnboardingModal";
 import { PostHogEvent } from "@/constants/posthog-events";
 import { useOnboarding } from "@/context/OnboardingContext";
-import { useUserConfig } from "@/context/UserConfigContext";
-
-// The onboarding flag fields live on the Dograh user-config JSON blob. The
-// generated client type may not include them until `npm run generate-client`
-// is re-run against the updated backend, so read them through this shape.
-type OnboardingFlags = {
-  onboarding_completed_at?: string | null;
-  onboarding_skipped?: boolean | null;
-};
+import { useAuth } from "@/lib/auth";
 
 interface LeadFormsContextValue {
   openHireExpert: (source: LeadSource) => void;
@@ -40,32 +32,32 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
 
   // ---- Post-signup onboarding gate ----
   // Show the onboarding form ONCE per user, and ONLY to genuinely new users:
-  //   (a) the completion flag is unset (server-side, cross-device), AND
+  //   (a) the completion/skip flag is unset (server-backed onboarding state,
+  //       cross-device), AND
   //   (b) the user has zero workflows (grandfathers out all existing users —
   //       they already have workflows, so they never see this modal).
-  const { userConfig, loading: userConfigLoading, user, saveUserConfig } = useUserConfig();
-  // Same-browser "show once" backstop, shared with the rest of onboarding
-  // (tooltips/actions) via OnboardingProvider. Complements the server-side flag
-  // so an instant reload before the async save round-trips can't re-show the gate.
-  const { hasCompletedAction, markActionCompleted } = useOnboarding();
+  const { user, loading: authLoading } = useAuth();
+  const {
+    loading: onboardingLoading,
+    onboardingCompletedAt,
+    onboardingSkipped,
+    markOnboardingCompleted,
+  } = useOnboarding();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   // Guard so the one-time workflow-count check runs at most once per mount.
   const onboardingCheckedRef = useRef(false);
+  // Live view of the gate for the post-await re-check below.
+  const onboardingDoneRef = useRef(false);
+  onboardingDoneRef.current = Boolean(onboardingCompletedAt) || onboardingSkipped;
 
   useEffect(() => {
-    if (userConfigLoading || !user || onboardingCheckedRef.current) return;
-
-    const flags = userConfig as OnboardingFlags | null;
-    const completed =
-      hasCompletedAction("welcome_form_completed") ||
-      Boolean(flags?.onboarding_completed_at) ||
-      Boolean(flags?.onboarding_skipped);
-    if (completed) {
-      onboardingCheckedRef.current = true; // already done — never show
+    if (authLoading || onboardingLoading || !user || onboardingCheckedRef.current) {
       return;
     }
 
     onboardingCheckedRef.current = true;
+    if (onboardingDoneRef.current) return; // already done — never show
+
     // Only brand-new users (no workflows yet) see the form. The count is
     // org-scoped (the user's selected organization), so a new user joining an
     // org that already has workflows is correctly grandfathered out. This costs
@@ -74,12 +66,9 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const res = await getWorkflowCountApiV1WorkflowCountGet();
-        // Re-read the flag after the await: a config save elsewhere may have
-        // stamped completion while the count was in flight.
-        const latest = userConfig as OnboardingFlags | null;
-        const stillPending =
-          !latest?.onboarding_completed_at && !latest?.onboarding_skipped;
-        if (res.data?.total === 0 && stillPending) {
+        // Re-check the flag after the await: a completion elsewhere (another
+        // tab) may have stamped it while the count was in flight.
+        if (res.data?.total === 0 && !onboardingDoneRef.current) {
           setOnboardingOpen(true);
           posthog.capture(PostHogEvent.ONBOARDING_SHOWN);
         }
@@ -88,24 +77,15 @@ export function LeadFormsProvider({ children }: { children: ReactNode }) {
         // existing users are never disrupted.
       }
     })();
-  }, [userConfigLoading, user, userConfig, hasCompletedAction]);
+  }, [authLoading, onboardingLoading, user]);
 
-  const completeOnboarding = useCallback(() => {
-    // Dismiss immediately. Mark the same-browser backstop synchronously via
-    // OnboardingProvider (same store as the one-time tooltips/actions) so an
-    // instant reload can't re-show the gate, then best-effort persist the server
-    // flag (cross-device source of truth). saveUserConfig merges with the existing
-    // config, so only the new field is needed.
+  const completeOnboarding = useCallback((skipped: boolean) => {
+    // Dismiss immediately, then persist the flag through OnboardingContext
+    // (optimistic local state closes the gate even if the server write lags;
+    // the write itself is best-effort and cross-device).
     setOnboardingOpen(false);
-    markActionCompleted("welcome_form_completed");
-    void saveUserConfig({
-      onboarding_completed_at: new Date().toISOString(),
-    } as Parameters<typeof saveUserConfig>[0]).catch(() => {
-      // The local backstop already prevents a same-browser re-prompt; a failed
-      // server stamp only risks a re-prompt on another device.
-      console.error("[onboarding] failed to persist completion flag to user-config");
-    });
-  }, [saveUserConfig, markActionCompleted]);
+    markOnboardingCompleted({ skipped });
+  }, [markOnboardingCompleted]);
 
   const openHireExpert = useCallback((source: LeadSource) => {
     hasOpenedHireRef.current = true;

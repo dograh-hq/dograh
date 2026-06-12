@@ -34,8 +34,9 @@ import { type OnboardingAnswers, skipOnboarding, submitOnboarding } from "./subm
 
 interface OnboardingModalProps {
   open: boolean;
-  // Called after a tracked outcome (submit or skip) to dismiss the gate.
-  onComplete: () => void;
+  // Called after a tracked outcome (submit or skip) to dismiss the gate and
+  // stamp the matching server-side flag (completed_at vs skipped).
+  onComplete: (skipped: boolean) => void;
 }
 
 export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
@@ -88,7 +89,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
     setSubmitting(true);
     const data = answers();
     const efSnapshot = withEnterprise ? { ...ef } : null;
-    onComplete();
+    onComplete(skipped);
     void (async () => {
       const token = await getAccessToken().catch(() => undefined);
       try {

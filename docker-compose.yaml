@@ -209,15 +209,24 @@ services:
       - app-network
 
   ui:
-    image: ${REGISTRY:-dograhai}/dograh-ui:latest
+    build:
+      context: .
+      dockerfile: ui/Dockerfile
+      args:
+        # Backend URL for server-side proxying (Next.js rewrites, SSR)
+        BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+        # Backend URL for client-side code (browser API calls)
+        NEXT_PUBLIC_BACKEND_URL: "${NEXT_PUBLIC_BACKEND_URL:-http://localhost:3010}"
     environment:
-      # Server-side URL (SSR, internal Docker network)
+      # Runtime overrides for server-side proxying (if needed for custom deployments)
       BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      # Runtime config for client-side code (available in browser console)
+      NEXT_PUBLIC_BACKEND_URL: "${NEXT_PUBLIC_BACKEND_URL:-http://localhost:3010}"
       NODE_ENV: "oss"
-      # Flag to enable/ disable posthog
+      # Flag to enable/disable posthog telemetry
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
 
-      # Posthog
+      # Posthog analytics configuration
       POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
       POSTHOG_HOST: "https://us.posthog.com"
     ports:

@@ -35,12 +35,19 @@ COPY ui/postcss.config.mjs ./
 COPY ui/public ./public
 COPY ui/src ./src
 
+# Accept backend URL as build argument (allow customization during image build)
+ARG BACKEND_URL=http://api:8000
+ARG NEXT_PUBLIC_BACKEND_URL=http://localhost:3010
+
 # Set build-time environment variables (needed for Next.js build)
 ENV NEXT_PUBLIC_NODE_ENV="oss"
 ENV NEXT_TELEMETRY_DISABLED="1"
 ENV NEXT_PUBLIC_CHATWOOT_URL="https://chat.dograh.com"
 ENV NEXT_PUBLIC_CHATWOOT_TOKEN="3fkFx2mCEjNHjM9gaNc4A82X"
-ENV BACKEND_URL="http://api:8000"
+# Server-side backend URL (used by Next.js rewrites for SSR/API proxying)
+ENV BACKEND_URL=${BACKEND_URL}
+# Client-side backend URL (used by browser-side API calls)
+ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
 
 # Build the application with standalone mode
 # Increase Node.js heap size to prevent out-of-memory errors during build
@@ -64,11 +71,15 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
+# Copy entrypoint script for runtime configuration
+COPY --chown=nextjs:nodejs ui/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
 # Switch to non-root user
 USER nextjs
 
 # Expose the port Next.js runs on
 EXPOSE 3010
 
-# Start the production server using the standalone Node.js server
-CMD sh -c "echo '🚀 Application ready at http://localhost:3010' && PORT=3010 node server.js"
+# Use entrypoint script to enable runtime configuration of backend URLs
+ENTRYPOINT ["/app/entrypoint.sh"]

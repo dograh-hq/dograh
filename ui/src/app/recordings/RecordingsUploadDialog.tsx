@@ -136,7 +136,7 @@ export const RecordingsUploadDialog = ({
         const valid: PendingFile[] = [];
         for (const file of files) {
             if (file.size > MAX_FILE_SIZE) {
-                setError(`${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds 5MB limit — skipped.`);
+                setError(`${file.name} (${(file.size / (1024 * 1024)).toFixed(1)}MB) exceeds 5MB limit - skipped.`);
                 continue;
             }
             const id = `pending-${++pendingFileCounter}`;

@@ -147,13 +147,13 @@ export type AwsBedrockLlmConfiguration = {
     /**
      * Api Key
      *
-     * Not used for Bedrock — authentication is via the AWS credentials above. Leave blank.
+     * Not used for Bedrock - authentication is via the AWS credentials above. Leave blank.
      */
     api_key?: string | Array<string> | null;
     /**
      * Model
      *
-     * Bedrock model ID — include the region inference-profile prefix (e.g. 'us.').
+     * Bedrock model ID - include the region inference-profile prefix (e.g. 'us.').
      */
     model?: string;
     /**
@@ -344,7 +344,7 @@ export type AzureOpenAiEmbeddingsConfiguration = {
 /**
  * Azure OpenAI Realtime
  *
- * Azure OpenAI Realtime API — low-latency speech-to-speech conversations.
+ * Azure OpenAI Realtime API - low-latency speech-to-speech conversations.
  */
 export type AzureRealtimeLlmConfiguration = {
     /**
@@ -384,7 +384,7 @@ export type AzureRealtimeLlmConfiguration = {
 /**
  * Azure Speech Services
  *
- * Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.
+ * Azure Cognitive Services Speech - TTS and STT via the Azure Speech SDK.
  */
 export type AzureSpeechSttConfiguration = {
     /**
@@ -418,7 +418,7 @@ export type AzureSpeechSttConfiguration = {
 /**
  * Azure Speech Services
  *
- * Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.
+ * Azure Cognitive Services Speech - TTS and STT via the Azure Speech SDK.
  */
 export type AzureSpeechTtsConfiguration = {
     /**
@@ -2627,7 +2627,7 @@ export type GoogleVertexLlmConfiguration = {
     /**
      * Api Key
      *
-     * Not used for Vertex AI — authentication is via the service account in `credentials` (or ADC). Leave blank.
+     * Not used for Vertex AI - authentication is via the service account in `credentials` (or ADC). Leave blank.
      */
     api_key?: string | Array<string> | null;
     /**
@@ -2667,7 +2667,7 @@ export type GoogleVertexRealtimeLlmConfiguration = {
     /**
      * Api Key
      *
-     * Not used for Vertex AI — authentication is via the service account in `credentials` (or ADC). Leave blank.
+     * Not used for Vertex AI - authentication is via the service account in `credentials` (or ADC). Leave blank.
      */
     api_key?: string | Array<string> | null;
     /**
@@ -3535,6 +3535,61 @@ export type NodeTypesResponse = {
      * Node Types
      */
     node_types: Array<NodeSpec>;
+};
+
+/**
+ * OnboardingState
+ *
+ * Per-user onboarding state, stored under UserConfigurationKey.ONBOARDING.
+ *
+ * Server-authoritative replacement for the browser-localStorage onboarding
+ * store, so the post-signup gate and one-time tooltips hold across devices.
+ */
+export type OnboardingState = {
+    /**
+     * Completed At
+     */
+    completed_at?: string | null;
+    /**
+     * Skipped
+     */
+    skipped?: boolean;
+    /**
+     * Seen Tooltips
+     */
+    seen_tooltips?: Array<string>;
+    /**
+     * Completed Actions
+     */
+    completed_actions?: Array<string>;
+};
+
+/**
+ * OnboardingStateUpdate
+ *
+ * Partial update merged into the stored state.
+ *
+ * Scalars overwrite when supplied; list entries are unioned into the stored
+ * lists, so concurrent updates (e.g. two tabs marking different tooltips)
+ * don't drop each other's items.
+ */
+export type OnboardingStateUpdate = {
+    /**
+     * Completed At
+     */
+    completed_at?: string | null;
+    /**
+     * Skipped
+     */
+    skipped?: boolean | null;
+    /**
+     * Seen Tooltips
+     */
+    seen_tooltips?: Array<string> | null;
+    /**
+     * Completed Actions
+     */
+    completed_actions?: Array<string> | null;
 };
 
 /**
@@ -8562,6 +8617,84 @@ export type UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponses = {
 };
 
 export type UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponse = UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponses[keyof UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponses];
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/user/onboarding-state';
+};
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetError = GetUserOnboardingStateApiV1UserOnboardingStateGetErrors[keyof GetUserOnboardingStateApiV1UserOnboardingStateGetErrors];
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OnboardingState;
+};
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetResponse = GetUserOnboardingStateApiV1UserOnboardingStateGetResponses[keyof GetUserOnboardingStateApiV1UserOnboardingStateGetResponses];
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutData = {
+    body: OnboardingStateUpdate;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/user/onboarding-state';
+};
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutError = UpdateUserOnboardingStateApiV1UserOnboardingStatePutErrors[keyof UpdateUserOnboardingStateApiV1UserOnboardingStatePutErrors];
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponses = {
+    /**
+     * Successful Response
+     */
+    200: OnboardingState;
+};
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponse = UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponses[keyof UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponses];
 
 export type ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetData = {
     body?: never;

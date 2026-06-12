@@ -8,6 +8,7 @@ from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.models import UserConfigurationModel, UserModel
+from api.enums import UserConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 
 
@@ -65,16 +66,51 @@ class UserClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def _get_user_configuration_row(
+        self, session, user_id: int, key: str
+    ) -> UserConfigurationModel | None:
+        result = await session.execute(
+            select(UserConfigurationModel).where(
+                UserConfigurationModel.user_id == user_id,
+                UserConfigurationModel.key == key,
+            )
+        )
+        return result.scalars().first()
+
+    async def get_user_configuration_value(self, user_id: int, key: str) -> dict | None:
+        """Get the JSON value stored for a user under `key`, or None."""
+        async with self.async_session() as session:
+            row = await self._get_user_configuration_row(session, user_id, key)
+            return row.configuration if row else None
+
+    async def upsert_user_configuration_value(
+        self, user_id: int, key: str, value: dict
+    ) -> dict:
+        """Create or update the JSON value stored for a user under `key`."""
+        async with self.async_session() as session:
+            row = await self._get_user_configuration_row(session, user_id, key)
+            if row:
+                row.configuration = value
+            else:
+                row = UserConfigurationModel(
+                    user_id=user_id, key=key, configuration=value
+                )
+                session.add(row)
+            try:
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            await session.refresh(row)
+            return row.configuration
+
     async def get_user_configurations(
         self, user_id: int
     ) -> EffectiveAIModelConfiguration:
         async with self.async_session() as session:
-            result = await session.execute(
-                select(UserConfigurationModel).where(
-                    UserConfigurationModel.user_id == user_id
-                )
+            configuration_obj = await self._get_user_configuration_row(
+                session, user_id, UserConfigurationKey.MODEL_CONFIGURATION.value
             )
-            configuration_obj = result.scalars().first()
             if not configuration_obj:
                 return EffectiveAIModelConfiguration()
 
@@ -97,38 +133,18 @@ class UserClient(BaseDBClient):
     async def update_user_configuration(
         self, user_id: int, configuration: EffectiveAIModelConfiguration
     ) -> EffectiveAIModelConfiguration:
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(UserConfigurationModel).where(
-                    UserConfigurationModel.user_id == user_id
-                )
-            )
-            configuration_obj = result.scalars().first()
-            if not configuration_obj:
-                configuration_obj = UserConfigurationModel(
-                    user_id=user_id, configuration=configuration.model_dump()
-                )
-                session.add(configuration_obj)
-            else:
-                configuration_obj.configuration = configuration.model_dump()
-            try:
-                await session.commit()
-            except Exception as e:
-                await session.rollback()
-                raise e
-            await session.refresh(configuration_obj)
-        return EffectiveAIModelConfiguration.model_validate(
-            configuration_obj.configuration
+        value = await self.upsert_user_configuration_value(
+            user_id,
+            UserConfigurationKey.MODEL_CONFIGURATION.value,
+            configuration.model_dump(),
         )
+        return EffectiveAIModelConfiguration.model_validate(value)
 
     async def update_user_configuration_last_validated_at(self, user_id: int) -> None:
         async with self.async_session() as session:
-            result = await session.execute(
-                select(UserConfigurationModel).where(
-                    UserConfigurationModel.user_id == user_id
-                )
+            configuration_obj = await self._get_user_configuration_row(
+                session, user_id, UserConfigurationKey.MODEL_CONFIGURATION.value
             )
-            configuration_obj = result.scalars().first()
             if not configuration_obj:
                 raise ValueError(f"User configuration with ID {user_id} not found")
             configuration_obj.last_validated_at = datetime.now()

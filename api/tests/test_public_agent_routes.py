@@ -57,7 +57,7 @@ def test_trigger_route_executes_as_workflow_owner():
     with (
         patch("api.routes.public_agent.db_client") as mock_db,
         patch(
-            "api.routes.public_agent.check_dograh_quota_by_user_id",
+            "api.routes.public_agent.authorize_workflow_run_start",
             new=quota_mock,
         ),
         patch(
@@ -92,7 +92,10 @@ def test_trigger_route_executes_as_workflow_owner():
         )
 
     assert response.status_code == 200
-    quota_mock.assert_awaited_once_with(workflow.user_id, workflow_id=workflow.id)
+    quota_mock.assert_awaited_once_with(
+        workflow_id=workflow.id,
+        workflow_run_id=501,
+    )
     mock_db.get_workflow.assert_awaited_once_with(workflow.id, organization_id=11)
 
     create_kwargs = mock_db.create_workflow_run.await_args.kwargs
@@ -124,7 +127,7 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
     with (
         patch("api.routes.public_agent.db_client") as mock_db,
         patch(
-            "api.routes.public_agent.check_dograh_quota_by_user_id",
+            "api.routes.public_agent.authorize_workflow_run_start",
             new=quota_mock,
         ),
         patch(

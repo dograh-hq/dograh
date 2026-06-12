@@ -1105,7 +1105,7 @@ async def test_text_chat_session_creation_rejects_quota_before_creating_run(
 
     async with test_client_factory(user) as client:
         with patch(
-            "api.routes.workflow_text_chat.check_dograh_quota",
+            "api.routes.workflow_text_chat.authorize_workflow_run_start",
             new=AsyncMock(
                 return_value=SimpleNamespace(
                     has_quota=False,
@@ -1120,11 +1120,16 @@ async def test_text_chat_session_creation_rejects_quota_before_creating_run(
 
     assert create_response.status_code == 402
     assert create_response.json()["detail"] == "Quota exceeded"
-    _, total_count = await db_session.get_workflow_runs_by_workflow_id(
+    runs, total_count = await db_session.get_workflow_runs_by_workflow_id(
         workflow.id,
         organization_id=workflow.organization_id,
     )
-    assert total_count == 0
+    assert total_count == 1
+    text_session = await db_session.get_workflow_run_text_session(
+        runs[0].id,
+        organization_id=workflow.organization_id,
+    )
+    assert text_session is None
 
 
 @pytest.mark.asyncio
@@ -1168,7 +1173,7 @@ async def test_text_chat_append_rejects_quota_without_mutating_session(
     async with test_client_factory(user) as client:
         with (
             patch(
-                "api.routes.workflow_text_chat.check_dograh_quota",
+                "api.routes.workflow_text_chat.authorize_workflow_run_start",
                 new=AsyncMock(
                     side_effect=[
                         SimpleNamespace(has_quota=True, error_message=""),

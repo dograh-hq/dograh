@@ -10,7 +10,7 @@ from api.db import db_client
 from api.db.models import UserModel, WorkflowRunTextSessionModel
 from api.enums import WorkflowRunMode
 from api.services.auth.depends import get_user_with_selected_organization
-from api.services.quota_service import check_dograh_quota
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
     TextChatSessionExecutionError,
@@ -96,8 +96,16 @@ def _revision_conflict_detail(e: Any) -> dict[str, Any]:
     }
 
 
-async def _ensure_text_chat_quota(user: UserModel, workflow_id: int) -> None:
-    quota_result = await check_dograh_quota(user, workflow_id=workflow_id)
+async def _ensure_text_chat_quota(
+    user: UserModel,
+    workflow_id: int,
+    workflow_run_id: int,
+) -> None:
+    quota_result = await authorize_workflow_run_start(
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+        actor_user=user,
+    )
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
@@ -153,8 +161,6 @@ async def create_text_chat_session(
     request: CreateTextChatSessionRequest,
     user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
-    await _ensure_text_chat_quota(user, workflow_id)
-
     session_name = request.name or f"WR-TEXT-{uuid4().hex[:6].upper()}"
     try:
         workflow_run = await db_client.create_workflow_run(
@@ -170,6 +176,7 @@ async def create_text_chat_session(
         raise HTTPException(status_code=404, detail=str(e))
 
     set_current_run_id(workflow_run.id)
+    await _ensure_text_chat_quota(user, workflow_id, workflow_run.id)
 
     annotations = {
         "tester": {
@@ -229,7 +236,7 @@ async def append_text_chat_message(
     user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
-    await _ensure_text_chat_quota(user, workflow_id)
+    await _ensure_text_chat_quota(user, workflow_id, run_id)
 
     try:
         text_session = await append_text_chat_user_message(

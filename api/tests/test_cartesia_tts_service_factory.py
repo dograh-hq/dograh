@@ -33,7 +33,9 @@ def test_create_cartesia_tts_service_passes_selected_model():
         transport_in_sample_rate=16000,
     )
 
-    with patch("api.services.pipecat.service_factory.CartesiaTTSService") as mock_service:
+    with patch(
+        "api.services.pipecat.service_factory.CartesiaTTSService"
+    ) as mock_service:
         create_tts_service(user_config, audio_config)
 
     assert mock_service.call_count == 1

@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -54,7 +54,7 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
     with (
         patch("api.routes.telephony.db_client") as mock_db,
         patch(
-            "api.routes.telephony.check_dograh_quota_by_user_id",
+            "api.routes.telephony.authorize_workflow_run_start",
             new=quota_mock,
         ),
         patch(
@@ -88,7 +88,11 @@ def test_initiate_call_executes_as_workflow_owner_for_shared_org_workflow():
         )
 
     assert response.status_code == 200
-    quota_mock.assert_awaited_once_with(workflow.user_id, workflow_id=workflow.id)
+    quota_mock.assert_awaited_once_with(
+        workflow_id=workflow.id,
+        workflow_run_id=501,
+        actor_user=ANY,
+    )
     mock_db.get_workflow.assert_awaited_once_with(workflow.id, organization_id=11)
 
     create_call = mock_db.create_workflow_run.await_args
@@ -119,7 +123,7 @@ def test_initiate_call_uses_organization_preference_phone_number():
     with (
         patch("api.routes.telephony.db_client") as mock_db,
         patch(
-            "api.routes.telephony.check_dograh_quota_by_user_id",
+            "api.routes.telephony.authorize_workflow_run_start",
             new=quota_mock,
         ),
         patch(
@@ -173,7 +177,7 @@ def test_initiate_call_rejects_existing_run_for_different_workflow():
     with (
         patch("api.routes.telephony.db_client") as mock_db,
         patch(
-            "api.routes.telephony.check_dograh_quota_by_user_id",
+            "api.routes.telephony.authorize_workflow_run_start",
             new=quota_mock,
         ),
         patch(

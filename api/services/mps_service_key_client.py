@@ -478,6 +478,50 @@ class MPSServiceKeyClient:
                 response=response,
             )
 
+    async def authorize_workflow_run_start(
+        self,
+        *,
+        organization_id: int,
+        workflow_run_id: int | None = None,
+        service_key: Optional[str] = None,
+        require_correlation_id: bool = False,
+        minimum_credits: float | None = None,
+        metadata: Optional[dict] = None,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """Authorize a hosted workflow run and optionally mint its MPS correlation."""
+        payload = {
+            "workflow_run_id": workflow_run_id,
+            "service_key": service_key,
+            "require_correlation_id": require_correlation_id,
+            "metadata": metadata or {},
+        }
+        if minimum_credits is not None:
+            payload["minimum_credits"] = minimum_credits
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/run-authorization",
+                json=payload,
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to authorize MPS workflow run start: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to authorize MPS workflow run start: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
     async def create_correlation_id(
         self,
         *,

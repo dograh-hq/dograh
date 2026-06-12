@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from loguru import logger
-
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import ServiceProviders
-from api.services.mps_service_key_client import mps_service_key_client
 
 MPS_CORRELATION_ID_CONTEXT_KEY = "mps_correlation_id"
 
@@ -48,27 +45,10 @@ async def ensure_mps_correlation_id(
     if not uses_managed_model_services_v2(ai_model_config):
         return None
 
-    service_key = _get_dograh_service_api_key(ai_model_config)
-    if not service_key:
-        raise ValueError(
-            "Managed model services v2 requires a Dograh service key before the run starts."
-        )
-
-    response = await mps_service_key_client.create_correlation_id(
-        service_key=service_key,
-        workflow_run_id=workflow_run_id,
+    raise ValueError(
+        "Managed model services v2 requires workflow run authorization before "
+        f"the run starts. Missing correlation id for workflow_run_id={workflow_run_id}."
     )
-    correlation_id = response.get("correlation_id")
-    if not correlation_id:
-        raise ValueError("MPS correlation-id response did not include correlation_id")
-
-    correlation_id = str(correlation_id)
-    logger.info(
-        "Minted MPS correlation id {} for workflow run {}",
-        correlation_id,
-        workflow_run_id,
-    )
-    return correlation_id
 
 
 def _is_dograh_service(service: Any) -> bool:
@@ -78,7 +58,7 @@ def _is_dograh_service(service: Any) -> bool:
     )
 
 
-def _get_dograh_service_api_key(
+def get_dograh_service_api_key(
     ai_model_config: EffectiveAIModelConfiguration,
 ) -> str | None:
     for section_name in ("llm", "tts", "stt", "embeddings"):

@@ -176,6 +176,76 @@ async def test_get_billing_account_status_uses_hosted_org_auth(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_authorize_workflow_run_start_uses_hosted_org_auth(monkeypatch):
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, json, headers):
+            calls.append(("POST", url, json, headers))
+            return _Response(
+                200,
+                {
+                    "allowed": True,
+                    "billing_mode": "v2",
+                    "remaining_credits": "25.0000",
+                    "correlation_id": "mps-corr-123",
+                },
+            )
+
+    monkeypatch.setattr(
+        "api.services.mps_service_key_client.httpx.AsyncClient", FakeAsyncClient
+    )
+    monkeypatch.setattr("api.services.mps_service_key_client.DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(
+        "api.services.mps_service_key_client.DOGRAH_MPS_SECRET_KEY", "mps-secret"
+    )
+
+    client = MPSServiceKeyClient()
+
+    assert await client.authorize_workflow_run_start(
+        organization_id=42,
+        workflow_run_id=88,
+        service_key="mps_sk_paid",
+        require_correlation_id=True,
+        minimum_credits=0.1,
+        metadata={"workflow_id": 7},
+        created_by="provider-123",
+    ) == {
+        "allowed": True,
+        "billing_mode": "v2",
+        "remaining_credits": "25.0000",
+        "correlation_id": "mps-corr-123",
+    }
+    assert calls == [
+        (
+            "POST",
+            f"{client.base_url}/api/v1/billing/accounts/42/run-authorization",
+            {
+                "workflow_run_id": 88,
+                "service_key": "mps_sk_paid",
+                "require_correlation_id": True,
+                "minimum_credits": 0.1,
+                "metadata": {"workflow_id": 7},
+            },
+            {
+                "Content-Type": "application/json",
+                "X-Secret-Key": "mps-secret",
+                "X-Organization-Id": "42",
+            },
+        )
+    ]
+
+
+@pytest.mark.asyncio
 async def test_ensure_billing_account_v2_uses_balance_endpoint(monkeypatch):
     calls = []
 

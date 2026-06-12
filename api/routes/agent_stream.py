@@ -22,7 +22,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
 from api.enums import CallType, WorkflowRunState
-from api.services.quota_service import check_dograh_quota_by_user_id
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony import registry as telephony_registry
 
 router = APIRouter(prefix="/agent-stream")
@@ -67,19 +67,6 @@ async def agent_stream_websocket(
         await websocket.close(code=1008, reason="Workflow not found")
         return
 
-    quota_result = await check_dograh_quota_by_user_id(
-        workflow.user_id, workflow_id=workflow.id
-    )
-    if not quota_result.has_quota:
-        logger.warning(
-            f"agent-stream quota exceeded for user {workflow.user_id}: "
-            f"{quota_result.error_message}"
-        )
-        await websocket.close(
-            code=1008, reason=quota_result.error_message or "Quota exceeded"
-        )
-        return
-
     numeric_suffix = int(str(uuid.uuid4()).replace("-", "")[:8], 16) % 100000000
     workflow_run_name = f"WR-AGS-{numeric_suffix:08d}"
     call_id = params.get("callId") or params.get("CallSid")
@@ -107,6 +94,20 @@ async def agent_stream_websocket(
 
     set_current_run_id(workflow_run.id)
     set_current_org_id(workflow.organization_id)
+
+    quota_result = await authorize_workflow_run_start(
+        workflow_id=workflow.id,
+        workflow_run_id=workflow_run.id,
+    )
+    if not quota_result.has_quota:
+        logger.warning(
+            f"agent-stream quota exceeded for user {workflow.user_id}: "
+            f"{quota_result.error_message}"
+        )
+        await websocket.close(
+            code=1008, reason=quota_result.error_message or "Quota exceeded"
+        )
+        return
 
     await db_client.update_workflow_run(
         run_id=workflow_run.id, state=WorkflowRunState.RUNNING.value

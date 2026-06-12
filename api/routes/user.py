@@ -92,7 +92,7 @@ class UserConfigurationRequestResponseSchema(BaseModel):
     test_phone_number: str | None = None
     timezone: str | None = None
     organization_pricing: dict[str, Union[float, str, bool]] | None = None
-    # Post-signup onboarding gate (see UserConfiguration). Set once on submit/skip.
+    # Post-signup onboarding gate. Set once on submit/skip.
     onboarding_completed_at: datetime | None = None
     onboarding_skipped: bool | None = None
 

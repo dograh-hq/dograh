@@ -19,3 +19,8 @@ coturn/
 *.wav
 dograh_pcm_cache/
 node_modules/
+
+# Local-only reference: google-genai 2.8.0 source extracted from the wheel.
+# Used during development to cite upstream paths in source comments.
+# Must never be committed. Safe to delete locally once development is complete.
+.genai28_ref/

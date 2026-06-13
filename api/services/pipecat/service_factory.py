@@ -854,6 +854,19 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
                 ),
             ),
         )
+    elif provider == ServiceProviders.GOOGLE_REALTIME_TRANSLATE.value:
+        from api.services.pipecat.realtime.gemini_live_translate import (
+            DograhGeminiLiveTranslateLLMService,
+        )
+
+        target_language_code = getattr(realtime_config, "target_language_code", "en")
+        return DograhGeminiLiveTranslateLLMService(
+            api_key=api_key,
+            settings=DograhGeminiLiveTranslateLLMService.Settings(
+                model=model,
+                target_language_code=target_language_code,
+            ),
+        )
     else:
         raise HTTPException(
             status_code=400, detail=f"Invalid realtime LLM provider {provider}"

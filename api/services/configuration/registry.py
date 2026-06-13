@@ -21,6 +21,8 @@ from api.services.configuration.options import (
     GOOGLE_MODELS,
     GOOGLE_REALTIME_LANGUAGES,
     GOOGLE_REALTIME_MODELS,
+    GOOGLE_REALTIME_TRANSLATE_LANGUAGES,
+    GOOGLE_REALTIME_TRANSLATE_MODELS,
     GOOGLE_REALTIME_VOICES,
     GOOGLE_STT_LANGUAGES,
     GOOGLE_STT_MODELS,
@@ -78,6 +80,7 @@ class ServiceProviders(str, Enum):
     ULTRAVOX_REALTIME = "ultravox_realtime"
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
+    GOOGLE_REALTIME_TRANSLATE = "google_realtime_translate"
     AZURE_REALTIME = "azure_realtime"
 
 
@@ -104,6 +107,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.ULTRAVOX_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
+        ServiceProviders.GOOGLE_REALTIME_TRANSLATE,
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
     ]
@@ -236,6 +240,15 @@ ULTRAVOX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Ultravox Realti
 GOOGLE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config("Google Realtime")
 GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Google Vertex Realtime"
+)
+GOOGLE_REALTIME_TRANSLATE_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Google Realtime Translate",
+    description=(
+        "Gemini 3.5 Live Translate — low-latency speech-to-speech translation "
+        "across 70+ languages. Translation-only: no tools, system instructions, "
+        "or voice selection."
+    ),
+    provider_docs_url="https://ai.google.dev/gemini-api/docs/live-api/live-translate",
 )
 DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
@@ -689,6 +702,33 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
 
 
 @register_service(ServiceType.REALTIME)
+class GoogleRealtimeTranslateLLMConfiguration(BaseLLMConfiguration):
+    model_config = GOOGLE_REALTIME_TRANSLATE_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.GOOGLE_REALTIME_TRANSLATE] = (
+        ServiceProviders.GOOGLE_REALTIME_TRANSLATE
+    )
+    model: Literal["gemini-3.5-live-translate-preview"] = Field(
+        default="gemini-3.5-live-translate-preview",
+        description="Gemini Live Translate model (preview).",
+        json_schema_extra={
+            "examples": GOOGLE_REALTIME_TRANSLATE_MODELS,
+            "allow_custom_input": False,
+        },
+    )
+    target_language_code: str = Field(
+        default="en",
+        description=(
+            "BCP-47 code for the language the model translates speech into "
+            "(e.g. 'es', 'pl', 'pt-BR'). Source language is auto-detected."
+        ),
+        json_schema_extra={
+            "examples": GOOGLE_REALTIME_TRANSLATE_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+
+
+@register_service(ServiceType.REALTIME)
 class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
     model_config = AZURE_REALTIME_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.AZURE_REALTIME] = ServiceProviders.AZURE_REALTIME
@@ -726,6 +766,7 @@ REALTIME_PROVIDERS = {
     ServiceProviders.ULTRAVOX_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
     ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
+    ServiceProviders.GOOGLE_REALTIME_TRANSLATE.value,
     ServiceProviders.AZURE_REALTIME.value,
 }
 
@@ -754,6 +795,7 @@ RealtimeConfig = Annotated[
         UltravoxRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,
         GoogleVertexRealtimeLLMConfiguration,
+        GoogleRealtimeTranslateLLMConfiguration,
         AzureRealtimeLLMConfiguration,
     ],
     Field(discriminator="provider"),

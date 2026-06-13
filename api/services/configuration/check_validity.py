@@ -54,6 +54,7 @@ class UserConfigurationValidator:
             ServiceProviders.GROK_REALTIME.value: self._check_grok_realtime_api_key,
             ServiceProviders.ULTRAVOX_REALTIME.value: self._check_ultravox_realtime_api_key,
             ServiceProviders.GOOGLE_REALTIME.value: self._check_google_api_key,
+            ServiceProviders.GOOGLE_REALTIME_TRANSLATE.value: self._check_google_api_key,
             ServiceProviders.GOOGLE_VERTEX_REALTIME.value: self._check_google_vertex_realtime_api_key,
             ServiceProviders.AZURE_REALTIME.value: self._check_azure_realtime_api_key,
             ServiceProviders.ASSEMBLYAI.value: self._check_assemblyai_api_key,

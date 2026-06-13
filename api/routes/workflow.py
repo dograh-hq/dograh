@@ -25,6 +25,7 @@ from api.services.configuration.ai_model_configuration import (
     check_for_masked_keys_in_ai_model_configuration_v2,
     compile_ai_model_configuration_v2,
     convert_legacy_ai_model_configuration_to_v2,
+    get_effective_ai_model_configuration_for_workflow,
     get_resolved_ai_model_configuration,
     merge_ai_model_configuration_v2_secrets,
 )
@@ -46,6 +47,9 @@ from api.services.storage import storage_fs
 from api.services.workflow.dto import ReactFlowDTO, sanitize_workflow_definition
 from api.services.workflow.duplicate import duplicate_workflow
 from api.services.workflow.errors import ItemKind, WorkflowError
+from api.services.workflow.translator_validation import (
+    _is_translator_workflow_publishable,
+)
 from api.services.workflow.run_usage_response import (
     format_public_cost_info,
     format_public_usage_info,
@@ -751,6 +755,20 @@ async def publish_workflow(
     )
     if errors:
         raise _validation_errors_http_exception(errors)
+
+    # Translator publish-time gate: reject workflows wired to Live
+    # Translate that carry agent-style configuration the model will
+    # silently drop at runtime. See translator_validation.py.
+    effective_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+        workflow_configurations=draft.workflow_configurations,
+    )
+    translator_errors = _is_translator_workflow_publishable(
+        draft.workflow_json, effective_config
+    )
+    if translator_errors:
+        raise _validation_errors_http_exception(translator_errors)
 
     try:
         published = await db_client.publish_workflow_draft(workflow_id)

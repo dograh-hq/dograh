@@ -86,7 +86,6 @@ class DograhGeminiLiveTranslateLLMSettings(BaseModel):
     model: str = Field(default="gemini-3.5-live-translate-preview")
     target_language_code: str = Field(default="en")
     echo_target_language: bool = Field(default=False)
-    voice: str = Field(default="Puck")
     api_version: str = Field(default="v1beta")
 
     def validate_complete(self) -> None:
@@ -157,18 +156,18 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
     def _build_setup_message(self) -> dict:
         """Construct the BidiGenerateContent setup payload.
 
-        Wire format mirrors what the google-genai>=2.8 SDK actually sends
-        over the wire (verified by serializing a ``LiveConnectConfig``
-        through ``_live_converters._LiveConnectParameters_to_mldev`` —
-        see ``.genai28_ref/_live_converters.py``). The shape is
-        **mixed-case**: top-level ``setup`` keys and direct
-        ``generationConfig`` children (``responseModalities``,
-        ``speechConfig``, ``translationConfig``) are camelCase, but
-        everything nested inside ``speechConfig`` and ``translationConfig``
-        is snake_case — those subtrees are passed through unchanged from
-        ``model_dump(exclude_none=True)``. Using camelCase for the nested
-        fields makes the server silently ignore the voice config and fall
-        back to a default voice (cracking / wrong-voice audio).
+        Wire format matches the canonical Live Translate WebSocket example
+        in the official docs
+        (https://ai.google.dev/gemini-api/docs/live-api/live-translate):
+        everything is camelCase, and ``inputAudioTranscription``,
+        ``outputAudioTranscription`` and ``translationConfig`` all live
+        inside ``generationConfig``.
+
+        ``speechConfig`` is intentionally omitted — the translate-preview
+        model auto-clones the input speaker's voice and ignores any
+        ``speechConfig`` block (see the "Voice Replication" entry in the
+        docs' Limitations section). Selecting a prebuilt voice only works
+        on non-translate Live models such as ``gemini-live-2.5-flash``.
 
         TODO: When pipecat unpins google-genai<2, replace this manual
         construction with
@@ -176,30 +175,24 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
         See ``google-genai>=2.8.0`` ``types.TranslationConfig``.
         """
         translation_config: dict[str, Any] = {
-            "target_language_code": self._settings.target_language_code,
+            "targetLanguageCode": self._settings.target_language_code,
         }
         if self._settings.echo_target_language:
-            translation_config["echo_target_language"] = True
+            translation_config["echoTargetLanguage"] = True
         return {
             "setup": {
                 # ``models/`` prefix added per .genai28_ref/live.py:995 (t.t_model).
                 "model": f"models/{self._settings.model}",
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
+                    # Source-side transcripts so the dashboard call log
+                    # shows what the user said alongside the translated
+                    # bot output.
+                    "inputAudioTranscription": {},
+                    # Bot-side translated transcripts.
+                    "outputAudioTranscription": {},
                     "translationConfig": translation_config,
-                    "speechConfig": {
-                        "voice_config": {
-                            "prebuilt_voice_config": {
-                                "voice_name": self._settings.voice,
-                            },
-                        },
-                    },
                 },
-                # Bot-side translated transcripts.
-                "outputAudioTranscription": {},
-                # Source-side transcripts so the dashboard call log shows
-                # what the user said alongside the translated bot output.
-                "inputAudioTranscription": {},
             }
         }
 

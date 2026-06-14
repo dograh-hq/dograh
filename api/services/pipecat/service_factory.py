@@ -867,7 +867,6 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
             api_key=api_key,
             settings=DograhGeminiLiveTranslateLLMService.Settings(
                 model=model,
-                voice=voice or "Puck",
                 target_language_code=target_language_code,
                 echo_target_language=echo_target_language,
             ),

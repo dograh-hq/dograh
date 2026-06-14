@@ -64,45 +64,26 @@ def _make_service(
 def test_build_setup_message_wire_format():
     service = _make_service(target_language_code="pl")
     setup = service._build_setup_message()
-    # Wire format mirrors the google-genai>=2.8 SDK output exactly
-    # (verified by serializing LiveConnectConfig through
-    # _live_converters._LiveConnectParameters_to_mldev). The shape is
-    # mixed-case: top-level setup keys and direct generationConfig
-    # children (responseModalities, speechConfig, translationConfig)
-    # are camelCase, but everything nested inside speechConfig and
-    # translationConfig is snake_case.
+    # Wire format matches the canonical Live Translate WebSocket example in
+    # the official docs
+    # (https://ai.google.dev/gemini-api/docs/live-api/live-translate):
+    # camelCase throughout, with inputAudioTranscription,
+    # outputAudioTranscription and translationConfig all nested inside
+    # generationConfig. No speechConfig — translate-preview auto-clones
+    # the input speaker's voice.
     assert setup == {
         "setup": {
             "model": "models/gemini-3.5-live-translate-preview",
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
-                "translationConfig": {"target_language_code": "pl"},
-                "speechConfig": {
-                    "voice_config": {
-                        "prebuilt_voice_config": {"voice_name": "Puck"},
-                    },
-                },
+                "inputAudioTranscription": {},
+                "outputAudioTranscription": {},
+                "translationConfig": {"targetLanguageCode": "pl"},
             },
-            "outputAudioTranscription": {},
-            "inputAudioTranscription": {},
         }
     }
-    # outputAudioTranscription must NOT live inside generationConfig — the
-    # server rejects the whole setup with a 1007 close frame if it does.
-    assert "outputAudioTranscription" not in setup["setup"]["generationConfig"]
-    assert "inputAudioTranscription" not in setup["setup"]["generationConfig"]
-
-
-def test_build_setup_message_includes_voice_override():
-    service = DograhGeminiLiveTranslateLLMService(
-        api_key="test-key",
-        settings=DograhGeminiLiveTranslateLLMService.Settings(voice="Charon"),
-    )
-    setup = service._build_setup_message()
-    prebuilt = setup["setup"]["generationConfig"]["speechConfig"]["voice_config"][
-        "prebuilt_voice_config"
-    ]
-    assert prebuilt == {"voice_name": "Charon"}
+    # speechConfig is intentionally omitted — translate-preview ignores it.
+    assert "speechConfig" not in setup["setup"]["generationConfig"]
 
 
 def test_build_setup_message_includes_echo_target_language_when_enabled():
@@ -116,8 +97,8 @@ def test_build_setup_message_includes_echo_target_language_when_enabled():
     setup = service._build_setup_message()
     translation_config = setup["setup"]["generationConfig"]["translationConfig"]
     assert translation_config == {
-        "target_language_code": "pl",
-        "echo_target_language": True,
+        "targetLanguageCode": "pl",
+        "echoTargetLanguage": True,
     }
 
 
@@ -125,7 +106,7 @@ def test_build_setup_message_omits_echo_when_default_false():
     service = _make_service(target_language_code="pl")
     setup = service._build_setup_message()
     translation_config = setup["setup"]["generationConfig"]["translationConfig"]
-    assert "echo_target_language" not in translation_config
+    assert "echoTargetLanguage" not in translation_config
 
 
 def test_settings_validate_complete_is_noop():

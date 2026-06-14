@@ -715,19 +715,13 @@ class GoogleRealtimeTranslateLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": False,
         },
     )
-    voice: str = Field(
-        default="Puck",
-        description="Voice the model speaks in.",
-        json_schema_extra={
-            "examples": GOOGLE_REALTIME_VOICES,
-            "allow_custom_input": True,
-        },
-    )
     target_language_code: str = Field(
         default="en",
         description=(
             "BCP-47 code for the language the model translates speech into "
-            "(e.g. 'es', 'pl', 'pt-BR'). Source language is auto-detected."
+            "(e.g. 'es', 'pl', 'pt-BR'). Source language is auto-detected. "
+            "Voice is auto-cloned from the input speaker by the translate-preview "
+            "model and cannot be selected."
         ),
         json_schema_extra={
             "examples": GOOGLE_REALTIME_TRANSLATE_LANGUAGES,

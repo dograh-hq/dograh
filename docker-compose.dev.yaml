@@ -1,0 +1,7 @@
+services:
+  api:
+    volumes:
+      - ./api/services/telephony/providers/three_cx:/app/api/services/telephony/providers/three_cx:ro
+      - ./api/services/telephony/providers/__init__.py:/app/api/services/telephony/providers/__init__.py:ro
+      - ./api/schemas/telephony_config.py:/app/api/schemas/telephony_config.py:ro
+      - ./api/alembic/versions:/app/api/alembic/versions:ro

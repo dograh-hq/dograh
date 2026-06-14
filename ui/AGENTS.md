@@ -90,5 +90,5 @@ Use `detailFromError` from `@/lib/apiError` to turn the error into a string — 
 
 ```bash
 npm install
-npm run dev    # Runs on port 3000
+npm run dev    # Runs on port 3010
 ```

@@ -860,11 +860,16 @@ def create_realtime_llm_service(user_config, audio_config: "AudioConfig"):
         )
 
         target_language_code = getattr(realtime_config, "target_language_code", "en")
+        echo_target_language = bool(
+            getattr(realtime_config, "echo_target_language", False)
+        )
         return DograhGeminiLiveTranslateLLMService(
             api_key=api_key,
             settings=DograhGeminiLiveTranslateLLMService.Settings(
                 model=model,
+                voice=voice or "Puck",
                 target_language_code=target_language_code,
+                echo_target_language=echo_target_language,
             ),
         )
     else:

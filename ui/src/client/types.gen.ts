@@ -589,6 +589,8 @@ export type ByokRealtimeAiModelConfiguration = {
     } & GoogleRealtimeLlmConfiguration) | ({
         provider: 'google_vertex_realtime';
     } & GoogleVertexRealtimeLlmConfiguration) | ({
+        provider: 'google_realtime_translate';
+    } & GoogleRealtimeTranslateLlmConfiguration) | ({
         provider: 'azure_realtime';
     } & AzureRealtimeLlmConfiguration);
     /**
@@ -2522,6 +2524,34 @@ export type GoogleRealtimeLlmConfiguration = {
      * ISO 639-1 language code.
      */
     language?: string;
+};
+
+/**
+ * Google Realtime Translate
+ *
+ * Gemini 3.5 Live Translate — low-latency speech-to-speech translation across 70+ languages. Translation-only: no tools, system instructions, or voice selection.
+ */
+export type GoogleRealtimeTranslateLlmConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'google_realtime_translate';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Gemini Live Translate model (preview).
+     */
+    model?: 'gemini-3.5-live-translate-preview';
+    /**
+     * Target Language Code
+     *
+     * BCP-47 code for the language the model translates speech into (e.g. 'es', 'pl', 'pt-BR'). Source language is auto-detected.
+     */
+    target_language_code?: string;
 };
 
 /**

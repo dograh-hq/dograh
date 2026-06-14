@@ -16,6 +16,7 @@ Reference: https://ai.google.dev/gemini-api/docs/live-api/live-translate
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import time
@@ -27,6 +28,7 @@ from websockets.asyncio.client import connect as ws_connect
 from websockets.exceptions import ConnectionClosed
 
 from pipecat.frames.frames import (
+    AggregationType,
     BotStoppedSpeakingFrame,
     CancelFrame,
     EndFrame,
@@ -38,16 +40,19 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     LLMSetToolChoiceFrame,
     LLMSetToolsFrame,
+    LLMTextFrame,
     LLMUpdateSettingsFrame,
     StartFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
+    TTSTextFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.llm_service import FunctionCallFromLLM, LLMService
+from pipecat.utils.string import match_endofsentence
 from pipecat.utils.time import time_now_iso8601
 
 from api.services.pipecat.exceptions import UnsupportedRealtimeFeatureError
@@ -80,7 +85,20 @@ class DograhGeminiLiveTranslateLLMSettings(BaseModel):
 
     model: str = Field(default="gemini-3.5-live-translate-preview")
     target_language_code: str = Field(default="en")
+    echo_target_language: bool = Field(default=False)
+    voice: str = Field(default="Puck")
     api_version: str = Field(default="v1beta")
+
+    def validate_complete(self) -> None:
+        """No-op shim for :meth:`pipecat.services.ai_service.AIService.start`.
+
+        ``AIService.start`` calls ``self._settings.validate_complete()`` to
+        catch ``NOT_GIVEN`` fields on services that use pipecat's
+        ``ServiceSettings`` delta machinery. This service intentionally uses
+        a plain Pydantic model (mid-call updates are unsupported), so there
+        is nothing to validate.
+        """
+        return None
 
 
 class DograhGeminiLiveTranslateLLMService(LLMService):
@@ -113,6 +131,12 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
         # Bot-turn lifecycle — driven by serverContent.modelTurn arrivals
         # and turn_complete / interrupted signals.
         self._bot_is_responding: bool = False
+        # User-side transcription aggregation — Gemini Live emits the
+        # source-language transcript in word/phrase fragments. Buffer
+        # until an end-of-sentence marker or a short idle timeout. Mirrors
+        # GeminiLiveLLMService (gemini_live/llm.py:1874-1924).
+        self._user_transcription_buffer: str = ""
+        self._transcription_timeout_task: Any | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -133,31 +157,49 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
     def _build_setup_message(self) -> dict:
         """Construct the BidiGenerateContent setup payload.
 
-        Wire format pinned to google-genai==2.8.0 — see
-        ``.genai28_ref/_live_converters.py:976-981`` for the nesting of
-        ``translationConfig`` under ``generationConfig`` and
-        ``.genai28_ref/_live_converters.py:916-923`` for
-        ``outputAudioTranscription`` as a sibling of ``generationConfig``.
+        Wire format mirrors what the google-genai>=2.8 SDK actually sends
+        over the wire (verified by serializing a ``LiveConnectConfig``
+        through ``_live_converters._LiveConnectParameters_to_mldev`` —
+        see ``.genai28_ref/_live_converters.py``). The shape is
+        **mixed-case**: top-level ``setup`` keys and direct
+        ``generationConfig`` children (``responseModalities``,
+        ``speechConfig``, ``translationConfig``) are camelCase, but
+        everything nested inside ``speechConfig`` and ``translationConfig``
+        is snake_case — those subtrees are passed through unchanged from
+        ``model_dump(exclude_none=True)``. Using camelCase for the nested
+        fields makes the server silently ignore the voice config and fall
+        back to a default voice (cracking / wrong-voice audio).
 
         TODO: When pipecat unpins google-genai<2, replace this manual
         construction with
         ``LiveConnectConfig(translation_config=TranslationConfig(target_language_code=...))``.
         See ``google-genai>=2.8.0`` ``types.TranslationConfig``.
         """
+        translation_config: dict[str, Any] = {
+            "target_language_code": self._settings.target_language_code,
+        }
+        if self._settings.echo_target_language:
+            translation_config["echo_target_language"] = True
         return {
             "setup": {
                 # ``models/`` prefix added per .genai28_ref/live.py:995 (t.t_model).
                 "model": f"models/{self._settings.model}",
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
-                    "translationConfig": {
-                        "targetLanguageCode": self._settings.target_language_code,
+                    "translationConfig": translation_config,
+                    "speechConfig": {
+                        "voice_config": {
+                            "prebuilt_voice_config": {
+                                "voice_name": self._settings.voice,
+                            },
+                        },
                     },
                 },
-                # Bot-side translated transcripts routed via output_audio_transcription.
-                # Source-side (input_audio_transcription) is intentionally omitted —
-                # workflows wanting source transcripts should run STT separately.
+                # Bot-side translated transcripts.
                 "outputAudioTranscription": {},
+                # Source-side transcripts so the dashboard call log shows
+                # what the user said alongside the translated bot output.
+                "inputAudioTranscription": {},
             }
         }
 
@@ -199,6 +241,10 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
             return
         self._disconnecting = True
         logger.debug(f"{self}: disconnecting from Live Translate")
+        if self._transcription_timeout_task is not None:
+            await self.cancel_task(self._transcription_timeout_task, timeout=0.5)
+            self._transcription_timeout_task = None
+        self._user_transcription_buffer = ""
         if self._receive_task is not None:
             await self.cancel_task(self._receive_task, timeout=1.0)
             self._receive_task = None
@@ -318,6 +364,11 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
                 self._bot_is_responding = False
                 await self.push_frame(BotStoppedSpeakingFrame())
 
+        if "inputTranscription" in server_content:
+            await self._handle_msg_input_transcription(
+                server_content["inputTranscription"]
+            )
+
         if "modelTurn" in server_content:
             await self._handle_msg_model_turn(server_content["modelTurn"])
 
@@ -365,11 +416,21 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
             )
 
     async def _handle_msg_output_transcription(self, output: dict):
-        """Emit a finalized TranscriptionFrame for the translated bot text.
+        """Emit bot-side text frames for the translated output.
 
-        Routed as ``user_id="bot"`` so downstream aggregators distinguish
-        translator output from user STT.  Translate emits each utterance
-        as a single transcription event, so ``finalized=True``.
+        Mirrors ``GeminiLiveLLMService._push_output_transcription_text_frames``
+        (pipecat/src/pipecat/services/google/gemini_live/llm.py:1961-1978):
+        push an ``LLMTextFrame`` (consumed by RTVI for the "bot-llm-text"
+        event, marked ``append_to_context=False`` to avoid context
+        duplication) followed by a ``TTSTextFrame`` aggregated by
+        sentence (picked up by the BaseOutputTransport with audio-clock
+        timing and surfaced as a bot message by
+        :class:`RealtimeFeedbackObserver`).
+
+        We deliberately do **not** push ``TranscriptionFrame`` here — the
+        dograh observer treats every ``TranscriptionFrame`` as a user
+        message regardless of ``user_id``, so the translated text would
+        appear on the user side of the chat.
         """
         text = output.get("text")
         if not text:
@@ -381,14 +442,80 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
             self._bot_is_responding = True
             await self.push_frame(TTSStartedFrame())
             await self.push_frame(LLMFullResponseStartFrame())
+        llm_text_frame = LLMTextFrame(text)
+        llm_text_frame.append_to_context = False
+        await self.push_frame(llm_text_frame)
+        tts_text_frame = TTSTextFrame(text, aggregated_by=AggregationType.SENTENCE)
+        tts_text_frame.includes_inter_frame_spaces = True
+        await self.push_frame(tts_text_frame)
+
+    async def _handle_msg_input_transcription(self, input_transcription: dict):
+        """Aggregate source-language user transcription fragments into sentences.
+
+        Gemini Live emits the input transcript in word/short-phrase chunks.
+        Buffer until an end-of-sentence marker or a short idle timeout,
+        then push one finalized :class:`TranscriptionFrame` per sentence.
+        Mirrors ``GeminiLiveLLMService._handle_msg_input_transcription``
+        (gemini_live/llm.py:1874-1924).
+        """
+        text = input_transcription.get("text")
+        if not text:
+            return
+
+        if self._transcription_timeout_task is not None:
+            await self.cancel_task(self._transcription_timeout_task)
+            self._transcription_timeout_task = None
+
+        if text.startswith(" ") and not self._user_transcription_buffer:
+            text = text.lstrip()
+
+        self._user_transcription_buffer += text
+
+        while True:
+            eos_end_marker = match_endofsentence(self._user_transcription_buffer)
+            if not eos_end_marker:
+                break
+            complete_sentence = self._user_transcription_buffer[:eos_end_marker]
+            self._user_transcription_buffer = self._user_transcription_buffer[
+                eos_end_marker:
+            ]
+            await self._push_user_transcription(complete_sentence)
+
+        if self._user_transcription_buffer:
+            self._transcription_timeout_task = self.create_task(
+                self._transcription_timeout_handler(),
+                name="gemini-live-translate-user-transcription-flush",
+            )
+            # Let the event loop schedule the task before it gets cancelled.
+            await asyncio.sleep(0)
+
+    async def _push_user_transcription(self, text: str):
+        """Push a finalized user :class:`TranscriptionFrame` upstream.
+
+        Upstream direction matches pipecat's GeminiLive
+        (gemini_live/llm.py:1839-1847) so the user context aggregator
+        picks it up.
+        """
         await self.push_frame(
             TranscriptionFrame(
                 text=text,
-                user_id="bot",
+                user_id="",
                 timestamp=time_now_iso8601(),
                 finalized=True,
-            )
+            ),
+            FrameDirection.UPSTREAM,
         )
+
+    async def _transcription_timeout_handler(self):
+        """Flush a partial user transcription buffer after a short idle."""
+        try:
+            await asyncio.sleep(0.5)
+            if self._user_transcription_buffer:
+                complete_sentence = self._user_transcription_buffer
+                self._user_transcription_buffer = ""
+                await self._push_user_transcription(complete_sentence)
+        except asyncio.CancelledError:
+            raise
 
     async def _handle_msg_turn_complete(self):
         """Close the bot turn (AUDIO modality only)."""
@@ -401,20 +528,22 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
     async def _send_user_audio(self, frame: InputAudioRawFrame):
         """Forward an inbound audio chunk to the Live Translate WebSocket.
 
-        Wire format per ``.genai28_ref/_live_converters.py:470-538``:
-        ``realtimeInput.mediaChunks=[{mimeType, data(base64)}]``.
+        Wire format per the Live Translate docs
+        (https://ai.google.dev/gemini-api/docs/live-api/live-translate#sending_audio):
+        ``realtimeInput.audio = {mimeType, data(base64)}`` (single object,
+        not the legacy ``mediaChunks`` list). The translate model expects
+        raw 16-bit little-endian PCM mono at 16 kHz.
+
         Send failures are logged; the receive task drives reconnect.
         """
         if self._disconnecting or self._websocket is None:
             return
         payload = {
             "realtimeInput": {
-                "mediaChunks": [
-                    {
-                        "mimeType": f"audio/pcm;rate={frame.sample_rate}",
-                        "data": base64.b64encode(frame.audio).decode("ascii"),
-                    }
-                ]
+                "audio": {
+                    "mimeType": f"audio/pcm;rate={frame.sample_rate}",
+                    "data": base64.b64encode(frame.audio).decode("ascii"),
+                }
             }
         }
         try:
@@ -457,6 +586,13 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
             # workflow may still emit one. Validate (rejects system
             # instructions) and drop silently.
             await self._handle_context(frame.context)
+        else:
+            # Forward every other frame (StartFrame, EndFrame, CancelFrame,
+            # UserStartedSpeakingFrame, BotStoppedSpeakingFrame, etc.) so
+            # downstream processors can transition out of their pre-start
+            # state. Mirrors GeminiLiveLLMService.process_frame (see
+            # pipecat/services/google/gemini_live/llm.py:812).
+            await self.push_frame(frame, direction)
 
     # ------------------------------------------------------------------
     # Defense-in-depth overrides — programmatic paths that bypass frames.

@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pipecat.frames.frames import (
+    AggregationType,
     BotStoppedSpeakingFrame,
     InputAudioRawFrame,
     LLMFullResponseEndFrame,
@@ -26,11 +27,14 @@ from pipecat.frames.frames import (
     LLMMessagesAppendFrame,
     LLMSetToolChoiceFrame,
     LLMSetToolsFrame,
+    LLMTextFrame,
     LLMUpdateSettingsFrame,
     TranscriptionFrame,
     TTSAudioRawFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
+    TTSTextFrame,
+    UserStartedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.frame_processor import FrameDirection
@@ -60,18 +64,107 @@ def _make_service(
 def test_build_setup_message_wire_format():
     service = _make_service(target_language_code="pl")
     setup = service._build_setup_message()
+    # Wire format mirrors the google-genai>=2.8 SDK output exactly
+    # (verified by serializing LiveConnectConfig through
+    # _live_converters._LiveConnectParameters_to_mldev). The shape is
+    # mixed-case: top-level setup keys and direct generationConfig
+    # children (responseModalities, speechConfig, translationConfig)
+    # are camelCase, but everything nested inside speechConfig and
+    # translationConfig is snake_case.
     assert setup == {
         "setup": {
             "model": "models/gemini-3.5-live-translate-preview",
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
-                "translationConfig": {"targetLanguageCode": "pl"},
+                "translationConfig": {"target_language_code": "pl"},
+                "speechConfig": {
+                    "voice_config": {
+                        "prebuilt_voice_config": {"voice_name": "Puck"},
+                    },
+                },
             },
             "outputAudioTranscription": {},
+            "inputAudioTranscription": {},
         }
     }
-    # Input transcription is intentionally omitted (Q2 standing decision).
-    assert "inputAudioTranscription" not in setup["setup"]
+    # outputAudioTranscription must NOT live inside generationConfig — the
+    # server rejects the whole setup with a 1007 close frame if it does.
+    assert "outputAudioTranscription" not in setup["setup"]["generationConfig"]
+    assert "inputAudioTranscription" not in setup["setup"]["generationConfig"]
+
+
+def test_build_setup_message_includes_voice_override():
+    service = DograhGeminiLiveTranslateLLMService(
+        api_key="test-key",
+        settings=DograhGeminiLiveTranslateLLMService.Settings(voice="Charon"),
+    )
+    setup = service._build_setup_message()
+    prebuilt = setup["setup"]["generationConfig"]["speechConfig"]["voice_config"][
+        "prebuilt_voice_config"
+    ]
+    assert prebuilt == {"voice_name": "Charon"}
+
+
+def test_build_setup_message_includes_echo_target_language_when_enabled():
+    service = DograhGeminiLiveTranslateLLMService(
+        api_key="test-key",
+        settings=DograhGeminiLiveTranslateLLMService.Settings(
+            target_language_code="pl",
+            echo_target_language=True,
+        ),
+    )
+    setup = service._build_setup_message()
+    translation_config = setup["setup"]["generationConfig"]["translationConfig"]
+    assert translation_config == {
+        "target_language_code": "pl",
+        "echo_target_language": True,
+    }
+
+
+def test_build_setup_message_omits_echo_when_default_false():
+    service = _make_service(target_language_code="pl")
+    setup = service._build_setup_message()
+    translation_config = setup["setup"]["generationConfig"]["translationConfig"]
+    assert "echo_target_language" not in translation_config
+
+
+def test_settings_validate_complete_is_noop():
+    """``AIService.start`` calls ``self._settings.validate_complete()``.
+
+    Regression: a missing ``validate_complete`` raised
+    ``AttributeError`` on ``StartFrame``, which aborted pipeline startup
+    and left the service silent.
+    """
+    settings = DograhGeminiLiveTranslateLLMService.Settings()
+    assert settings.validate_complete() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "frame",
+    [
+        UserStartedSpeakingFrame(),
+        BotStoppedSpeakingFrame(),
+    ],
+)
+async def test_process_frame_forwards_unhandled_frames(frame):
+    """Regression: unhandled frames must be pushed downstream.
+
+    Without the catch-all ``else: push_frame``, every frame that this
+    service does not explicitly handle (``StartFrame``, ``EndFrame``,
+    speaking-state frames, etc.) is swallowed, and downstream processors
+    never transition out of "not started" state — producing a flood of
+    ``Trying to process InputAudioRawFrame ... but StartFrame not received yet``
+    errors and a silent agent.
+
+    ``StartFrame`` / ``EndFrame`` are not parametrized here because the
+    base class lifecycle hooks they trigger require a full pipeline
+    (TaskManager). The catch-all forwarding branch is the same regardless
+    of frame type.
+    """
+    service = _make_service()
+    await service.process_frame(frame, FrameDirection.DOWNSTREAM)
+    service.push_frame.assert_any_await(frame, FrameDirection.DOWNSTREAM)
 
 
 @pytest.mark.asyncio
@@ -159,7 +252,18 @@ async def test_handle_msg_model_turn_skips_unknown_mime_type():
 
 
 @pytest.mark.asyncio
-async def test_handle_msg_output_transcription_emits_bot_transcription():
+async def test_handle_msg_output_transcription_emits_bot_text_frames():
+    """Bot-translated text must flow as LLMTextFrame + TTSTextFrame.
+
+    The dograh observer (``api/services/pipecat/realtime_feedback_observer.py``)
+    treats every ``TranscriptionFrame`` as a user message regardless of
+    ``user_id``, so the translated bot output must instead use the same
+    frame types as pipecat's standard GeminiLive
+    (``gemini_live/llm.py:_push_output_transcription_text_frames``): an
+    ``LLMTextFrame`` (consumed by RTVI, marked ``append_to_context=False``)
+    plus a sentence-aggregated ``TTSTextFrame`` that the
+    BaseOutputTransport replays as bot text with audio-clock timing.
+    """
     service = _make_service()
     await service._handle_msg_output_transcription({"text": "Hola mundo"})
 
@@ -167,11 +271,17 @@ async def test_handle_msg_output_transcription_emits_bot_transcription():
     # Vertex-parity bracket: TTSStartedFrame + LLMFullResponseStartFrame first.
     assert isinstance(pushed[0], TTSStartedFrame)
     assert isinstance(pushed[1], LLMFullResponseStartFrame)
-    transcription = pushed[2]
-    assert isinstance(transcription, TranscriptionFrame)
-    assert transcription.text == "Hola mundo"
-    assert transcription.user_id == "bot"
-    assert transcription.finalized is True
+    llm_text = pushed[2]
+    assert isinstance(llm_text, LLMTextFrame)
+    assert llm_text.text == "Hola mundo"
+    assert llm_text.append_to_context is False
+    tts_text = pushed[3]
+    assert isinstance(tts_text, TTSTextFrame)
+    assert tts_text.text == "Hola mundo"
+    assert tts_text.aggregated_by == AggregationType.SENTENCE
+    assert tts_text.includes_inter_frame_spaces is True
+    # Bot translated text must never go through the user-transcription path.
+    assert not any(isinstance(f, TranscriptionFrame) for f in pushed)
 
 
 @pytest.mark.asyncio
@@ -179,6 +289,90 @@ async def test_handle_msg_output_transcription_empty_text_is_noop():
     service = _make_service()
     await service._handle_msg_output_transcription({"text": ""})
     service.push_frame.assert_not_awaited()
+
+
+def _stub_task_apis(service):
+    """Stub create_task/cancel_task so handlers can run without a TaskManager.
+
+    The aggregator schedules a flush task whenever the buffer ends with a
+    partial fragment.  In tests we don't need the task to actually run —
+    we drive the flush path explicitly via timeout_handler. The stub
+    closes the coroutine to avoid "coroutine was never awaited" warnings.
+    """
+
+    def _close_coro(coro, *args, **kwargs):
+        coro.close()
+        return MagicMock()
+
+    service.create_task = MagicMock(side_effect=_close_coro)
+    service.cancel_task = AsyncMock()
+
+
+@pytest.mark.asyncio
+async def test_handle_msg_input_transcription_flushes_on_sentence_marker():
+    service = _make_service()
+    _stub_task_apis(service)
+    # Fragments arrive without a final marker, then a marker arrives.
+    await service._handle_msg_input_transcription({"text": "hello"})
+    await service._handle_msg_input_transcription({"text": " world"})
+    await service._handle_msg_input_transcription({"text": ". rest"})
+
+    pushed = [c.args[0] for c in service.push_frame.await_args_list]
+    transcriptions = [f for f in pushed if isinstance(f, TranscriptionFrame)]
+    assert len(transcriptions) == 1
+    assert transcriptions[0].text == "hello world."
+    assert transcriptions[0].user_id == ""
+    assert transcriptions[0].finalized is True
+    # User transcription must be sent UPSTREAM (mirrors pipecat GeminiLive).
+    upstream = [
+        c
+        for c in service.push_frame.await_args_list
+        if len(c.args) > 1 and c.args[1] == FrameDirection.UPSTREAM
+    ]
+    assert len(upstream) == 1
+    # Tail remains buffered for the next chunk / timeout flush.
+    assert service._user_transcription_buffer == " rest"
+
+
+@pytest.mark.asyncio
+async def test_handle_msg_input_transcription_empty_text_is_noop():
+    service = _make_service()
+    _stub_task_apis(service)
+    await service._handle_msg_input_transcription({"text": ""})
+    service.push_frame.assert_not_awaited()
+    assert service._user_transcription_buffer == ""
+
+
+@pytest.mark.asyncio
+async def test_transcription_timeout_handler_flushes_buffer():
+    service = _make_service()
+    service._user_transcription_buffer = "partial fragment"
+    # Patch sleep to skip the 0.5s wait.
+    with patch(
+        "api.services.pipecat.realtime.gemini_live_translate.asyncio.sleep",
+        new=AsyncMock(),
+    ):
+        await service._transcription_timeout_handler()
+    pushed = [c.args[0] for c in service.push_frame.await_args_list]
+    transcriptions = [f for f in pushed if isinstance(f, TranscriptionFrame)]
+    assert len(transcriptions) == 1
+    assert transcriptions[0].text == "partial fragment"
+    assert transcriptions[0].user_id == ""
+    assert service._user_transcription_buffer == ""
+
+
+@pytest.mark.asyncio
+async def test_handle_server_message_dispatches_input_transcription():
+    service = _make_service()
+    _stub_task_apis(service)
+    await service._handle_server_message(
+        {"serverContent": {"inputTranscription": {"text": "hola."}}}
+    )
+    pushed = [c.args[0] for c in service.push_frame.await_args_list]
+    assert any(
+        isinstance(f, TranscriptionFrame) and f.text == "hola." and f.user_id == ""
+        for f in pushed
+    )
 
 
 @pytest.mark.asyncio
@@ -242,9 +436,12 @@ async def test_send_user_audio_wire_format():
 
     fake_ws.send.assert_awaited_once()
     sent = json.loads(fake_ws.send.await_args.args[0])
-    chunk = sent["realtimeInput"]["mediaChunks"][0]
-    assert chunk["mimeType"] == "audio/pcm;rate=16000"
-    assert base64.b64decode(chunk["data"]) == b"\xaa\xbb"
+    # Per https://ai.google.dev/gemini-api/docs/live-api/live-translate#sending_audio
+    # the wire format is a single ``audio`` object, not the legacy ``mediaChunks`` list.
+    assert "mediaChunks" not in sent["realtimeInput"]
+    audio = sent["realtimeInput"]["audio"]
+    assert audio["mimeType"] == "audio/pcm;rate=16000"
+    assert base64.b64decode(audio["data"]) == b"\xaa\xbb"
 
 
 @pytest.mark.asyncio

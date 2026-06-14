@@ -715,6 +715,14 @@ class GoogleRealtimeTranslateLLMConfiguration(BaseLLMConfiguration):
             "allow_custom_input": False,
         },
     )
+    voice: str = Field(
+        default="Puck",
+        description="Voice the model speaks in.",
+        json_schema_extra={
+            "examples": GOOGLE_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
     target_language_code: str = Field(
         default="en",
         description=(
@@ -725,6 +733,13 @@ class GoogleRealtimeTranslateLLMConfiguration(BaseLLMConfiguration):
             "examples": GOOGLE_REALTIME_TRANSLATE_LANGUAGES,
             "allow_custom_input": True,
         },
+    )
+    echo_target_language: bool = Field(
+        default=False,
+        description=(
+            "When true, the model echoes (parrots) input audio that is already "
+            "in the target language instead of staying silent."
+        ),
     )
 
 

@@ -114,6 +114,9 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
             },
             token,
           });
+          // Only the on-prem/enterprise lead path sends an email; plain
+          // onboarding does not. Confirm the email just for this path.
+          toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
         }
       } catch {
         // Swallowed — the user is already in the product; network calls are

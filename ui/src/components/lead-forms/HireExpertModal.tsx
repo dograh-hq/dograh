@@ -80,7 +80,7 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
         payload: { name, company, jobTitle, agentGoal, phone, volume },
         token,
       });
-      toast.success("Thanks - we'll reach out about building your agent.");
+      toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
       reset();
       onOpenChange(false);
     } catch {

@@ -105,7 +105,7 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
         },
         token,
       });
-      toast.success("Thanks - our team will reach out about enterprise deployment.");
+      toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
       reset();
       onOpenChange(false);
     } catch {

@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.35.0 (2026-06-12)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add config v2 to simplify billing by @a6kme in https://github.com/dograh-hq/dograh/pull/428
+* feat: add Cartesia Sonic 3.5 as a TTS option by @manasseh-zw in https://github.com/dograh-hq/dograh/pull/423
+* feat: add a start docker script by @a6kme in https://github.com/dograh-hq/dograh/pull/426
+* feat: billing and credit management v2 by @a6kme in https://github.com/dograh-hq/dograh/pull/429
+### Bug Fixes
+* fix(telephony): handle Cloudonix CDR webhooks missing session/disposition by @Mubashirrrr in https://github.com/dograh-hq/dograh/pull/407
+
+## New Contributors
+* @manasseh-zw made their first contribution in https://github.com/dograh-hq/dograh/pull/423
+* @Mubashirrrr made their first contribution in https://github.com/dograh-hq/dograh/pull/407
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.34.0...dograh-v1.35.0
+
 ## 1.34.0 (2026-06-03)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

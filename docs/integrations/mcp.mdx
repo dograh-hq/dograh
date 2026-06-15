@@ -124,6 +124,20 @@ Once the MCP server is connected, you can drive Dograh from your coding agent in
 - "What node types does Dograh support, and what fields does a `knowledge_base` node take?"
 - "How do I deploy Dograh on a custom domain with HTTPS?"
 
+**Add Resemble trust-and-safety tools**
+
+- "Create an authenticated HTTP tool named `resemble_score_signal` that posts
+  caller-provided text to `https://app.resemble.ai/api/v2/signal` with my
+  Resemble credential. Use it before reset-code, credential, wire-transfer,
+  urgent-payment, or account-change requests."
+- "Create an authenticated HTTP tool named `resemble_submit_detection` that
+  posts caller-provided media URLs to `https://app.resemble.ai/api/v2/detect`.
+  Use it when a recording or media artifact should be checked for synthetic
+  speech or manipulated media before a trust decision."
+- "Attach both Resemble tools to my *Support Bot* workflow and update the
+  system prompt so Detect handles media authenticity while Signal handles
+  fraud and scam intent."
+
 <Note>
 Agent edits are saved as a new **draft** version — your published agent keeps serving calls until you explicitly publish the draft from the Dograh UI.
 </Note>

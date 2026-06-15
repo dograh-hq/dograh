@@ -133,7 +133,7 @@ services:
     environment:
       # Core application config
       ENVIRONMENT: "${ENVIRONMENT:-local}"
-      LOG_LEVEL: "INFO"
+      LOG_LEVEL: "DEBUG"
 
       # Replace this environment variable if you are using a custom
       # domain to host the stack

@@ -432,6 +432,46 @@ class ARIConnection:
         logger.info(f"[ARI org={self.organization_id}] Answered channel {channel_id}")
         return True
 
+    async def _get_channel_var(self, channel_id: str, variable: str) -> str:
+        """Read a channel variable/function via ARI. Returns '' if unset."""
+        result = await self._ari_request(
+            "GET", f"/channels/{channel_id}/variable", params={"variable": variable}
+        )
+        return (result or {}).get("value", "") or ""
+
+    async def _capture_upstream_pbx(self, channel_id: str) -> Optional[dict]:
+        """Capture upstream-PBX (VICIdial) identity from the inbound SIP headers.
+
+        When the call is patched in from VICIdial, the trunk INVITE carries
+        ``X-VICIDIAL-*`` headers. The callerid + remote-agent user are the handle
+        dograh uses to drive VICIdial's ``ra_call_control`` API for hangup and
+        transfer (the customer's real leg lives on VICIdial, not on dograh).
+        Returns None for non-upstream calls (no callerid header present).
+        """
+        callerid = await self._get_channel_var(
+            channel_id, "PJSIP_HEADER(read,X-VICIDIAL-callerid)"
+        )
+        if not callerid:
+            return None
+        upstream = {
+            "provider": "vicidial",
+            "callerid": callerid,
+            "agent_user": await self._get_channel_var(
+                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-user)"
+            ),
+            "lead_id": await self._get_channel_var(
+                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-lead_id)"
+            ),
+            "campaign_id": await self._get_channel_var(
+                channel_id, "PJSIP_HEADER(read,X-VICIDIAL-campaign_id)"
+            ),
+        }
+        logger.info(
+            f"[ARI org={self.organization_id}] Captured upstream_pbx for channel "
+            f"{channel_id}: {upstream}"
+        )
+        return upstream
+
     async def _create_external_media(
         self,
         workflow_id: str,
@@ -566,6 +606,10 @@ class ARIConnection:
 
             # 3. Create workflow run
             call_id = channel_id
+            # Capture the upstream-PBX (VICIdial) identity off the SIP headers so
+            # the hangup/transfer strategies can drive VICIdial's API. The
+            # customer's real leg lives on VICIdial; this is the handle for it.
+            upstream_pbx = await self._capture_upstream_pbx(channel_id)
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
                 workflow_id=inbound_workflow_id,
@@ -578,6 +622,7 @@ class ARIConnection:
                     "direction": "inbound",
                     "provider": "ari",
                     "telephony_configuration_id": self.telephony_configuration_id,
+                    "upstream_pbx": upstream_pbx,
                 },
                 gathered_context={
                     "call_id": call_id,

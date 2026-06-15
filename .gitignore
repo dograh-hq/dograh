@@ -19,3 +19,7 @@ coturn/
 *.wav
 dograh_pcm_cache/
 node_modules/
+
+# Local self-signed TLS for the remote stack (regenerate with ./generate_certificate.sh).
+# NEVER commit the private key.
+certs/

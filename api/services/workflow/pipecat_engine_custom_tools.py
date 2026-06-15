@@ -554,6 +554,51 @@ class CustomToolManager:
                     )
                     return
 
+                # Upstream-PBX (VICIdial) call: the customer's real leg lives on
+                # the upstream PBX, so transfer it via the upstream API
+                # (ra_call_control EXTENSIONTRANSFER / INGROUPTRANSFER) instead of
+                # dograh's ARI bridge-swap, which assumes dograh owns both legs.
+                upstream = (workflow_run.initial_context or {}).get("upstream_pbx")
+                if upstream:
+                    from api.services.telephony.upstream_pbx import (
+                        transfer_upstream_call,
+                    )
+
+                    await self._play_config_message(config)
+                    ok = await transfer_upstream_call(upstream, destination)
+                    # Mark the run so the end-of-call hangup does NOT also hang up
+                    # the now-transferred customer (see ARIHangupStrategy).
+                    await db_client.update_workflow_run(
+                        run_id=self._engine._workflow_run_id,
+                        gathered_context={"upstream_transferred": True},
+                    )
+                    await function_call_params.result_callback(
+                        {
+                            "status": "success" if ok else "failed",
+                            "action": "upstream_transfer",
+                            "message": (
+                                "Transferring your call now."
+                                if ok
+                                else "I'm sorry, I couldn't complete the transfer."
+                            ),
+                        },
+                        properties=properties,
+                    )
+                    if ok:
+                        # Give the upstream PBX time to redirect the customer out
+                        # of the conference toward the destination BEFORE we drop
+                        # dograh's own leg -- otherwise the teardown races the
+                        # redirect and cancels the customer's call to the
+                        # destination (it never rings).
+                        await asyncio.sleep(4)
+                    # Tear down dograh's own legs; the customer has moved to the
+                    # upstream PBX side.
+                    await self._engine.end_call_with_reason(
+                        EndTaskReason.END_CALL_TOOL_REASON.value,
+                        abort_immediately=True,
+                    )
+                    return
+
                 # Validate destination format based on workflow run mode
                 if workflow_run.mode == WorkflowRunMode.ARI.value:
                     # For ARI provider, also accept SIP endpoints

@@ -201,6 +201,12 @@ class ARIHangupStrategy(HangupStrategy):
                 )
                 return False
 
+            # If this call came from an upstream PBX (VICIdial), hang up its
+            # customer leg via its API FIRST -- so the upstream manages its own
+            # conference/remote-agent teardown cleanly instead of racing dograh's
+            # SIP BYE -- THEN drop dograh's own leg below.
+            await self._terminate_upstream_if_any(channel_id)
+
             endpoint = f"{ari_endpoint}/ari/channels/{channel_id}"
             auth = BasicAuth(app_name, app_password)
 
@@ -227,3 +233,38 @@ class ARIHangupStrategy(HangupStrategy):
         except Exception as e:
             logger.exception(f"Failed to hang up Asterisk channel: {e}")
             return False
+
+    async def _terminate_upstream_if_any(self, channel_id: str) -> None:
+        """If this run came from an upstream PBX, hang up its customer leg via API.
+
+        Reuses the same channel->run lookup the transfer strategy uses
+        (Redis ``ari:channel:{id}`` -> run_id -> ``initial_context``). Best-effort:
+        never blocks dograh's own hangup if the upstream call fails.
+        """
+        try:
+            import redis.asyncio as aioredis
+
+            from api.constants import REDIS_URL
+            from api.db import db_client
+            from api.services.telephony.upstream_pbx import terminate_upstream_call
+
+            redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+            run_id = await redis.get(f"ari:channel:{channel_id}")
+            if not run_id:
+                return
+            run = await db_client.get_workflow_run_by_id(int(run_id))
+            if not run:
+                return
+            upstream = (run.initial_context or {}).get("upstream_pbx")
+            # If the call was already transferred to the upstream PBX, the customer
+            # leg has moved on -- do NOT hang it up (that would drop the transferred
+            # customer); just let dograh's own legs tear down below.
+            transferred = (run.gathered_context or {}).get("upstream_transferred")
+            if upstream and not transferred:
+                logger.info(
+                    f"[ARI Hangup] Upstream PBX call ({upstream.get('provider')}); "
+                    f"terminating customer leg via API before dropping dograh leg"
+                )
+                await terminate_upstream_call(upstream)
+        except Exception as e:
+            logger.error(f"[ARI Hangup] upstream terminate check failed: {e}")

@@ -68,6 +68,7 @@ class ServiceProviders(str, Enum):
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
     SPEACHES = "speaches"
+    HUGGINGFACE = "huggingface"
     ASSEMBLYAI = "assemblyai"
     GLADIA = "gladia"
     RIME = "rime"
@@ -94,6 +95,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
         ServiceProviders.SPEACHES,
+        ServiceProviders.HUGGINGFACE,
         ServiceProviders.ASSEMBLYAI,
         ServiceProviders.GLADIA,
         ServiceProviders.RIME,
@@ -254,6 +256,11 @@ SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
         "for setup and supported backends."
     ),
     provider_docs_url="https://github.com/speaches-ai/speaches",
+)
+HUGGINGFACE_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Hugging Face",
+    description="Hosted Hugging Face Inference Providers API for usage-based inference.",
+    provider_docs_url="https://huggingface.co/docs/inference-providers/en/index",
 )
 AZURE_SPEECH_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Azure Speech Services",
@@ -468,6 +475,35 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(
         default=None,
         description="Usually not required for self-hosted endpoints. Leave blank unless your server enforces one.",
+    )
+
+
+HUGGINGFACE_LLM_MODELS = [
+    "openai/gpt-oss-120b:cerebras",
+    "deepseek-ai/DeepSeek-R1:fastest",
+    "Qwen/Qwen3-Coder-480B-A35B-Instruct:fastest",
+]
+
+
+@register_llm
+class HuggingFaceLLMConfiguration(BaseLLMConfiguration):
+    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
+    model: str = Field(
+        default="openai/gpt-oss-120b:cerebras",
+        description="Hugging Face chat-completion model identifier, optionally with provider suffix.",
+        json_schema_extra={
+            "examples": HUGGINGFACE_LLM_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://router.huggingface.co/v1",
+        description="Hugging Face OpenAI-compatible chat-completions router base URL.",
+    )
+    bill_to: str | None = Field(
+        default=None,
+        description="Optional Hugging Face organization or user to bill using X-HF-Bill-To.",
     )
 
 
@@ -741,6 +777,7 @@ LLMConfig = Annotated[
         DograhLLMService,
         AWSBedrockLLMConfiguration,
         SpeachesLLMConfiguration,
+        HuggingFaceLLMConfiguration,
         MiniMaxLLMConfiguration,
         SarvamLLMConfiguration,
     ],
@@ -1334,6 +1371,38 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+HUGGINGFACE_STT_MODELS = [
+    "openai/whisper-large-v3-turbo",
+    "openai/whisper-large-v3",
+]
+
+
+@register_stt
+class HuggingFaceSTTConfiguration(BaseSTTConfiguration):
+    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
+    model: str = Field(
+        default="openai/whisper-large-v3-turbo",
+        description="Hugging Face ASR model identifier served through Inference Providers.",
+        json_schema_extra={
+            "examples": HUGGINGFACE_STT_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://router.huggingface.co/hf-inference",
+        description="Hugging Face Inference Providers router base URL.",
+    )
+    bill_to: str | None = Field(
+        default=None,
+        description="Optional Hugging Face organization or user to bill using X-HF-Bill-To.",
+    )
+    return_timestamps: bool = Field(
+        default=False,
+        description="Request timestamp chunks when supported by the selected provider/model.",
+    )
+
+
 ASSEMBLYAI_STT_MODELS = ["u3-rt-pro"]
 ASSEMBLYAI_STT_LANGUAGES = ["en", "es", "de", "fr", "pt", "it"]
 
@@ -1406,6 +1475,7 @@ STTConfig = Annotated[
         SpeechmaticsSTTConfiguration,
         SarvamSTTConfiguration,
         SpeachesSTTConfiguration,
+        HuggingFaceSTTConfiguration,
         AssemblyAISTTConfiguration,
         GladiaSTTConfiguration,
         AzureSpeechSTTConfiguration,

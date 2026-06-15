@@ -49,6 +49,7 @@ class UserConfigurationValidator:
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
             ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
+            ServiceProviders.HUGGINGFACE.value: self._check_huggingface_api_key,
             ServiceProviders.GOOGLE_VERTEX.value: self._check_google_vertex_llm_api_key,
             ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
             ServiceProviders.GROK_REALTIME.value: self._check_grok_realtime_api_key,
@@ -358,6 +359,14 @@ class UserConfigurationValidator:
     def _check_speaches_api_key(self, model: str, service_config) -> bool:
         if not getattr(service_config, "base_url", None):
             raise ValueError("base_url is required for Speaches services")
+        return True
+
+    def _check_huggingface_api_key(self, model: str, api_key: str) -> bool:
+        if not api_key.startswith("hf_"):
+            raise ValueError(
+                "Invalid Hugging Face API token format. Use a token that starts with "
+                "'hf_' and has Inference Providers permission."
+            )
         return True
 
     def _check_google_vertex_realtime_api_key(self, model: str, service_config) -> bool:

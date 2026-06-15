@@ -39,8 +39,17 @@ from pipecat.services.google.vertex.llm import (
     GoogleVertexLLMSettings,
 )
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
+from pipecat.services.huggingface.llm import (
+    HuggingFaceLLMService,
+    HuggingFaceLLMSettings,
+)
+from pipecat.services.huggingface.stt import (
+    HuggingFaceSTTService,
+    HuggingFaceSTTSettings,
+)
 from pipecat.services.minimax.llm import MiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSSettings
+from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE
 from pipecat.services.openai.base_llm import OpenAILLMSettings
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import (
@@ -218,6 +227,22 @@ def create_stt_service(
             ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
+    elif user_config.stt.provider == ServiceProviders.HUGGINGFACE.value:
+        base_url = (
+            getattr(user_config.stt, "base_url", None)
+            or "https://router.huggingface.co/hf-inference"
+        )
+        _validate_runtime_service_url(base_url, "base_url")
+        return HuggingFaceSTTService(
+            api_key=user_config.stt.api_key,
+            base_url=base_url,
+            bill_to=getattr(user_config.stt, "bill_to", None),
+            settings=HuggingFaceSTTSettings(
+                model=user_config.stt.model,
+                return_timestamps=getattr(user_config.stt, "return_timestamps", False),
+            ),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
     elif user_config.stt.provider == ServiceProviders.ASSEMBLYAI.value:
         language = getattr(user_config.stt, "language", None)
         settings_kwargs = {"model": user_config.stt.model, "language": language}
@@ -320,6 +345,7 @@ def create_tts_service(
             kwargs["base_url"] = base_url
         return OpenAITTSService(
             api_key=user_config.tts.api_key,
+            sample_rate=OPENAI_SAMPLE_RATE,
             settings=OpenAITTSSettings(model=user_config.tts.model),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
@@ -581,6 +607,7 @@ def create_llm_service_from_provider(
     location: str | None = None,
     credentials: str | None = None,
     temperature: float | None = None,
+    bill_to: str | None = None,
 ):
     """Create an LLM service from explicit provider/model/api_key.
 
@@ -662,6 +689,15 @@ def create_llm_service_from_provider(
             base_url=base_url,
             api_key=api_key or "none",
             settings=SpeachesLLMSettings(model=model),
+        )
+    elif provider == ServiceProviders.HUGGINGFACE.value:
+        base_url = base_url or "https://router.huggingface.co/v1"
+        _validate_runtime_service_url(base_url, "base_url")
+        return HuggingFaceLLMService(
+            api_key=api_key,
+            base_url=base_url,
+            bill_to=bill_to,
+            settings=HuggingFaceLLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.MINIMAX.value:
         base_url = base_url or "https://api.minimax.io/v1"
@@ -875,6 +911,9 @@ def create_llm_service(user_config, correlation_id: str | None = None):
         kwargs["endpoint"] = user_config.llm.endpoint
     elif provider == ServiceProviders.SPEACHES.value:
         kwargs["base_url"] = user_config.llm.base_url
+    elif provider == ServiceProviders.HUGGINGFACE.value:
+        kwargs["base_url"] = user_config.llm.base_url
+        kwargs["bill_to"] = user_config.llm.bill_to
     elif provider == ServiceProviders.AWS_BEDROCK.value:
         kwargs["aws_access_key"] = user_config.llm.aws_access_key
         kwargs["aws_secret_key"] = user_config.llm.aws_secret_key

@@ -156,18 +156,29 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
     def _build_setup_message(self) -> dict:
         """Construct the BidiGenerateContent setup payload.
 
-        Wire format matches the canonical Live Translate WebSocket example
-        in the official docs
-        (https://ai.google.dev/gemini-api/docs/live-api/live-translate):
-        everything is camelCase, and ``inputAudioTranscription``,
-        ``outputAudioTranscription`` and ``translationConfig`` all live
-        inside ``generationConfig``.
+        Wire format mirrors what the google-genai>=2.8 SDK actually sends
+        over the wire (verified by serializing a ``LiveConnectConfig``
+        through ``_live_converters._LiveConnectParameters_to_mldev`` —
+        see ``.genai28_ref/_live_converters.py``). The shape is
+        **mixed-case**: top-level ``setup`` keys and direct
+        ``generationConfig`` children (``responseModalities``,
+        ``speechConfig``, ``translationConfig``) are camelCase, but
+        everything nested inside ``speechConfig`` and ``translationConfig``
+        is snake_case — those subtrees are passed through unchanged from
+        ``model_dump(exclude_none=True)``.
 
-        ``speechConfig`` is intentionally omitted — the translate-preview
-        model auto-clones the input speaker's voice and ignores any
-        ``speechConfig`` block (see the "Voice Replication" entry in the
-        docs' Limitations section). Selecting a prebuilt voice only works
-        on non-translate Live models such as ``gemini-live-2.5-flash``.
+        ``inputAudioTranscription`` and ``outputAudioTranscription`` are
+        siblings of ``generationConfig`` on the ``setup`` object. Moving
+        them inside ``generationConfig`` causes the server to reject the
+        whole setup with a 1007 close frame (empirically verified).
+
+        ``speechConfig`` is included with a default ``"Puck"`` voice even
+        though the docs say the translate-preview model auto-clones the
+        input speaker's voice. Empirically the server stops emitting any
+        ``modelTurn`` audio or ``outputTranscription`` when
+        ``speechConfig`` is absent, so we keep the block — its
+        ``voice_name`` is then ignored by the model per the "Voice
+        Replication" entry in the docs' Limitations section.
 
         TODO: When pipecat unpins google-genai<2, replace this manual
         construction with
@@ -175,24 +186,30 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
         See ``google-genai>=2.8.0`` ``types.TranslationConfig``.
         """
         translation_config: dict[str, Any] = {
-            "targetLanguageCode": self._settings.target_language_code,
+            "target_language_code": self._settings.target_language_code,
         }
         if self._settings.echo_target_language:
-            translation_config["echoTargetLanguage"] = True
+            translation_config["echo_target_language"] = True
         return {
             "setup": {
                 # ``models/`` prefix added per .genai28_ref/live.py:995 (t.t_model).
                 "model": f"models/{self._settings.model}",
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
-                    # Source-side transcripts so the dashboard call log
-                    # shows what the user said alongside the translated
-                    # bot output.
-                    "inputAudioTranscription": {},
-                    # Bot-side translated transcripts.
-                    "outputAudioTranscription": {},
                     "translationConfig": translation_config,
+                    "speechConfig": {
+                        "voice_config": {
+                            "prebuilt_voice_config": {
+                                "voice_name": "Puck",
+                            },
+                        },
+                    },
                 },
+                # Bot-side translated transcripts.
+                "outputAudioTranscription": {},
+                # Source-side transcripts so the dashboard call log shows
+                # what the user said alongside the translated bot output.
+                "inputAudioTranscription": {},
             }
         }
 
@@ -210,6 +227,11 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
         self._websocket = await ws_connect(uri, additional_headers=headers)
 
         setup_message = self._build_setup_message()
+        logger.info(
+            f"{self}: sending setup model={self._settings.model!r} "
+            f"target_language_code={self._settings.target_language_code!r} "
+            f"echo_target_language={self._settings.echo_target_language}"
+        )
         await self._websocket.send(json.dumps(setup_message))
 
         # Handshake: first server message must contain setupComplete.
@@ -348,7 +370,16 @@ class DograhGeminiLiveTranslateLLMService(LLMService):
 
         server_content = message.get("serverContent")
         if not server_content:
+            # Surface anything unexpected (e.g. usageMetadata, error frames)
+            # so we can see what the server is actually emitting when
+            # responses don't materialize.
+            logger.debug(
+                f"{self}: non-serverContent message keys={list(message.keys())}"
+            )
             return
+        logger.debug(
+            f"{self}: serverContent keys={list(server_content.keys())}"
+        )
 
         if server_content.get("interrupted"):
             logger.debug(f"{self}: server signaled interruption")

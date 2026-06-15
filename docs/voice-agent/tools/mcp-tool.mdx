@@ -77,6 +77,53 @@ After the MCP tool is created:
 
 The tighter the node-level selection and prompt guidance, the more reliable MCP tool usage becomes.
 
+## Example: Resemble Detect
+
+Use Resemble Detect when a caller provides a recording or media URL that should
+be checked for synthetic speech, watermarking, or source traces before the
+workflow makes a trust decision.
+
+Create a **Bearer Token** credential with your Resemble API key, then create an
+MCP tool with this shape:
+
+```json
+{
+  "name": "Resemble Detect",
+  "description": "Use Resemble Detect when the caller provides a media URL or suspicious recording that should be checked for synthetic speech, watermarking, or source traces.",
+  "category": "mcp",
+  "icon": "shield-check",
+  "icon_color": "#2563EB",
+  "definition": {
+    "schema_version": 1,
+    "type": "mcp",
+    "config": {
+      "transport": "streamable_http",
+      "url": "https://mcp.resemble.ai/mcp",
+      "credential_uuid": "<DOGRAH_BEARER_TOKEN_CREDENTIAL_UUID>",
+      "tools_filter": [
+        "detect_deepfake",
+        "get_detection",
+        "detect_watermark",
+        "trace_audio_source"
+      ],
+      "timeout_secs": 45,
+      "sse_read_timeout_secs": 180
+    }
+  }
+}
+```
+
+Attach this MCP tool only to nodes that need to verify caller-provided media.
+Then add node instructions such as:
+
+```text
+When the caller provides or references a recording URL that should be verified,
+use the Resemble Detect tool before making a trust decision. Explain the result
+as a risk signal, not an absolute identity proof. If the tool reports synthetic
+speech or a suspicious watermark/source trace, escalate according to this
+workflow's policy.
+```
+
 ## Best practices
 
 - Use one MCP server per logical integration when possible.

@@ -431,11 +431,13 @@ def create_tts_service(
         generation_config = (
             GenerationConfig(**gen_config_kwargs) if gen_config_kwargs else None
         )
+        language = getattr(user_config.tts, "language", None) or "en"
         return CartesiaTTSService(
             api_key=user_config.tts.api_key,
             settings=CartesiaTTSSettings(
                 voice=user_config.tts.voice,
                 model=user_config.tts.model,
+                language=language,
                 **(
                     {"generation_config": generation_config}
                     if generation_config

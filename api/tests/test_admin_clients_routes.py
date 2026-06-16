@@ -8,13 +8,17 @@ layer patched at the route module's ``db_client`` attribute.
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes.admin_clients import router
 from api.services.auth.depends import get_superuser
+from api.services.voicelink_clients import VoiceLinkClientError
+from api.services.voicelink_clients.secrets import encrypt_provision_secret
 
 DEFAULT_API_BASE = "https://app.voicelink.co.in/api"
+_PROVISION_KEY = Fernet.generate_key().decode()
 
 
 def _superuser():
@@ -28,6 +32,13 @@ def _make_test_app() -> FastAPI:
     return app
 
 
+def _reseller(**overrides):
+    """A mock VoiceLinkClientsClient (is_configured + list_clients)."""
+    defaults = {"is_configured": True, "list_clients": AsyncMock(return_value=[])}
+    defaults.update(overrides)
+    return SimpleNamespace(**defaults)
+
+
 def _org(**overrides):
     defaults = {
         "id": 5,
@@ -37,6 +48,7 @@ def _org(**overrides):
         "voicelink_client_id": None,
         "voicelink_username": "jane.5",
         "voicelink_error": "No channels available",
+        "voicelink_provision_secret": None,
         "users": [
             SimpleNamespace(id=9, provider_id="oss_abc", email="jane@example.test")
         ],
@@ -66,10 +78,12 @@ def test_endpoints_return_403_for_non_superuser():
         assign_response = client.post(
             "/admin/clients/5/assign-did", json={"did_number": "919484959244"}
         )
+        create_response = client.post("/admin/clients/5/create")
 
     assert list_response.status_code == 403
     assert retry_response.status_code == 403
     assert assign_response.status_code == 403
+    assert create_response.status_code == 403
 
 
 # ======== LIST ========
@@ -80,7 +94,13 @@ def test_list_clients_excludes_caller_and_reports_voicelink_state():
     client = TestClient(app)
 
     org = _org()
-    with patch("api.routes.admin_clients.db_client") as db:
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=_reseller(is_configured=False),
+        ),
+    ):
         db.list_organizations_with_users = AsyncMock(return_value=[org])
         db.list_telephony_configurations_by_provider = AsyncMock(
             return_value=[
@@ -109,6 +129,8 @@ def test_list_clients_excludes_caller_and_reports_voicelink_state():
     assert item["voicelink_error"] == "No channels available"
     assert item["has_voicelink_config"] is True
     assert item["did_number"] == "919484959244"
+    # Reseller creds unset in this test → live status cannot be checked.
+    assert item["live_state"] == "unconfigured"
 
 
 def test_list_clients_handles_org_without_config_or_users():
@@ -116,7 +138,13 @@ def test_list_clients_handles_org_without_config_or_users():
     client = TestClient(app)
 
     org = _org(users=[], voicelink_status=None, voicelink_error=None)
-    with patch("api.routes.admin_clients.db_client") as db:
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=_reseller(is_configured=False),
+        ),
+    ):
         db.list_organizations_with_users = AsyncMock(return_value=[org])
         db.list_telephony_configurations_by_provider = AsyncMock(return_value=[])
 
@@ -301,5 +329,229 @@ def test_assign_did_404_for_unknown_org():
         response = client.post(
             "/admin/clients/999/assign-did", json={"did_number": "919484959244"}
         )
+
+    assert response.status_code == 404
+
+
+# ======== LIVE RECONCILE (list) ========
+
+
+def test_list_reports_active_and_autoheals_when_client_exists():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    # Stored client_id missing; VoiceLink has a client matching the username.
+    org = _org(voicelink_client_id=None, voicelink_status="pending")
+    reseller = _reseller(
+        list_clients=AsyncMock(
+            return_value=[{"id": 474, "username": "jane.5", "email": "x"}]
+        )
+    )
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=reseller,
+        ),
+    ):
+        db.list_organizations_with_users = AsyncMock(return_value=[org])
+        db.list_telephony_configurations_by_provider = AsyncMock(return_value=[])
+        db.update_organization_voicelink = AsyncMock()
+
+        response = client.get("/admin/clients")
+
+    assert response.status_code == 200
+    [item] = response.json()["clients"]
+    assert item["live_state"] == "active"
+    assert item["live_client_id"] == "474"
+    # Auto-heal: discovered client_id + provisioned status persisted.
+    heal = db.update_organization_voicelink.await_args
+    assert heal.args == (5,)
+    assert heal.kwargs["client_id"] == "474"
+    assert heal.kwargs["status"] == "provisioned"
+    assert heal.kwargs["provision_secret"] is None
+
+
+def test_list_reports_missing_when_not_in_voicelink():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    org = _org(voicelink_client_id=None, voicelink_username="nobody.5")
+    reseller = _reseller(
+        list_clients=AsyncMock(return_value=[{"id": 1, "username": "someone.else"}])
+    )
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=reseller,
+        ),
+    ):
+        db.list_organizations_with_users = AsyncMock(return_value=[org])
+        db.list_telephony_configurations_by_provider = AsyncMock(return_value=[])
+        db.update_organization_voicelink = AsyncMock()
+
+        response = client.get("/admin/clients")
+
+    [item] = response.json()["clients"]
+    assert item["live_state"] == "missing"
+    assert item["live_client_id"] is None
+    db.update_organization_voicelink.assert_not_awaited()  # nothing to heal
+
+
+def test_list_reports_unknown_when_reseller_call_fails():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    org = _org()
+    reseller = _reseller(
+        list_clients=AsyncMock(side_effect=VoiceLinkClientError("boom"))
+    )
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=reseller,
+        ),
+    ):
+        db.list_organizations_with_users = AsyncMock(return_value=[org])
+        db.list_telephony_configurations_by_provider = AsyncMock(return_value=[])
+
+        response = client.get("/admin/clients")
+
+    assert response.status_code == 200  # never 500s the page
+    [item] = response.json()["clients"]
+    assert item["live_state"] == "unknown"
+
+
+# ======== CREATE (one-click) ========
+
+
+def test_create_links_when_client_already_exists():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    org = _org(voicelink_client_id=None)
+    reseller = _reseller(
+        list_clients=AsyncMock(return_value=[{"id": 474, "username": "jane.5"}])
+    )
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=reseller,
+        ),
+        patch(
+            "api.routes.admin_clients.provision_voicelink_client",
+            new_callable=AsyncMock,
+        ) as provision,
+    ):
+        db.get_organization_with_users = AsyncMock(return_value=org)
+        db.update_organization_voicelink = AsyncMock()
+
+        response = client.post("/admin/clients/5/create")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "linked"
+    assert body["voicelink_client_id"] == "474"
+    provision.assert_not_awaited()  # linked, not re-created
+    link = db.update_organization_voicelink.await_args
+    assert link.kwargs["client_id"] == "474"
+    assert link.kwargs["status"] == "provisioned"
+    assert link.kwargs["provision_secret"] is None
+
+
+def test_create_provisions_with_stored_secret_when_missing(monkeypatch):
+    monkeypatch.setenv("VOICELINK_PROVISION_KEY", _PROVISION_KEY)
+    app = _make_test_app()
+    client = TestClient(app)
+
+    secret = encrypt_provision_secret("stored-platform-pass")
+    org = _org(voicelink_client_id=None, voicelink_provision_secret=secret)
+    reseller = _reseller(list_clients=AsyncMock(return_value=[]))  # not in VoiceLink
+    provision_result = {
+        "status": "provisioned",
+        "client_id": "999",
+        "username": "jane.5",
+        "error": None,
+    }
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=reseller,
+        ),
+        patch(
+            "api.routes.admin_clients.provision_voicelink_client",
+            new_callable=AsyncMock,
+            return_value=provision_result,
+        ) as provision,
+    ):
+        db.get_organization_with_users = AsyncMock(return_value=org)
+        db.update_organization_voicelink = AsyncMock()
+
+        response = client.post("/admin/clients/5/create")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "created"
+    assert body["voicelink_status"] == "provisioned"
+    provision.assert_awaited_once()
+    assert provision.await_args.kwargs["password"] == "stored-platform-pass"
+    assert provision.await_args.kwargs["email"] == "jane@example.test"
+
+
+def test_create_409_when_missing_and_no_stored_secret():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    org = _org(voicelink_client_id=None, voicelink_provision_secret=None)
+    reseller = _reseller(list_clients=AsyncMock(return_value=[]))
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=reseller,
+        ),
+        patch(
+            "api.routes.admin_clients.provision_voicelink_client",
+            new_callable=AsyncMock,
+        ) as provision,
+    ):
+        db.get_organization_with_users = AsyncMock(return_value=org)
+
+        response = client.post("/admin/clients/5/create")
+
+    assert response.status_code == 409
+    provision.assert_not_awaited()
+
+
+def test_create_503_when_reseller_unconfigured():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    with (
+        patch("api.routes.admin_clients.db_client") as db,
+        patch(
+            "api.routes.admin_clients.get_voicelink_clients_client",
+            return_value=_reseller(is_configured=False),
+        ),
+    ):
+        db.get_organization_with_users = AsyncMock(return_value=_org())
+
+        response = client.post("/admin/clients/5/create")
+
+    assert response.status_code == 503
+
+
+def test_create_404_when_org_missing():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    with patch("api.routes.admin_clients.db_client") as db:
+        db.get_organization_with_users = AsyncMock(return_value=None)
+
+        response = client.post("/admin/clients/999/create")
 
     assert response.status_code == 404

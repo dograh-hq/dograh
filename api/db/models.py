@@ -113,6 +113,10 @@ class OrganizationModel(Base):
     voicelink_username = Column(String(128), nullable=True)
     voicelink_status = Column(String(32), nullable=True)
     voicelink_error = Column(Text, nullable=True)
+    # Fernet-encrypted copy of the signup password, kept ONLY while an org is
+    # not yet provisioned so admin "Create client" can reuse the same platform
+    # password; wiped on success. See services/voicelink_clients/secrets.py.
+    voicelink_provision_secret = Column(Text, nullable=True)
 
     # Relationships
     users = relationship(

@@ -66,6 +66,31 @@ class VoiceLinkClientsClient(VoiceLinkKycClient):
         )
         raise VoiceLinkClientError(message, status_code=status)
 
+    async def list_clients(self) -> list[Dict[str, Any]]:
+        """``GET /v1/reseller/clients`` → the list of reseller client records.
+
+        Each record carries at least ``id`` and ``username`` (plus name/email/
+        wallet/channels). Raises :class:`VoiceLinkClientError` on HTTP or
+        envelope-level failure.
+        """
+        try:
+            status, data = await self._api_request("GET", "/v1/reseller/clients")
+        except VoiceLinkKycError as e:
+            raise VoiceLinkClientError(str(e))
+
+        if (
+            status in (200, 201)
+            and isinstance(data, dict)
+            and data.get("status", True) is not False
+        ):
+            clients = data.get("data")
+            return clients if isinstance(clients, list) else []
+
+        message = (
+            data.get("message") if isinstance(data, dict) else None
+        ) or f"HTTP {status}"
+        raise VoiceLinkClientError(message, status_code=status)
+
 
 _clients_client: Optional[VoiceLinkClientsClient] = None
 

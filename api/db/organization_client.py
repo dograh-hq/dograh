@@ -139,6 +139,7 @@ class OrganizationClient(BaseDBClient):
         username=_UNSET,
         status=_UNSET,
         error=_UNSET,
+        provision_secret=_UNSET,
     ) -> Optional[OrganizationModel]:
         """Partially update the org's VoiceLink provisioning fields.
 
@@ -158,6 +159,8 @@ class OrganizationClient(BaseDBClient):
                 organization.voicelink_status = status
             if error is not _UNSET:
                 organization.voicelink_error = error
+            if provision_secret is not _UNSET:
+                organization.voicelink_provision_secret = provision_secret
 
             await session.commit()
             await session.refresh(organization)

@@ -19,19 +19,25 @@ from api.schemas.admin_clients import (
     AdminClientsListResponse,
     AssignDidRequest,
     AssignDidResponse,
+    CreateClientRequest,
+    CreateClientResponse,
     RetryProvisionRequest,
     RetryProvisionResponse,
 )
 from api.services.auth.depends import get_superuser
 from api.services.voicelink_clients import (
+    VoiceLinkClientError,
+    derive_username,
     get_voicelink_clients_client,
     provision_voicelink_client,
 )
+from api.services.voicelink_clients.secrets import decrypt_provision_secret
 from api.services.voicelink_kyc.client import DEFAULT_VOICELINK_API_BASE
 
 router = APIRouter(prefix="/admin/clients", tags=["admin-clients"])
 
 VOICELINK_PROVIDER = "voicelink"
+VOICELINK_STATUS_PROVISIONED = "provisioned"
 
 
 def _resolve_owner(organization: OrganizationModel) -> Optional[UserModel]:
@@ -51,13 +57,73 @@ def _ordered_voicelink_configs(configs):
     return sorted(configs, key=lambda c: not c.is_default_outbound)
 
 
+def _build_live_index(records):
+    """Index reseller client records by id and by lowercased username."""
+    by_id = {}
+    by_username = {}
+    for record in records:
+        record_id = record.get("id")
+        if record_id is not None:
+            by_id[str(record_id)] = record
+        username = record.get("username")
+        if username:
+            by_username[str(username).lower()] = record
+    return by_id, by_username
+
+
+def _match_live_client_id(organization, owner, by_id, by_username):
+    """The VoiceLink client id for this org if it exists live, else ``None``.
+
+    Match precedence: stored ``client_id`` → stored ``username`` → the username
+    we would derive for this org. Email is never matched on — it repeats across
+    clients.
+    """
+    stored_id = organization.voicelink_client_id
+    if stored_id and str(stored_id) in by_id:
+        return str(stored_id)
+    stored_username = organization.voicelink_username
+    if stored_username and stored_username.lower() in by_username:
+        return str(by_username[stored_username.lower()].get("id"))
+    if owner and owner.email:
+        derived = derive_username(owner.email, organization.id).lower()
+        if derived in by_username:
+            return str(by_username[derived].get("id"))
+    return None
+
+
+async def _load_live_index(vl_client):
+    """Fetch the reseller client list once and index it.
+
+    Returns ``(index, default_state)`` — ``index`` is ``None`` when no live
+    lookup ran (reseller unconfigured, or the call failed), in which case every
+    org takes ``default_state`` ("unconfigured" or "unknown").
+    """
+    if not vl_client.is_configured:
+        return None, "unconfigured"
+    try:
+        records = await vl_client.list_clients()
+        return _build_live_index(records), "active"
+    except VoiceLinkClientError as e:
+        logger.warning(f"VoiceLink live reconcile failed: {e}")
+        return None, "unknown"
+
+
 @router.get("", response_model=AdminClientsListResponse)
 async def list_clients(
     user: UserModel = Depends(get_superuser),
 ) -> AdminClientsListResponse:
-    """All client organizations (the superuser's own orgs are excluded)."""
+    """All client organizations (the superuser's own orgs are excluded).
+
+    Reconciles each org against VoiceLink (one reseller call) so ``live_state``
+    reflects whether the client actually exists there, and self-heals stored
+    state when a client we lost the link to is rediscovered.
+    """
     organizations = await db_client.list_organizations_with_users(
         exclude_user_id=user.id
+    )
+
+    vl_index, default_live_state = await _load_live_index(
+        get_voicelink_clients_client()
     )
 
     clients: List[AdminClientItem] = []
@@ -74,6 +140,31 @@ async def list_clients(
             ),
             None,
         )
+
+        live_state = default_live_state
+        live_client_id = None
+        if vl_index is not None:
+            by_id, by_username = vl_index
+            live_client_id = _match_live_client_id(
+                organization, owner, by_id, by_username
+            )
+            if live_client_id:
+                live_state = "active"
+                # Self-heal stored state when the link drifted (or was lost).
+                if (
+                    organization.voicelink_client_id != live_client_id
+                    or organization.voicelink_status != VOICELINK_STATUS_PROVISIONED
+                ):
+                    await db_client.update_organization_voicelink(
+                        organization.id,
+                        client_id=live_client_id,
+                        status=VOICELINK_STATUS_PROVISIONED,
+                        error=None,
+                        provision_secret=None,
+                    )
+            else:
+                live_state = "missing"
+
         clients.append(
             AdminClientItem(
                 organization_id=organization.id,
@@ -88,6 +179,8 @@ async def list_clients(
                 voicelink_error=organization.voicelink_error,
                 has_voicelink_config=bool(configs),
                 did_number=did_number,
+                live_state=live_state,
+                live_client_id=live_client_id,
             )
         )
 
@@ -138,6 +231,103 @@ async def retry_provision(
         f"{result['status']}"
     )
     return RetryProvisionResponse(
+        voicelink_status=result["status"],
+        voicelink_client_id=result["client_id"],
+        voicelink_username=result["username"],
+        voicelink_error=result["error"],
+    )
+
+
+@router.post("/{org_id}/create", response_model=CreateClientResponse)
+async def create_client(
+    org_id: int,
+    request: Optional[CreateClientRequest] = None,
+    user: UserModel = Depends(get_superuser),
+) -> CreateClientResponse:
+    """One-click (re)provision of an org's VoiceLink client.
+
+    Links the org if the client already exists in VoiceLink (no duplicate),
+    otherwise creates it using the org's stored (encrypted) signup password so
+    the VoiceLink client password matches the platform password. Legacy orgs
+    with no stored secret get a 409 directing the operator to Retry with a
+    password.
+    """
+    organization = await db_client.get_organization_with_users(org_id)
+    if organization is None:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    vl_client = get_voicelink_clients_client()
+    if not vl_client.is_configured:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "VoiceLink reseller credentials are not configured — set "
+                "VOICELINK_RESELLER_USERNAME and VOICELINK_RESELLER_PASSWORD"
+            ),
+        )
+
+    owner = _resolve_owner(organization)
+    if owner is None or not owner.email:
+        raise HTTPException(
+            status_code=400,
+            detail="Organization has no member user with an email address",
+        )
+
+    # Reconcile first: if the client already exists, link it instead of
+    # creating a duplicate (a duplicate username/email would 422 upstream).
+    try:
+        records = await vl_client.list_clients()
+    except VoiceLinkClientError as e:
+        logger.warning(f"VoiceLink reconcile before create failed: {e}")
+        records = []
+    by_id, by_username = _build_live_index(records)
+    live_client_id = _match_live_client_id(organization, owner, by_id, by_username)
+    if live_client_id:
+        await db_client.update_organization_voicelink(
+            org_id,
+            client_id=live_client_id,
+            status=VOICELINK_STATUS_PROVISIONED,
+            error=None,
+            provision_secret=None,
+        )
+        logger.info(
+            f"Superuser {user.id} linked existing VoiceLink client "
+            f"{live_client_id} to org {org_id}"
+        )
+        return CreateClientResponse(
+            action="linked",
+            voicelink_status=VOICELINK_STATUS_PROVISIONED,
+            voicelink_client_id=live_client_id,
+            voicelink_username=organization.voicelink_username,
+            voicelink_error=None,
+        )
+
+    # Create using the supplied override or the stored (encrypted) password.
+    password = (request.password if request and request.password else None) or (
+        decrypt_provision_secret(organization.voicelink_provision_secret)
+    )
+    if not password:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No stored password for this organization. Use Retry "
+                "provisioning and supply a password."
+            ),
+        )
+
+    result = await provision_voicelink_client(
+        org_id,
+        email=owner.email,
+        password=password,
+        username=organization.voicelink_username or None,
+        client=vl_client,
+    )
+    logger.info(
+        f"Superuser {user.id} created VoiceLink client for org {org_id}: "
+        f"{result['status']}"
+    )
+    return CreateClientResponse(
+        action="created",
         voicelink_status=result["status"],
         voicelink_client_id=result["client_id"],
         voicelink_username=result["username"],

@@ -8,6 +8,7 @@ at the ``db_client`` module attribute used by the service.
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from cryptography.fernet import Fernet
 
 from api.services.voicelink_clients import (
     VoiceLinkClientError,
@@ -17,8 +18,10 @@ from api.services.voicelink_clients import (
     provision_voicelink_client_for_signup,
     split_signup_name,
 )
+from api.services.voicelink_clients.secrets import decrypt_provision_secret
 
 API_BASE = "https://app.voicelink.co.in/api"
+_PROVISION_KEY = Fernet.generate_key().decode()
 
 
 def _client(**overrides) -> VoiceLinkClientsClient:
@@ -188,12 +191,14 @@ async def test_success_stores_provisioned_status_and_client_id():
 
     assert result["status"] == "provisioned"
     assert result["client_id"] == "474"
+    # Success clears the provisioning secret (org is now provisioned).
     db.update_organization_voicelink.assert_awaited_once_with(
         11,
         client_id="474",
         username="jane.11",
         status="provisioned",
         error=None,
+        provision_secret=None,
     )
 
 
@@ -235,6 +240,40 @@ async def test_422_no_channels_stores_pending_with_error():
 
 
 @pytest.mark.asyncio
+async def test_pending_stores_encrypted_provision_secret(monkeypatch):
+    # On failure we keep an encrypted copy of the password so a later admin
+    # "Create client" can reuse the same platform password.
+    monkeypatch.setenv("VOICELINK_PROVISION_KEY", _PROVISION_KEY)
+
+    client = _client()
+    client._access_token = "tok"
+
+    with (
+        patch.object(
+            client,
+            "_send_request",
+            new_callable=AsyncMock,
+            return_value=(
+                422,
+                {"status": False, "message": "No channels available"},
+            ),
+        ),
+        patch("api.services.voicelink_clients.service.db_client") as db,
+    ):
+        db.update_organization_voicelink = AsyncMock()
+        await provision_voicelink_client(
+            11,
+            email="jane@example.test",
+            password="platform-pass-xyz",
+            client=client,
+        )
+
+    secret = db.update_organization_voicelink.await_args.kwargs["provision_secret"]
+    assert secret is not None
+    assert decrypt_provision_secret(secret) == "platform-pass-xyz"
+
+
+@pytest.mark.asyncio
 async def test_create_client_raises_with_upstream_status_code():
     client = _client()
     client._access_token = "tok"
@@ -251,11 +290,54 @@ async def test_create_client_raises_with_upstream_status_code():
     assert exc.value.status_code == 422
 
 
+@pytest.mark.asyncio
+async def test_list_clients_returns_the_data_list():
+    client = _client()
+    client._access_token = "tok"
+
+    with patch.object(
+        client,
+        "_send_request",
+        new_callable=AsyncMock,
+        return_value=(
+            200,
+            {
+                "status": True,
+                "message": "Success",
+                "data": [{"id": 474, "username": "hardikk.client"}],
+            },
+        ),
+    ) as send:
+        result = await client.list_clients()
+
+    method, url, _payload, token = send.await_args.args[:4]
+    assert method == "GET"
+    assert url == f"{API_BASE}/v1/reseller/clients"
+    assert token == "tok"
+    assert result == [{"id": 474, "username": "hardikk.client"}]
+
+
+@pytest.mark.asyncio
+async def test_list_clients_raises_on_upstream_failure():
+    client = _client()
+    client._access_token = "tok"
+
+    with patch.object(
+        client,
+        "_send_request",
+        new_callable=AsyncMock,
+        return_value=(500, {"status": False, "message": "boom"}),
+    ):
+        with pytest.raises(VoiceLinkClientError):
+            await client.list_clients()
+
+
 # ======== SIGNUP HOOK ========
 
 
 @pytest.mark.asyncio
 async def test_signup_hook_skips_admin_emails():
+    # Admin/owner orgs are never VoiceLink clients — no provision, no secret.
     with (
         patch(
             "api.services.voicelink_clients.service.is_admin_email",
@@ -265,7 +347,9 @@ async def test_signup_hook_skips_admin_emails():
             "api.services.voicelink_clients.service.provision_voicelink_client",
             new_callable=AsyncMock,
         ) as provision,
+        patch("api.services.voicelink_clients.service.db_client") as db,
     ):
+        db.update_organization_voicelink = AsyncMock()
         await provision_voicelink_client_for_signup(
             organization_id=11,
             email="owner@example.test",
@@ -273,10 +357,14 @@ async def test_signup_hook_skips_admin_emails():
         )
 
     provision.assert_not_awaited()
+    db.update_organization_voicelink.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_signup_hook_skips_when_reseller_creds_unset():
+async def test_signup_hook_stores_secret_when_reseller_creds_unset(monkeypatch):
+    # Creds-unset skip still records the encrypted password so a later admin
+    # "Create client" (once creds are set) can reuse the same platform password.
+    monkeypatch.setenv("VOICELINK_PROVISION_KEY", _PROVISION_KEY)
     with (
         patch(
             "api.services.voicelink_clients.service.get_voicelink_clients_client",
@@ -286,14 +374,18 @@ async def test_signup_hook_skips_when_reseller_creds_unset():
             "api.services.voicelink_clients.service.provision_voicelink_client",
             new_callable=AsyncMock,
         ) as provision,
+        patch("api.services.voicelink_clients.service.db_client") as db,
     ):
+        db.update_organization_voicelink = AsyncMock()
         await provision_voicelink_client_for_signup(
             organization_id=11,
             email="user@example.test",
-            password="placeholder-pass",
+            password="platform-pass-xyz",
         )
 
     provision.assert_not_awaited()
+    secret = db.update_organization_voicelink.await_args.kwargs["provision_secret"]
+    assert decrypt_provision_secret(secret) == "platform-pass-xyz"
 
 
 @pytest.mark.asyncio

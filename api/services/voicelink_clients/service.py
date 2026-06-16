@@ -29,6 +29,7 @@ from api.services.voicelink_clients.client import (
     VoiceLinkClientsClient,
     get_voicelink_clients_client,
 )
+from api.services.voicelink_clients.secrets import encrypt_provision_secret
 
 VOICELINK_STATUS_PROVISIONED = "provisioned"
 VOICELINK_STATUS_PENDING = "pending"
@@ -144,6 +145,9 @@ async def provision_voicelink_client(
             username=username,
             status=VOICELINK_STATUS_PENDING,
             error=error,
+            # Keep an encrypted copy of the password so admin "Create client"
+            # can reuse the same platform password later.
+            provision_secret=encrypt_provision_secret(password),
         )
         logger.warning(
             f"VoiceLink provisioning pending for org {organization_id}: {error}"
@@ -162,6 +166,8 @@ async def provision_voicelink_client(
         username=username,
         status=VOICELINK_STATUS_PROVISIONED,
         error=None,
+        # Org is provisioned — the stored secret is no longer needed.
+        provision_secret=None,
     )
     logger.info(
         f"VoiceLink client provisioned for org {organization_id} "
@@ -200,6 +206,14 @@ async def provision_voicelink_client_for_signup(
             logger.info(
                 "Skipping VoiceLink provisioning — reseller credentials unset"
             )
+            # Stash the encrypted password so admin "Create client" can
+            # provision later (once reseller creds are set) with the same
+            # platform password. No-op when no provisioning key is configured.
+            secret = encrypt_provision_secret(password)
+            if secret:
+                await db_client.update_organization_voicelink(
+                    organization_id, provision_secret=secret
+                )
             return
 
         await provision_voicelink_client(

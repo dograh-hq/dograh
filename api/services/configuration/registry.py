@@ -1167,7 +1167,7 @@ SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
 
 SMALLEST_TTS_MODELS = ["lightning_v3.1", "lightning_v3.1_pro"]
 SMALLEST_TTS_VOICES = [
-    "emily",
+    "sophia",
     "jasmine",
     "james",
     "michael",
@@ -1213,7 +1213,7 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
         json_schema_extra={"examples": SMALLEST_TTS_MODELS},
     )
     voice: str = Field(
-        default="emily",
+        default="sophia",
         description="Smallest AI voice ID.",
         json_schema_extra={"examples": SMALLEST_TTS_VOICES, "allow_custom_input": True},
     )

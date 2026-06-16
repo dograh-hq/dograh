@@ -70,6 +70,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const audioRef = useRef<HTMLAudioElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
+    const localStreamRef = useRef<MediaStream | null>(null);
     const timeStartRef = useRef<number | null>(null);
     const onNodeTransitionRef = useRef(onNodeTransition);
     const connectionActiveRef = useRef(connectionActive);
@@ -171,6 +172,14 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 ws.close();
             }
             wsRef.current = null;
+        }
+
+        // Release the local microphone stream so the device is freed for a
+        // subsequent call. Stopping tracks via pc.getSenders() alone can leave
+        // the browser holding the mic, blocking the next getUserMedia().
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach((track) => track.stop());
+            localStreamRef.current = null;
         }
 
         if (options.closePeerConnection !== false) {
@@ -743,6 +752,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             if (constraints.audio) {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    localStreamRef.current = stream;
                     stream.getTracks().forEach((track) => {
                         pc.addTrack(track, stream);
                     });
@@ -770,6 +780,10 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     // Cleanup on unmount
     useEffect(() => {
         return () => {
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach((track) => track.stop());
+                localStreamRef.current = null;
+            }
             if (wsRef.current) {
                 wsRef.current.close();
             }

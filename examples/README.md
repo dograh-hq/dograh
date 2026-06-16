@@ -26,6 +26,10 @@ python python/fetch_workflow_and_call.py
 
 # Create a new workflow from a definition.
 python python/create_workflow.py
+
+# Build a 3-node agent with the Workflow SDK and save it as a draft.
+# Edit WORKFLOW_ID at the top of the file first.
+python python/build_workflow_with_sdk.py
 ```
 
 ## TypeScript
@@ -41,4 +45,5 @@ export DOGRAH_API_TOKEN=sk-...
 
 npm run call    # fetch_workflow_and_call.ts
 npm run create  # create_workflow.ts
+npm run build   # build_workflow_with_sdk.ts  (edit WORKFLOW_ID in the file first)
 ```

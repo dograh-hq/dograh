@@ -7,6 +7,12 @@
  * (same pattern as lib/kyc.ts).
  */
 
+export type VoiceLinkLiveState =
+  | "active"
+  | "missing"
+  | "unconfigured"
+  | "unknown";
+
 export interface AdminClient {
   organization_id: number;
   organization_name: string;
@@ -20,6 +26,9 @@ export interface AdminClient {
   voicelink_error?: string | null;
   has_voicelink_config: boolean;
   did_number?: string | null;
+  // Live reconciliation against VoiceLink.
+  live_state: VoiceLinkLiveState;
+  live_client_id?: string | null;
 }
 
 export interface AdminClientsListResult {
@@ -27,6 +36,14 @@ export interface AdminClientsListResult {
 }
 
 export interface RetryProvisionResult {
+  voicelink_status: string;
+  voicelink_client_id?: string | null;
+  voicelink_username?: string | null;
+  voicelink_error?: string | null;
+}
+
+export interface CreateClientResult {
+  action: string; // "linked" | "created"
   voicelink_status: string;
   voicelink_client_id?: string | null;
   voicelink_username?: string | null;
@@ -98,6 +115,16 @@ export const retryProvisionClient = (
     `/${organizationId}/retry-provision`,
     { method: "POST", body: JSON.stringify({ password }) },
   );
+
+export const createClientForOrg = (
+  token: string,
+  organizationId: number,
+  password?: string,
+) =>
+  adminFetch<CreateClientResult>(token, `/${organizationId}/create`, {
+    method: "POST",
+    body: JSON.stringify(password ? { password } : {}),
+  });
 
 export const assignDidToClient = (
   token: string,

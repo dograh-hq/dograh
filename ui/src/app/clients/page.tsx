@@ -6,10 +6,11 @@ import {
   Phone,
   RefreshCw,
   RotateCcw,
+  UserPlus,
   Users,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ import {
 import {
   type AdminClient,
   assignDidToClient,
+  createClientForOrg,
   listAdminClients,
   retryProvisionClient,
 } from "@/lib/adminClients";
@@ -48,24 +50,46 @@ import { useAuth } from "@/lib/auth";
 import { impersonateAsSuperadmin } from "@/lib/utils";
 
 function VoiceLinkStatusBadge({ client }: { client: AdminClient }) {
-  if (client.voicelink_status === "provisioned") {
-    return <Badge>Provisioned</Badge>;
+  let badge: ReactNode;
+  switch (client.live_state) {
+    case "active":
+      badge = (
+        <Badge className="bg-emerald-600 hover:bg-emerald-600">
+          Active in VoiceLink
+        </Badge>
+      );
+      break;
+    case "missing":
+      badge = <Badge variant="destructive">Missing</Badge>;
+      break;
+    case "unconfigured":
+      badge = <Badge variant="outline">Not configured</Badge>;
+      break;
+    default:
+      badge = <Badge variant="secondary">Unknown</Badge>;
   }
-  if (client.voicelink_status === "pending") {
-    const badge = <Badge variant="destructive">Pending</Badge>;
-    if (!client.voicelink_error) return badge;
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex cursor-help">{badge}</span>
-        </TooltipTrigger>
-        <TooltipContent side="top" className="max-w-xs">
-          <p>{client.voicelink_error}</p>
-        </TooltipContent>
-      </Tooltip>
-    );
-  }
-  return <Badge variant="outline">Not provisioned</Badge>;
+
+  // Surface the stored status/error only when it adds information beyond the
+  // live state (e.g. a pending error, or a stored value that disagrees).
+  const tooltip =
+    client.voicelink_error ||
+    (client.live_state !== "active" &&
+    client.voicelink_status &&
+    client.voicelink_status !== "provisioned"
+      ? `Stored status: ${client.voicelink_status}`
+      : null);
+
+  if (!tooltip) return badge;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex cursor-help">{badge}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs">
+        <p>{tooltip}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export default function ClientsPage() {
@@ -85,6 +109,9 @@ export default function ClientsPage() {
   // Retry provisioning dialog state
   const [retryTarget, setRetryTarget] = useState<AdminClient | null>(null);
   const [retryPassword, setRetryPassword] = useState("");
+
+  // One-click create — the org id currently being (re)provisioned
+  const [creating, setCreating] = useState<number | null>(null);
 
   const fetchClients = useCallback(
     async (showSpinner = false) => {
@@ -171,6 +198,32 @@ export default function ClientsPage() {
       );
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const onCreate = async (client: AdminClient) => {
+    setCreating(client.organization_id);
+    try {
+      const token = await getAccessToken();
+      if (!token) throw new Error("Missing access token");
+      const result = await createClientForOrg(token, client.organization_id);
+      if (result.voicelink_status === "provisioned") {
+        toast.success(
+          result.action === "linked"
+            ? "Linked the existing VoiceLink client"
+            : "VoiceLink client created",
+        );
+      } else {
+        toast.error(result.voicelink_error || "Provisioning is still pending");
+      }
+      await fetchClients();
+    } catch (err) {
+      // Legacy orgs with no stored password return 409 — fall back to Retry.
+      toast.error(
+        err instanceof Error ? err.message : "Failed to create client",
+      );
+    } finally {
+      setCreating(null);
     }
   };
 
@@ -264,7 +317,7 @@ export default function ClientsPage() {
                       <VoiceLinkStatusBadge client={client} />
                     </TableCell>
                     <TableCell>
-                      {client.voicelink_client_id ?? "—"}
+                      {client.live_client_id ?? client.voicelink_client_id ?? "—"}
                       {client.voicelink_username && (
                         <div className="text-xs text-muted-foreground">
                           {client.voicelink_username}
@@ -277,6 +330,20 @@ export default function ClientsPage() {
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">
+                        {client.live_state !== "active" && (
+                          <Button
+                            size="sm"
+                            onClick={() => onCreate(client)}
+                            disabled={creating === client.organization_id}
+                          >
+                            {creating === client.organization_id ? (
+                              <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <UserPlus className="mr-1 h-3.5 w-3.5" />
+                            )}
+                            Create
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
@@ -285,14 +352,23 @@ export default function ClientsPage() {
                           <Phone className="mr-1 h-3.5 w-3.5" />
                           Assign DID
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => openRetryDialog(client)}
-                        >
-                          <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                          Retry
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => openRetryDialog(client)}
+                            >
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>
+                              Retry with a specific password (legacy orgs
+                              without a stored secret)
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button

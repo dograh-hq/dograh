@@ -1165,7 +1165,7 @@ SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
     provider_docs_url="https://smallest.ai/docs",
 )
 
-SMALLEST_TTS_MODELS = ["lightning-v3.1", "lightning-v2"]
+SMALLEST_TTS_MODELS = ["lightning_v3.1", "lightning_v3.1_pro"]
 SMALLEST_TTS_VOICES = [
     "emily",
     "jasmine",
@@ -1208,8 +1208,8 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
     model_config = SMALLEST_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
     model: str = Field(
-        default="lightning-v3.1",
-        description="Smallest AI TTS model. lightning-v3.1 is the latest; lightning-v2 supports additional voice parameters.",
+        default="lightning_v3.1",
+        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.",
         json_schema_extra={"examples": SMALLEST_TTS_MODELS},
     )
     voice: str = Field(
@@ -1582,7 +1582,7 @@ class SmallestAISTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
     model: str = Field(
         default="pulse",
-        description="Smallest AI STT model.",
+        description="Smallest AI STT model. Supports 38 languages with real-time streaming.",
         json_schema_extra={"examples": SMALLEST_STT_MODELS},
     )
     language: str = Field(

@@ -18,6 +18,8 @@ version moves these into the ARI telephony-configuration credentials and selects
 the adapter by ``upstream["provider"]`` (see the upstream-PBX seam design doc).
 """
 
+import asyncio
+
 import aiohttp
 from loguru import logger
 
@@ -28,6 +30,14 @@ _VICIDIAL_API_PASS = "1234"
 _VICIDIAL_API_SOURCE = "dograh"
 
 _HTTP_TIMEOUT = aiohttp.ClientTimeout(total=8)
+
+# --- POC hardcoded FreeSWITCH ESL connection (refine: telephony config creds) ---
+# FreeSWITCH owns the customer leg; dograh drives hangup/transfer over the Event
+# Socket Library by the channel UUID captured from the X-PBX-UUID header.
+_FS_ESL_HOST = "10.10.10.17"
+_FS_ESL_PORT = 8021
+_FS_ESL_PASSWORD = "ClueCon"
+_FS_ESL_TIMEOUT = 8
 
 
 async def _ra_call_control(upstream: dict, stage: str, **extra) -> bool:
@@ -63,25 +73,104 @@ async def _ra_call_control(upstream: dict, stage: str, **extra) -> bool:
         return False
 
 
+async def _fs_esl_api(command: str) -> tuple[bool, str]:
+    """Run a FreeSWITCH ``api`` command over the Event Socket (inbound mode).
+
+    Connects, authenticates, issues ``api <command>`` and returns
+    ``(ok, response_body)`` where ok is True when FreeSWITCH replied ``+OK``.
+    """
+
+    async def _run() -> tuple[bool, str]:
+        reader, writer = await asyncio.open_connection(_FS_ESL_HOST, _FS_ESL_PORT)
+        try:
+            await reader.readuntil(b"\n\n")  # "Content-Type: auth/request"
+            writer.write(f"auth {_FS_ESL_PASSWORD}\n\n".encode())
+            await writer.drain()
+            await reader.readuntil(b"\n\n")  # auth command/reply
+            writer.write(f"api {command}\n\n".encode())
+            await writer.drain()
+            headers = (await reader.readuntil(b"\n\n")).decode(errors="replace")
+            length = 0
+            for line in headers.splitlines():
+                if line.lower().startswith("content-length:"):
+                    length = int(line.split(":", 1)[1].strip())
+            body = (
+                (await reader.readexactly(length)).decode(errors="replace")
+                if length
+                else ""
+            )
+            return body.startswith("+OK"), body.strip()
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    try:
+        return await asyncio.wait_for(_run(), timeout=_FS_ESL_TIMEOUT)
+    except Exception as e:
+        logger.error(f"[upstream_pbx] FreeSWITCH ESL '{command}' failed: {e}")
+        return False, ""
+
+
+async def _fs_uuid_kill(upstream: dict) -> bool:
+    uuid = upstream.get("uuid", "")
+    if not uuid:
+        return False
+    ok, resp = await _fs_esl_api(f"uuid_kill {uuid}")
+    logger.info(f"[upstream_pbx] FreeSWITCH uuid_kill {uuid} -> {resp or ok}")
+    return ok
+
+
+async def _fs_uuid_transfer(upstream: dict, destination: str) -> bool:
+    uuid = upstream.get("uuid", "")
+    if not uuid:
+        return False
+    number = destination.split("/")[-1]
+    # The customer leg is transferred into the FS dialplan extension
+    # dograh_xfer_<number>, which bridges to that registered user/agent.
+    ok, resp = await _fs_esl_api(
+        f"uuid_transfer {uuid} dograh_xfer_{number} XML dograh-customer"
+    )
+    logger.info(
+        f"[upstream_pbx] FreeSWITCH uuid_transfer {uuid} -> {number}: {resp or ok}"
+    )
+    return ok
+
+
 async def terminate_upstream_call(upstream: dict) -> bool:
     """Hang up the upstream PBX's customer leg. Call this BEFORE dropping dograh's leg."""
-    if not upstream or upstream.get("provider") != "vicidial":
+    if not upstream:
         return False
-    return await _ra_call_control(upstream, "HANGUP")
+    provider = upstream.get("provider")
+    if provider == "vicidial":
+        return await _ra_call_control(upstream, "HANGUP")
+    if provider == "freeswitch":
+        return await _fs_uuid_kill(upstream)
+    return False
 
 
 async def transfer_upstream_call(upstream: dict, destination: str) -> bool:
-    """Transfer the upstream PBX's customer leg (scaffolding for the transfer seam).
+    """Transfer the upstream PBX's customer leg, dispatched by provider.
 
-    ``ingroup:<id>`` -> VICIdial INGROUPTRANSFER (to a queue/agent group);
-    anything else -> EXTENSIONTRANSFER to that number/extension (tolerates a
-    leading ``PJSIP/`` so dograh's existing transfer destination strings work).
+    VICIdial: ``ingroup:<id>`` -> INGROUPTRANSFER (to a queue/agent group);
+    anything else -> EXTENSIONTRANSFER to that number/extension.
+    FreeSWITCH: uuid_transfer the customer leg to the FS dialplan extension that
+    bridges to the target. (Both tolerate a leading ``PJSIP/`` in destination.)
     """
-    if not upstream or upstream.get("provider") != "vicidial":
+    if not upstream:
         return False
-    if destination.startswith("ingroup:"):
+    provider = upstream.get("provider")
+    if provider == "vicidial":
+        if destination.startswith("ingroup:"):
+            return await _ra_call_control(
+                upstream, "INGROUPTRANSFER", ingroup_choices=destination.split(":", 1)[1]
+            )
+        number = destination.split("/")[-1]
         return await _ra_call_control(
-            upstream, "INGROUPTRANSFER", ingroup_choices=destination.split(":", 1)[1]
+            upstream, "EXTENSIONTRANSFER", phone_number=number
         )
-    number = destination.split("/")[-1]
-    return await _ra_call_control(upstream, "EXTENSIONTRANSFER", phone_number=number)
+    if provider == "freeswitch":
+        return await _fs_uuid_transfer(upstream, destination)
+    return False

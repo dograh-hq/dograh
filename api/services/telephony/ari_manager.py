@@ -440,14 +440,42 @@ class ARIConnection:
         return (result or {}).get("value", "") or ""
 
     async def _capture_upstream_pbx(self, channel_id: str) -> Optional[dict]:
-        """Capture upstream-PBX (VICIdial) identity from the inbound SIP headers.
+        """Capture upstream-PBX identity from the inbound SIP headers.
 
-        When the call is patched in from VICIdial, the trunk INVITE carries
-        ``X-VICIDIAL-*`` headers. The callerid + remote-agent user are the handle
-        dograh uses to drive VICIdial's ``ra_call_control`` API for hangup and
-        transfer (the customer's real leg lives on VICIdial, not on dograh).
-        Returns None for non-upstream calls (no callerid header present).
+        The customer's real call leg lives on the upstream PBX, not on dograh, so
+        dograh drives hangup/transfer via the upstream's API using a captured
+        handle. Two providers are supported:
+          * FreeSWITCH — bridges in with ``X-PBX-*`` headers; the handle is the
+            channel UUID (``X-PBX-UUID``), driven over ESL (uuid_kill/transfer).
+          * VICIdial — patches in with ``X-VICIDIAL-*`` headers; the handle is the
+            callerid + remote-agent user, driven over ``ra_call_control``.
+        Returns None for non-upstream (direct) calls.
         """
+        # FreeSWITCH: X-PBX-Provider marks the call; X-PBX-UUID is the ESL handle.
+        if (
+            await self._get_channel_var(
+                channel_id, "PJSIP_HEADER(read,X-PBX-Provider)"
+            )
+        ) == "freeswitch":
+            upstream = {
+                "provider": "freeswitch",
+                "uuid": await self._get_channel_var(
+                    channel_id, "PJSIP_HEADER(read,X-PBX-UUID)"
+                ),
+                "lead_id": await self._get_channel_var(
+                    channel_id, "PJSIP_HEADER(read,X-PBX-Lead-ID)"
+                ),
+                "campaign_id": await self._get_channel_var(
+                    channel_id, "PJSIP_HEADER(read,X-PBX-Campaign)"
+                ),
+            }
+            logger.info(
+                f"[ARI org={self.organization_id}] Captured upstream_pbx for channel "
+                f"{channel_id}: {upstream}"
+            )
+            return upstream
+
+        # VICIdial: X-VICIDIAL-callerid + user is the ra_call_control handle.
         callerid = await self._get_channel_var(
             channel_id, "PJSIP_HEADER(read,X-VICIDIAL-callerid)"
         )

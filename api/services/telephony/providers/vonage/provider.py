@@ -343,12 +343,16 @@ class VonageProvider(TelephonyProvider):
                 await websocket.close(code=4404, reason="Workflow not found")
                 return
 
-            # Extract call UUID from workflow run context
-            call_uuid = (
-                workflow_run.gathered_context.get("call_uuid")
-                if workflow_run.gathered_context
-                else None
-            )
+            # Extract call UUID from workflow run context.
+            # Outbound calls stamp ``call_uuid`` (provider-specific name);
+            # inbound calls go through ``_create_inbound_workflow_run`` which
+            # stores the same value under the generic ``call_id`` key. Fall
+            # back to ``call_id`` so inbound also resolves.
+            call_uuid = None
+            if workflow_run.gathered_context:
+                call_uuid = workflow_run.gathered_context.get(
+                    "call_uuid"
+                ) or workflow_run.gathered_context.get("call_id")
 
             if not call_uuid:
                 logger.error(
@@ -399,8 +403,37 @@ class VonageProvider(TelephonyProvider):
     ) -> bool:
         """
         Determine if this provider can handle the incoming webhook.
+
+        Vonage inbound webhooks carry:
+        - ``conversation_uuid`` prefixed with ``CON-`` (unique to Vonage)
+        - ``uuid`` (call leg id) — distinct from Twilio's ``CallSid`` and
+          Telnyx's nested ``data.payload.call_control_id``
+        - ``region_url`` containing ``vonage.com`` (when present)
+        Status callbacks carry the same ``conversation_uuid``.
         """
+        conv = webhook_data.get("conversation_uuid")
+        if isinstance(conv, str) and conv.startswith("CON-"):
+            return True
+        region = webhook_data.get("region_url", "")
+        if isinstance(region, str) and "vonage.com" in region:
+            return True
         return False
+
+    @classmethod
+    def generate_validation_error_response(cls, error):
+        """Vonage-shaped (NCCO JSON list) hangup response on validation failure.
+
+        Vonage requires a JSON NCCO. Without this, the ``/inbound/run``
+        dispatcher crashed on the validation-error path with
+        ``AttributeError: type object 'VonageProvider' has no attribute
+        'generate_validation_error_response'`` and fell back to the generic
+        TwiML ``<Response><Hangup/></Response>``, which Vonage rejects as
+        ``no NCCOs available`` / ``Callee currently unavailable``.
+        """
+        from fastapi.responses import JSONResponse
+
+        # Empty NCCO list — Vonage hangs up cleanly.
+        return JSONResponse(content=[])
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
@@ -412,7 +445,10 @@ class VonageProvider(TelephonyProvider):
             call_id=webhook_data.get("uuid", ""),
             from_number=webhook_data.get("from", ""),
             to_number=webhook_data.get("to", ""),
-            direction=webhook_data.get("direction", ""),
+            # Vonage's answer-URL POST payload omits ``direction``; this
+            # method is only invoked on the inbound dispatch path, so the
+            # default is safe.
+            direction=webhook_data.get("direction") or "inbound",
             call_status=webhook_data.get("status", ""),
             account_id=webhook_data.get("account_id"),
             from_country=None,
@@ -561,13 +597,22 @@ class VonageProvider(TelephonyProvider):
         """
         Generate NCCO response for inbound Vonage webhook.
         """
-        # Minimalist NCCO response for interface compliance
+        # NCCO that connects the inbound call to Dograh's WebSocket pipeline.
+        # 16 kHz Linear PCM is Vonage's expected websocket-transport format
+        # and matches what ``get_webhook_response`` (the outbound NCCO route)
+        # already emits.
         ncco_response = [
             {
-                "action": "talk",
-                "text": "Vonage inbound calls are not currently supported.",
-            },
-            {"action": "hangup"},
+                "action": "connect",
+                "endpoint": [
+                    {
+                        "type": "websocket",
+                        "uri": websocket_url,
+                        "content-type": "audio/l16;rate=16000",
+                        "headers": {},
+                    }
+                ],
+            }
         ]
 
         return Response(

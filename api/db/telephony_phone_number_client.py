@@ -146,7 +146,13 @@ class TelephonyPhoneNumberClient(BaseDBClient):
         misses (e.g. legacy non-E.164 stored addresses); the caller should
         fall back to the fuzzy ``numbers_match`` path in that case.
         """
-        if not (provider and account_id_field and account_id and to_number):
+        # Allow ``account_id`` to be empty for providers whose inbound webhook
+        # payload doesn't carry an account-like identifier (e.g. Vonage's
+        # answer-URL POST contains only ``from`` / ``to`` / ``uuid`` /
+        # ``conversation_uuid``). When account_id is empty, match on
+        # ``(provider, address_normalized)``; ``uq_phone_numbers_org_address``
+        # guarantees that tuple resolves to at most one phone number per org.
+        if not (provider and to_number):
             return None
 
         normalized = normalize_telephony_address(to_number, country_hint=country_hint)
@@ -161,13 +167,16 @@ class TelephonyPhoneNumberClient(BaseDBClient):
                 )
                 .where(
                     TelephonyConfigurationModel.provider == provider,
-                    TelephonyConfigurationModel.credentials.op("->>")(account_id_field)
-                    == account_id,
                     TelephonyPhoneNumberModel.address_normalized
                     == normalized.canonical,
                     TelephonyPhoneNumberModel.is_active.is_(True),
                 )
             )
+            if account_id and account_id_field:
+                stmt = stmt.where(
+                    TelephonyConfigurationModel.credentials.op("->>")(account_id_field)
+                    == account_id
+                )
             if organization_id is not None:
                 stmt = stmt.where(
                     TelephonyConfigurationModel.organization_id == organization_id

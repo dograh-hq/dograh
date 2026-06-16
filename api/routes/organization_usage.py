@@ -14,6 +14,7 @@ from api.services.auth.depends import get_user, get_user_with_selected_organizat
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.reports import generate_usage_runs_report_csv
 from api.utils.artifacts import artifact_url
+from api.utils.recording_artifacts import has_recording_track
 
 router = APIRouter(prefix="/organizations")
 
@@ -99,8 +100,12 @@ class WorkflowRunUsageResponse(BaseModel):
     call_duration_seconds: int
     recording_url: Optional[str] = None
     transcript_url: Optional[str] = None
+    user_recording_url: Optional[str] = None
+    bot_recording_url: Optional[str] = None
     recording_public_url: Optional[str] = None
     transcript_public_url: Optional[str] = None
+    user_recording_public_url: Optional[str] = None
+    bot_recording_public_url: Optional[str] = None
     public_access_token: Optional[str] = None
     phone_number: Optional[str] = Field(
         default=None,
@@ -308,14 +313,18 @@ async def get_billing_credits(
                     aggregation_key=entry.get("aggregation_key"),
                     usage_event_id=_optional_int(entry.get("usage_event_id")),
                     workflow_run_id=_optional_int(entry.get("workflow_run_id")),
-                    workflow_id=workflow_ids_by_run_id.get(
-                        _optional_int(entry.get("workflow_run_id"))
-                    )
-                    if entry.get("workflow_run_id") is not None
-                    else None,
-                    billable_quantity=float(entry["billable_quantity"])
-                    if entry.get("billable_quantity") is not None
-                    else None,
+                    workflow_id=(
+                        workflow_ids_by_run_id.get(
+                            _optional_int(entry.get("workflow_run_id"))
+                        )
+                        if entry.get("workflow_run_id") is not None
+                        else None
+                    ),
+                    billable_quantity=(
+                        float(entry["billable_quantity"])
+                        if entry.get("billable_quantity") is not None
+                        else None
+                    ),
                     quantity_unit=entry.get("quantity_unit"),
                     metadata=entry.get("metadata") or {},
                     created_at=str(entry["created_at"]),
@@ -478,6 +487,17 @@ async def get_usage_history(
                 public_access_token, "transcript"
             )
             run["recording_public_url"] = artifact_url(public_access_token, "recording")
+            run["user_recording_public_url"] = (
+                artifact_url(public_access_token, "user_recording")
+                if has_recording_track(run.get("extra"), "user")
+                else None
+            )
+            run["bot_recording_public_url"] = (
+                artifact_url(public_access_token, "bot_recording")
+                if has_recording_track(run.get("extra"), "bot")
+                else None
+            )
+            run.pop("extra", None)
 
         return {
             "runs": runs,

@@ -20,6 +20,7 @@ from api.db.models import (
 )
 from api.enums import OrganizationConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class OrganizationUsageClient(BaseDBClient):
@@ -226,6 +227,9 @@ class OrganizationUsageClient(BaseDBClient):
                     "call_duration_seconds": int(round(call_duration)),
                     "recording_url": run.recording_url,
                     "transcript_url": run.transcript_url,
+                    "user_recording_url": get_recording_storage_key(run.extra, "user"),
+                    "bot_recording_url": get_recording_storage_key(run.extra, "bot"),
+                    "extra": run.extra,
                     "public_access_token": run.public_access_token,
                     "phone_number": phone_number,
                     "caller_number": caller_number,

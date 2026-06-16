@@ -718,6 +718,8 @@ class TriggerNodeData(BaseNodeData):
                 "rsvp": "{{gathered_context.rsvp}}",
                 "duration": "{{cost_info.call_duration_seconds}}",
                 "recording_url": "{{recording_url}}",
+                "user_recording_url": "{{user_recording_url}}",
+                "bot_recording_url": "{{bot_recording_url}}",
                 "transcript_url": "{{transcript_url}}",
             },
         },

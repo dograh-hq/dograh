@@ -47,6 +47,7 @@ class TwilioProvider(TelephonyProvider):
         self.account_sid = config.get("account_sid")
         self.auth_token = config.get("auth_token")
         self.from_numbers = config.get("from_numbers", [])
+        self.amd_enabled: bool = bool(config.get("amd_enabled", False))
 
         # Handle both single number (string) and multiple numbers (list)
         if isinstance(self.from_numbers, str):
@@ -95,6 +96,9 @@ class TwilioProvider(TelephonyProvider):
                     "StatusCallbackMethod": "POST",
                 }
             )
+
+        if self.amd_enabled:
+            data["MachineDetection"] = "Enable"
 
         data.update(kwargs)
 

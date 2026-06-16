@@ -111,6 +111,15 @@ async def handle_twilio_status_callback(
         extra=parsed_data.get("extra", {}),
     )
 
+    # Persist AMD result when Twilio includes AnsweredBy in the callback.
+    answered_by = callback_data.get("AnsweredBy")
+    if answered_by:
+        logger.info(f"[run {workflow_run_id}] AMD result: AnsweredBy={answered_by}")
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            gathered_context={"answered_by": answered_by},
+        )
+
     # Process the status update
     await _process_status_update(workflow_run_id, status_update)
 

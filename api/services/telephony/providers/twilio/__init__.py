@@ -20,6 +20,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "account_sid": value.get("account_sid"),
         "auth_token": value.get("auth_token"),
         "from_numbers": value.get("from_numbers", []),
+        "amd_enabled": value.get("amd_enabled", False),
     }
 
 
@@ -46,6 +47,16 @@ _UI_METADATA = ProviderUIMetadata(
             label="Phone Numbers",
             type="string-array",
             description="E.164-formatted Twilio phone numbers used for outbound calls",
+        ),
+        ProviderUIField(
+            name="amd_enabled",
+            label="Answering Machine Detection",
+            type="boolean",
+            description=(
+                "Enable Twilio AMD on outbound calls. Twilio will fire a status "
+                "callback with AnsweredBy=human or AnsweredBy=machine before "
+                "connecting. The result is stored in gathered_context.answered_by."
+            ),
         ),
     ],
 )

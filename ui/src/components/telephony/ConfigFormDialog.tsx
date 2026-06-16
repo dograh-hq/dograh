@@ -335,6 +335,15 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
       />
     );
   }
+  if (field.type === "boolean") {
+    return (
+      <Switch
+        id={`cfg-field-${field.name}`}
+        checked={Boolean(value)}
+        onCheckedChange={onChange}
+      />
+    );
+  }
   return (
     <Input
       id={`cfg-field-${field.name}`}

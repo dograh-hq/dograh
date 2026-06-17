@@ -535,13 +535,17 @@ def create_tts_service(
         pipecat_language = language_mapping.get(language, Language.HI)
 
         voice = getattr(user_config.tts, "voice", None) or "anushka"
+        speed = getattr(user_config.tts, "speed", None)
+        settings_kwargs = {
+            "model": user_config.tts.model,
+            "voice": voice,
+            "language": pipecat_language,
+        }
+        if speed and speed != 1.0:
+            settings_kwargs["pace"] = speed
         return SarvamTTSService(
             api_key=user_config.tts.api_key,
-            settings=SarvamTTSSettings(
-                model=user_config.tts.model,
-                voice=voice,
-                language=pipecat_language,
-            ),
+            settings=SarvamTTSSettings(**settings_kwargs),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,

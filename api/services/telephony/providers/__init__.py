@@ -11,6 +11,7 @@ from api.services.telephony.providers import (  # noqa: F401  -- import for side
     cloudonix,
     plivo,
     telnyx,
+    three_cx,
     twilio,
     vobiz,
     vonage,

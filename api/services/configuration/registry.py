@@ -946,6 +946,7 @@ class DograhTTSService(BaseTTSConfiguration):
     voice: str = Field(
         default="default",
         description="Voice preset.",
+        json_schema_extra={"allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 

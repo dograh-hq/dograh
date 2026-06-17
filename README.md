@@ -84,6 +84,17 @@ An honest comparison on the axes that matter most to teams evaluating voice AI p
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
 
+> **⚡ Prefer an AI agent to set it up for you?**
+> If you use **Claude Code** or **Codex**, install the official [Dograh setup skill](https://github.com/dograh-hq/dograh-plugins) and let your agent handle installation, configuration, and troubleshooting — it detects your OS, picks the right deploy path, runs Dograh's own setup scripts, and verifies the result.
+>
+> ```text
+> # In Claude Code
+> /plugin marketplace add dograh-hq/dograh-plugins
+> /plugin install dograh@dograh
+> ```
+>
+> Then start a new session and ask it to _"set up Dograh"_ (or run `/dograh-setup`). Codex is supported too — see the [plugin repo](https://github.com/dograh-hq/dograh-plugins#install).
+
 > **Note**
 > First startup may take 2-3 minutes to download all images. Once running, open http://localhost:3010 to create your first AI voice assistant!
 > For common issues and solutions, see 🔧 **[Troubleshooting](docs/troubleshooting.md)**.

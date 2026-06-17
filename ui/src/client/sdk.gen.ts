@@ -1152,9 +1152,9 @@ export const getCampaignDefaultsApiV1OrganizationsCampaignDefaultsGet = <ThrowOn
  * Return a short-lived signed URL for a file stored on S3 / MinIO.
  *
  * Access Control:
- * * Keys that embed an organization ID (``{prefix}/{org_id}/...``) are
- * authorized by matching the org_id against the requesting user's
- * organization.
+ * * Known org-scoped keys (for example ``campaigns/{org_id}/...`` and
+ * ``knowledge_base/{org_id}/...``) are authorized by matching the org_id
+ * against the requesting user's organization.
  * * Legacy keys (``recordings/{run_id}.wav``, ``transcripts/{run_id}.txt``)
  * are authorized via the workflow run they belong to.
  * * Superusers can request any key.
@@ -1474,13 +1474,15 @@ export const initiateCallTestByWorkflowUuidApiV1PublicAgentTestWorkflowWorkflowU
  *
  * Args:
  * token: The public access token (UUID format)
- * artifact_type: Type of artifact - "recording" or "transcript"
+ * artifact_type: Type of artifact - "recording", "transcript",
+ * "user_recording", or "bot_recording"
  * inline: If true, sets Content-Disposition to inline for browser preview
  *
  * Returns:
  * RedirectResponse to the signed URL (302 redirect)
  *
  * Raises:
+ * HTTPException 400: If artifact type is unsupported
  * HTTPException 404: If token is invalid or artifact not found
  */
 export const downloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGet = <ThrowOnError extends boolean = false>(options: Options<DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetData, ThrowOnError>) => (options.client ?? client).get<DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetResponses, DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactTypeGetErrors, ThrowOnError>({ url: '/api/v1/public/download/workflow/{token}/{artifact_type}', ...options });

@@ -62,6 +62,8 @@ from pipecat.services.rime.tts import RimeTTSService, RimeTTSSettings
 from pipecat.services.sarvam.llm import SarvamLLMService, SarvamLLMSettings
 from pipecat.services.sarvam.stt import SarvamSTTService, SarvamSTTSettings
 from pipecat.services.sarvam.tts import SarvamTTSService, SarvamTTSSettings
+from pipecat.services.smallest.stt import SmallestSTTService, SmallestSTTSettings
+from pipecat.services.smallest.tts import SmallestTTSService, SmallestTTSSettings
 from pipecat.services.speaches.llm import SpeachesLLMService, SpeachesLLMSettings
 from pipecat.services.speaches.stt import SpeachesSTTService, SpeachesSTTSettings
 from pipecat.services.speaches.tts import SpeachesTTSService, SpeachesTTSSettings
@@ -307,6 +309,20 @@ def create_stt_service(
             api_key=user_config.stt.api_key,
             region=region,
             settings=AzureSTTSettings(language=pipecat_language),
+            sample_rate=audio_config.transport_in_sample_rate,
+        )
+    elif user_config.stt.provider == ServiceProviders.SMALLEST.value:
+        language_code = getattr(user_config.stt, "language", None) or "en"
+        try:
+            pipecat_language = Language(language_code)
+        except ValueError:
+            pipecat_language = Language.EN
+        return SmallestSTTService(
+            api_key=user_config.stt.api_key,
+            settings=SmallestSTTSettings(
+                model=user_config.stt.model,
+                language=pipecat_language,
+            ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     else:
@@ -582,6 +598,28 @@ def create_tts_service(
             api_key=user_config.tts.api_key,
             region=region,
             settings=AzureTTSSettings(**settings_kwargs),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.SMALLEST.value:
+        language_code = getattr(user_config.tts, "language", None) or "en"
+        try:
+            pipecat_language = Language(language_code)
+        except ValueError:
+            pipecat_language = Language.EN
+        speed = getattr(user_config.tts, "speed", None)
+        model = user_config.tts.model.replace("lightning-v", "lightning_v")
+        settings_kwargs = SmallestTTSSettings(
+            model=model,
+            voice=user_config.tts.voice,
+            language=pipecat_language,
+        )
+        if speed and speed != 1.0:
+            settings_kwargs.speed = speed
+        return SmallestTTSService(
+            api_key=user_config.tts.api_key,
+            settings=settings_kwargs,
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],
             silence_time_s=1.0,

@@ -80,6 +80,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
     AZURE_REALTIME = "azure_realtime"
+    SMALLEST = "smallest"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -108,6 +109,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
+        ServiceProviders.SMALLEST,
     ]
     api_key: str | list[str]
 
@@ -1158,6 +1160,80 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Smallest AI",
+    description="Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.",
+    provider_docs_url="https://smallest.ai/docs",
+)
+
+SMALLEST_TTS_MODELS = ["lightning_v3.1", "lightning_v3.1_pro"]
+SMALLEST_TTS_VOICES = [
+    "sophia",
+    "avery",
+    "liam",
+    "lucas",
+    "olivia",
+    "ryan",
+    "freya",
+    "william",
+    "devansh",
+    "arjun",
+    "niharika",
+    "maya",
+    "dhruv",
+    "mia",
+    "maithili",
+]
+SMALLEST_TTS_LANGUAGES = [
+    "en",
+    "hi",
+    "fr",
+    "de",
+    "es",
+    "it",
+    "nl",
+    "pl",
+    "ru",
+    "ar",
+    "bn",
+    "gu",
+    "he",
+    "kn",
+    "mr",
+    "ta",
+]
+
+
+@register_tts
+class SmallestAITTSConfiguration(BaseTTSConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="lightning_v3.1",
+        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.",
+        json_schema_extra={"examples": SMALLEST_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="sophia",
+        description="Smallest AI voice ID.",
+        json_schema_extra={"examples": SMALLEST_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for synthesis.",
+        json_schema_extra={
+            "examples": SMALLEST_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0).",
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1172,6 +1248,7 @@ TTSConfig = Annotated[
         SpeachesTTSConfiguration,
         MiniMaxTTSConfiguration,
         AzureSpeechTTSConfiguration,
+        SmallestAITTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1466,6 +1543,62 @@ class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+SMALLEST_STT_MODELS = ["pulse"]
+SMALLEST_STT_LANGUAGES = [
+    "en",
+    "hi",
+    "fr",
+    "de",
+    "es",
+    "it",
+    "nl",
+    "pl",
+    "ru",
+    "pt",
+    "bn",
+    "gu",
+    "kn",
+    "ml",
+    "mr",
+    "ta",
+    "te",
+    "pa",
+    "or",
+    "bg",
+    "cs",
+    "da",
+    "et",
+    "fi",
+    "hu",
+    "lt",
+    "lv",
+    "mt",
+    "ro",
+    "sk",
+    "sv",
+    "uk",
+]
+
+
+@register_stt
+class SmallestAISTTConfiguration(BaseSTTConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="pulse",
+        description="Smallest AI STT model. Supports 38 languages with real-time streaming.",
+        json_schema_extra={"examples": SMALLEST_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for transcription.",
+        json_schema_extra={
+            "examples": SMALLEST_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -1480,6 +1613,7 @@ STTConfig = Annotated[
         AssemblyAISTTConfiguration,
         GladiaSTTConfiguration,
         AzureSpeechSTTConfiguration,
+        SmallestAISTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

@@ -4750,6 +4750,12 @@ export type SarvamTtsConfiguration = {
      * BCP-47 Indian-language code (e.g. hi-IN, en-IN).
      */
     language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier.
+     */
+    speed?: number;
 };
 
 /**

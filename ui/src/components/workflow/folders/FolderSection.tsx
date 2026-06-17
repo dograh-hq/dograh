@@ -228,7 +228,7 @@ export function FolderSection({
                                 <AlertDialogTitle>Delete “{folder.name}”?</AlertDialogTitle>
                                 <AlertDialogDescription>
                                     The {count} agent{count === 1 ? '' : 's'} in this folder
-                                    won’t be deleted — they’ll move to Uncategorized.
+                                    won’t be deleted - they’ll move to Uncategorized.
                                 </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>

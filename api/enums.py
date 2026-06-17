@@ -96,6 +96,15 @@ class OrganizationConfigurationKey(Enum):
     MODEL_CONFIGURATION_PREFERENCES = "MODEL_CONFIGURATION_PREFERENCES"  # Deprecated; read fallback for old org preferences
 
 
+class UserConfigurationKey(Enum):
+    """Keys for the per-user keyed JSON store (user_configurations)."""
+
+    MODEL_CONFIGURATION = (
+        "MODEL_CONFIGURATION"  # Legacy per-user v1 AI model configuration
+    )
+    ONBOARDING = "ONBOARDING"  # Post-signup onboarding state (gate, tooltips, actions)
+
+
 class WorkflowStatus(Enum):
     """Workflow status values"""
 

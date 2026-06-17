@@ -609,8 +609,9 @@ def create_tts_service(
         except ValueError:
             pipecat_language = Language.EN
         speed = getattr(user_config.tts, "speed", None)
+        model = user_config.tts.model.replace("lightning-v", "lightning_v")
         settings_kwargs = SmallestTTSSettings(
-            model=user_config.tts.model,
+            model=model,
             voice=user_config.tts.voice,
             language=pipecat_language,
         )

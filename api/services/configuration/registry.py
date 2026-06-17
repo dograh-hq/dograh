@@ -1220,7 +1220,10 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
     language: str = Field(
         default="en",
         description="ISO 639-1 language code for synthesis.",
-        json_schema_extra={"examples": SMALLEST_TTS_LANGUAGES, "allow_custom_input": True},
+        json_schema_extra={
+            "examples": SMALLEST_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
     )
     speed: float = Field(
         default=1.0,
@@ -1588,7 +1591,10 @@ class SmallestAISTTConfiguration(BaseSTTConfiguration):
     language: str = Field(
         default="en",
         description="ISO 639-1 language code for transcription.",
-        json_schema_extra={"examples": SMALLEST_STT_LANGUAGES, "allow_custom_input": True},
+        json_schema_extra={
+            "examples": SMALLEST_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
     )
 
 

@@ -11,6 +11,7 @@ import {
     type ServiceSegment,
 } from "@/components/ServiceConfigurationForm";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -366,105 +367,107 @@ export function AIModelConfigurationV2Editor({
                 </TabsContent>
 
                 <TabsContent value="dograh" className="mt-0">
-                    <div className="rounded-lg border p-5">
-                        <div className="grid gap-4 sm:grid-cols-2">
-                            <div className="space-y-2">
-                                <Label>Voice</Label>
-                                {isCustomVoice ? (
-                                    <Input
-                                        placeholder="Enter voice"
-                                        value={dograh.voice}
-                                        onChange={(event) => setDograh({ ...dograh, voice: event.target.value })}
-                                    />
-                                ) : (
-                                    <Select value={dograh.voice} onValueChange={(voice) => setDograh({ ...dograh, voice })}>
+                    <Card>
+                        <CardContent className="pt-6">
+                            <div className="grid gap-4 sm:grid-cols-2">
+                                <div className="space-y-2">
+                                    <Label>Voice</Label>
+                                    {isCustomVoice ? (
+                                        <Input
+                                            placeholder="Enter voice"
+                                            value={dograh.voice}
+                                            onChange={(event) => setDograh({ ...dograh, voice: event.target.value })}
+                                        />
+                                    ) : (
+                                        <Select value={dograh.voice} onValueChange={(voice) => setDograh({ ...dograh, voice })}>
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue placeholder="Select voice" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {defaults.dograh.voices.map((voice) => (
+                                                    <SelectItem key={voice} value={voice}>
+                                                        {voice}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    )}
+                                    {allowCustomVoice && (
+                                        <div className="flex items-center space-x-2">
+                                            <Checkbox
+                                                id="dograh-custom-voice"
+                                                checked={isCustomVoice}
+                                                onCheckedChange={(checked) => {
+                                                    const custom = checked as boolean;
+                                                    setIsCustomVoice(custom);
+                                                    if (!custom) {
+                                                        setDograh({ ...dograh, voice: defaults.dograh.defaults.voice });
+                                                    }
+                                                }}
+                                            />
+                                            <Label htmlFor="dograh-custom-voice" className="text-sm font-normal cursor-pointer">
+                                                Enter Custom Value
+                                            </Label>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label>Speed</Label>
+                                    <Select
+                                        value={String(dograh.speed)}
+                                        onValueChange={(speed) => setDograh({ ...dograh, speed: Number(speed) })}
+                                    >
                                         <SelectTrigger className="w-full">
-                                            <SelectValue placeholder="Select voice" />
+                                            <SelectValue placeholder="Select speed" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            {defaults.dograh.voices.map((voice) => (
-                                                <SelectItem key={voice} value={voice}>
-                                                    {voice}
+                                            {defaults.dograh.speeds.map((speed) => (
+                                                <SelectItem key={speed} value={String(speed)}>
+                                                    {speed}x
                                                 </SelectItem>
                                             ))}
                                         </SelectContent>
                                     </Select>
-                                )}
-                                {allowCustomVoice && (
-                                    <div className="flex items-center space-x-2">
-                                        <Checkbox
-                                            id="dograh-custom-voice"
-                                            checked={isCustomVoice}
-                                            onCheckedChange={(checked) => {
-                                                const custom = checked as boolean;
-                                                setIsCustomVoice(custom);
-                                                if (!custom) {
-                                                    setDograh({ ...dograh, voice: defaults.dograh.defaults.voice });
-                                                }
-                                            }}
+                                </div>
+
+                                <div className="space-y-2 sm:col-span-2">
+                                    <Label>Language</Label>
+                                    <Select value={dograh.language} onValueChange={(language) => setDograh({ ...dograh, language })}>
+                                        <SelectTrigger className="w-full">
+                                            <SelectValue placeholder="Select language" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {defaults.dograh.languages.map((language) => (
+                                                <SelectItem key={language} value={language}>
+                                                    {LANGUAGE_DISPLAY_NAMES[language] || language}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="space-y-2 sm:col-span-2">
+                                    <Label htmlFor="dograh-api-key">API Key</Label>
+                                    <div className="relative">
+                                        <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                        <Input
+                                            id="dograh-api-key"
+                                            className="pl-9"
+                                            value={dograh.api_key}
+                                            onChange={(event) => setDograh({ ...dograh, api_key: event.target.value })}
+                                            placeholder="Enter API key"
                                         />
-                                        <Label htmlFor="dograh-custom-voice" className="text-sm font-normal cursor-pointer">
-                                            Enter Custom Value
-                                        </Label>
                                     </div>
-                                )}
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label>Speed</Label>
-                                <Select
-                                    value={String(dograh.speed)}
-                                    onValueChange={(speed) => setDograh({ ...dograh, speed: Number(speed) })}
-                                >
-                                    <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Select speed" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {defaults.dograh.speeds.map((speed) => (
-                                            <SelectItem key={speed} value={String(speed)}>
-                                                {speed}x
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="space-y-2 sm:col-span-2">
-                                <Label>Language</Label>
-                                <Select value={dograh.language} onValueChange={(language) => setDograh({ ...dograh, language })}>
-                                    <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Select language" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {defaults.dograh.languages.map((language) => (
-                                            <SelectItem key={language} value={language}>
-                                                {LANGUAGE_DISPLAY_NAMES[language] || language}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
-                            <div className="space-y-2 sm:col-span-2">
-                                <Label htmlFor="dograh-api-key">API Key</Label>
-                                <div className="relative">
-                                    <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                    <Input
-                                        id="dograh-api-key"
-                                        className="pl-9"
-                                        value={dograh.api_key}
-                                        onChange={(event) => setDograh({ ...dograh, api_key: event.target.value })}
-                                        placeholder="Enter API key"
-                                    />
                                 </div>
                             </div>
-                        </div>
 
-                        <Button type="button" className="mt-6 w-full" onClick={saveDograhConfiguration} disabled={isSavingDograh}>
-                            <Save className="mr-2 h-4 w-4" />
-                            {isSavingDograh ? "Saving..." : submitLabel}
-                        </Button>
-                    </div>
+                            <Button type="button" className="mt-6 w-full" onClick={saveDograhConfiguration} disabled={isSavingDograh}>
+                                <Save className="mr-2 h-4 w-4" />
+                                {isSavingDograh ? "Saving..." : submitLabel}
+                            </Button>
+                        </CardContent>
+                    </Card>
                 </TabsContent>
 
                 <TabsContent value="byok" className="mt-0">

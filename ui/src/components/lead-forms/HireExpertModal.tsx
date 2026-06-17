@@ -1,7 +1,7 @@
 "use client";
 
 import { Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Input } from "@/components/ui/input";
@@ -14,10 +14,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useAppConfig } from "@/context/AppConfigContext";
 import { useAuth } from "@/lib/auth";
 
 import { CaptchaChallenge } from "./CaptchaChallenge";
 import { FormTrustLine } from "./FormTrustLine";
+import { isValidEmail } from "./isPersonalEmail";
 import { HIRE_VOLUME_OPTIONS, type LeadSource } from "./leadFieldOptions";
 import { LeadModalShell } from "./LeadModalShell";
 import { PhoneField } from "./PhoneField";
@@ -31,9 +33,17 @@ interface HireExpertModalProps {
 }
 
 export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }: HireExpertModalProps) {
-  const { getAccessToken } = useAuth();  // Dograh token for the onboarding service
+  const { user } = useAuth();  // logged-in identity (prefills the email field)
+  const { config } = useAppConfig();
+  // Deployment provenance (analytics only): cloud → cloud_app, else oss_app. OSS submits the
+  // lead anonymously (cloud can't verify its token), so the email field below is the identity.
+  const origin = config?.deploymentMode === "cloud" ? "cloud_app" : "oss_app";
+  // Logged-in user's email (Stack uses primaryEmail; local uses email) — prefilled, editable.
+  const userEmail = user ? ("primaryEmail" in user ? user.primaryEmail ?? "" : user.email ?? "") : "";
+
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
+  const [email, setEmail] = useState("");
   const [jobTitle, setJobTitle] = useState("");
   const [agentGoal, setAgentGoal] = useState("");
   const [phone, setPhone] = useState("");
@@ -41,8 +51,13 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
   const [captchaActive, setCaptchaActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Prefill the email from the logged-in user when the modal opens (don't clobber edits).
+  useEffect(() => {
+    if (open && userEmail) setEmail((e) => e || userEmail);
+  }, [open, userEmail]);
+
   const reset = () => {
-    setName(""); setCompany(""); setJobTitle(""); setAgentGoal("");
+    setName(""); setCompany(""); setEmail(""); setJobTitle(""); setAgentGoal("");
     setPhone(""); setVolume(""); setCaptchaActive(false); setSubmitting(false);
   };
 
@@ -51,6 +66,7 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
   const baseValid =
     Boolean(name.trim()) &&
     Boolean(company.trim()) &&
+    isValidEmail(email) &&
     Boolean(jobTitle.trim()) &&
     Boolean(agentGoal.trim()) &&
     Boolean(phone.trim()) &&
@@ -72,13 +88,11 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
     setCaptchaActive(false);
     setSubmitting(true);
     try {
-      // Resolve the token best-effort; submission still succeeds via PostHog if it fails.
-      const token = await getAccessToken().catch(() => undefined);
       await submitLead({
         kind: "hire_expert",
         source,
-        payload: { name, company, jobTitle, agentGoal, phone, volume },
-        token,
+        origin,
+        payload: { name, company, email, jobTitle, agentGoal, phone, volume },
       });
       toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
       reset();
@@ -121,6 +135,11 @@ export function HireExpertModal({ open, onOpenChange, source, onOpenEnterprise }
             <Label htmlFor="hire-company">Company name</Label>
             <Input id="hire-company" placeholder="Acme Inc." value={company} onChange={(e) => setCompany(e.target.value)} />
           </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="hire-email">Email</Label>
+          <Input id="hire-email" type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
         </div>
 
         <div className="space-y-1.5">

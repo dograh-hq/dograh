@@ -4,7 +4,7 @@ import { ShieldCheck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { useAuth } from "@/lib/auth";
+import { useAppConfig } from "@/context/AppConfigContext";
 
 import { CaptchaChallenge } from "./CaptchaChallenge";
 import {
@@ -28,7 +28,9 @@ interface EnterpriseModalProps {
 }
 
 export function EnterpriseModal({ open, onOpenChange, source, prefill }: EnterpriseModalProps) {
-  const { getAccessToken } = useAuth(); // Dograh token for the onboarding service
+  const { config } = useAppConfig();
+  // Deployment provenance (analytics only); OSS submits via the public contact-sales path.
+  const origin = config?.deploymentMode === "cloud" ? "cloud_app" : "oss_app";
   const [value, setValue] = useState<EnterpriseFieldsValue>(EMPTY_ENTERPRISE_FIELDS);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [captchaActive, setCaptchaActive] = useState(false);
@@ -87,11 +89,10 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
     setCaptchaActive(false);
     setSubmitting(true);
     try {
-      // Resolve the token best-effort; submission still succeeds via PostHog if it fails.
-      const token = await getAccessToken().catch(() => undefined);
       await submitLead({
         kind: "enterprise",
         source,
+        origin,
         payload: {
           name: value.name,
           company: value.company,
@@ -103,7 +104,6 @@ export function EnterpriseModal({ open, onOpenChange, source, prefill }: Enterpr
           deployment: showDeployment ? value.deployment || "yes" : "yes",
           agentGoal: value.agentGoal,
         },
-        token,
       });
       toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
       reset();

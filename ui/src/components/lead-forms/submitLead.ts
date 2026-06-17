@@ -1,14 +1,15 @@
 // Single submission seam for all lead forms.
-// Fires a PostHog capture, and (when a token is supplied) POSTs to the separate
-// user_onboarding service. The service call is best-effort — PostHog is the
-// durable record and the user is never blocked if the service is down.
+// Fires a PostHog capture (the durable record) and POSTs to the separate, PUBLIC
+// user_onboarding service (best-effort — the user is never blocked if it's down).
+// No auth token: identity is the email in the payload.
 
 import posthog from "posthog-js";
 
 import { PostHogEvent } from "@/constants/posthog-events";
 
-import type { LeadKind, LeadSource } from "./leadFieldOptions";
-import { postContactSalesToService, postLeadToService } from "./onboardingServiceClient";
+import { detectCountry } from "./detectCountry";
+import type { LeadKind, LeadOrigin, LeadSource } from "./leadFieldOptions";
+import { postLeadToService } from "./onboardingServiceClient";
 
 const SUBMIT_EVENT: Record<LeadKind, string> = {
   hire_expert: PostHogEvent.HIRE_EXPERT_SUBMITTED,
@@ -18,24 +19,18 @@ const SUBMIT_EVENT: Record<LeadKind, string> = {
 export interface SubmitLeadArgs {
   kind: LeadKind;
   source: LeadSource;
-  // Field values, already validated by the caller. Non-sensitive lead data.
+  // Deployment provenance (analytics only): "cloud_app" | "oss_app".
+  origin: LeadOrigin;
+  // Field values, already validated by the caller. Includes the contact email.
   payload: Record<string, unknown>;
-  // Dograh auth token; when present the lead is also persisted to the service.
-  token?: string;
 }
 
-export async function submitLead({ kind, source, payload, token }: SubmitLeadArgs): Promise<void> {
+export async function submitLead({ kind, source, origin, payload }: SubmitLeadArgs): Promise<void> {
+  // `country` is detected silently (timezone/locale) and sent in the body — no visible
+  // field. It feeds the founders-notification email subject server-side.
+  const body = { source, origin, country: detectCountry(), ...payload };
   // PostHog capture — the durable record, always fired.
-  posthog.capture(SUBMIT_EVENT[kind], { source, ...payload });
-
-  // Persist to the separate user_onboarding service (best-effort).
-  if (token) {
-    await postLeadToService(kind, token, { source, ...payload });
-  } else if (kind === "enterprise") {
-    // Logged-out visitor (e.g. the auth-page Enterprise Enquiry CTA): the
-    // public contact-sales endpoint persists the lead and runs the same
-    // unified enterprise flow server-side, keyed off `workEmail` (which the
-    // form requires when unauthenticated).
-    await postContactSalesToService({ source, ...payload });
-  }
+  posthog.capture(SUBMIT_EVENT[kind], body);
+  // Persist to the separate user_onboarding service (best-effort, public).
+  await postLeadToService(kind, body);
 }

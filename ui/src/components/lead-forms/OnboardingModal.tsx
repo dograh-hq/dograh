@@ -13,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { useAppConfig } from "@/context/AppConfigContext";
 import { useAuth } from "@/lib/auth";
 
 import { CaptchaChallenge } from "./CaptchaChallenge";
@@ -23,32 +25,44 @@ import {
 } from "./EnterpriseLeadFields";
 import { validateWorkEmail } from "./isPersonalEmail";
 import {
+  ONBOARDING_HEARD_OPTIONS,
+  ONBOARDING_MIGRATION_OPTIONS,
   ONBOARDING_ONPREM_OPTIONS,
   ONBOARDING_ONPREM_PERSONAS,
   ONBOARDING_PERSONA_OPTIONS,
-  ONBOARDING_USAGE_CONTEXT_OPTIONS,
+  ONBOARDING_VOLUME_OPTIONS,
 } from "./leadFieldOptions";
 import { LeadModalShell } from "./LeadModalShell";
 import { submitLead } from "./submitLead";
-import { type OnboardingAnswers, skipOnboarding, submitOnboarding } from "./submitOnboarding";
+import { type OnboardingAnswers, submitOnboarding } from "./submitOnboarding";
 
 interface OnboardingModalProps {
   open: boolean;
-  // Called after a tracked outcome (submit or skip) to dismiss the gate and
-  // stamp the matching server-side flag (completed_at vs skipped).
+  // Called after a tracked submit to dismiss the gate and stamp the server-side
+  // "completed" flag. Onboarding is compulsory — `skipped` is always false now.
   onComplete: (skipped: boolean) => void;
 }
 
 export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
-  const { getAccessToken } = useAuth(); // Dograh token for the onboarding service
-  const [companyName, setCompanyName] = useState("");
-  const [usageContext, setUsageContext] = useState("");
+  const { user } = useAuth(); // logged-in identity → onboarding email (sent silently)
+  const { config } = useAppConfig();
+  // Deployment provenance (analytics only).
+  const origin = config?.deploymentMode === "cloud" ? "cloud_app" : "oss_app";
+  // The logged-in user's email (Stack uses primaryEmail; local uses email). Sent in the
+  // body — there is no visible email field on the onboarding form.
+  const userEmail = user ? ("primaryEmail" in user ? user.primaryEmail ?? "" : user.email ?? "") : "";
+
   const [persona, setPersona] = useState("");
   const [onPremNeed, setOnPremNeed] = useState("");
+  const [migratingFrom, setMigratingFrom] = useState("");
+  const [migratingOtherProvider, setMigratingOtherProvider] = useState("");
+  const [switchReason, setSwitchReason] = useState("");
+  const [howHeard, setHowHeard] = useState("");
+  const [volume, setVolume] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // Inline on-prem expansion: the FULL enterprise form, submitted through the
-  // same /api/v1/leads/enterprise path as the standalone Enterprise modal.
+  // Inline on-prem expansion: the FULL enterprise form, submitted through the same
+  // /api/v1/leads/enterprise path as the standalone Enterprise modal.
   const [onPremExpanded, setOnPremExpanded] = useState(false);
   const [ef, setEf] = useState<EnterpriseFieldsValue>(EMPTY_ENTERPRISE_FIELDS);
   const [efEmailError, setEfEmailError] = useState<string | null>(null);
@@ -57,12 +71,27 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
   const showOnPrem = ONBOARDING_ONPREM_PERSONAS.includes(persona);
   const showManagedNote = showOnPrem && onPremNeed === "yes";
   const wantsOnPrem = showManagedNote && onPremExpanded;
+  const isOtherProvider = migratingFrom === "other";
+  const isMigrating = Boolean(migratingFrom) && migratingFrom !== "no";
+
+  // All four questions are required (onboarding is compulsory). "Other" provider also
+  // needs its free-text name; the "why switching" note is optional.
+  const baseValid =
+    Boolean(persona) &&
+    Boolean(migratingFrom) &&
+    (!isOtherProvider || Boolean(migratingOtherProvider.trim())) &&
+    Boolean(howHeard) &&
+    Boolean(volume);
+  const canSubmit = baseValid && !submitting;
 
   const answers = (): OnboardingAnswers => ({
-    companyName: companyName.trim() || undefined,
-    usageContext: usageContext || undefined,
     persona: persona || undefined,
     onPremNeed: showOnPrem ? onPremNeed || undefined : undefined,
+    migratingFrom: migratingFrom || undefined,
+    migratingOtherProvider: isOtherProvider ? migratingOtherProvider.trim() || undefined : undefined,
+    switchReason: isMigrating ? switchReason.trim() || undefined : undefined,
+    howHeard: howHeard || undefined,
+    volume: volume || undefined,
   });
 
   const onEfChange = (patch: Partial<EnterpriseFieldsValue>) => {
@@ -70,11 +99,7 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
     if ("workEmail" in patch) setEfEmailError(null);
   };
 
-  const expandOnPrem = () => {
-    setOnPremExpanded(true);
-    // Seed company from what we already collected (don't clobber edits).
-    setEf((v) => (v.company ? v : { ...v, company: companyName.trim() }));
-  };
+  const expandOnPrem = () => setOnPremExpanded(true);
 
   const collapseOnPrem = () => {
     setOnPremExpanded(false);
@@ -82,28 +107,27 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
     setEfEmailError(null);
   };
 
-  // Best-effort persistence must never trap the user behind this hard gate.
-  // Dismiss immediately, then fire the token + network work in the background.
-  const finish = (skipped: boolean, withEnterprise: boolean) => {
+  // Best-effort persistence must never trap the user. Dismiss immediately, then fire
+  // the network work in the background. `withEnterprise` = also send the on-prem lead.
+  const finish = (withEnterprise: boolean) => {
     if (submitting) return;
     setSubmitting(true);
     const data = answers();
     const efSnapshot = withEnterprise ? { ...ef } : null;
-    onComplete(skipped);
+    onComplete(false); // compulsory — always "completed", never skipped
     void (async () => {
-      const token = await getAccessToken().catch(() => undefined);
       try {
-        if (skipped) await skipOnboarding(data, token);
-        else await submitOnboarding(data, token);
+        await submitOnboarding(data, origin, userEmail);
         // Two distinct submissions on success: onboarding answers above, and the
         // enterprise on-prem lead here (same endpoint as the standalone form).
         if (efSnapshot) {
           await submitLead({
             kind: "enterprise",
             source: "onboarding",
+            origin,
             payload: {
               name: efSnapshot.name,
-              company: efSnapshot.company || companyName.trim() || undefined,
+              company: efSnapshot.company || undefined,
               jobTitle: efSnapshot.jobTitle,
               workEmail: efSnapshot.workEmail,
               phone: efSnapshot.phone,
@@ -112,22 +136,27 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
               deployment: "yes",
               agentGoal: efSnapshot.agentGoal,
             },
-            token,
           });
-          // Only the on-prem/enterprise lead path sends an email; plain
-          // onboarding does not. Confirm the email just for this path.
+          // Only the on-prem/enterprise lead path sends an email; plain onboarding
+          // does not. Confirm the email just for this path.
           toast.success("Check your inbox — we just emailed you the next steps (give it a minute).");
         }
       } catch {
-        // Swallowed — the user is already in the product; network calls are
-        // bounded by a timeout in onboardingServiceClient.
+        // Swallowed — the user is already in the product; calls are timeout-bounded.
       }
     })();
   };
 
   const handleSubmit = () => {
-    // Onboarding answers are all optional, so we only gate on the enterprise
-    // fields when the user has actually engaged the on-prem section.
+    if (!baseValid) {
+      toast.error(
+        isOtherProvider && !migratingOtherProvider.trim()
+          ? "Please tell us which provider you're migrating from"
+          : "Please answer all the questions",
+      );
+      return;
+    }
+    // If the user engaged the on-prem section, validate it + pop the anti-spam check.
     if (wantsOnPrem) {
       const err = validateWorkEmail(ef.workEmail);
       if (err) { setEfEmailError(err); return; }
@@ -135,26 +164,23 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
         toast.error("Please complete the on-prem details below, or remove that section.");
         return;
       }
-      // Pop the anti-spam check on top of the modal before sending the lead.
       setCaptchaActive(true);
       return;
     }
-    finish(false, false);
+    finish(false);
   };
 
   // Runs once the captcha popup is verified (on-prem path).
   const submitWithOnPrem = () => {
     setCaptchaActive(false);
-    finish(false, true);
+    finish(true);
   };
-
-  const handleSkip = () => finish(true, false);
 
   return (
     <LeadModalShell
       open={open}
-      // Hard gate: no outside/escape close, hide the built-in ×. The only exits
-      // are Skip or Get started.
+      // Hard gate: no outside/escape close, hide the built-in ×. Onboarding is
+      // compulsory — the only exit is "Get started" once the questions are answered.
       onOpenChange={() => {}}
       contentProps={{
         className: "[&>button]:hidden",
@@ -166,30 +192,10 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
       eyebrow="Welcome"
       title="Welcome to Dograh"
       description="A few quick questions so we can tailor your experience. Takes ~20 seconds."
-      primary={{ label: "Get started", onClick: handleSubmit, disabled: submitting }}
-      secondary={{ label: "Skip for now", onClick: handleSkip, disabled: submitting }}
+      primary={{ label: "Get started", onClick: handleSubmit, disabled: !canSubmit, loading: submitting }}
       overlay={captchaActive ? <CaptchaChallenge onVerified={submitWithOnPrem} onCancel={() => setCaptchaActive(false)} /> : undefined}
     >
       <div className="grid gap-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="ob-company">
-            Company name <span className="text-muted-foreground">(optional)</span>
-          </Label>
-          <Input id="ob-company" placeholder="Acme Inc." value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-        </div>
-
-        <div className="space-y-1.5">
-          <Label htmlFor="ob-usage">Where do you plan to use this?</Label>
-          <Select value={usageContext} onValueChange={setUsageContext}>
-            <SelectTrigger id="ob-usage"><SelectValue placeholder="Select one" /></SelectTrigger>
-            <SelectContent>
-              {ONBOARDING_USAGE_CONTEXT_OPTIONS.map((o) => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
         <div className="space-y-1.5">
           <Label htmlFor="ob-persona">What best describes you?</Label>
           <Select
@@ -275,6 +281,76 @@ export function OnboardingModal({ open, onComplete }: OnboardingModalProps) {
             )}
           </div>
         )}
+
+        <div className="space-y-1.5">
+          <Label htmlFor="ob-volume">Expected monthly call volume</Label>
+          <Select value={volume} onValueChange={setVolume}>
+            <SelectTrigger id="ob-volume"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectContent>
+              {ONBOARDING_VOLUME_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="ob-migrating">Are you migrating from another provider?</Label>
+          <Select
+            value={migratingFrom}
+            onValueChange={(v) => {
+              setMigratingFrom(v);
+              if (v !== "other") setMigratingOtherProvider("");
+              if (v === "no") setSwitchReason("");
+            }}
+          >
+            <SelectTrigger id="ob-migrating"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectContent>
+              {ONBOARDING_MIGRATION_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          {isOtherProvider && (
+            <div className="mt-2 space-y-1.5">
+              <Label htmlFor="ob-other-provider">Other provider</Label>
+              <Input
+                id="ob-other-provider"
+                placeholder="Enter the provider here"
+                value={migratingOtherProvider}
+                onChange={(e) => setMigratingOtherProvider(e.target.value)}
+              />
+            </div>
+          )}
+
+          {isMigrating && (
+            <div className="mt-2 space-y-1.5">
+              <Label htmlFor="ob-switch-reason">
+                Why are you switching? <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Textarea
+                id="ob-switch-reason"
+                rows={2}
+                placeholder="e.g. cost, self-hosting, concurrency, data security, latency"
+                value={switchReason}
+                onChange={(e) => setSwitchReason(e.target.value)}
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1.5">
+          <Label htmlFor="ob-heard">How did you hear about us?</Label>
+          <Select value={howHeard} onValueChange={setHowHeard}>
+            <SelectTrigger id="ob-heard"><SelectValue placeholder="Select one" /></SelectTrigger>
+            <SelectContent>
+              {ONBOARDING_HEARD_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
     </LeadModalShell>
   );

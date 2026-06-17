@@ -13,6 +13,11 @@ export type LeadSource =
 
 export type LeadKind = "hire_expert" | "enterprise";
 
+// Provenance stamped by the in-app forms (analytics only; the marketing site and
+// server use "website"). Derived from AppConfig deploymentMode: cloud → "cloud_app",
+// otherwise "oss_app". OSS submits via the public no-token endpoints.
+export type LeadOrigin = "cloud_app" | "oss_app";
+
 // Monthly call-volume buckets. Values MUST match the backend qualifier enum
 // (user_onboarding flows): "0-5k" | "5k-100k" | "100k+" | "not-sure".
 export const VOLUME_OPTIONS = [
@@ -49,12 +54,36 @@ export const ENTERPRISE_DEPLOYMENT_OPTIONS = [
 // Post-signup onboarding form options
 // ---------------------------------------------------------------------------
 
-// Onboarding: where do you plan to use this (highest-signal question — keep exact).
-export const ONBOARDING_USAGE_CONTEXT_OPTIONS = [
-  { value: "for_my_clients", label: "For my clients" },
-  { value: "for_my_company", label: "For my company" },
-  { value: "personal", label: "Personal use case" },
-  { value: "exploring", label: "Just exploring" },
+// Onboarding: are you migrating from another provider? (a trimmed competitor list).
+// "no" → not migrating; "other" → reveals a free-text provider field.
+export const ONBOARDING_MIGRATION_OPTIONS = [
+  { value: "no", label: "No, I'm not migrating" },
+  { value: "vapi", label: "Vapi" },
+  { value: "retell", label: "Retell" },
+  { value: "bland", label: "Bland" },
+  { value: "elevenlabs", label: "ElevenLabs" },
+  { value: "synthflow", label: "Synthflow" },
+  { value: "other", label: "Other" },
+] as const;
+
+// Onboarding: how did you hear about us? (trimmed).
+export const ONBOARDING_HEARD_OPTIONS = [
+  { value: "github", label: "GitHub" },
+  { value: "search_engine", label: "Search engine" },
+  { value: "social_media", label: "Social media (Twitter, LinkedIn)" },
+  { value: "youtube", label: "YouTube" },
+  { value: "ai_tool", label: "AI tool (ChatGPT, Claude)" },
+  { value: "referral", label: "Someone told me about it" },
+  { value: "other", label: "Other" },
+] as const;
+
+// Onboarding: expected monthly call volume. Its own set — value "exploring" is NOT
+// the qualifier's "not-sure"; onboarding has no flow, so this is analytics-only.
+export const ONBOARDING_VOLUME_OPTIONS = [
+  { value: "0-5k", label: "0–5k" },
+  { value: "5k-100k", label: "5k–100k" },
+  { value: "100k+", label: "100k+" },
+  { value: "exploring", label: "Exploring" },
 ] as const;
 
 // Onboarding: what best describes you.

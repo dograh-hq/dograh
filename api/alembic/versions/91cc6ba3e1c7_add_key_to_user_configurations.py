@@ -5,7 +5,7 @@ organization_configurations. Existing rows (the legacy v1 AI model
 configuration blob) are backfilled with key MODEL_CONFIGURATION.
 
 Revision ID: 91cc6ba3e1c7
-Revises: 384be6596b36
+Revises: efe356f488f9
 Create Date: 2026-06-12 21:04:25.561529
 
 """
@@ -17,7 +17,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "91cc6ba3e1c7"
-down_revision: Union[str, None] = "384be6596b36"
+down_revision: Union[str, None] = "efe356f488f9"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

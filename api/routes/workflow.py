@@ -60,6 +60,10 @@ from api.services.workflow.trigger_paths import (
 )
 from api.services.workflow.workflow_graph import WorkflowGraph
 from api.utils.artifacts import artifact_url
+from api.utils.recording_artifacts import (
+    get_recording_storage_key,
+    has_recording_track,
+)
 
 router = APIRouter(prefix="/workflow")
 
@@ -1255,7 +1259,16 @@ async def get_workflow_run(
         raise HTTPException(status_code=404, detail="Workflow run not found")
 
     public_access_token = run.public_access_token
-    if (run.transcript_url or run.recording_url) and not public_access_token:
+    user_recording_url = get_recording_storage_key(run.extra, "user")
+    bot_recording_url = get_recording_storage_key(run.extra, "bot")
+    has_user_recording = has_recording_track(run.extra, "user")
+    has_bot_recording = has_recording_track(run.extra, "bot")
+    if (
+        run.transcript_url
+        or run.recording_url
+        or has_user_recording
+        or has_bot_recording
+    ) and not public_access_token:
         public_access_token = await db_client.ensure_public_access_token(run.id)
 
     return {
@@ -1266,8 +1279,20 @@ async def get_workflow_run(
         "is_completed": run.is_completed,
         "transcript_url": run.transcript_url,
         "recording_url": run.recording_url,
+        "user_recording_url": user_recording_url,
+        "bot_recording_url": bot_recording_url,
         "transcript_public_url": artifact_url(public_access_token, "transcript"),
         "recording_public_url": artifact_url(public_access_token, "recording"),
+        "user_recording_public_url": (
+            artifact_url(public_access_token, "user_recording")
+            if has_user_recording
+            else None
+        ),
+        "bot_recording_public_url": (
+            artifact_url(public_access_token, "bot_recording")
+            if has_bot_recording
+            else None
+        ),
         "public_access_token": public_access_token,
         "cost_info": format_public_cost_info(run.cost_info, run.usage_info),
         "usage_info": format_public_usage_info(run.usage_info),

@@ -56,6 +56,7 @@ from api.services.configuration.masking import is_mask_of, mask_key, mask_user_c
 from api.services.configuration.registry import (
     DOGRAH_STT_LANGUAGES,
     REGISTRY,
+    DograhTTSService,
     ServiceProviders,
     ServiceType,
 )
@@ -210,6 +211,13 @@ async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
 # ---------------------------------------------------------------------------
 
 
+def _dograh_allows_custom_voice() -> bool:
+    extra = DograhTTSService.model_fields["voice"].json_schema_extra
+    if isinstance(extra, dict):
+        return bool(extra.get("allow_custom_input", False))
+    return False
+
+
 def _byok_provider_schemas(service_type: ServiceType) -> dict[str, dict]:
     return {
         provider: model_cls.model_json_schema()
@@ -251,6 +259,7 @@ async def get_model_configuration_v2_defaults(
     return {
         "dograh": {
             "voices": [DOGRAH_DEFAULT_VOICE],
+            "allow_custom_input": _dograh_allows_custom_voice(),
             "speeds": list(DOGRAH_SPEED_OPTIONS),
             "languages": DOGRAH_STT_LANGUAGES,
             "defaults": {

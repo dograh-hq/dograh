@@ -147,13 +147,13 @@ export type AwsBedrockLlmConfiguration = {
     /**
      * Api Key
      *
-     * Not used for Bedrock - authentication is via the AWS credentials above. Leave blank.
+     * Not used for Bedrock — authentication is via the AWS credentials above. Leave blank.
      */
     api_key?: string | Array<string> | null;
     /**
      * Model
      *
-     * Bedrock model ID - include the region inference-profile prefix (e.g. 'us.').
+     * Bedrock model ID — include the region inference-profile prefix (e.g. 'us.').
      */
     model?: string;
     /**
@@ -344,7 +344,7 @@ export type AzureOpenAiEmbeddingsConfiguration = {
 /**
  * Azure OpenAI Realtime
  *
- * Azure OpenAI Realtime API - low-latency speech-to-speech conversations.
+ * Azure OpenAI Realtime API — low-latency speech-to-speech conversations.
  */
 export type AzureRealtimeLlmConfiguration = {
     /**
@@ -384,7 +384,7 @@ export type AzureRealtimeLlmConfiguration = {
 /**
  * Azure Speech Services
  *
- * Azure Cognitive Services Speech - TTS and STT via the Azure Speech SDK.
+ * Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.
  */
 export type AzureSpeechSttConfiguration = {
     /**
@@ -418,7 +418,7 @@ export type AzureSpeechSttConfiguration = {
 /**
  * Azure Speech Services
  *
- * Azure Cognitive Services Speech - TTS and STT via the Azure Speech SDK.
+ * Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.
  */
 export type AzureSpeechTtsConfiguration = {
     /**
@@ -499,6 +499,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & AwsBedrockLlmConfiguration) | ({
         provider: 'speaches';
     } & SpeachesLlmConfiguration) | ({
+        provider: 'huggingface';
+    } & HuggingFaceLlmConfiguration) | ({
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
@@ -530,7 +532,9 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'minimax';
     } & MiniMaxTtsConfiguration) | ({
         provider: 'azure_speech';
-    } & AzureSpeechTtsConfiguration);
+    } & AzureSpeechTtsConfiguration) | ({
+        provider: 'smallest';
+    } & SmallestAittsConfiguration);
     /**
      * Stt
      */
@@ -551,12 +555,16 @@ export type ByokPipelineAiModelConfiguration = {
     } & SarvamSttConfiguration) | ({
         provider: 'speaches';
     } & SpeachesSttConfiguration) | ({
+        provider: 'huggingface';
+    } & HuggingFaceSttConfiguration) | ({
         provider: 'assemblyai';
     } & AssemblyAisttConfiguration) | ({
         provider: 'gladia';
     } & GladiaSttConfiguration) | ({
         provider: 'azure_speech';
-    } & AzureSpeechSttConfiguration);
+    } & AzureSpeechSttConfiguration) | ({
+        provider: 'smallest';
+    } & SmallestAisttConfiguration);
     /**
      * Embeddings
      */
@@ -613,6 +621,8 @@ export type ByokRealtimeAiModelConfiguration = {
     } & AwsBedrockLlmConfiguration) | ({
         provider: 'speaches';
     } & SpeachesLlmConfiguration) | ({
+        provider: 'huggingface';
+    } & HuggingFaceLlmConfiguration) | ({
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
@@ -2627,7 +2637,7 @@ export type GoogleVertexLlmConfiguration = {
     /**
      * Api Key
      *
-     * Not used for Vertex AI - authentication is via the service account in `credentials` (or ADC). Leave blank.
+     * Not used for Vertex AI — authentication is via the service account in `credentials` (or ADC). Leave blank.
      */
     api_key?: string | Array<string> | null;
     /**
@@ -2667,7 +2677,7 @@ export type GoogleVertexRealtimeLlmConfiguration = {
     /**
      * Api Key
      *
-     * Not used for Vertex AI - authentication is via the service account in `credentials` (or ADC). Leave blank.
+     * Not used for Vertex AI — authentication is via the service account in `credentials` (or ADC). Leave blank.
      */
     api_key?: string | Array<string> | null;
     /**
@@ -2914,6 +2924,80 @@ export type HttpApiToolDefinition = {
      * HTTP API configuration.
      */
     config: HttpApiConfig;
+};
+
+/**
+ * Hugging Face
+ *
+ * Hosted Hugging Face Inference Providers API for usage-based inference.
+ */
+export type HuggingFaceLlmConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'huggingface';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Hugging Face chat-completion model identifier, optionally with provider suffix.
+     */
+    model?: string;
+    /**
+     * Base Url
+     *
+     * Hugging Face OpenAI-compatible chat-completions router base URL.
+     */
+    base_url?: string;
+    /**
+     * Bill To
+     *
+     * Optional Hugging Face organization or user to bill using X-HF-Bill-To.
+     */
+    bill_to?: string | null;
+};
+
+/**
+ * Hugging Face
+ *
+ * Hosted Hugging Face Inference Providers API for usage-based inference.
+ */
+export type HuggingFaceSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'huggingface';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Hugging Face ASR model identifier served through Inference Providers.
+     */
+    model?: string;
+    /**
+     * Base Url
+     *
+     * Hugging Face Inference Providers router base URL.
+     */
+    base_url?: string;
+    /**
+     * Bill To
+     *
+     * Optional Hugging Face organization or user to bill using X-HF-Bill-To.
+     */
+    bill_to?: string | null;
+    /**
+     * Return Timestamps
+     *
+     * Request timestamp chunks when supported by the selected provider/model.
+     */
+    return_timestamps?: boolean;
 };
 
 /**
@@ -4725,6 +4809,12 @@ export type SarvamTtsConfiguration = {
      * BCP-47 Indian-language code (e.g. hi-IN, en-IN).
      */
     language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier.
+     */
+    speed?: number;
 };
 
 /**
@@ -4821,6 +4911,74 @@ export type SignupRequest = {
      * Name
      */
     name?: string | null;
+};
+
+/**
+ * Smallest AI
+ *
+ * Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.
+ */
+export type SmallestAisttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'smallest';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Smallest AI STT model. Supports 38 languages with real-time streaming.
+     */
+    model?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code for transcription.
+     */
+    language?: string;
+};
+
+/**
+ * Smallest AI
+ *
+ * Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.
+ */
+export type SmallestAittsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'smallest';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Smallest AI voice ID.
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code for synthesis.
+     */
+    language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier (0.5 to 2.0).
+     */
+    speed?: number;
 };
 
 /**
@@ -6416,6 +6574,14 @@ export type WorkflowRunResponseSchema = {
      */
     recording_url: string | null;
     /**
+     * User Recording Url
+     */
+    user_recording_url?: string | null;
+    /**
+     * Bot Recording Url
+     */
+    bot_recording_url?: string | null;
+    /**
      * Transcript Public Url
      */
     transcript_public_url?: string | null;
@@ -6423,6 +6589,14 @@ export type WorkflowRunResponseSchema = {
      * Recording Public Url
      */
     recording_public_url?: string | null;
+    /**
+     * User Recording Public Url
+     */
+    user_recording_public_url?: string | null;
+    /**
+     * Bot Recording Public Url
+     */
+    bot_recording_public_url?: string | null;
     /**
      * Public Access Token
      */
@@ -6583,6 +6757,14 @@ export type WorkflowRunUsageResponse = {
      */
     transcript_url?: string | null;
     /**
+     * User Recording Url
+     */
+    user_recording_url?: string | null;
+    /**
+     * Bot Recording Url
+     */
+    bot_recording_url?: string | null;
+    /**
      * Recording Public Url
      */
     recording_public_url?: string | null;
@@ -6590,6 +6772,14 @@ export type WorkflowRunUsageResponse = {
      * Transcript Public Url
      */
     transcript_public_url?: string | null;
+    /**
+     * User Recording Public Url
+     */
+    user_recording_public_url?: string | null;
+    /**
+     * Bot Recording Public Url
+     */
+    bot_recording_public_url?: string | null;
     /**
      * Public Access Token
      */
@@ -12464,7 +12654,7 @@ export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactType
         /**
          * Artifact Type
          */
-        artifact_type: 'recording' | 'transcript';
+        artifact_type: string;
     };
     query?: {
         /**

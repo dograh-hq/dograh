@@ -544,6 +544,9 @@ class WorkflowRunModel(Base):
     is_completed = Column(Boolean, default=False)
     recording_url = Column(String, nullable=True)
     transcript_url = Column(String, nullable=True)
+    extra = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
     # Store storage backend as string enum (s3, minio)
     storage_backend = Column(
         Enum("s3", "minio", name="storage_backend"),

@@ -49,6 +49,7 @@ class UserConfigurationValidator:
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
             ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
+            ServiceProviders.HUGGINGFACE.value: self._check_huggingface_api_key,
             ServiceProviders.GOOGLE_VERTEX.value: self._check_google_vertex_llm_api_key,
             ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
             ServiceProviders.GROK_REALTIME.value: self._check_grok_realtime_api_key,
@@ -60,6 +61,7 @@ class UserConfigurationValidator:
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
             ServiceProviders.RIME.value: self._check_rime_api_key,
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
+            ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
         }
 
     async def validate(
@@ -360,6 +362,14 @@ class UserConfigurationValidator:
             raise ValueError("base_url is required for Speaches services")
         return True
 
+    def _check_huggingface_api_key(self, model: str, api_key: str) -> bool:
+        if not api_key.startswith("hf_"):
+            raise ValueError(
+                "Invalid Hugging Face API token format. Use a token that starts with "
+                "'hf_' and has Inference Providers permission."
+            )
+        return True
+
     def _check_google_vertex_realtime_api_key(self, model: str, service_config) -> bool:
         if not getattr(service_config, "project_id", None):
             raise ValueError("project_id is required for Google Vertex Realtime")
@@ -389,6 +399,7 @@ class UserConfigurationValidator:
         return True
 
     def _check_minimax_api_key(self, model: str, api_key: str) -> bool:
-        # MiniMax doesn't publish a cheap key-validation endpoint; trust the key
-        # at save time and surface auth errors at first call (same as Rime/Sarvam).
+        return True
+
+    def _check_smallest_api_key(self, model: str, api_key: str) -> bool:
         return True

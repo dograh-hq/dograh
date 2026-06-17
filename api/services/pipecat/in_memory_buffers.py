@@ -75,6 +75,27 @@ class InMemoryAudioBuffer:
         return self._total_size
 
 
+class InMemoryRecordingBuffers:
+    """Holds the mixed recording plus aligned user and bot mono tracks."""
+
+    def __init__(self, workflow_run_id: int, sample_rate: int, num_channels: int = 1):
+        self.mixed = InMemoryAudioBuffer(
+            workflow_run_id=workflow_run_id,
+            sample_rate=sample_rate,
+            num_channels=num_channels,
+        )
+        self.user = InMemoryAudioBuffer(
+            workflow_run_id=workflow_run_id,
+            sample_rate=sample_rate,
+            num_channels=1,
+        )
+        self.bot = InMemoryAudioBuffer(
+            workflow_run_id=workflow_run_id,
+            sample_rate=sample_rate,
+            num_channels=1,
+        )
+
+
 class InMemoryLogsBuffer:
     """Buffer real-time feedback events in memory during a call, then save to workflow run logs."""
 

@@ -68,6 +68,7 @@ class ServiceProviders(str, Enum):
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
     SPEACHES = "speaches"
+    HUGGINGFACE = "huggingface"
     ASSEMBLYAI = "assemblyai"
     GLADIA = "gladia"
     RIME = "rime"
@@ -79,6 +80,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
     AZURE_REALTIME = "azure_realtime"
+    SMALLEST = "smallest"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -94,6 +96,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
         ServiceProviders.SPEACHES,
+        ServiceProviders.HUGGINGFACE,
         ServiceProviders.ASSEMBLYAI,
         ServiceProviders.GLADIA,
         ServiceProviders.RIME,
@@ -106,6 +109,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
+        ServiceProviders.SMALLEST,
     ]
     api_key: str | list[str]
 
@@ -254,6 +258,11 @@ SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
         "for setup and supported backends."
     ),
     provider_docs_url="https://github.com/speaches-ai/speaches",
+)
+HUGGINGFACE_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Hugging Face",
+    description="Hosted Hugging Face Inference Providers API for usage-based inference.",
+    provider_docs_url="https://huggingface.co/docs/inference-providers/en/index",
 )
 AZURE_SPEECH_PROVIDER_MODEL_CONFIG = provider_model_config(
     "Azure Speech Services",
@@ -468,6 +477,35 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     api_key: str | list[str] | None = Field(
         default=None,
         description="Usually not required for self-hosted endpoints. Leave blank unless your server enforces one.",
+    )
+
+
+HUGGINGFACE_LLM_MODELS = [
+    "openai/gpt-oss-120b:cerebras",
+    "deepseek-ai/DeepSeek-R1:fastest",
+    "Qwen/Qwen3-Coder-480B-A35B-Instruct:fastest",
+]
+
+
+@register_llm
+class HuggingFaceLLMConfiguration(BaseLLMConfiguration):
+    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
+    model: str = Field(
+        default="openai/gpt-oss-120b:cerebras",
+        description="Hugging Face chat-completion model identifier, optionally with provider suffix.",
+        json_schema_extra={
+            "examples": HUGGINGFACE_LLM_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://router.huggingface.co/v1",
+        description="Hugging Face OpenAI-compatible chat-completions router base URL.",
+    )
+    bill_to: str | None = Field(
+        default=None,
+        description="Optional Hugging Face organization or user to bill using X-HF-Bill-To.",
     )
 
 
@@ -741,6 +779,7 @@ LLMConfig = Annotated[
         DograhLLMService,
         AWSBedrockLLMConfiguration,
         SpeachesLLMConfiguration,
+        HuggingFaceLLMConfiguration,
         MiniMaxLLMConfiguration,
         SarvamLLMConfiguration,
     ],
@@ -907,6 +946,7 @@ class DograhTTSService(BaseTTSConfiguration):
     voice: str = Field(
         default="default",
         description="Voice preset.",
+        json_schema_extra={"allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 
@@ -960,6 +1000,12 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         default="hi-IN",
         description="BCP-47 Indian-language code (e.g. hi-IN, en-IN).",
         json_schema_extra={"examples": SARVAM_LANGUAGES},
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier.",
     )
 
 
@@ -1120,6 +1166,80 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Smallest AI",
+    description="Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.",
+    provider_docs_url="https://smallest.ai/docs",
+)
+
+SMALLEST_TTS_MODELS = ["lightning_v3.1", "lightning_v3.1_pro"]
+SMALLEST_TTS_VOICES = [
+    "sophia",
+    "avery",
+    "liam",
+    "lucas",
+    "olivia",
+    "ryan",
+    "freya",
+    "william",
+    "devansh",
+    "arjun",
+    "niharika",
+    "maya",
+    "dhruv",
+    "mia",
+    "maithili",
+]
+SMALLEST_TTS_LANGUAGES = [
+    "en",
+    "hi",
+    "fr",
+    "de",
+    "es",
+    "it",
+    "nl",
+    "pl",
+    "ru",
+    "ar",
+    "bn",
+    "gu",
+    "he",
+    "kn",
+    "mr",
+    "ta",
+]
+
+
+@register_tts
+class SmallestAITTSConfiguration(BaseTTSConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="lightning_v3.1",
+        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.",
+        json_schema_extra={"examples": SMALLEST_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="sophia",
+        description="Smallest AI voice ID.",
+        json_schema_extra={"examples": SMALLEST_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for synthesis.",
+        json_schema_extra={
+            "examples": SMALLEST_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0).",
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1134,6 +1254,7 @@ TTSConfig = Annotated[
         SpeachesTTSConfiguration,
         MiniMaxTTSConfiguration,
         AzureSpeechTTSConfiguration,
+        SmallestAITTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1334,6 +1455,38 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+HUGGINGFACE_STT_MODELS = [
+    "openai/whisper-large-v3-turbo",
+    "openai/whisper-large-v3",
+]
+
+
+@register_stt
+class HuggingFaceSTTConfiguration(BaseSTTConfiguration):
+    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
+    model: str = Field(
+        default="openai/whisper-large-v3-turbo",
+        description="Hugging Face ASR model identifier served through Inference Providers.",
+        json_schema_extra={
+            "examples": HUGGINGFACE_STT_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://router.huggingface.co/hf-inference",
+        description="Hugging Face Inference Providers router base URL.",
+    )
+    bill_to: str | None = Field(
+        default=None,
+        description="Optional Hugging Face organization or user to bill using X-HF-Bill-To.",
+    )
+    return_timestamps: bool = Field(
+        default=False,
+        description="Request timestamp chunks when supported by the selected provider/model.",
+    )
+
+
 ASSEMBLYAI_STT_MODELS = ["u3-rt-pro"]
 ASSEMBLYAI_STT_LANGUAGES = ["en", "es", "de", "fr", "pt", "it"]
 
@@ -1396,6 +1549,62 @@ class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+SMALLEST_STT_MODELS = ["pulse"]
+SMALLEST_STT_LANGUAGES = [
+    "en",
+    "hi",
+    "fr",
+    "de",
+    "es",
+    "it",
+    "nl",
+    "pl",
+    "ru",
+    "pt",
+    "bn",
+    "gu",
+    "kn",
+    "ml",
+    "mr",
+    "ta",
+    "te",
+    "pa",
+    "or",
+    "bg",
+    "cs",
+    "da",
+    "et",
+    "fi",
+    "hu",
+    "lt",
+    "lv",
+    "mt",
+    "ro",
+    "sk",
+    "sv",
+    "uk",
+]
+
+
+@register_stt
+class SmallestAISTTConfiguration(BaseSTTConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="pulse",
+        description="Smallest AI STT model. Supports 38 languages with real-time streaming.",
+        json_schema_extra={"examples": SMALLEST_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for transcription.",
+        json_schema_extra={
+            "examples": SMALLEST_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -1406,9 +1615,11 @@ STTConfig = Annotated[
         SpeechmaticsSTTConfiguration,
         SarvamSTTConfiguration,
         SpeachesSTTConfiguration,
+        HuggingFaceSTTConfiguration,
         AssemblyAISTTConfiguration,
         GladiaSTTConfiguration,
         AzureSpeechSTTConfiguration,
+        SmallestAISTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

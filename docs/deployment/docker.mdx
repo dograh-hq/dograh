@@ -8,6 +8,23 @@ Dograh AI can be deployed using Docker in two main configurations. Choose the op
 - **Option 1**: For local development and testing on your own machine
 - **Option 2**: For remote server deployment with HTTPS (using IP address). If you also have a custom domain, you can first deploy Dograh stack on your server using steps in this document and then proceed to the [Custom Domain](deployment/custom-domain) section.
 
+<Tip>
+**Using Claude Code or Codex?** Install the official Dograh setup skill and let your agent drive either deployment below — it orients to your OS, picks local vs remote, runs Dograh's own setup scripts, and verifies the result with a built-in health check.
+
+<CodeGroup>
+```text Claude Code
+/plugin marketplace add dograh-hq/dograh-plugins
+/plugin install dograh@dograh
+```
+```text Codex
+codex plugin marketplace add dograh-hq/dograh-plugins
+codex plugin add dograh@dograh
+```
+</CodeGroup>
+
+Start a new session, then ask it to *"set up Dograh"* (or run `/dograh-setup` in Claude Code). More at [dograh-hq/dograh-plugins](https://github.com/dograh-hq/dograh-plugins).
+</Tip>
+
 ## Option 1: Local Docker Deployment
 
 Watch the video tutorial below for a step-by-step walkthrough of setting up Dograh AI locally with Docker.

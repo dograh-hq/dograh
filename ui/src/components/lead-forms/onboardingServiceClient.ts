@@ -7,7 +7,7 @@
 // .env.example ships this commented out) → fall back to our cloud leads backend so we
 // still receive OSS form submissions. Override the env var to point elsewhere (or to a
 // local backend) to stop sending leads to us.
-const BASE_URL = process.env.NEXT_PUBLIC_ONBOARDING_API_URL || "https://leads.dograh.com";
+const BASE_URL = process.env.NEXT_PUBLIC_ONBOARDING_API_URL || "https://api-leads.dograh.com";
 
 // Bound every call so a slow/hung service can never freeze the UI. Best-effort:
 // failures are surfaced via console.error (Sentry breadcrumbs) but never thrown.

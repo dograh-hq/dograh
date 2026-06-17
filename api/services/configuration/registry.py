@@ -1001,6 +1001,12 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         description="BCP-47 Indian-language code (e.g. hi-IN, en-IN).",
         json_schema_extra={"examples": SARVAM_LANGUAGES},
     )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier.",
+    )
 
 
 CAMB_TTS_MODELS = ["mars-flash", "mars-pro", "mars-instruct"]

@@ -534,7 +534,7 @@ def create_tts_service(
         language = getattr(user_config.tts, "language", None)
         pipecat_language = language_mapping.get(language, Language.HI)
 
-        voice = getattr(user_config.tts, "voice", None) or "anushka"
+        voice = (getattr(user_config.tts, "voice", None) or "anushka").strip().lower()
         speed = getattr(user_config.tts, "speed", None)
         settings_kwargs = {
             "model": user_config.tts.model,

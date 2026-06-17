@@ -990,6 +990,7 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         description="Sarvam voice name; must match the selected model's voice list.",
         json_schema_extra={
             "examples": SARVAM_V2_VOICES,
+            "allow_custom_input": True,
             "model_options": {
                 "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,

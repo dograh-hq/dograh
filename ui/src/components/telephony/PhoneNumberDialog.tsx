@@ -41,6 +41,23 @@ interface PhoneNumberDialogProps {
 
 const NO_WORKFLOW = "__none__";
 
+type SmartVoicemail = {
+  enabled?: boolean;
+  forward_to_number?: string | null;
+  ring_timeout_seconds?: number;
+};
+
+// extra_metadata is an open dict in the generated types; pull the
+// smart_voicemail sub-object out defensively.
+function readSmartVoicemail(
+  meta: Record<string, unknown> | undefined | null,
+): SmartVoicemail {
+  const raw = meta?.["smart_voicemail"];
+  return raw && typeof raw === "object" ? (raw as SmartVoicemail) : {};
+}
+
+const SV_FORWARD_E164_RE = /^\+\d{8,15}$/;
+
 // Mirrors api/schemas/telephony_phone_number.py::_validate_address_shape and
 // api/utils/telephony_address.py — keep in sync. Returns an error message
 // when the address would normalize to a broken canonical form, or null when
@@ -81,6 +98,11 @@ export function PhoneNumberDialog({
   const [submitting, setSubmitting] = useState(false);
   const [addressTouched, setAddressTouched] = useState(false);
 
+  // Smart voicemail (screen-and-forward) settings.
+  const [svEnabled, setSvEnabled] = useState(false);
+  const [svForwardTo, setSvForwardTo] = useState("");
+  const [svRingTimeout, setSvRingTimeout] = useState(25);
+
   // Reset form when the dialog opens.
   useEffect(() => {
     if (!open) return;
@@ -92,6 +114,10 @@ export function PhoneNumberDialog({
     setInboundWorkflowId(
       existing?.inbound_workflow_id ? String(existing.inbound_workflow_id) : NO_WORKFLOW,
     );
+    const sv = readSmartVoicemail(existing?.extra_metadata);
+    setSvEnabled(sv.enabled ?? false);
+    setSvForwardTo(sv.forward_to_number ?? "");
+    setSvRingTimeout(sv.ring_timeout_seconds ?? 25);
     setAddressTouched(false);
   }, [open, existing]);
 
@@ -126,11 +152,29 @@ export function PhoneNumberDialog({
         return;
       }
     }
+    if (svEnabled && !SV_FORWARD_E164_RE.test(svForwardTo.trim())) {
+      toast.error("Smart voicemail forward-to number must be E.164 (e.g. +14155551234)");
+      return;
+    }
     setSubmitting(true);
     try {
       const token = await getAccessToken();
       const inboundId =
         inboundWorkflowId === NO_WORKFLOW ? null : Number(inboundWorkflowId);
+
+      // Merge smart-voicemail config into extra_metadata (preserving any other
+      // keys). The backend stores extra_metadata verbatim.
+      const smartVoicemail: SmartVoicemail = svEnabled
+        ? {
+            enabled: true,
+            forward_to_number: svForwardTo.trim(),
+            ring_timeout_seconds: svRingTimeout,
+          }
+        : { enabled: false };
+      const extraMetadata = {
+        ...(existing?.extra_metadata ?? {}),
+        smart_voicemail: smartVoicemail,
+      };
 
       let providerSync: PhoneNumberResponse["provider_sync"] | undefined;
       if (isEdit && existing) {
@@ -144,6 +188,7 @@ export function PhoneNumberDialog({
               country_code: countryCode || undefined,
               inbound_workflow_id: inboundId ?? undefined,
               clear_inbound_workflow: inboundId === null,
+              extra_metadata: extraMetadata,
             },
           },
         );
@@ -162,6 +207,7 @@ export function PhoneNumberDialog({
               is_active: isActive,
               is_default_caller_id: isDefaultCallerId,
               inbound_workflow_id: inboundId ?? undefined,
+              extra_metadata: extraMetadata,
             },
           },
         );
@@ -270,6 +316,49 @@ export function PhoneNumberDialog({
           <div className="flex items-center justify-between rounded border p-3">
             <Label className="text-sm">Active</Label>
             <Switch checked={isActive} onCheckedChange={setIsActive} />
+          </div>
+
+          <div className="space-y-3 rounded border p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-sm">Smart voicemail (screen &amp; forward)</Label>
+                <p className="text-xs text-muted-foreground">
+                  Ring a human first; if they answer, bridge the caller to them. If it
+                  goes to voicemail or isn&apos;t answered, the AI takes the call.
+                  Vonage only.
+                </p>
+              </div>
+              <Switch checked={svEnabled} onCheckedChange={setSvEnabled} />
+            </div>
+            {svEnabled && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="sv-forward">Forward to (E.164)</Label>
+                  <Input
+                    id="sv-forward"
+                    placeholder="+14155551234"
+                    value={svForwardTo}
+                    onChange={(e) => setSvForwardTo(e.target.value)}
+                    aria-invalid={!!svForwardTo && !SV_FORWARD_E164_RE.test(svForwardTo.trim())}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="sv-ring">Ring timeout (s)</Label>
+                  <Input
+                    id="sv-ring"
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={svRingTimeout}
+                    onChange={(e) =>
+                      setSvRingTimeout(
+                        Math.max(5, Math.min(120, Number(e.target.value) || 25)),
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {!isEdit && (

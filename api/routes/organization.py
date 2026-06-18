@@ -776,6 +776,10 @@ async def create_phone_number(
                 ),
             )
 
+    extra_metadata = dict(request.extra_metadata or {})
+    if request.smart_voicemail is not None:
+        extra_metadata["smart_voicemail"] = request.smart_voicemail.model_dump()
+
     try:
         row = await db_client.create_phone_number(
             organization_id=user.selected_organization_id,
@@ -786,7 +790,7 @@ async def create_phone_number(
             inbound_workflow_id=request.inbound_workflow_id,
             is_active=request.is_active,
             is_default_caller_id=request.is_default_caller_id,
-            extra_metadata=request.extra_metadata,
+            extra_metadata=extra_metadata,
         )
     except IntegrityError:
         raise HTTPException(
@@ -846,6 +850,16 @@ async def update_phone_number(
             request.inbound_workflow_id, user.selected_organization_id
         )
 
+    # update_phone_number replaces extra_metadata wholesale, so merge onto the
+    # existing dict to avoid clobbering keys the caller didn't send. Only pass a
+    # value when there's actually something to change (None preserves current).
+    extra_metadata = request.extra_metadata
+    if request.smart_voicemail is not None:
+        extra_metadata = dict(existing.extra_metadata or {})
+        if request.extra_metadata is not None:
+            extra_metadata.update(request.extra_metadata)
+        extra_metadata["smart_voicemail"] = request.smart_voicemail.model_dump()
+
     row = await db_client.update_phone_number(
         phone_number_id=phone_number_id,
         telephony_configuration_id=config_id,
@@ -853,7 +867,7 @@ async def update_phone_number(
         inbound_workflow_id=request.inbound_workflow_id,
         is_active=request.is_active,
         country_code=request.country_code,
-        extra_metadata=request.extra_metadata,
+        extra_metadata=extra_metadata,
         clear_inbound_workflow=request.clear_inbound_workflow,
     )
     if not row:

@@ -12,6 +12,41 @@ _ADDRESS_E164_RE = re.compile(r"^\+\d{8,15}$")
 _ADDRESS_BARE_DIGITS_RE = re.compile(r"^\d{8,15}$")
 
 
+class SmartVoicemailConfig(BaseModel):
+    """Per-number "smart voicemail" screening configuration.
+
+    Stored under ``extra_metadata["smart_voicemail"]`` on the phone-number row
+    (no dedicated columns). When ``enabled``, an inbound call to this number is
+    first forwarded to ``forward_to_number``; if a human answers the caller is
+    bridged to them, and if it goes to voicemail (or isn't answered within
+    ``ring_timeout_seconds``) the AI workflow takes the call instead.
+    """
+
+    enabled: bool = False
+    # Designated human number to ring first. Required when ``enabled``.
+    forward_to_number: Optional[str] = Field(default=None, max_length=32)
+    # How long to ring the human before giving up and handing to the AI.
+    ring_timeout_seconds: int = Field(default=25, ge=5, le=120)
+
+    @model_validator(mode="after")
+    def _validate(self) -> "SmartVoicemailConfig":
+        if not self.enabled:
+            return self
+        if not self.forward_to_number:
+            raise ValueError(
+                "forward_to_number is required when smart voicemail is enabled"
+            )
+        stripped = _ADDRESS_FORMAT_STRIP_RE.sub("", self.forward_to_number.strip())
+        if not _ADDRESS_E164_RE.fullmatch(stripped):
+            raise ValueError(
+                "forward_to_number must be E.164 (e.g. '+14155551234')"
+            )
+        # Normalize to the stripped E.164 form so downstream callers don't have
+        # to re-clean it.
+        self.forward_to_number = stripped
+        return self
+
+
 class PhoneNumberCreateRequest(BaseModel):
     """Create a new phone number under a telephony configuration.
 
@@ -27,6 +62,8 @@ class PhoneNumberCreateRequest(BaseModel):
     is_active: bool = True
     is_default_caller_id: bool = False
     extra_metadata: Dict[str, Any] = Field(default_factory=dict)
+    # Folded into ``extra_metadata["smart_voicemail"]`` by the route handler.
+    smart_voicemail: Optional[SmartVoicemailConfig] = None
 
     @model_validator(mode="after")
     def _validate_address_shape(self) -> "PhoneNumberCreateRequest":
@@ -73,6 +110,9 @@ class PhoneNumberUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
     country_code: Optional[str] = Field(default=None, min_length=2, max_length=2)
     extra_metadata: Optional[Dict[str, Any]] = None
+    # When provided, merged into ``extra_metadata["smart_voicemail"]`` by the
+    # route handler (preserving other extra_metadata keys).
+    smart_voicemail: Optional[SmartVoicemailConfig] = None
 
 
 class ProviderSyncStatus(BaseModel):
@@ -102,11 +142,26 @@ class PhoneNumberResponse(BaseModel):
     is_active: bool
     is_default_caller_id: bool
     extra_metadata: Dict[str, Any]
+    # Typed view of ``extra_metadata["smart_voicemail"]`` for the UI; the
+    # source of truth remains ``extra_metadata``.
+    smart_voicemail: Optional[SmartVoicemailConfig] = None
     created_at: datetime
     updated_at: datetime
     # Only set on create/update responses when the route attempted a
     # provider-side sync (e.g. setting Twilio's VoiceUrl). Omitted on reads.
     provider_sync: Optional[ProviderSyncStatus] = None
+
+    @model_validator(mode="after")
+    def _derive_smart_voicemail(self) -> "PhoneNumberResponse":
+        if self.smart_voicemail is None and self.extra_metadata:
+            raw = self.extra_metadata.get("smart_voicemail")
+            if isinstance(raw, dict):
+                try:
+                    self.smart_voicemail = SmartVoicemailConfig.model_validate(raw)
+                except Exception:
+                    # Tolerate legacy/partial metadata — never fail a read.
+                    self.smart_voicemail = None
+        return self
 
 
 class PhoneNumberListResponse(BaseModel):

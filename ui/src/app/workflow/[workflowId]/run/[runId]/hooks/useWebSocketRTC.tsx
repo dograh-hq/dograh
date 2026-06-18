@@ -19,6 +19,16 @@ interface UseWebSocketRTCProps {
     onNodeTransition?: (transition: ConversationNodeTransitionItem) => void;
 }
 
+type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'failed';
+
+interface CleanupConnectionOptions {
+    graceful?: boolean;
+    status?: ConnectionStatus;
+    closeWebSocket?: boolean;
+    closePeerConnection?: boolean;
+    delayPeerClose?: boolean;
+}
+
 const HANDLED_SERVICE_ERROR_TYPES = new Set([
     'quota_exceeded',
     'insufficient_credits',
@@ -27,7 +37,7 @@ const HANDLED_SERVICE_ERROR_TYPES = new Set([
 ]);
 
 export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initialContextVariables, onNodeTransition }: UseWebSocketRTCProps) => {
-    const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'connected' | 'failed'>('idle');
+    const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
     const [connectionActive, setConnectionActive] = useState(false);
     const [isCompleted, setIsCompleted] = useState(false);
     const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
@@ -60,12 +70,24 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const audioRef = useRef<HTMLAudioElement>(null);
     const pcRef = useRef<RTCPeerConnection | null>(null);
     const wsRef = useRef<WebSocket | null>(null);
+    const localStreamRef = useRef<MediaStream | null>(null);
     const timeStartRef = useRef<number | null>(null);
     const onNodeTransitionRef = useRef(onNodeTransition);
+    const connectionActiveRef = useRef(connectionActive);
+    const isCompletedRef = useRef(isCompleted);
+    const gracefulDisconnectRef = useRef(false);
 
     useEffect(() => {
         onNodeTransitionRef.current = onNodeTransition;
     }, [onNodeTransition]);
+
+    useEffect(() => {
+        connectionActiveRef.current = connectionActive;
+    }, [connectionActive]);
+
+    useEffect(() => {
+        isCompletedRef.current = isCompleted;
+    }, [isCompleted]);
 
     // Generate a cryptographically secure unique ID
     const generateSecureId = () => {
@@ -94,6 +116,80 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         const wsUrl = baseUrl.replace(/^http/, 'ws');
         return `${wsUrl}/api/v1/ws/signaling/${workflowId}/${workflowRunId}?token=${accessToken}`;
     }, [workflowId, workflowRunId, accessToken]);
+
+    const closePeerConnection = useCallback((pc: RTCPeerConnection | null, delayClose = false) => {
+        if (!pc) return;
+
+        if (pc.getTransceivers) {
+            pc.getTransceivers().forEach((transceiver) => {
+                if (transceiver.stop) {
+                    try {
+                        transceiver.stop();
+                    } catch (e) {
+                        logger.debug('Failed to stop transceiver during cleanup:', e);
+                    }
+                }
+            });
+        }
+
+        pc.getSenders().forEach((sender) => {
+            if (sender.track) {
+                sender.track.stop();
+            }
+        });
+
+        const close = () => {
+            if (pcRef.current === pc) {
+                pcRef.current = null;
+            }
+            if (pc.signalingState !== 'closed') {
+                pc.close();
+            }
+        };
+
+        if (delayClose) {
+            setTimeout(close, 500);
+        } else {
+            close();
+        }
+    }, []);
+
+    const stopLocalStream = useCallback(() => {
+        // Release the microphone so the device is freed for a subsequent call.
+        // Stopping the sender tracks via pc.getSenders() alone can leave the
+        // browser holding the mic, blocking the next getUserMedia().
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach((track) => track.stop());
+            localStreamRef.current = null;
+        }
+    }, []);
+
+    const cleanupConnection = useCallback((options: CleanupConnectionOptions = {}) => {
+        const graceful = options.graceful ?? true;
+        const status = options.status ?? (graceful ? 'idle' : 'failed');
+
+        gracefulDisconnectRef.current = graceful;
+        connectionActiveRef.current = false;
+        isCompletedRef.current = graceful;
+
+        setConnectionActive(false);
+        setIsCompleted(graceful);
+        setConnectionStatus(status);
+
+        if (options.closeWebSocket !== false) {
+            const ws = wsRef.current;
+            if (ws && ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+                ws.close();
+            }
+            wsRef.current = null;
+        }
+
+        stopLocalStream();
+
+        if (options.closePeerConnection !== false) {
+            closePeerConnection(pcRef.current, options.delayPeerClose ?? false);
+        }
+    }, [closePeerConnection, stopLocalStream]);
 
     const createPeerConnection = () => {
         // Build ICE servers list
@@ -155,43 +251,36 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             }
         });
 
-        pc.addEventListener('iceconnectionstatechange', () => {
-            logger.info(`ICE connection state changed: ${pc.iceConnectionState}`);
-            if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+        const handlePeerStateChange = () => {
+            logger.info(`Peer connection state changed: ${pc.connectionState}; ICE: ${pc.iceConnectionState}`);
+
+            if (
+                pc.connectionState === 'connected' ||
+                pc.iceConnectionState === 'connected' ||
+                pc.iceConnectionState === 'completed'
+            ) {
                 setConnectionStatus('connected');
-            } else if (pc.iceConnectionState === 'failed') {
-                setConnectionStatus('failed');
-            } else if (pc.iceConnectionState === 'disconnected') {
-                // Server-initiated disconnect - clean up gracefully
-                logger.info('Server initiated disconnect - cleaning up connection');
-
-                // Close WebSocket if still open
-                if (wsRef.current) {
-                    wsRef.current.close();
-                    wsRef.current = null;
-                }
-
-                // Mark as completed to trigger recording check
-                setConnectionActive(false);
-                setIsCompleted(true);
-                setConnectionStatus('idle');
-
-                // Clean up peer connection
-                if (pc.getTransceivers) {
-                    pc.getTransceivers().forEach((transceiver) => {
-                        if (transceiver.stop) {
-                            transceiver.stop();
-                        }
-                    });
-                }
-
-                pc.getSenders().forEach((sender) => {
-                    if (sender.track) {
-                        sender.track.stop();
-                    }
-                });
+                return;
             }
-        });
+
+            if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
+                cleanupConnection({ graceful: false, status: 'failed' });
+                return;
+            }
+
+            if (
+                pc.connectionState === 'closed' ||
+                pc.connectionState === 'disconnected' ||
+                pc.iceConnectionState === 'closed' ||
+                pc.iceConnectionState === 'disconnected'
+            ) {
+                logger.info('Peer connection ended - cleaning up connection');
+                cleanupConnection({ graceful: true, status: 'idle' });
+            }
+        };
+
+        pc.addEventListener('iceconnectionstatechange', handlePeerStateChange);
+        pc.addEventListener('connectionstatechange', handlePeerStateChange);
 
         pc.addEventListener('track', (evt) => {
             if (evt.track.kind === 'audio' && audioRef.current) {
@@ -221,11 +310,23 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 reject(error);
             };
 
-            ws.onclose = () => {
+            ws.onclose = (event) => {
                 logger.info('WebSocket closed');
                 wsRef.current = null;
+                if (event.reason === 'call ended') {
+                    cleanupConnection({
+                        graceful: true,
+                        status: 'idle',
+                        closeWebSocket: false,
+                    });
+                    return;
+                }
                 // Don't set failed status if already completed (graceful disconnect)
-                if (connectionActive && !isCompleted) {
+                if (
+                    connectionActiveRef.current &&
+                    !isCompletedRef.current &&
+                    !gracefulDisconnectRef.current
+                ) {
                     setConnectionStatus('failed');
                 }
             };
@@ -245,6 +346,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                                     type: 'answer',
                                     sdp: answer.sdp
                                 });
+                                connectionActiveRef.current = true;
                                 setConnectionActive(true);
                                 logger.info('Remote description set');
                             }
@@ -281,23 +383,17 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                                 setApiKeyError(message.payload.message || 'Service quota exceeded');
                                 setApiKeyModalOpen(true);
 
-                                // Stop the connection gracefully
-                                setConnectionStatus('failed');
-                                setConnectionActive(false);
-
-                                // Close WebSocket and peer connection
-                                if (wsRef.current) {
-                                    wsRef.current.close();
-                                    wsRef.current = null;
-                                }
-                                if (pcRef.current) {
-                                    pcRef.current.close();
-                                    pcRef.current = null;
-                                }
+                                // Stop the connection and surface the handled service error.
+                                cleanupConnection({ graceful: false, status: 'failed' });
                             } else {
                                 // Log other errors as actual errors
                                 logger.error('Server error:', message.payload);
                             }
+                            break;
+
+                        case 'call-ended':
+                            logger.info('Call ended by server:', message.payload);
+                            cleanupConnection({ graceful: true, status: 'idle' });
                             break;
 
                         case 'rtf-user-transcription': {
@@ -503,7 +599,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 }
             };
         });
-    }, [getWebSocketUrl, connectionActive, isCompleted]);
+    }, [getWebSocketUrl, cleanupConnection]);
 
     const negotiate = async () => {
         const pc = pcRef.current;
@@ -552,7 +648,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
 
     const start = async () => {
         if (isStarting || !accessToken) return;
+        gracefulDisconnectRef.current = false;
+        connectionActiveRef.current = false;
+        isCompletedRef.current = false;
         setIsStarting(true);
+        setConnectionActive(false);
+        setIsCompleted(false);
         setConnectionStatus('connecting');
 
         try {
@@ -655,6 +756,10 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             if (constraints.audio) {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    // Release any stream still held from a prior attempt before
+                    // retaining the new one, so re-entry can't leak a device.
+                    stopLocalStream();
+                    localStreamRef.current = stream;
                     stream.getTracks().forEach((track) => {
                         pc.addTrack(track, stream);
                     });
@@ -676,45 +781,13 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     };
 
     const stop = () => {
-        setConnectionActive(false);
-        setIsCompleted(true);
-        setConnectionStatus('idle');
-
-        // Close WebSocket
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
-        }
-
-        // Close peer connection
-        const pc = pcRef.current;
-        if (!pc) return;
-
-        if (pc.getTransceivers) {
-            pc.getTransceivers().forEach((transceiver) => {
-                if (transceiver.stop) {
-                    transceiver.stop();
-                }
-            });
-        }
-
-        pc.getSenders().forEach((sender) => {
-            if (sender.track) {
-                sender.track.stop();
-            }
-        });
-
-        setTimeout(() => {
-            if (pcRef.current) {
-                pcRef.current.close();
-                pcRef.current = null;
-            }
-        }, 500);
+        cleanupConnection({ graceful: true, status: 'idle', delayPeerClose: true });
     };
 
     // Cleanup on unmount
     useEffect(() => {
         return () => {
+            stopLocalStream();
             if (wsRef.current) {
                 wsRef.current.close();
             }
@@ -722,7 +795,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 pcRef.current.close();
             }
         };
-    }, []);
+    }, [stopLocalStream]);
 
     return {
         audioRef,

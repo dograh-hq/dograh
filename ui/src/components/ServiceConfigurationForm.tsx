@@ -130,6 +130,19 @@ function getGlobalSummary(
     return model ? `${providerLabel} / ${model}` : providerLabel || provider;
 }
 
+function getSchemaDropdownOptions(
+    schema: SchemaProperty | undefined,
+    modelValue?: string,
+): string[] | undefined {
+    let dropdownOptions = schema?.enum || schema?.examples;
+
+    if (schema?.model_options && modelValue && schema.model_options[modelValue]) {
+        dropdownOptions = schema.model_options[modelValue];
+    }
+
+    return dropdownOptions;
+}
+
 export function ServiceConfigurationForm({
     mode,
     currentOverrides,
@@ -344,10 +357,12 @@ export function ServiceConfigurationForm({
                         ? providerSchema.$defs[(schema as SchemaProperty).$ref!.split('/').pop() || '']
                         : schema as SchemaProperty;
 
-                    if (!actualSchema?.allow_custom_input || !actualSchema?.examples) return;
+                    if (!actualSchema?.allow_custom_input) return;
 
                     const savedValue = src?.[field] as string | undefined;
-                    if (savedValue && !actualSchema.examples.includes(savedValue)) {
+                    const modelValue = src?.model as string | undefined;
+                    const dropdownOptions = getSchemaDropdownOptions(actualSchema, modelValue);
+                    if (savedValue && dropdownOptions && !dropdownOptions.includes(savedValue)) {
                         detectedCustomInput[`${service}_${field}`] = true;
                     }
                 });
@@ -381,10 +396,11 @@ export function ServiceConfigurationForm({
 
         const validVoices = modelOptions[ttsModel as string];
         const currentVoice = getValues("tts_voice") as string;
-        if (validVoices && currentVoice && !validVoices.includes(currentVoice)) {
+        const isCustomVoice = !!isCustomInput.tts_voice;
+        if (validVoices && currentVoice && !validVoices.includes(currentVoice) && !isCustomVoice) {
             setValue("tts_voice", validVoices[0], { shouldDirty: true });
         }
-    }, [ttsModel, serviceProviders.tts, setValue, getValues, schemas]);
+    }, [ttsModel, serviceProviders.tts, setValue, getValues, schemas, isCustomInput.tts_voice]);
 
     // Reset language when STT model changes if the provider has model-dependent language options
     const sttModel = watch("stt_model");
@@ -676,10 +692,13 @@ export function ServiceConfigurationForm({
         const actualSchema = schema.$ref && providerSchema.$defs
             ? providerSchema.$defs[schema.$ref.split('/').pop() || '']
             : schema;
+        const dropdownOptions = getSchemaDropdownOptions(
+            actualSchema,
+            watch(`${service}_model`) as string | undefined,
+        );
 
         if (service === "tts" && field === "voice" && !actualSchema?.allow_custom_input) {
-            const hasVoiceOptions = actualSchema?.enum || actualSchema?.examples;
-            if (!hasVoiceOptions) {
+            if (!dropdownOptions) {
                 return (
                     <VoiceSelector
                         provider={serviceProviders.tts}
@@ -693,10 +712,10 @@ export function ServiceConfigurationForm({
             }
         }
 
-        if (actualSchema?.allow_custom_input && actualSchema?.examples) {
+        if (actualSchema?.allow_custom_input && dropdownOptions && dropdownOptions.length > 0) {
             const fieldKey = `${service}_${field}`;
             const currentValue = watch(fieldKey) as string || "";
-            const options = actualSchema.examples;
+            const options = dropdownOptions;
 
             if (isCustomInput[fieldKey]) {
                 return (
@@ -762,15 +781,6 @@ export function ServiceConfigurationForm({
                     </div>
                 </div>
             );
-        }
-
-        let dropdownOptions = actualSchema?.enum || actualSchema?.examples;
-
-        if (actualSchema?.model_options) {
-            const modelValue = watch(`${service}_model`) as string;
-            if (modelValue && actualSchema.model_options[modelValue]) {
-                dropdownOptions = actualSchema.model_options[modelValue];
-            }
         }
 
         if (dropdownOptions && dropdownOptions.length > 0) {

@@ -14,6 +14,7 @@ from api.services.configuration.options import (
     AZURE_SPEECH_STT_LANGUAGES,
     AZURE_SPEECH_TTS_LANGUAGES,
     AZURE_SPEECH_TTS_VOICES,
+    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -38,6 +39,10 @@ from api.services.configuration.options import (
     SARVAM_TTS_MODELS,
     SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
+    SMALLEST_TTS_LANGUAGES,
+    SMALLEST_TTS_MODELS,
+    SMALLEST_TTS_PRO_VOICES,
+    SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
 )
 from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
@@ -80,6 +85,7 @@ class ServiceProviders(str, Enum):
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
     AZURE_REALTIME = "azure_realtime"
+    SMALLEST = "smallest"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -108,6 +114,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
         ServiceProviders.AZURE_REALTIME,
         ServiceProviders.SARVAM,
+        ServiceProviders.SMALLEST,
     ]
     api_key: str | list[str]
 
@@ -944,6 +951,7 @@ class DograhTTSService(BaseTTSConfiguration):
     voice: str = Field(
         default="default",
         description="Voice preset.",
+        json_schema_extra={"allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 
@@ -971,6 +979,11 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
         le=2.0,
         description="Volume multiplier for generated speech.",
     )
+    language: str = Field(
+        default="en",
+        description="Cartesia language code for TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').",
+        json_schema_extra={"allow_custom_input": True},
+    )
 
 
 @register_tts
@@ -984,9 +997,10 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(
         default="anushka",
-        description="Sarvam voice name; must match the selected model's voice list.",
+        description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
             "examples": SARVAM_V2_VOICES,
+            "allow_custom_input": True,
             "model_options": {
                 "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
@@ -997,6 +1011,12 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         default="hi-IN",
         description="BCP-47 Indian-language code (e.g. hi-IN, en-IN).",
         json_schema_extra={"examples": SARVAM_LANGUAGES},
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier.",
     )
 
 
@@ -1157,6 +1177,50 @@ class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Smallest AI",
+    description="Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.",
+    provider_docs_url="https://smallest.ai/docs",
+)
+
+
+@register_tts
+class SmallestAITTSConfiguration(BaseTTSConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="lightning_v3.1",
+        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.",
+        json_schema_extra={"examples": SMALLEST_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="sophia",
+        description="Smallest AI voice ID. Available voices differ by model: lightning_v3.1 has a broad multilingual pool; lightning_v3.1_pro has premium American, British, and Indian accent voices (English + Hindi only).",
+        json_schema_extra={
+            "examples": list(SMALLEST_TTS_VOICES),
+            "allow_custom_input": True,
+            "model_options": {
+                "lightning_v3.1": list(SMALLEST_TTS_VOICES),
+                "lightning_v3.1_pro": list(SMALLEST_TTS_PRO_VOICES),
+            },
+        },
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for synthesis.",
+        json_schema_extra={
+            "examples": SMALLEST_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0).",
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -1171,6 +1235,7 @@ TTSConfig = Annotated[
         SpeachesTTSConfiguration,
         MiniMaxTTSConfiguration,
         AzureSpeechTTSConfiguration,
+        SmallestAITTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1189,12 +1254,16 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     language: str = Field(
         default="multi",
-        description="Language code; 'multi' enables auto-detect (Nova-3 only).",
+        description=(
+            "Language code. 'multi' enables Nova-3 auto-detect and omits "
+            "language hints for Flux multilingual auto-detect."
+        ),
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
             "model_options": {
                 "nova-3-general": DEEPGRAM_LANGUAGES,
                 "flux-general-en": ("en",),
+                "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },
         },
     )
@@ -1465,6 +1534,62 @@ class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+SMALLEST_STT_MODELS = ["pulse"]
+SMALLEST_STT_LANGUAGES = [
+    "en",
+    "hi",
+    "fr",
+    "de",
+    "es",
+    "it",
+    "nl",
+    "pl",
+    "ru",
+    "pt",
+    "bn",
+    "gu",
+    "kn",
+    "ml",
+    "mr",
+    "ta",
+    "te",
+    "pa",
+    "or",
+    "bg",
+    "cs",
+    "da",
+    "et",
+    "fi",
+    "hu",
+    "lt",
+    "lv",
+    "mt",
+    "ro",
+    "sk",
+    "sv",
+    "uk",
+]
+
+
+@register_stt
+class SmallestAISTTConfiguration(BaseSTTConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="pulse",
+        description="Smallest AI STT model. Supports 38 languages with real-time streaming.",
+        json_schema_extra={"examples": SMALLEST_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for transcription.",
+        json_schema_extra={
+            "examples": SMALLEST_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -1479,6 +1604,7 @@ STTConfig = Annotated[
         AssemblyAISTTConfiguration,
         GladiaSTTConfiguration,
         AzureSpeechSTTConfiguration,
+        SmallestAISTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]

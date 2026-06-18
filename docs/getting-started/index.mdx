@@ -39,6 +39,23 @@ Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/do
 ```
 </CodeGroup>
 
+<Tip>
+**Using an AI coding agent?** If you work in **Claude Code** or **Codex**, install the official Dograh setup skill and let your agent handle installation, configuration, and troubleshooting for you. It orients to your OS, picks the right deploy path, runs Dograh's own setup scripts, and verifies the result. Install it once:
+
+<CodeGroup>
+```text Claude Code
+/plugin marketplace add dograh-hq/dograh-plugins
+/plugin install dograh@dograh
+```
+```text Codex
+codex plugin marketplace add dograh-hq/dograh-plugins
+codex plugin add dograh@dograh
+```
+</CodeGroup>
+
+Then start a new session and ask it to *"set up Dograh"* (in Claude Code you can also run `/dograh-setup`). See [dograh-hq/dograh-plugins](https://github.com/dograh-hq/dograh-plugins) for details.
+</Tip>
+
 Please check [Prerequisites](getting-started/prerequisites) for the system requirements and [Troubleshooting](getting-started/troubleshooting) for common issues.
 
 ## Next Steps

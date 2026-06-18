@@ -1,0 +1,99 @@
+---
+title: "Authentication"
+description: "Configure how self-hosted Dograh authenticates users — the default local provider, or Stack Auth for social login"
+---
+
+Self-hosted Dograh ships with a built-in **local** authentication provider (email + password, backed by a signed JWT). This is the default and needs no external service.
+
+To offer social logins (Google, GitHub, and others), you can delegate sign-in to **[Stack Auth](https://stack-auth.com)**. Enabling it is a **runtime** configuration change — set a few environment variables and restart. The prebuilt `dograhai/dograh-api` and `dograhai/dograh-ui` images work as-is; you do **not** need to rebuild or build from source.
+
+<Note>
+The active provider is controlled by the backend `AUTH_PROVIDER` variable (`local` by default). The frontend discovers the provider — and, for Stack, its public client config — at runtime from the backend's `/api/v1/health` response, so the browser bundle never needs Stack values baked in at build time.
+</Note>
+
+## How it works
+
+1. The backend reads `AUTH_PROVIDER` and the Stack settings from its environment.
+2. When `AUTH_PROVIDER=stack`, `/api/v1/health` returns the **public** Stack client config (project id + publishable client key).
+3. The UI fetches that at runtime and initializes the Stack SDK in the browser.
+4. The **secret server key** is used only server-side (by the backend and the UI's server runtime) and is never sent to the browser.
+
+## Prerequisites
+
+A Stack Auth project. Create one in the [Stack Auth dashboard](https://app.stack-auth.com) and configure the social login providers you want to offer.
+
+## Step 1 — Collect your Stack credentials
+
+From your project in the [Stack Auth dashboard](https://app.stack-auth.com), gather:
+
+| Value | Sensitivity |
+|---|---|
+| **Project ID** | Public |
+| **Publishable client key** | Public (safe to expose in the browser) |
+| **Secret server key** | Secret — keep server-side only |
+| **API base URL** | Public. For Stack's hosted service this is `https://api.stack-auth.com` |
+
+## Step 2 — Configure the backend (`api`)
+
+Set these on the `api` service. Add them to the `environment:` block of the `api` service in your `docker-compose.yaml`:
+
+```yaml docker-compose.yaml
+services:
+  api:
+    environment:
+      AUTH_PROVIDER: "stack"
+      STACK_AUTH_PROJECT_ID: "<your-project-id>"
+      STACK_PUBLISHABLE_CLIENT_KEY: "<your-publishable-client-key>"
+      STACK_SECRET_SERVER_KEY: "<your-secret-server-key>"
+      STACK_AUTH_API_URL: "https://api.stack-auth.com"
+```
+
+## Step 3 — Configure the UI (`ui`)
+
+The UI runs server-side code (SSR pages and the `/handler/*` auth routes) that calls Stack with the secret server key, so the `ui` service needs that one value too:
+
+```yaml docker-compose.yaml
+services:
+  ui:
+    environment:
+      STACK_SECRET_SERVER_KEY: "<your-secret-server-key>"
+```
+
+<Note>
+The `ui` service does **not** need the project id or publishable client key — it receives those from the backend at runtime via `/api/v1/health`. Only the secret server key (used server-side) is set here.
+</Note>
+
+## Step 4 — Restart and verify
+
+Recreate the containers so they pick up the new environment:
+
+```bash
+docker compose up -d
+```
+
+Confirm the backend reports the active provider and the public client config:
+
+```bash
+curl -s http://localhost:8000/api/v1/health
+# expect: "auth_provider":"stack", plus "stack_project_id" and "stack_publishable_client_key"
+```
+
+Then open the UI. The sign-in page should now present your configured Stack Auth social login options instead of the local email/password form.
+
+## Environment variable reference
+
+| Variable | Service | Secret | Notes |
+|---|---|---|---|
+| `AUTH_PROVIDER` | `api` | — | Set to `stack` (default `local`) |
+| `STACK_AUTH_PROJECT_ID` | `api` | No | Stack project ID; served to the UI at runtime |
+| `STACK_PUBLISHABLE_CLIENT_KEY` | `api` | No | Publishable key; served to the UI at runtime |
+| `STACK_SECRET_SERVER_KEY` | `api` + `ui` | **Yes** | Server-side only — never exposed to the browser |
+| `STACK_AUTH_API_URL` | `api` | No | Stack REST API base URL |
+
+<Warning>
+`STACK_SECRET_SERVER_KEY` is the only secret here. Keep it out of any client-visible config and never bake it into an image. The project ID and publishable client key are public by design — the backend deliberately serves them to the browser so Stack can initialize at runtime.
+</Warning>
+
+## Reverting to local auth
+
+Remove the variables above (or set `AUTH_PROVIDER=local`) and restart. The UI detects `local` from the backend at runtime and falls back to the built-in email/password flow — no rebuild required.

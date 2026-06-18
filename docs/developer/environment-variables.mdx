@@ -22,7 +22,7 @@ The relevant required variables for each mode are noted in the descriptions belo
 |---|---|---|
 | `ENVIRONMENT` | `local` | Runtime environment. Affects logging and behaviour. One of `local`, `production`, `test` |
 | `DEPLOYMENT_MODE` | `oss` | Deployment mode. Use `oss` for self-hosted |
-| `AUTH_PROVIDER` | `local` | Authentication provider. Use `local` for OSS |
+| `AUTH_PROVIDER` | `local` | Authentication provider. `local` (default) uses the built-in email/password flow. Set to `stack` to delegate to Stack Auth for social login — see [Authentication](/deployment/authentication) for the full setup |
 
 ---
 
@@ -45,6 +45,19 @@ The relevant required variables for each mode are noted in the descriptions belo
 <Warning>
 Never use the placeholder `OSS_JWT_SECRET` in a production deployment. Generate a strong random secret and store it securely.
 </Warning>
+
+---
+
+## Authentication (Stack Auth)
+
+Set these when `AUTH_PROVIDER=stack` to delegate sign-in to [Stack Auth](https://stack-auth.com) for social login. The project id and publishable client key are public and are served to the browser at runtime via `/api/v1/health`; the secret server key stays server-side. See [Authentication](/deployment/authentication) for the full walkthrough.
+
+| Variable | Default | Description |
+|---|---|---|
+| `STACK_AUTH_PROJECT_ID` | `null` | **Required for `stack`.** Stack project ID (public) |
+| `STACK_PUBLISHABLE_CLIENT_KEY` | `null` | **Required for `stack`.** Stack publishable client key (public) |
+| `STACK_SECRET_SERVER_KEY` | `null` | **Required for `stack`.** Stack secret server key — server-side only, also set on the `ui` service. Keep secret |
+| `STACK_AUTH_API_URL` | `null` | **Required for `stack`.** Stack REST API base URL (e.g. `https://api.stack-auth.com`) |
 
 ---
 

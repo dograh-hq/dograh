@@ -9,7 +9,8 @@
     "lint": "next lint",
     "fix-lint": "npx eslint --fix . --ignore-pattern '.next/*' --ignore-pattern 'node_modules/*' --ignore-pattern 'next-env.d.ts'",
     "generate-client": "openapi-ts",
-    "test:display-options": "node scripts/test-display-options.mts"
+    "test:display-options": "node scripts/test-display-options.mts",
+    "lint:lead-flow": "bash ../../user_onboarding/scripts/check_lead_flow.sh"
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",
@@ -39,8 +40,8 @@
     "next-themes": "^0.4.6",
     "pino": "^9.9.2",
     "pino-pretty": "^13.1.1",
-    "posthog-js": "^1.255.1",
-    "posthog-node": "^5.1.1",
+    "posthog-js": "^1.388.1",
+    "posthog-node": "^5.38.0",
     "react": "^19.1.0",
     "react-day-picker": "^9.8.0",
     "react-dom": "^19.1.0",

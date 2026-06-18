@@ -82,11 +82,23 @@ class UserModel(Base):
 
 
 class UserConfigurationModel(Base):
+    """Per-user keyed JSON store, mirroring organization_configurations.
+
+    Keys are defined in UserConfigurationKey. The legacy v1 AI model
+    configuration lives under MODEL_CONFIGURATION; last_validated_at is only
+    meaningful for that key.
+    """
+
     __tablename__ = "user_configurations"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    key = Column(String, nullable=False)
     configuration = Column(JSON, nullable=False, default=dict)
     last_validated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "key", name="_user_configuration_key_uc"),
+    )
 
 
 # New Organization model
@@ -532,6 +544,9 @@ class WorkflowRunModel(Base):
     is_completed = Column(Boolean, default=False)
     recording_url = Column(String, nullable=True)
     transcript_url = Column(String, nullable=True)
+    extra = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
     # Store storage backend as string enum (s3, minio)
     storage_backend = Column(
         Enum("s3", "minio", name="storage_backend"),

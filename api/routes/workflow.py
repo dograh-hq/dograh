@@ -586,16 +586,17 @@ def _validate_status_filter(status: Optional[str]) -> List[str]:
     outside the ``workflow_status`` enum raises 422 so the request fails as a
     clean client error instead of a 500 from the Postgres enum cast.
     """
-    if not status:
+    if status is None or status == "":
         return []
     allowed = {s.value for s in WorkflowStatus}
-    requested = [s.strip() for s in status.split(",") if s.strip()]
+    requested = [s.strip() for s in status.split(",")]
     invalid = sorted({s for s in requested if s not in allowed})
     if invalid:
+        invalid_display = ["<empty>" if s == "" else s for s in invalid]
         raise HTTPException(
             status_code=422,
             detail=(
-                f"Invalid workflow status filter: {invalid}. "
+                f"Invalid workflow status filter: {invalid_display}. "
                 f"Allowed values: {sorted(allowed)}."
             ),
         )

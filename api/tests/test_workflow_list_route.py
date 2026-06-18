@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -117,3 +118,32 @@ def test_workflow_fetch_mixed_valid_and_invalid_status_returns_422():
 
     assert response.status_code == 422
     mock_db.get_all_workflows_for_listing.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [" ", ",", "active,,archived"])
+def test_workflow_fetch_blank_status_token_returns_422_without_db_query(status: str):
+    app = _make_test_app()
+    client = TestClient(app)
+
+    with patch("api.routes.workflow.db_client") as mock_db:
+        mock_db.get_all_workflows_for_listing = AsyncMock()
+        mock_db.get_workflow_run_counts = AsyncMock()
+
+        response = client.get("/workflow/fetch", params={"status": status})
+
+    assert response.status_code == 422
+    assert "<empty>" in response.json()["detail"]
+    mock_db.get_all_workflows_for_listing.assert_not_called()
+
+
+def test_workflow_summary_blank_status_token_returns_422_without_db_query():
+    app = _make_test_app()
+    client = TestClient(app)
+
+    with patch("api.routes.workflow.db_client") as mock_db:
+        mock_db.get_all_workflows = AsyncMock()
+
+        response = client.get("/workflow/summary", params={"status": ","})
+
+    assert response.status_code == 422
+    mock_db.get_all_workflows.assert_not_called()

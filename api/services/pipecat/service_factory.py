@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.constants import MPS_API_URL
+from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
@@ -78,6 +79,20 @@ if TYPE_CHECKING:
     from api.services.pipecat.audio_config import AudioConfig
 
 
+DEEPGRAM_FLUX_LANGUAGE_HINTS = {
+    "de": Language.DE,
+    "en": Language.EN,
+    "es": Language.ES,
+    "fr": Language.FR,
+    "hi": Language.HI,
+    "it": Language.IT,
+    "ja": Language.JA,
+    "nl": Language.NL,
+    "pt": Language.PT,
+    "ru": Language.RU,
+}
+
+
 def _validate_runtime_service_url(url: str, field_name: str) -> None:
     try:
         validate_user_configured_service_url(
@@ -104,17 +119,23 @@ def create_stt_service(
         f"Creating STT service: provider={user_config.stt.provider}, model={user_config.stt.model}"
     )
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
-        # Check if using Flux model (English-only, no language selection)
-        if user_config.stt.model == "flux-general-en":
+        if user_config.stt.model in DEEPGRAM_FLUX_MODELS:
+            settings_kwargs = {
+                "model": user_config.stt.model,
+                "eot_timeout_ms": 3000,
+                "eot_threshold": 0.7,
+                "eager_eot_threshold": 0.5,
+                "keyterm": keyterms or [],
+            }
+            if user_config.stt.model == "flux-general-multi":
+                language = getattr(user_config.stt, "language", None)
+                language_hint = DEEPGRAM_FLUX_LANGUAGE_HINTS.get(language)
+                if language_hint:
+                    settings_kwargs["language_hints"] = [language_hint]
+
             return DeepgramFluxSTTService(
                 api_key=user_config.stt.api_key,
-                settings=DeepgramFluxSTTSettings(
-                    model=user_config.stt.model,
-                    eot_timeout_ms=3000,
-                    eot_threshold=0.7,
-                    eager_eot_threshold=0.5,
-                    keyterm=keyterms or [],
-                ),
+                settings=DeepgramFluxSTTSettings(**settings_kwargs),
                 should_interrupt=False,  # Let UserAggregator take care of sending InterruptionFrame
                 sample_rate=audio_config.transport_in_sample_rate,
             )
@@ -534,7 +555,9 @@ def create_tts_service(
         language = getattr(user_config.tts, "language", None)
         pipecat_language = language_mapping.get(language, Language.HI)
 
-        voice = (getattr(user_config.tts, "voice", None) or "anushka").strip().lower()
+        voice = (
+            getattr(user_config.tts, "voice", None) or ""
+        ).strip().lower() or "anushka"
         speed = getattr(user_config.tts, "speed", None)
         settings_kwargs = {
             "model": user_config.tts.model,

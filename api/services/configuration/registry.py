@@ -14,6 +14,7 @@ from api.services.configuration.options import (
     AZURE_SPEECH_STT_LANGUAGES,
     AZURE_SPEECH_TTS_LANGUAGES,
     AZURE_SPEECH_TTS_VOICES,
+    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -38,6 +39,9 @@ from api.services.configuration.options import (
     SARVAM_TTS_MODELS,
     SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
+    SMALLEST_TTS_LANGUAGES,
+    SMALLEST_TTS_MODELS,
+    SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
 )
 from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
@@ -987,7 +991,7 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(
         default="anushka",
-        description="Sarvam voice name; must match the selected model's voice list.",
+        description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
             "examples": SARVAM_V2_VOICES,
             "allow_custom_input": True,
@@ -1173,43 +1177,6 @@ SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
     provider_docs_url="https://smallest.ai/docs",
 )
 
-SMALLEST_TTS_MODELS = ["lightning_v3.1", "lightning_v3.1_pro"]
-SMALLEST_TTS_VOICES = [
-    "sophia",
-    "avery",
-    "liam",
-    "lucas",
-    "olivia",
-    "ryan",
-    "freya",
-    "william",
-    "devansh",
-    "arjun",
-    "niharika",
-    "maya",
-    "dhruv",
-    "mia",
-    "maithili",
-]
-SMALLEST_TTS_LANGUAGES = [
-    "en",
-    "hi",
-    "fr",
-    "de",
-    "es",
-    "it",
-    "nl",
-    "pl",
-    "ru",
-    "ar",
-    "bn",
-    "gu",
-    "he",
-    "kn",
-    "mr",
-    "ta",
-]
-
 
 @register_tts
 class SmallestAITTSConfiguration(BaseTTSConfiguration):
@@ -1274,12 +1241,16 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     language: str = Field(
         default="multi",
-        description="Language code; 'multi' enables auto-detect (Nova-3 only).",
+        description=(
+            "Language code. 'multi' enables Nova-3 auto-detect and omits "
+            "language hints for Flux multilingual auto-detect."
+        ),
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
             "model_options": {
                 "nova-3-general": DEEPGRAM_LANGUAGES,
                 "flux-general-en": ("en",),
+                "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },
         },
     )

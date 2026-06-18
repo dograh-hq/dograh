@@ -127,9 +127,7 @@ class TestSarvamTTSServiceFactory:
         assert config.speed == 1.0
 
     def test_sarvam_tts_voice_schema_allows_custom_model_specific_options(self):
-        voice_schema = SarvamTTSConfiguration.model_json_schema()["properties"][
-            "voice"
-        ]
+        voice_schema = SarvamTTSConfiguration.model_json_schema()["properties"]["voice"]
 
         assert voice_schema["allow_custom_input"] is True
         assert "bulbul:v2" in voice_schema["model_options"]
@@ -184,3 +182,26 @@ class TestSarvamTTSServiceFactory:
 
         kwargs = mock_service.call_args.kwargs
         assert kwargs["settings"].voice == "rehan"
+
+    def test_create_sarvam_tts_service_defaults_blank_voice_id(self):
+        user_config = SimpleNamespace(
+            tts=SimpleNamespace(
+                provider=ServiceProviders.SARVAM.value,
+                api_key="test-key",
+                model="bulbul:v2",
+                voice="   ",
+                language="hi-IN",
+                speed=1.0,
+            )
+        )
+        audio_config = AudioConfig(
+            transport_in_sample_rate=16000, transport_out_sample_rate=16000
+        )
+
+        with patch(
+            "api.services.pipecat.service_factory.SarvamTTSService"
+        ) as mock_service:
+            create_tts_service(user_config, audio_config)
+
+        kwargs = mock_service.call_args.kwargs
+        assert kwargs["settings"].voice == "anushka"

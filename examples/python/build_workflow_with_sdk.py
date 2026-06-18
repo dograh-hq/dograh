@@ -41,7 +41,9 @@ def main() -> int:
         return 1
 
     with DograhClient(base_url=api_endpoint, api_key=api_token) as client:
-        wf = Workflow(client=client, name="lead_qualification")
+        existing = client.get_workflow(WORKFLOW_ID)
+        # Preserve the live workflow name; save_workflow sends name with the draft update.
+        wf = Workflow(client=client, name=existing.name)
 
         greeting = wf.add(
             type="startCall",

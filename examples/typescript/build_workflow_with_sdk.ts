@@ -28,7 +28,9 @@ async function main(): Promise<void> {
         apiKey: apiToken,
     });
 
-    const wf = new Workflow({ client, name: "lead_qualification" });
+    const existing = await client.getWorkflow(WORKFLOW_ID);
+    // Preserve the live workflow name; saveWorkflow sends name with the draft update.
+    const wf = new Workflow({ client, name: existing.name });
 
     const greeting = await wf.add({
         type: "startCall",

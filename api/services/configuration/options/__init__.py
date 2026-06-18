@@ -44,6 +44,7 @@ from .sarvam import (
 from .smallest import (
     SMALLEST_TTS_LANGUAGES,
     SMALLEST_TTS_MODELS,
+    SMALLEST_TTS_PRO_VOICES,
     SMALLEST_TTS_VOICES,
 )
 from .speechmatics import SPEECHMATICS_STT_LANGUAGES
@@ -87,6 +88,7 @@ __all__ = [
     "SARVAM_V3_VOICES",
     "SMALLEST_TTS_LANGUAGES",
     "SMALLEST_TTS_MODELS",
+    "SMALLEST_TTS_PRO_VOICES",
     "SMALLEST_TTS_VOICES",
     "SPEECHMATICS_STT_LANGUAGES",
 ]

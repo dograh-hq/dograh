@@ -16,6 +16,15 @@ SMALLEST_TTS_VOICES = (
     "mia",
     "maithili",
 )
+# Premium voices for lightning_v3.1_pro (American, British, Indian accents; English + Hindi only)
+SMALLEST_TTS_PRO_VOICES = (
+    "meher",
+    "rhea",
+    "aviraj",
+    "cressida",
+    "willow",
+    "maverick",
+)
 SMALLEST_TTS_LANGUAGES = (
     "en",
     "hi",

@@ -5,7 +5,7 @@ import { cookies } from 'next/headers';
 
 import logger from '@/lib/logger';
 
-import { getAuthProvider } from './config';
+import { getAuthProvider, getStackConfig } from './config';
 import type { LocalUser } from './types';
 
 // Server-side auth utilities for SSR pages
@@ -21,10 +21,23 @@ export async function getStackServerApp(): Promise<StackServerApp<boolean, strin
     // Only import if using Stack provider
     const authProvider = await getAuthProvider();
     if (authProvider === 'stack') {
+      const stackConfig = await getStackConfig();
+      if (!stackConfig) {
+        logger.error(
+          'Auth provider is "stack" but Stack client config is unavailable from the backend ' +
+          '(STACK_AUTH_PROJECT_ID / STACK_PUBLISHABLE_CLIENT_KEY).'
+        );
+        return null;
+      }
       const stackModule = await import('@stackframe/stack');
       const { StackServerApp } = stackModule;
+      // projectId / publishableClientKey come from the backend at runtime. The
+      // secret server key stays a server-only runtime env var
+      // (STACK_SECRET_SERVER_KEY), read by the SDK directly.
       stackServerApp = new StackServerApp({
         tokenStore: "nextjs-cookie",
+        projectId: stackConfig.projectId,
+        publishableClientKey: stackConfig.publishableClientKey,
         urls: {
           afterSignIn: "/after-sign-in"
         }

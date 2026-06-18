@@ -42,6 +42,15 @@ ENV NEXT_PUBLIC_CHATWOOT_URL="https://chat.dograh.com"
 ENV NEXT_PUBLIC_CHATWOOT_TOKEN="3fkFx2mCEjNHjM9gaNc4A82X"
 ENV BACKEND_URL="http://api:8000"
 
+# Stack Auth (optional, for self-hosted social login). NEXT_PUBLIC_* values must
+# be set at build time so Next.js inlines them into the browser bundle; setting
+# them as runtime container env has no effect. Unset by default (empty strings),
+# which leaves the official image on the built-in local auth flow.
+ARG NEXT_PUBLIC_STACK_PROJECT_ID
+ARG NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
+ENV NEXT_PUBLIC_STACK_PROJECT_ID=$NEXT_PUBLIC_STACK_PROJECT_ID
+ENV NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY=$NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY
+
 # Build the application with standalone mode
 # Increase Node.js heap size to prevent out-of-memory errors during build
 ENV NODE_OPTIONS="--max-old-space-size=4096"

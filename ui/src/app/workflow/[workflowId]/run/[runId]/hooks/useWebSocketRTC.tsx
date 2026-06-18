@@ -154,6 +154,16 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
         }
     }, []);
 
+    const stopLocalStream = useCallback(() => {
+        // Release the microphone so the device is freed for a subsequent call.
+        // Stopping the sender tracks via pc.getSenders() alone can leave the
+        // browser holding the mic, blocking the next getUserMedia().
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach((track) => track.stop());
+            localStreamRef.current = null;
+        }
+    }, []);
+
     const cleanupConnection = useCallback((options: CleanupConnectionOptions = {}) => {
         const graceful = options.graceful ?? true;
         const status = options.status ?? (graceful ? 'idle' : 'failed');
@@ -174,18 +184,12 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             wsRef.current = null;
         }
 
-        // Release the local microphone stream so the device is freed for a
-        // subsequent call. Stopping tracks via pc.getSenders() alone can leave
-        // the browser holding the mic, blocking the next getUserMedia().
-        if (localStreamRef.current) {
-            localStreamRef.current.getTracks().forEach((track) => track.stop());
-            localStreamRef.current = null;
-        }
+        stopLocalStream();
 
         if (options.closePeerConnection !== false) {
             closePeerConnection(pcRef.current, options.delayPeerClose ?? false);
         }
-    }, [closePeerConnection]);
+    }, [closePeerConnection, stopLocalStream]);
 
     const createPeerConnection = () => {
         // Build ICE servers list
@@ -752,6 +756,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             if (constraints.audio) {
                 try {
                     const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    // Release any stream still held from a prior attempt before
+                    // retaining the new one, so re-entry can't leak a device.
+                    stopLocalStream();
                     localStreamRef.current = stream;
                     stream.getTracks().forEach((track) => {
                         pc.addTrack(track, stream);
@@ -780,10 +787,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     // Cleanup on unmount
     useEffect(() => {
         return () => {
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach((track) => track.stop());
-                localStreamRef.current = null;
-            }
+            stopLocalStream();
             if (wsRef.current) {
                 wsRef.current.close();
             }
@@ -791,7 +795,7 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
                 pcRef.current.close();
             }
         };
-    }, []);
+    }, [stopLocalStream]);
 
     return {
         audioRef,

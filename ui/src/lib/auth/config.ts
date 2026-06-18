@@ -49,11 +49,14 @@ async function resolveAuthConfig(): Promise<ResolvedAuthConfig> {
       return cachedConfig;
     }
   } catch {
-    // Backend not reachable — fall back to local
+    // Backend not reachable — fall through without caching so we retry next request.
   }
 
-  cachedConfig = { authProvider: "local", stackConfig: null };
-  return cachedConfig;
+  // Unknown (backend unreachable). Return the local fallback for THIS request but
+  // do NOT cache it: caching here would pin the entire UI to local auth until a
+  // container restart if the first resolution loses the startup race with the api
+  // service. Leaving it uncached means the next request retries and self-heals.
+  return { authProvider: "local", stackConfig: null };
 }
 
 /**

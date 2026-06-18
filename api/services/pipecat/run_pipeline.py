@@ -6,6 +6,7 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
+from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations import (
     IntegrationRuntimeContext,
@@ -626,7 +627,7 @@ async def _run_pipeline(
         # Other models use configurable turn detection strategy
         is_deepgram_flux = (
             user_config.stt.provider == ServiceProviders.DEEPGRAM.value
-            and user_config.stt.model == "flux-general-en"
+            and user_config.stt.model in DEEPGRAM_FLUX_MODELS
         )
 
         if is_deepgram_flux:

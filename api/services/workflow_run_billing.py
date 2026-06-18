@@ -52,6 +52,9 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
         return
 
     if not getattr(workflow_run, "is_completed", False):
+        logger.warning(
+            "Workflow run is not completed in report_workflow_run_platform_usage"
+        )
         return
 
     organization_id = _workflow_run_organization_id(workflow_run)
@@ -77,6 +80,9 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
 
     try:
         if not await _organization_uses_mps_billing_v2(organization_id):
+            logger.debug(
+                "Not reporting platform usage since org not using mps billing v2"
+            )
             return
 
         result = await mps_service_key_client.report_platform_usage(

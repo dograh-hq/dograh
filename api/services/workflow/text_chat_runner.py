@@ -17,7 +17,6 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    TextFrame,
     TTSSpeakFrame,
     TTSStoppedFrame,
 )
@@ -167,12 +166,17 @@ class _TaskQueueProxy:
 
 
 class _TextChatCaptureProcessor(FrameProcessor):
-    def __init__(self, response_window: _ResponseWindowState) -> None:
+    def __init__(
+        self,
+        response_window: _ResponseWindowState,
+        context: LLMContext,
+    ) -> None:
         super().__init__()
         self.last_activity_at = time.monotonic()
         self.activity_count = 0
         self.events: list[dict[str, Any]] = []
         self._response_window = response_window
+        self._context = context
 
     def _touch(self) -> None:
         self.last_activity_at = time.monotonic()
@@ -192,12 +196,14 @@ class _TextChatCaptureProcessor(FrameProcessor):
         self._touch()
 
         if isinstance(frame, TTSSpeakFrame):
-            text_frame = TextFrame(frame.text)
-            text_frame.append_to_context = (
+            append_to_context = (
                 frame.append_to_context if frame.append_to_context is not None else True
             )
-            await self.push_frame(text_frame, direction)
-            await self.push_frame(LLMAssistantPushAggregationFrame(), direction)
+            text = frame.text.strip()
+            if text:
+                self._response_window.outputs.append(text)
+                if append_to_context:
+                    self._context.add_message({"role": "assistant", "content": text})
             return
 
         if isinstance(frame, LLMContextFrame) and direction == FrameDirection.UPSTREAM:
@@ -456,10 +462,10 @@ async def execute_text_chat_pending_turn(
     )
     base_checkpoint = _resolve_checkpoint_for_pending_turn(session_data, checkpoint)
 
-    response_window = _ResponseWindowState()
-    capture_processor = _TextChatCaptureProcessor(response_window)
     context = LLMContext()
     context.set_messages(base_checkpoint["messages"])
+    response_window = _ResponseWindowState()
+    capture_processor = _TextChatCaptureProcessor(response_window, context)
 
     node_transition_events = capture_processor.events
 

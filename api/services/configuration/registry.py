@@ -976,7 +976,8 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     )
     language: str = Field(
         default="en",
-        description="BCP-47 language code for Cartesia TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').",
+        description="Cartesia language code for TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').",
+        json_schema_extra={"allow_custom_input": True},
     )
 
 

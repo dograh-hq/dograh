@@ -39,6 +39,13 @@ async def _organization_uses_mps_billing_v2(organization_id: int) -> bool:
     return bool(account and account.get("billing_mode") == "v2")
 
 
+def _is_usage_not_ready_error(exc: Exception) -> bool:
+    response = getattr(exc, "response", None)
+    if getattr(response, "status_code", None) != 409:
+        return False
+    return "usage_not_ready" in (getattr(response, "text", "") or "")
+
+
 async def report_workflow_run_platform_usage(workflow_run) -> None:
     """Report hosted platform usage for a completed workflow run to MPS."""
     if DEPLOYMENT_MODE == "oss":
@@ -91,11 +98,21 @@ async def report_workflow_run_platform_usage(workflow_run) -> None:
             result,
         )
     except Exception as e:
-        logger.error(
-            "Failed to report platform usage for workflow run {}: {}",
-            workflow_run.id,
-            e,
-        )
+        if _is_usage_not_ready_error(e):
+            # A run can start and receive an MPS correlation id, then fail or end
+            # before billable STT usage is recorded. MPS returns usage_not_ready
+            # for that no-platform-fee path, so keep it out of error alerts.
+            logger.warning(
+                "Failed to report platform usage for workflow run {}: {}",
+                workflow_run.id,
+                e,
+            )
+        else:
+            logger.error(
+                "Failed to report platform usage for workflow run {}: {}",
+                workflow_run.id,
+                e,
+            )
 
 
 async def report_completed_workflow_run_platform_usage(workflow_run_id: int) -> None:

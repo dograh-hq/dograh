@@ -62,6 +62,7 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
+from pipecat.pipeline.pipeline import Pipeline
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -234,6 +235,190 @@ async def run_pipeline_telephony(
     except Exception as e:
         logger.error(
             f"[run {workflow_run_id}] Error in {provider_name} pipeline: {e}",
+            exc_info=True,
+        )
+        raise
+
+
+async def run_pipeline_screening(
+    websocket,
+    *,
+    provider_name: str,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_id: str,
+    transport_kwargs: dict,
+) -> None:
+    """Run a LISTEN-ONLY screening pipeline on a smart-voicemail human leg.
+
+    Mirrors :func:`run_pipeline_telephony`'s transport/config resolution but
+    builds a minimal pipeline that only runs the ``VoicemailDetector`` over STT.
+    The bot NEVER speaks: there is no main LLM/TTS/engine upstream of
+    ``transport.output()``, so no audio is ever produced toward the human leg.
+
+    On the first classification, the smart-voicemail orchestrator is notified
+    (``"human"`` or ``"voicemail"``); the orchestrator then transfers/hangs up
+    the leg (which tears down this websocket). After firing, we cancel the
+    pipeline task so the worker exits cleanly even if the websocket lingers.
+
+    Args:
+        websocket: The accepted WebSocket from Vonage (the screening leg).
+        provider_name: Stable provider identifier (registry key) — "vonage".
+        workflow_id: Workflow being screened for.
+        workflow_run_id: Workflow run row driving the screening flow.
+        user_id: Owner of the workflow.
+        call_id: The screening leg's Vonage call UUID.
+        transport_kwargs: Provider-specific kwargs forwarded to the transport
+            factory (e.g. ``{"call_uuid": <screening leg uuid>}``).
+    """
+    from api.services.telephony.smart_voicemail import (
+        get_smart_voicemail_orchestrator,
+    )
+
+    logger.debug(
+        f"Running {provider_name} screening pipeline for workflow_run {workflow_run_id}"
+    )
+    set_current_run_id(workflow_run_id)
+
+    workflow = await db_client.get_workflow(workflow_id, user_id)
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    set_current_org_id(workflow.organization_id)
+
+    # Telephony config id is stamped on the workflow run; the transport uses it
+    # to load creds from the right config row.
+    workflow_run = await db_client.get_workflow_run(workflow_run_id)
+    telephony_configuration_id = None
+    if workflow_run and workflow_run.initial_context:
+        telephony_configuration_id = workflow_run.initial_context.get(
+            "telephony_configuration_id"
+        )
+
+    # Resolve effective user config — needed to build the STT service. Screening
+    # is always non-realtime (the detector is incompatible with realtime), so we
+    # force a non-realtime STT path regardless of the workflow's mode.
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
+
+    run_configs = (
+        (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
+    )
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=user_id,
+        organization_id=workflow.organization_id,
+        workflow_configurations=run_configs,
+    )
+
+    spec = telephony_registry.get(provider_name)
+    audio_config = create_audio_config(provider_name)
+
+    transport = await spec.transport_factory(
+        websocket,
+        workflow_run_id,
+        audio_config,
+        workflow.organization_id,
+        ambient_noise_config=None,
+        telephony_configuration_id=telephony_configuration_id,
+        is_realtime=False,
+        **transport_kwargs,
+    )
+
+    try:
+        # STT only — never TTS/LLM for the main conversation.
+        stt = create_stt_service(
+            user_config,
+            audio_config,
+            keyterms=None,
+            correlation_id=None,
+        )
+
+        # Classifier LLM for the detector. Mirror the existing voicemail wiring:
+        # honor the workflow's voicemail_detection config when present, else
+        # default to the workflow's own LLM.
+        voicemail_config = (workflow.workflow_configurations or {}).get(
+            "voicemail_detection", {}
+        )
+        if voicemail_config.get("use_workflow_llm", True):
+            voicemail_llm = create_llm_service(user_config)
+        else:
+            voicemail_llm = create_llm_service_from_provider(
+                provider=voicemail_config.get("provider", "openai"),
+                model=voicemail_config.get("model", "gpt-4.1"),
+                api_key=voicemail_config.get("api_key", ""),
+            )
+
+        long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
+        custom_system_prompt = voicemail_config.get("system_prompt") or None
+
+        voicemail_detector = VoicemailDetector(
+            llm=voicemail_llm,
+            long_speech_timeout=long_speech_timeout,
+            custom_system_prompt=custom_system_prompt,
+        )
+
+        # Build a context aggregator pair the way _run_pipeline does for the
+        # non-realtime default (transcription-based) turn strategy. We don't
+        # need the workflow engine, recording, integrations, TTS or main LLM —
+        # only enough to drive the detector's user-turn aggregation.
+        _, context = create_pipeline_components(audio_config)
+        user_turn_strategies = UserTurnStrategies(
+            start=[
+                VADUserTurnStartStrategy(),
+                TranscriptionUserTurnStartStrategy(),
+            ],
+            stop=[SpeechTimeoutUserTurnStopStrategy()],
+        )
+        user_params = LLMUserAggregatorParams(
+            user_turn_strategies=user_turn_strategies,
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+        )
+        context_aggregator = LLMContextAggregatorPair(
+            context, user_params=user_params
+        )
+        user_context_aggregator = context_aggregator.user()
+
+        # Minimal listen-only pipeline: input → STT → detector → user aggregator
+        # → llm_gate → output. No main LLM/TTS/engine, so the bot stays silent.
+        pipeline = Pipeline(
+            [
+                transport.input(),
+                stt,
+                voicemail_detector.detector(),
+                user_context_aggregator,
+                voicemail_detector.llm_gate(),
+                transport.output(),
+            ]
+        )
+
+        task = create_pipeline_task(pipeline, workflow_run_id, audio_config)
+
+        orchestrator = get_smart_voicemail_orchestrator()
+
+        @voicemail_detector.event_handler("on_conversation_detected")
+        async def _on_human(_processor):
+            logger.info(
+                f"[run {workflow_run_id}] screening: human (conversation) detected"
+            )
+            await orchestrator.on_screening_result(workflow_run_id, "human")
+            await task.cancel(reason="smart_voicemail_screening_resolved")
+
+        @voicemail_detector.event_handler("on_voicemail_detected")
+        async def _on_voicemail(_processor):
+            logger.info(f"[run {workflow_run_id}] screening: voicemail detected")
+            await orchestrator.on_screening_result(workflow_run_id, "voicemail")
+            await task.cancel(reason="smart_voicemail_screening_resolved")
+
+        await run_pipeline_worker(task)
+        logger.info(f"Screening task completed for run {workflow_run_id}")
+    except asyncio.CancelledError:
+        logger.warning(
+            f"[run {workflow_run_id}] Received CancelledError in screening pipeline"
+        )
+    except Exception as e:
+        logger.error(
+            f"[run {workflow_run_id}] Error in {provider_name} screening pipeline: {e}",
             exc_info=True,
         )
         raise

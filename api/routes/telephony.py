@@ -540,6 +540,76 @@ async def websocket_endpoint(
     await _handle_telephony_websocket(websocket, workflow_id, user_id, workflow_run_id)
 
 
+@router.websocket("/ws/screening/{workflow_id}/{user_id}/{workflow_run_id}")
+async def websocket_screening_endpoint(
+    websocket: WebSocket, workflow_id: int, user_id: int, workflow_run_id: int
+):
+    """WebSocket endpoint for the smart-voicemail screening (human) leg.
+
+    This is the listen-only leg of the smart-voicemail flow: Vonage places an
+    outbound "screening" call to the configured human number whose answer NCCO
+    connects here. We run a silent pipeline (STT + VoicemailDetector only) and
+    report the result to the orchestrator, which then bridges or hands the
+    caller to the AI workflow. The bot never speaks on this leg.
+    """
+    from api.services.pipecat.run_pipeline import run_pipeline_screening
+    from api.services.telephony.smart_voicemail import (
+        get_smart_voicemail_orchestrator,
+    )
+
+    await websocket.accept()
+    set_current_run_id(workflow_run_id)
+
+    try:
+        state = await get_smart_voicemail_orchestrator().get_state(workflow_run_id)
+        screening_leg_uuid = state.get("screening_leg_uuid") if state else None
+        if not screening_leg_uuid:
+            logger.error(
+                f"[run {workflow_run_id}] no smart-voicemail screening state / "
+                f"leg uuid for screening websocket"
+            )
+            await websocket.close(code=4404, reason="Screening state not found")
+            return
+
+        # Vonage opens binary websockets but sends a `websocket:connected` text
+        # event first. Peek at the first message so the serializer doesn't choke
+        # on it — mirror VonageProvider.handle_websocket.
+        first_msg = await websocket.receive()
+        if "text" in first_msg:
+            msg = json.loads(first_msg["text"])
+            if msg.get("event") == "websocket:connected":
+                logger.debug(
+                    f"[run {workflow_run_id}] screening: Vonage connection confirmation"
+                )
+        elif "bytes" in first_msg:
+            logger.debug(
+                f"[run {workflow_run_id}] screening: Vonage started with binary audio"
+            )
+
+        await run_pipeline_screening(
+            websocket,
+            provider_name="vonage",
+            workflow_id=workflow_id,
+            user_id=user_id,
+            workflow_run_id=workflow_run_id,
+            call_id=screening_leg_uuid,
+            transport_kwargs={"call_uuid": screening_leg_uuid},
+        )
+    except WebSocketDisconnect as e:
+        logger.info(
+            f"[run {workflow_run_id}] screening WebSocket disconnected: "
+            f"code={e.code}, reason={e.reason}"
+        )
+    except Exception as e:
+        logger.error(
+            f"[run {workflow_run_id}] Error in screening WebSocket connection: {e}"
+        )
+        try:
+            await websocket.close(1011, "Internal server error")
+        except RuntimeError:
+            pass
+
+
 async def _handle_telephony_websocket(
     websocket: WebSocket, workflow_id: int, user_id: int, workflow_run_id: int
 ):
@@ -768,6 +838,30 @@ async def handle_inbound_run(request: Request):
             f"{wss_backend_endpoint}/api/v1/telephony/ws/"
             f"{workflow_id}/{user_id}/{workflow_run_id}"
         )
+
+        # Smart voicemail: screen-and-forward before handing to the AI. Only
+        # Vonage implements the required call-control primitives in v1.
+        sv_config = (phone_row.extra_metadata or {}).get("smart_voicemail") or {}
+        if sv_config.get("enabled") and provider_class.PROVIDER_NAME == "vonage":
+            from fastapi.responses import JSONResponse
+
+            from api.services.telephony.smart_voicemail import (
+                get_smart_voicemail_orchestrator,
+            )
+
+            ncco = await get_smart_voicemail_orchestrator().start(
+                provider=provider_instance,
+                smart_voicemail_config=sv_config,
+                normalized_data=normalized_data,
+                organization_id=config.organization_id,
+                telephony_configuration_id=telephony_configuration_id,
+                workflow_id=workflow_id,
+                user_id=user_id,
+                workflow_run_id=workflow_run_id,
+                backend_endpoint=backend_endpoint,
+                wss_backend_endpoint=wss_backend_endpoint,
+            )
+            return JSONResponse(content=ncco)
 
         return await provider_instance.start_inbound_stream(
             websocket_url=websocket_url,

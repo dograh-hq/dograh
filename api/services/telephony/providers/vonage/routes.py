@@ -95,3 +95,49 @@ async def handle_vonage_events(
 
     # Return 204 No Content as expected by Vonage
     return {"status": "ok"}
+
+
+# Vonage raw statuses that mean "the human leg will not be answered by a person"
+# — hand the caller to the AI.
+_SCREENING_NO_ANSWER_STATUSES = {
+    "complete",
+    "timeout",
+    "unanswered",
+    "failed",
+    "rejected",
+    "busy",
+    "cancelled",
+}
+
+
+@router.post("/vonage/smart-voicemail/events/{workflow_run_id}")
+async def handle_vonage_smart_voicemail_events(
+    request: Request,
+    workflow_run_id: int,
+):
+    """Event webhook for the smart-voicemail *screening* leg (human number).
+
+    Drives the screen-and-forward decision from leg state. Voicemail-vs-human is
+    detected by our own pipeline (the listen-only screening websocket); this
+    route only handles the call-state signals the pipeline can't see:
+    ``answered`` (arm the silent-pickup watchdog) and the no-answer terminals.
+    The orchestrator's latch makes whichever signal lands first authoritative.
+    """
+    from api.services.telephony.smart_voicemail import (
+        get_smart_voicemail_orchestrator,
+    )
+
+    set_current_run_id(workflow_run_id)
+    event_data = await request.json()
+    status = (event_data or {}).get("status", "")
+    logger.info(
+        f"[run {workflow_run_id}] smart-voicemail screening event: {status}"
+    )
+
+    orchestrator = get_smart_voicemail_orchestrator()
+    if status == "answered":
+        await orchestrator.on_screening_answered(workflow_run_id)
+    elif status in _SCREENING_NO_ANSWER_STATUSES:
+        await orchestrator.on_screening_result(workflow_run_id, "no_answer")
+
+    return {"status": "ok"}

@@ -636,6 +636,188 @@ class VonageProvider(TelephonyProvider):
 
         return Response(content=json.dumps(error_ncco), media_type="application/json")
 
+    # ======== SMART VOICEMAIL: LOW-LEVEL CALL CONTROL ========
+
+    @staticmethod
+    def _strip_plus(number: str) -> str:
+        return number.replace("+", "") if number else number
+
+    async def place_call_with_ncco(
+        self,
+        *,
+        to_number: str,
+        from_number: str,
+        ncco: List[Dict[str, Any]],
+        event_url: Optional[str] = None,
+        ringing_timer: Optional[int] = None,
+        fallback_from: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Place an outbound call answered by an inline NCCO (no answer_url).
+
+        Used by the smart-voicemail screening leg. ``fallback_from`` retries the
+        call with our own DID if Vonage rejects ``from_number`` (e.g. when using
+        the original caller's number as caller ID is not permitted for the
+        account/region).
+
+        Returns the Vonage call-create response (includes ``uuid``).
+        """
+        if not self.validate_config():
+            raise ValueError("Vonage provider not properly configured")
+
+        endpoint = f"{self.base_url}/v1/calls"
+
+        def _build(from_num: str) -> Dict[str, Any]:
+            data: Dict[str, Any] = {
+                "to": [{"type": "phone", "number": self._strip_plus(to_number)}],
+                "from": {"type": "phone", "number": self._strip_plus(from_num)},
+                "ncco": ncco,
+            }
+            if event_url:
+                data["event_url"] = [event_url]
+                data["event_method"] = "POST"
+            if ringing_timer is not None:
+                # Vonage accepts 1-60s; clamp so a larger configured timeout
+                # doesn't get rejected.
+                data["ringing_timer"] = max(1, min(int(ringing_timer), 60))
+            return data
+
+        headers = self._get_auth_headers()
+
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                endpoint, json=_build(from_number), headers=headers
+            ) as response:
+                response_data = await response.json()
+                if response.status == 201:
+                    return response_data
+
+                # Retry once with our own DID if the caller-ID was rejected.
+                if fallback_from and fallback_from != from_number:
+                    logger.warning(
+                        f"Vonage rejected from={from_number} for screening call "
+                        f"({response.status}: {response_data}); retrying with "
+                        f"fallback {fallback_from}"
+                    )
+                else:
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Failed to place Vonage call: {response_data}",
+                    )
+
+            async with session.post(
+                endpoint, json=_build(fallback_from), headers=headers
+            ) as response:
+                response_data = await response.json()
+                if response.status != 201:
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Failed to place Vonage call: {response_data}",
+                    )
+                return response_data
+
+    async def transfer_leg_to_ncco(
+        self, call_uuid: str, ncco: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """Transfer a live leg to a new inline NCCO (PUT /v1/calls/{uuid})."""
+        endpoint = f"{self.base_url}/v1/calls/{call_uuid}"
+        body = {"action": "transfer", "destination": {"type": "ncco", "ncco": ncco}}
+        headers = self._get_auth_headers()
+        async with aiohttp.ClientSession() as session:
+            async with session.put(endpoint, json=body, headers=headers) as response:
+                if response.status not in (200, 204):
+                    detail = await response.text()
+                    raise HTTPException(
+                        status_code=response.status,
+                        detail=f"Failed to transfer Vonage leg {call_uuid}: {detail}",
+                    )
+                return {"status": "ok", "call_uuid": call_uuid}
+
+    async def hangup_leg(self, call_uuid: str) -> Dict[str, Any]:
+        """Hang up a live leg (PUT /v1/calls/{uuid} {action: hangup})."""
+        endpoint = f"{self.base_url}/v1/calls/{call_uuid}"
+        headers = self._get_auth_headers()
+        async with aiohttp.ClientSession() as session:
+            async with session.put(
+                endpoint, json={"action": "hangup"}, headers=headers
+            ) as response:
+                if response.status not in (200, 204):
+                    detail = await response.text()
+                    logger.warning(
+                        f"Vonage hangup for leg {call_uuid} returned "
+                        f"{response.status}: {detail}"
+                    )
+                return {"status": "ok", "call_uuid": call_uuid}
+
+    # ---- NCCO builders for the smart-voicemail flow ----
+
+    @staticmethod
+    def build_caller_hold_ncco(
+        conference_name: str, music_on_hold_url: Optional[str]
+    ) -> List[Dict[str, Any]]:
+        """Park the caller in a private conference hearing ringback/MOH.
+
+        ``startOnEnter=False`` keeps the conference from "starting" while the
+        caller is alone, so the MOH keeps playing until the human leg is
+        transferred in (which joins with ``startOnEnter=True``).
+        """
+        action: Dict[str, Any] = {
+            "action": "conversation",
+            "name": conference_name,
+            "startOnEnter": False,
+            "endOnExit": True,
+        }
+        if music_on_hold_url:
+            action["musicOnHoldUrl"] = [music_on_hold_url]
+        return [action]
+
+    @staticmethod
+    def build_screening_connect_ncco(
+        screening_ws_url: str,
+    ) -> List[Dict[str, Any]]:
+        """Connect the human (screening) leg to the listen-only AI pipeline."""
+        return [
+            {
+                "action": "connect",
+                "endpoint": [
+                    {
+                        "type": "websocket",
+                        "uri": screening_ws_url,
+                        "content-type": "audio/l16;rate=16000",
+                        "headers": {},
+                    }
+                ],
+            }
+        ]
+
+    @staticmethod
+    def build_join_conference_ncco(conference_name: str) -> List[Dict[str, Any]]:
+        """Join the caller's conference (human confirmed → bridge)."""
+        return [
+            {
+                "action": "conversation",
+                "name": conference_name,
+                "startOnEnter": True,
+                "endOnExit": True,
+            }
+        ]
+
+    @staticmethod
+    def build_ai_connect_ncco(ai_ws_url: str) -> List[Dict[str, Any]]:
+        """Connect the caller to the real AI workflow websocket (voicemail/no-answer)."""
+        return [
+            {
+                "action": "connect",
+                "endpoint": [
+                    {
+                        "type": "websocket",
+                        "uri": ai_ws_url,
+                        "content-type": "audio/l16;rate=16000",
+                        "headers": {},
+                    }
+                ],
+            }
+        ]
+
     # ======== CALL TRANSFER METHODS ========
 
     async def transfer_call(
@@ -646,19 +828,20 @@ class VonageProvider(TelephonyProvider):
         timeout: int = 30,
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """
-        Vonage provider does not support call transfers.
+        """Transfer a live leg into a named Vonage conversation (conference).
 
-        Raises:
-            NotImplementedError: call transfers are yet to be implemented
+        ``destination`` is the Vonage call UUID of the leg to move (Vonage
+        transfers an existing leg rather than dialing a number here). The leg
+        joins ``conference_name`` via an inline NCCO.
         """
-        raise NotImplementedError("Vonage provider does not support call transfers")
+        await self.transfer_leg_to_ncco(
+            destination, self.build_join_conference_ncco(conference_name)
+        )
+        return {
+            "call_sid": destination,
+            "status": "transferred",
+            "provider": self.PROVIDER_NAME,
+        }
 
     def supports_transfers(self) -> bool:
-        """
-        Vonage does not support call transfers.
-
-        Returns:
-            False - Vonage provider does not support call transfers
-        """
-        return False
+        return True

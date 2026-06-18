@@ -978,6 +978,11 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
         le=2.0,
         description="Volume multiplier for generated speech.",
     )
+    language: str = Field(
+        default="en",
+        description="Cartesia language code for TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').",
+        json_schema_extra={"allow_custom_input": True},
+    )
 
 
 @register_tts

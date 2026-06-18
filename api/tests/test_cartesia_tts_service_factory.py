@@ -43,3 +43,35 @@ def test_create_cartesia_tts_service_passes_selected_model():
     assert kwargs["api_key"] == "test-key"
     assert kwargs["settings"].model == "sonic-3.5"
     assert kwargs["settings"].voice == "test-voice-id"
+
+
+def test_cartesia_tts_configuration_default_language_is_english():
+    config = CartesiaTTSConfiguration(api_key="test-key")
+
+    assert config.language == "en"
+
+
+def test_create_cartesia_tts_service_passes_language_to_settings():
+    user_config = SimpleNamespace(
+        tts=SimpleNamespace(
+            provider=ServiceProviders.CARTESIA.value,
+            api_key="test-key",
+            model="sonic-3.5",
+            voice="test-voice-id",
+            speed=1.0,
+            volume=1.0,
+            language="tr",
+        )
+    )
+    audio_config = SimpleNamespace(
+        transport_out_sample_rate=24000,
+        transport_in_sample_rate=16000,
+    )
+
+    with patch(
+        "api.services.pipecat.service_factory.CartesiaTTSService"
+    ) as mock_service:
+        create_tts_service(user_config, audio_config)
+
+    kwargs = mock_service.call_args.kwargs
+    assert kwargs["settings"].language == "tr"

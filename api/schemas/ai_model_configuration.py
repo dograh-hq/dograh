@@ -18,6 +18,9 @@ from api.services.configuration.registry import (
     TTSConfig,
 )
 
+DOGRAH_SPEED_MIN = 0.5
+DOGRAH_SPEED_MAX = 2.0
+DOGRAH_SPEED_STEP = 0.1
 DOGRAH_SPEED_OPTIONS: tuple[float, ...] = (0.8, 1.0, 1.2)
 DOGRAH_DEFAULT_VOICE = "default"
 DOGRAH_DEFAULT_LANGUAGE = "multi"
@@ -49,15 +52,8 @@ class EffectiveAIModelConfiguration(BaseModel):
 class DograhManagedAIModelConfiguration(BaseModel):
     api_key: str
     voice: str = DOGRAH_DEFAULT_VOICE
-    speed: float = Field(default=1.0)
+    speed: float = Field(default=1.0, ge=DOGRAH_SPEED_MIN, le=DOGRAH_SPEED_MAX)
     language: str = DOGRAH_DEFAULT_LANGUAGE
-
-    @model_validator(mode="after")
-    def validate_speed(self):
-        if self.speed not in DOGRAH_SPEED_OPTIONS:
-            allowed = ", ".join(str(speed) for speed in DOGRAH_SPEED_OPTIONS)
-            raise ValueError(f"Dograh speed must be one of: {allowed}")
-        return self
 
 
 class BYOKPipelineAIModelConfiguration(BaseModel):

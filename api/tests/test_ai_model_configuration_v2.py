@@ -59,13 +59,27 @@ def test_dograh_v2_compiles_to_effective_managed_pipeline_with_embeddings():
     assert effective.managed_service_version == 2
 
 
-def test_dograh_v2_rejects_non_predefined_speed():
+def test_dograh_v2_accepts_numeric_speed_in_registry_range():
+    config = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(
+            api_key="mps-secret",
+            speed=1.5,
+        ),
+    )
+
+    effective = compile_ai_model_configuration_v2(config)
+
+    assert effective.tts.speed == 1.5
+
+
+def test_dograh_v2_rejects_out_of_range_speed():
     with pytest.raises(ValidationError):
         OrganizationAIModelConfigurationV2(
             mode="dograh",
             dograh=DograhManagedAIModelConfiguration(
                 api_key="mps-secret",
-                speed=1.5,
+                speed=2.5,
             ),
         )
 
@@ -236,6 +250,33 @@ def test_legacy_all_dograh_pipeline_converts_to_dograh_v2():
 
     assert config.mode == "dograh"
     assert config.dograh.api_key == "mps-secret"
+
+
+def test_legacy_dograh_pipeline_conversion_preserves_numeric_speed():
+    legacy = EffectiveAIModelConfiguration(
+        llm=DograhLLMService(
+            provider="dograh",
+            api_key=["mps-secret"],
+            model="default",
+        ),
+        tts=DograhTTSService(
+            provider="dograh",
+            api_key=["mps-secret"],
+            model="default",
+            voice="default",
+            speed=1.5,
+        ),
+        stt=DograhSTTService(
+            provider="dograh",
+            api_key=["mps-secret"],
+            model="default",
+        ),
+    )
+
+    config = convert_legacy_ai_model_configuration_to_v2(legacy)
+
+    assert config.mode == "dograh"
+    assert config.dograh.speed == 1.5
 
 
 def test_legacy_mixed_dograh_pipeline_converts_to_dograh_v2():

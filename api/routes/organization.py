@@ -17,7 +17,10 @@ from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.ai_model_configuration import (
     DOGRAH_DEFAULT_LANGUAGE,
     DOGRAH_DEFAULT_VOICE,
+    DOGRAH_SPEED_MAX,
+    DOGRAH_SPEED_MIN,
     DOGRAH_SPEED_OPTIONS,
+    DOGRAH_SPEED_STEP,
     OrganizationAIModelConfigurationResponse,
     OrganizationAIModelConfigurationV2,
 )
@@ -265,6 +268,11 @@ async def get_model_configuration_v2_defaults(
             "voices": [DOGRAH_DEFAULT_VOICE],
             "allow_custom_input": _dograh_allows_custom_voice(),
             "speeds": list(DOGRAH_SPEED_OPTIONS),
+            "speed_range": {
+                "min": DOGRAH_SPEED_MIN,
+                "max": DOGRAH_SPEED_MAX,
+                "step": DOGRAH_SPEED_STEP,
+            },
             "languages": DOGRAH_STT_LANGUAGES,
             "defaults": {
                 "voice": DOGRAH_DEFAULT_VOICE,

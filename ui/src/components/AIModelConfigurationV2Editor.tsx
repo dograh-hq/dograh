@@ -25,6 +25,11 @@ interface DograhDefaults {
     voices: string[];
     allow_custom_input?: boolean;
     speeds: number[];
+    speed_range?: {
+        min: number;
+        max: number;
+        step?: number;
+    };
     languages: string[];
     defaults: {
         voice: string;
@@ -64,6 +69,11 @@ interface AIModelConfigurationV2EditorProps {
 function firstApiKey(value: unknown): string {
     if (Array.isArray(value)) return String(value[0] || "");
     return typeof value === "string" ? value : "";
+}
+
+function numberOrDefault(value: unknown, fallback: number): number {
+    const parsed = typeof value === "number" ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -170,7 +180,7 @@ function buildDograhState(
         return {
             api_key: String(configuredDograh.api_key || ""),
             voice: String(configuredDograh.voice || fallback.voice),
-            speed: Number(configuredDograh.speed || fallback.speed),
+            speed: numberOrDefault(configuredDograh.speed, fallback.speed),
             language: String(configuredDograh.language || fallback.language),
         };
     }
@@ -182,7 +192,7 @@ function buildDograhState(
         return {
             api_key: firstApiKey(llm?.api_key || tts?.api_key || stt?.api_key),
             voice: String(tts?.voice || fallback.voice),
-            speed: Number(tts?.speed || fallback.speed),
+            speed: numberOrDefault(tts?.speed, fallback.speed),
             language: String(stt?.language || fallback.language),
         };
     }
@@ -272,6 +282,7 @@ export function AIModelConfigurationV2Editor({
     const [error, setError] = useState<string | null>(null);
 
     const allowCustomVoice = defaults.dograh.allow_custom_input ?? false;
+    const dograhSpeedRange = defaults.dograh.speed_range ?? { min: 0.5, max: 2.0, step: 0.1 };
 
     useEffect(() => {
         const rawConfiguration = asRecord(configuration);
@@ -288,6 +299,15 @@ export function AIModelConfigurationV2Editor({
         setIsSavingDograh(true);
         setError(null);
         try {
+            if (
+                !Number.isFinite(dograh.speed)
+                || dograh.speed < dograhSpeedRange.min
+                || dograh.speed > dograhSpeedRange.max
+            ) {
+                throw new Error(
+                    `Dograh speed must be between ${dograhSpeedRange.min} and ${dograhSpeedRange.max}.`,
+                );
+            }
             await onSave({
                 version: 2,
                 mode: "dograh",
@@ -413,22 +433,22 @@ export function AIModelConfigurationV2Editor({
                                 </div>
 
                                 <div className="space-y-2">
-                                    <Label>Speed</Label>
-                                    <Select
-                                        value={String(dograh.speed)}
-                                        onValueChange={(speed) => setDograh({ ...dograh, speed: Number(speed) })}
-                                    >
-                                        <SelectTrigger className="w-full">
-                                            <SelectValue placeholder="Select speed" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {defaults.dograh.speeds.map((speed) => (
-                                                <SelectItem key={speed} value={String(speed)}>
-                                                    {speed}x
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <Label htmlFor="dograh-speed">Speed</Label>
+                                    <Input
+                                        id="dograh-speed"
+                                        type="number"
+                                        min={dograhSpeedRange.min}
+                                        max={dograhSpeedRange.max}
+                                        step={dograhSpeedRange.step ?? 0.1}
+                                        value={dograh.speed}
+                                        onChange={(event) => {
+                                            const speed = event.currentTarget.valueAsNumber;
+                                            setDograh({
+                                                ...dograh,
+                                                speed: Number.isFinite(speed) ? speed : defaults.dograh.defaults.speed,
+                                            });
+                                        }}
+                                    />
                                 </div>
 
                                 <div className="space-y-2 sm:col-span-2">

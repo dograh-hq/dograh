@@ -6,6 +6,7 @@ from posthog import Posthog
 from api.constants import POSTHOG_API_KEY, POSTHOG_HOST
 
 _posthog_client: Posthog | None = None
+POSTHOG_SERVER_GROUP_IDENTIFY_DISTINCT_ID = "server-group-identify"
 
 
 def get_posthog() -> Posthog | None:
@@ -77,7 +78,7 @@ def group_identify(
             group_type,
             group_key,
             properties,
-            distinct_id=distinct_id,
+            distinct_id=distinct_id or POSTHOG_SERVER_GROUP_IDENTIFY_DISTINCT_ID,
         )
     except Exception:
         logger.exception("Failed to identify PostHog group")

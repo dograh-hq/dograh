@@ -127,7 +127,7 @@ def _provider_with_mocked_io():
     return prov
 
 
-async def _seed_state(orch, run_id=1):
+async def _seed_state(orch, run_id=1, detection="own"):
     await orch._store_state(
         run_id,
         {
@@ -141,6 +141,7 @@ async def _seed_state(orch, run_id=1):
             "screening_leg_uuid": "screen-leg",
             "forward_to_number": "+14155551234",
             "ai_ws_url": "wss://x/api/v1/telephony/ws/33/44/1",
+            "detection": detection,
         },
     )
 
@@ -217,17 +218,35 @@ async def test_start_dials_from_our_did_not_caller():
     assert ncco[0]["action"] == "conversation"
 
 
-async def test_start_vonage_detection_uses_amd_and_hold_conf():
+async def test_start_vonage_detection_joins_caller_conf_with_hangup_amd():
     orch = SmartVoicemailOrchestrator(redis_client=_FakeRedis())
     prov, _ = await _run_start(orch, "vonage")
     kw = prov.place_call_with_ncco.await_args.kwargs
+    # Synchronous detect + hangup-on-machine so a voicemail never reaches the
+    # conference join.
     assert kw["advanced_machine_detection"] == {
-        "behavior": "continue",
+        "behavior": "hangup",
         "mode": "detect",
         "beep_timeout": 45,
     }
-    # Human leg holds in a silent conference (not our websocket).
+    # Human leg joins the CALLER's conference directly (one conversation action,
+    # no intermediate hold + transfer).
     assert kw["ncco"][0]["action"] == "conversation"
+    assert kw["ncco"][0]["name"] == "sv-99"
+    assert kw["ncco"][0]["startOnEnter"] is True
+
+
+async def test_vonage_human_does_not_transfer():
+    orch = SmartVoicemailOrchestrator(redis_client=_FakeRedis())
+    await _seed_state(orch, detection="vonage")
+    prov = _provider_with_mocked_io()
+    with patch(
+        "api.services.telephony.factory.get_telephony_provider_by_id",
+        AsyncMock(return_value=prov),
+    ), patch.object(_db_singleton, "update_workflow_run", AsyncMock()):
+        await orch.on_screening_result(1, "human")
+    # The Vonage human leg already joined the conference via its answer NCCO.
+    prov.transfer_leg_to_ncco.assert_not_awaited()
 
 
 async def test_start_own_detection_connects_websocket_no_amd():

@@ -140,14 +140,16 @@ class SmartVoicemailOrchestrator:
             screening_ncco = provider.build_screening_connect_ncco(screening_ws_url)
             amd = None
         else:
-            screening_ncco = provider.build_human_hold_ncco(f"svhold-{workflow_run_id}")
-            # mode "detect" = SYNCHRONOUS detection: AMD analyzes the clean
-            # answered leg and fires the human/machine webhook BEFORE the NCCO
-            # (the hold-conference join) runs. Async "default" lets the
-            # conference join run during analysis, which disrupts AMD and makes
-            # it misfire "machine" on a real human. beep_timeout is required in
-            # [30,120] whenever advanced_machine_detection is present.
-            amd = {"behavior": "continue", "mode": "detect", "beep_timeout": 45}
+            # Join the CALLER's conference directly — one conversation action,
+            # no intermediate hold + transfer. Routing the human through a hold
+            # conference and then transferring left the two legs in DIFFERENT
+            # conversation instances (extra transfer hops), so they never shared
+            # audio. behavior "hangup" drops a machine BEFORE this NCCO runs, so
+            # a voicemail is never bridged to the caller; "detect" is
+            # synchronous so AMD reads the clean answered leg before the join.
+            # beep_timeout is required in [30,120] whenever AMD is present.
+            screening_ncco = provider.build_join_conference_ncco(conference_name)
+            amd = {"behavior": "hangup", "mode": "detect", "beep_timeout": 45}
 
         state: Dict[str, Any] = {
             "organization_id": organization_id,
@@ -222,8 +224,12 @@ class SmartVoicemailOrchestrator:
         conference_name = state["conference_name"]
 
         if result == "human":
-            # Bridge: move the human leg into the caller's conference.
-            if screening_leg:
+            # For the built-in detector the human leg is on our websocket, so it
+            # must be moved into the caller's conference. For Vonage AMD the
+            # human leg already joined the conference via its own answer NCCO
+            # (behavior=hangup guarantees only a human reaches that join), so
+            # there is nothing to transfer.
+            if state.get("detection") == "own" and screening_leg:
                 await provider.transfer_leg_to_ncco(
                     screening_leg, provider.build_join_conference_ncco(conference_name)
                 )

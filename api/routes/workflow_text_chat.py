@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 from api.db import db_client
 from api.db.models import UserModel, WorkflowRunTextSessionModel
 from api.enums import WorkflowRunMode
-from api.services.auth.depends import get_user
-from api.services.quota_service import check_dograh_quota
+from api.services.auth.depends import get_user_with_selected_organization
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.workflow.text_chat_session_service import (
     TextChatPendingTurnLostError,
     TextChatSessionExecutionError,
@@ -96,14 +96,16 @@ def _revision_conflict_detail(e: Any) -> dict[str, Any]:
     }
 
 
-def _require_selected_organization_id(user: UserModel) -> int:
-    if user.selected_organization_id is None:
-        raise HTTPException(status_code=403, detail="Organization context is required")
-    return user.selected_organization_id
-
-
-async def _ensure_text_chat_quota(user: UserModel, workflow_id: int) -> None:
-    quota_result = await check_dograh_quota(user, workflow_id=workflow_id)
+async def _ensure_text_chat_quota(
+    user: UserModel,
+    workflow_id: int,
+    workflow_run_id: int,
+) -> None:
+    quota_result = await authorize_workflow_run_start(
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+        actor_user=user,
+    )
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
@@ -114,9 +116,8 @@ async def _load_text_session_or_404(
     user: UserModel,
 ) -> WorkflowRunTextSessionModel:
     set_current_run_id(run_id)
-    organization_id = _require_selected_organization_id(user)
     text_session = await db_client.get_workflow_run_text_session(
-        run_id, organization_id=organization_id
+        run_id, organization_id=user.selected_organization_id
     )
     if not text_session or not text_session.workflow_run:
         raise HTTPException(status_code=404, detail="Text chat session not found")
@@ -158,11 +159,8 @@ async def _execute_pending_turn_response(
 async def create_text_chat_session(
     workflow_id: int,
     request: CreateTextChatSessionRequest,
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
-    organization_id = _require_selected_organization_id(user)
-    await _ensure_text_chat_quota(user, workflow_id)
-
     session_name = request.name or f"WR-TEXT-{uuid4().hex[:6].upper()}"
     try:
         workflow_run = await db_client.create_workflow_run(
@@ -172,12 +170,13 @@ async def create_text_chat_session(
             user_id=user.id,
             initial_context=request.initial_context,
             use_draft=True,
-            organization_id=organization_id,
+            organization_id=user.selected_organization_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
     set_current_run_id(workflow_run.id)
+    await _ensure_text_chat_quota(user, workflow_id, workflow_run.id)
 
     annotations = {
         "tester": {
@@ -220,7 +219,7 @@ async def create_text_chat_session(
 async def get_text_chat_session(
     workflow_id: int,
     run_id: int,
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
     return _build_response(text_session)
@@ -234,10 +233,10 @@ async def append_text_chat_message(
     workflow_id: int,
     run_id: int,
     request: AppendTextChatMessageRequest,
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
-    await _ensure_text_chat_quota(user, workflow_id)
+    await _ensure_text_chat_quota(user, workflow_id, run_id)
 
     try:
         text_session = await append_text_chat_user_message(
@@ -264,7 +263,7 @@ async def rewind_text_chat_session(
     workflow_id: int,
     run_id: int,
     request: RewindTextChatSessionRequest,
-    user: UserModel = Depends(get_user),
+    user: UserModel = Depends(get_user_with_selected_organization),
 ) -> WorkflowRunTextSessionResponse:
     text_session = await _load_text_session_or_404(workflow_id, run_id, user)
     try:

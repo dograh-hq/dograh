@@ -26,10 +26,12 @@
     stream: null,
     sessionToken: null,
     workflowRunId: null,
+    pcId: null,
     connectionStatus: 'idle', // idle, connecting, connected, failed
     audioElement: null,
     turnCredentials: null, // TURN server credentials
     callStartedAt: null, // Timestamp when call connected (for duration tracking)
+    gracefulDisconnect: false,
     callbacks: {
       onReady: null,
       onCallStart: null,
@@ -611,6 +613,7 @@
    * Start voice call
    */
   async function startCall() {
+    state.gracefulDisconnect = false;
     updateStatus('connecting', 'Connecting...', 'Please wait while we establish the connection');
 
     if (state.callbacks.onCallStart) {
@@ -630,6 +633,11 @@
       // Request microphone permission
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Release any stream still held from a prior attempt before retaining
+        // the new one, so a re-entrant start can't leak the microphone.
+        if (state.stream) {
+          state.stream.getTracks().forEach(track => track.stop());
+        }
         state.stream = stream;
       } catch (micError) {
         // Handle specific microphone permission errors
@@ -657,6 +665,31 @@
 
     } catch (error) {
       console.error('Dograh Widget: Failed to start call', error);
+
+      // Release anything acquired before the failure so a retry starts clean.
+      // getUserMedia may have succeeded before a later step (WebSocket /
+      // negotiation) threw, which would otherwise leave the mic held and block
+      // the next getUserMedia(). Null the refs before close() so the peer/ws
+      // state handlers short-circuit instead of re-entering teardown.
+      if (state.stream) {
+        state.stream.getTracks().forEach(track => track.stop());
+        state.stream = null;
+      }
+      if (state.pc) {
+        const pc = state.pc;
+        state.pc = null;
+        if (pc.signalingState !== 'closed') {
+          pc.close();
+        }
+      }
+      if (state.ws) {
+        const ws = state.ws;
+        state.ws = null;
+        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+          ws.close();
+        }
+      }
+
       updateStatus('failed', 'Connection failed', error.message || 'Please check your microphone and try again');
 
       // Trigger error callback
@@ -766,45 +799,69 @@
     };
 
     // Monitor connection state
-    state.pc.oniceconnectionstatechange = () => {
-      console.log('ICE connection state:', state.pc.iceConnectionState);
+    state.pc.oniceconnectionstatechange = handlePeerConnectionStateChange;
+    state.pc.onconnectionstatechange = handlePeerConnectionStateChange;
+    state.pc.onicecandidate = sendIceCandidate;
+  }
 
-      if (state.pc.iceConnectionState === 'connected' || state.pc.iceConnectionState === 'completed') {
-        const wasAlreadyConnected = state.callStartedAt !== null;
-        updateStatus('connected', 'Connected', 'Your voice call is now active');
-        if (!wasAlreadyConnected) {
-          state.callStartedAt = Date.now();
-          if (state.callbacks.onCallConnected) {
-            state.callbacks.onCallConnected({
-              agentId: state.config.workflowId || null,
-              token: state.config.token || null,
-              workflowRunId: state.workflowRunId || null
-            });
-          }
+  function handlePeerConnectionStateChange() {
+    const pc = state.pc;
+    if (!pc) return;
+
+    console.log('Peer connection state:', pc.connectionState, 'ICE:', pc.iceConnectionState);
+
+    if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+      const wasAlreadyConnected = state.callStartedAt !== null;
+      updateStatus('connected', 'Connected', 'Your voice call is now active');
+      if (!wasAlreadyConnected) {
+        state.callStartedAt = Date.now();
+        if (state.callbacks.onCallConnected) {
+          state.callbacks.onCallConnected({
+            agentId: state.config.workflowId || null,
+            token: state.config.token || null,
+            workflowRunId: state.workflowRunId || null
+          });
         }
-      } else if (state.pc.iceConnectionState === 'failed' || state.pc.iceConnectionState === 'disconnected') {
-        updateStatus('failed', 'Connection lost', 'The call has been disconnected');
-        stopCall();
       }
-    };
+      return;
+    }
 
+    if (pc.connectionState === 'failed' || pc.iceConnectionState === 'failed') {
+      stopCall({
+        graceful: false,
+        status: 'failed',
+        text: 'Connection lost',
+        subtext: 'The call has been disconnected'
+      });
+      return;
+    }
+
+    if (
+      pc.connectionState === 'closed' ||
+      pc.connectionState === 'disconnected' ||
+      pc.iceConnectionState === 'closed' ||
+      pc.iceConnectionState === 'disconnected'
+    ) {
+      stopCall({ graceful: true });
+    }
+  }
+
+  function sendIceCandidate(event) {
     // Handle ICE candidates for trickling
-    state.pc.onicecandidate = (event) => {
-      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        const message = {
-          type: 'ice-candidate',
-          payload: {
-            candidate: event.candidate ? {
-              candidate: event.candidate.candidate,
-              sdpMid: event.candidate.sdpMid,
-              sdpMLineIndex: event.candidate.sdpMLineIndex
-            } : null,
-            pc_id: state.pcId
-          }
-        };
-        state.ws.send(JSON.stringify(message));
-      }
-    };
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      const message = {
+        type: 'ice-candidate',
+        payload: {
+          candidate: event.candidate ? {
+            candidate: event.candidate.candidate,
+            sdpMid: event.candidate.sdpMid,
+            sdpMLineIndex: event.candidate.sdpMLineIndex
+          } : null,
+          pc_id: state.pcId
+        }
+      };
+      state.ws.send(JSON.stringify(message));
+    }
   }
 
   /**
@@ -828,9 +885,16 @@
         reject(error);
       };
 
-      state.ws.onclose = () => {
+      state.ws.onclose = (event) => {
         console.log('WebSocket closed');
-        if (state.connectionStatus === 'connected') {
+        state.ws = null;
+
+        if (event.reason === 'call ended') {
+          stopCall({ graceful: true, closeWebSocket: false });
+          return;
+        }
+
+        if (state.connectionStatus === 'connected' && !state.gracefulDisconnect) {
           updateStatus('failed', 'Connection lost', 'The call has been disconnected');
         }
       };
@@ -882,6 +946,11 @@
         updateStatus('failed', 'Server error', message.payload.message || 'An error occurred');
         break;
 
+      case 'call-ended':
+        console.log('Call ended by server:', message.payload);
+        stopCall({ graceful: true });
+        break;
+
       default:
         console.warn('Unknown message type:', message.type);
     }
@@ -913,7 +982,15 @@
   /**
    * Stop voice call
    */
-  function stopCall() {
+  function stopCall(options = {}) {
+    const graceful = options.graceful !== false;
+    const closeWebSocket = options.closeWebSocket !== false;
+    const status = options.status || 'idle';
+    const text = options.text || 'Call ended';
+    const subtext = options.subtext || 'Click below to start a new call';
+
+    state.gracefulDisconnect = graceful;
+
     // Fire onCallDisconnected only if the call had actually connected, with
     // identifiers and duration. Must run before we clear callStartedAt.
     if (state.callStartedAt && state.callbacks.onCallDisconnected) {
@@ -927,15 +1004,20 @@
     }
     state.callStartedAt = null;
 
-    updateStatus('idle', 'Call ended', 'Click below to start a new call');
+    updateStatus(status, text, subtext);
 
     if (state.callbacks.onCallEnd) {
       state.callbacks.onCallEnd();
     }
 
     // Close WebSocket
-    if (state.ws) {
-      state.ws.close();
+    if (closeWebSocket && state.ws) {
+      const ws = state.ws;
+      state.ws = null;
+      if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+        ws.close();
+      }
+    } else if (!closeWebSocket) {
       state.ws = null;
     }
 
@@ -947,8 +1029,11 @@
 
     // Close peer connection
     if (state.pc) {
-      state.pc.close();
+      const pc = state.pc;
       state.pc = null;
+      if (pc.signalingState !== 'closed') {
+        pc.close();
+      }
     }
 
     // Clear audio

@@ -53,7 +53,7 @@ class DBClient(
     - UserClient: handles user and user configuration operations
     - OrganizationClient: handles organization operations
     - OrganizationConfigurationClient: handles organization configuration operations
-    - OrganizationUsageClient: handles organization usage and quota operations
+    - OrganizationUsageClient: handles organization usage reporting aggregates
     - IntegrationClient: handles integration operations
     - WorkflowTemplateClient: handles workflow template operations
     - CampaignClient: handles campaign operations

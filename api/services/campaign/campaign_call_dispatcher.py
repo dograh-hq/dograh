@@ -15,6 +15,7 @@ from api.services.campaign.errors import (
     PhoneNumberPoolExhaustedError,
 )
 from api.services.campaign.rate_limiter import rate_limiter
+from api.services.quota_service import authorize_workflow_run_start
 from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
@@ -338,6 +339,41 @@ class CampaignCallDispatcher:
                     "call_tags": ["retry", f"retry_reason_{retry_reason}"]
                 },
             )
+
+        quota_result = await authorize_workflow_run_start(
+            workflow_id=campaign.workflow_id,
+            workflow_run_id=workflow_run.id,
+        )
+        if not quota_result.has_quota:
+            error_message = quota_result.error_message or "Quota exceeded"
+            logger.warning(
+                f"Campaign {campaign.id} quota check failed for workflow run "
+                f"{workflow_run.id}: {error_message}"
+            )
+            await db_client.update_workflow_run(
+                run_id=workflow_run.id,
+                is_completed=True,
+                state=WorkflowRunState.COMPLETED.value,
+                gathered_context={"error": error_message},
+            )
+
+            mapping = await rate_limiter.get_workflow_slot_mapping(workflow_run.id)
+            if mapping:
+                org_id, mapped_slot_id = mapping
+                await rate_limiter.release_concurrent_slot(org_id, mapped_slot_id)
+                await rate_limiter.delete_workflow_slot_mapping(workflow_run.id)
+
+            from_number_mapping = await rate_limiter.get_workflow_from_number_mapping(
+                workflow_run.id
+            )
+            if from_number_mapping:
+                fn_org_id, fn_number, fn_tcid = from_number_mapping
+                await rate_limiter.release_from_number(
+                    fn_org_id, fn_number, telephony_configuration_id=fn_tcid
+                )
+                await rate_limiter.delete_workflow_from_number_mapping(workflow_run.id)
+
+            raise ValueError(error_message)
 
         # Initiate call via telephony provider
         try:

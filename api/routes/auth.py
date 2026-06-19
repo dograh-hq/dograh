@@ -3,9 +3,12 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import PostHogEvent
+from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResponse
 from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
+from api.services.configuration.ai_model_configuration import (
+    convert_legacy_ai_model_configuration_to_v2,
+)
 from api.services.posthog_client import capture_event
 from api.utils.auth import create_jwt_token, hash_password, verify_password
 
@@ -47,6 +50,12 @@ async def signup(request: SignupRequest):
         )
         if mps_config:
             await db_client.update_user_configuration(user.id, mps_config)
+            model_config_v2 = convert_legacy_ai_model_configuration_to_v2(mps_config)
+            await db_client.upsert_configuration(
+                organization.id,
+                OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+                model_config_v2.model_dump(mode="json", exclude_none=True),
+            )
     except Exception:
         logger.warning(
             "Failed to create default configuration for OSS user", exc_info=True

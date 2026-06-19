@@ -10,6 +10,7 @@ from sqlalchemy.orm import joinedload
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters
 from api.db.models import (
+    OrganizationConfigurationModel,
     OrganizationModel,
     OrganizationUsageCycleModel,
     UserConfigurationModel,
@@ -17,11 +18,13 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.schemas.user_configuration import UserConfiguration
+from api.enums import OrganizationConfigurationKey, UserConfigurationKey
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class OrganizationUsageClient(BaseDBClient):
-    """Client for managing organization usage and quota operations."""
+    """Client for managing organization usage reporting aggregates."""
 
     async def get_or_create_current_cycle(
         self, organization_id: int, session=None
@@ -47,14 +50,7 @@ class OrganizationUsageClient(BaseDBClient):
         self, organization_id: int, session, commit: bool
     ) -> OrganizationUsageCycleModel:
         """Internal implementation for get_or_create_current_cycle."""
-        # Get organization to determine quota type
-        org_result = await session.execute(
-            select(OrganizationModel).where(OrganizationModel.id == organization_id)
-        )
-        org = org_result.scalar_one()
-
-        # Calculate current period
-        period_start, period_end = self._calculate_current_period(org)
+        period_start, period_end = self._calculate_current_period()
 
         # Try to get existing cycle
         cycle_result = await session.execute(
@@ -76,7 +72,8 @@ class OrganizationUsageClient(BaseDBClient):
             organization_id=organization_id,
             period_start=period_start,
             period_end=period_end,
-            quota_dograh_tokens=org.quota_dograh_tokens,
+            # Deprecated non-null column retained for historical schema compatibility.
+            quota_dograh_tokens=0,
         )
         # Handle concurrent inserts gracefully
         stmt = stmt.on_conflict_do_nothing(
@@ -100,95 +97,9 @@ class OrganizationUsageClient(BaseDBClient):
         )
         return cycle_result.scalar_one()
 
-    async def check_and_reserve_quota(
-        self, organization_id: int, estimated_tokens: int = 0
-    ) -> bool:
-        """
-        Check if organization has sufficient quota and optionally reserve tokens.
-        Returns True if quota is available, False otherwise.
-
-        This method is fully atomic and safe for concurrent access from multiple processes.
-        """
-        async with self.async_session() as session:
-            # Get organization
-            org_result = await session.execute(
-                select(OrganizationModel).where(OrganizationModel.id == organization_id)
-            )
-            org = org_result.scalar_one_or_none()
-
-            if not org or not org.quota_enabled:
-                # No quota enforcement if not enabled
-                return True
-
-            # Get or create current cycle within the same session/transaction
-            cycle = await self._get_or_create_current_cycle_impl(
-                organization_id, session, commit=False
-            )
-
-            # Atomic check and update with row-level lock
-            result = await session.execute(
-                select(OrganizationUsageCycleModel)
-                .where(
-                    and_(
-                        OrganizationUsageCycleModel.id == cycle.id,
-                        OrganizationUsageCycleModel.used_dograh_tokens
-                        + estimated_tokens
-                        <= OrganizationUsageCycleModel.quota_dograh_tokens,
-                    )
-                )
-                .with_for_update(skip_locked=False)
-            )
-
-            cycle_locked = result.scalar_one_or_none()
-            if cycle_locked:
-                # Update the usage atomically
-                cycle_locked.used_dograh_tokens += estimated_tokens
-                await session.commit()
-                return True
-
-            return False
-
-    async def update_usage_after_run(
-        self,
-        organization_id: int,
-        actual_tokens: float,
-        duration_seconds: float = 0,
-        charge_usd: float | None = None,
-    ) -> None:
-        """Update usage after a workflow run completes with actual token count and duration.
-
-        This method is fully atomic and safe for concurrent access from multiple processes.
-        """
-        async with self.async_session() as session:
-            # Get or create current cycle within the same session/transaction
-            cycle = await self._get_or_create_current_cycle_impl(
-                organization_id, session, commit=False
-            )
-
-            # Acquire a row-level lock for atomic update
-            result = await session.execute(
-                select(OrganizationUsageCycleModel)
-                .where(OrganizationUsageCycleModel.id == cycle.id)
-                .with_for_update(skip_locked=False)
-            )
-            cycle_locked = result.scalar_one()
-
-            # Update usage atomically
-            cycle_locked.used_dograh_tokens += actual_tokens
-            cycle_locked.total_duration_seconds += int(round(duration_seconds))
-
-            # Update USD amount if provided
-            if charge_usd is not None:
-                if cycle_locked.used_amount_usd is None:
-                    cycle_locked.used_amount_usd = 0
-                cycle_locked.used_amount_usd += charge_usd
-
-            await session.commit()
-
     async def get_current_usage(self, organization_id: int) -> dict:
-        """Get current period usage information."""
+        """Get current reporting-period usage information."""
         async with self.async_session() as session:
-            # Get organization
             org_result = await session.execute(
                 select(OrganizationModel).where(OrganizationModel.id == organization_id)
             )
@@ -199,41 +110,18 @@ class OrganizationUsageClient(BaseDBClient):
                 organization_id, session, commit=False
             )
 
-            # Calculate next refresh date
-            if org.quota_type == "monthly":
-                next_refresh = cycle.period_end + relativedelta(days=1)
-            else:  # annual
-                next_refresh = cycle.period_end + relativedelta(days=1)
-
             result = {
                 "period_start": cycle.period_start.isoformat(),
                 "period_end": cycle.period_end.isoformat(),
                 "used_dograh_tokens": cycle.used_dograh_tokens,
-                "quota_dograh_tokens": cycle.quota_dograh_tokens,
-                "percentage_used": (
-                    round(
-                        (cycle.used_dograh_tokens / cycle.quota_dograh_tokens) * 100, 2
-                    )
-                    if cycle.quota_dograh_tokens > 0
-                    else 0
-                ),
-                "next_refresh_date": next_refresh.date().isoformat(),
-                "quota_enabled": org.quota_enabled,
                 "total_duration_seconds": cycle.total_duration_seconds,
             }
 
             # Add USD fields if organization has pricing
             if org.price_per_second_usd is not None:
                 result["used_amount_usd"] = cycle.used_amount_usd or 0
-                result["quota_amount_usd"] = cycle.quota_amount_usd
                 result["currency"] = "USD"
                 result["price_per_second_usd"] = org.price_per_second_usd
-
-                # Calculate percentage based on USD if available
-                if cycle.quota_amount_usd and cycle.quota_amount_usd > 0:
-                    result["percentage_used"] = round(
-                        ((cycle.used_amount_usd or 0) / cycle.quota_amount_usd) * 100, 2
-                    )
 
             return result
 
@@ -254,7 +142,7 @@ class OrganizationUsageClient(BaseDBClient):
                 .join(UserModel, WorkflowModel.user_id == UserModel.id)
                 .where(
                     UserModel.selected_organization_id == organization_id,
-                    WorkflowRunModel.cost_info.isnot(None),
+                    WorkflowRunModel.usage_info.isnot(None),
                 )
                 .order_by(WorkflowRunModel.created_at.desc())
             )
@@ -307,19 +195,8 @@ class OrganizationUsageClient(BaseDBClient):
             total_tokens = 0
             total_duration_seconds = 0
             for run in runs:
-                if run.cost_info:
-                    # Try to get dograh_token_usage first (new format)
-                    dograh_tokens = run.cost_info.get("dograh_token_usage", 0)
-                    # If not present, calculate from total_cost_usd (old format)
-                    if dograh_tokens == 0 and "total_cost_usd" in run.cost_info:
-                        dograh_tokens = round(
-                            float(run.cost_info["total_cost_usd"]) * 100, 2
-                        )
-                    # Get call duration
-                    call_duration = run.cost_info.get("call_duration_seconds", 0)
-                else:
-                    dograh_tokens = 0
-                    call_duration = 0
+                dograh_tokens = 0
+                call_duration = (run.usage_info or {}).get("call_duration_seconds", 0)
                 total_tokens += dograh_tokens
                 total_duration_seconds += int(round(call_duration))
 
@@ -350,6 +227,9 @@ class OrganizationUsageClient(BaseDBClient):
                     "call_duration_seconds": int(round(call_duration)),
                     "recording_url": run.recording_url,
                     "transcript_url": run.transcript_url,
+                    "user_recording_url": get_recording_storage_key(run.extra, "user"),
+                    "bot_recording_url": get_recording_storage_key(run.extra, "bot"),
+                    "extra": run.extra,
                     "public_access_token": run.public_access_token,
                     "phone_number": phone_number,
                     "caller_number": caller_number,
@@ -393,13 +273,14 @@ class OrganizationUsageClient(BaseDBClient):
                     WorkflowRunModel.initial_context,
                     WorkflowRunModel.gathered_context,
                     WorkflowRunModel.cost_info,
+                    WorkflowRunModel.usage_info,
                     WorkflowRunModel.public_access_token,
                 )
                 .join(WorkflowModel, WorkflowRunModel.workflow_id == WorkflowModel.id)
                 .join(UserModel, WorkflowModel.user_id == UserModel.id)
                 .where(
                     UserModel.selected_organization_id == organization_id,
-                    WorkflowRunModel.cost_info.isnot(None),
+                    WorkflowRunModel.usage_info.isnot(None),
                 )
                 .order_by(WorkflowRunModel.created_at.desc())
             )
@@ -440,21 +321,44 @@ class OrganizationUsageClient(BaseDBClient):
         """Get daily usage breakdown for an organization with pricing."""
 
         async with self.async_session() as session:
-            # Get user timezone if user_id is provided
+            # Get org timezone preference first, then fall back to legacy user config.
             user_timezone = "UTC"  # Default timezone
+            pref_result = await session.execute(
+                select(OrganizationConfigurationModel).where(
+                    OrganizationConfigurationModel.organization_id == organization_id,
+                    OrganizationConfigurationModel.key.in_(
+                        [
+                            OrganizationConfigurationKey.ORGANIZATION_PREFERENCES.value,
+                            OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value,
+                        ]
+                    ),
+                )
+            )
+            pref_rows = pref_result.scalars().all()
+            pref_by_key = {pref.key: pref for pref in pref_rows}
+            pref_obj = pref_by_key.get(
+                OrganizationConfigurationKey.ORGANIZATION_PREFERENCES.value
+            ) or pref_by_key.get(
+                OrganizationConfigurationKey.MODEL_CONFIGURATION_PREFERENCES.value
+            )
+            if pref_obj and pref_obj.value:
+                user_timezone = pref_obj.value.get("timezone") or user_timezone
+
             if user_id:
                 config_result = await session.execute(
                     select(UserConfigurationModel).where(
-                        UserConfigurationModel.user_id == user_id
+                        UserConfigurationModel.user_id == user_id,
+                        UserConfigurationModel.key
+                        == UserConfigurationKey.MODEL_CONFIGURATION.value,
                     )
                 )
                 config_obj = config_result.scalar_one_or_none()
                 if config_obj and config_obj.configuration:
-                    user_config = UserConfiguration.model_validate(
+                    effective_config = EffectiveAIModelConfiguration.model_validate(
                         config_obj.configuration
                     )
-                    if user_config.timezone:
-                        user_timezone = user_config.timezone
+                    if effective_config.timezone and user_timezone == "UTC":
+                        user_timezone = effective_config.timezone
 
             # Validate timezone string
             try:
@@ -473,7 +377,7 @@ class OrganizationUsageClient(BaseDBClient):
                 select(
                     date_expr.label("date"),
                     func.sum(
-                        WorkflowRunModel.cost_info["call_duration_seconds"].as_float()
+                        WorkflowRunModel.usage_info["call_duration_seconds"].as_float()
                     ).label("total_seconds"),
                     func.count(WorkflowRunModel.id).label("call_count"),
                 )
@@ -522,83 +426,11 @@ class OrganizationUsageClient(BaseDBClient):
                 "currency": "USD",
             }
 
-    async def update_organization_quota(
-        self,
-        organization_id: int,
-        quota_type: str,
-        quota_dograh_tokens: int,
-        quota_reset_day: Optional[int] = None,
-        quota_start_date: Optional[datetime] = None,
-    ) -> OrganizationModel:
-        """Update organization quota settings."""
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(OrganizationModel).where(OrganizationModel.id == organization_id)
-            )
-            org = result.scalar_one()
-
-            org.quota_type = quota_type
-            org.quota_dograh_tokens = quota_dograh_tokens
-            org.quota_enabled = True
-
-            if quota_type == "monthly" and quota_reset_day:
-                org.quota_reset_day = quota_reset_day
-            elif quota_type == "annual" and quota_start_date:
-                org.quota_start_date = quota_start_date
-
-            await session.commit()
-            await session.refresh(org)
-            return org
-
-    def _calculate_current_period(
-        self, org: OrganizationModel
-    ) -> tuple[datetime, datetime]:
-        """Calculate the current billing period based on organization settings."""
+    def _calculate_current_period(self) -> tuple[datetime, datetime]:
+        """Calculate the current calendar-month reporting period."""
         now = datetime.now(timezone.utc)
 
-        if org.quota_type == "monthly":
-            # Find the start of the current billing month
-            reset_day = org.quota_reset_day
-
-            # Handle month boundaries
-            if now.day >= reset_day:
-                period_start = now.replace(
-                    day=reset_day, hour=0, minute=0, second=0, microsecond=0
-                )
-            else:
-                # Previous month
-                period_start = (now - relativedelta(months=1)).replace(
-                    day=reset_day, hour=0, minute=0, second=0, microsecond=0
-                )
-
-            # End is one month later minus 1 second
-            period_end = (
-                period_start + relativedelta(months=1) - relativedelta(seconds=1)
-            )
-
-        else:  # annual
-            if not org.quota_start_date:
-                # Default to calendar year
-                period_start = now.replace(
-                    month=1, day=1, hour=0, minute=0, second=0, microsecond=0
-                )
-                period_end = (
-                    period_start + relativedelta(years=1) - relativedelta(seconds=1)
-                )
-            else:
-                # Find current annual period
-                start_date = org.quota_start_date.replace(tzinfo=timezone.utc)
-                years_diff = now.year - start_date.year
-
-                # Adjust for whether we've passed the anniversary
-                if now.month < start_date.month or (
-                    now.month == start_date.month and now.day < start_date.day
-                ):
-                    years_diff -= 1
-
-                period_start = start_date + relativedelta(years=years_diff)
-                period_end = (
-                    period_start + relativedelta(years=1) - relativedelta(seconds=1)
-                )
+        period_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        period_end = period_start + relativedelta(months=1) - relativedelta(seconds=1)
 
         return period_start, period_end

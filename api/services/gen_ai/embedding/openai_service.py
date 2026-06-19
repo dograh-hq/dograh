@@ -38,6 +38,7 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
         api_key: Optional[str] = None,
         model_id: str = DEFAULT_MODEL_ID,
         base_url: Optional[str] = None,
+        default_headers: Optional[Dict[str, str]] = None,
     ):
         """Initialize the OpenAI embedding service.
 
@@ -60,6 +61,8 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
                     field_name="base_url",
                 )
                 client_kwargs["base_url"] = base_url
+            if default_headers:
+                client_kwargs["default_headers"] = default_headers
             self.client = AsyncOpenAI(**client_kwargs)
             logger.info(f"OpenAI embedding service initialized with model: {model_id}")
         else:

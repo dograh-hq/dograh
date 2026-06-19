@@ -67,12 +67,20 @@ The script overwrites `docker-compose.yaml` and the remote helper bundle (`remot
 
 ## Local deployment
 
-For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh` / `setup_local.ps1`), there are no host-side config files to refresh — pull new images and restart:
+For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh` / `setup_local.ps1`), there are no host-side config files to refresh — stop the stack, then use the startup script to preserve `OSS_JWT_SECRET` and pull new images:
 
-```bash
+<CodeGroup>
+```bash macOS/Linux
+curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh
 docker compose down
-docker compose up --pull always
+./start_docker.sh
 ```
+```powershell Windows
+Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1
+docker compose down
+.\start_docker.ps1
+```
+</CodeGroup>
 
 To pin a specific version instead of `latest`, edit `docker-compose.yaml` and change both `image:` lines for `api` and `ui` to the same tag (e.g. `:1.28.0` — Docker image tags use bare semver, no `v` prefix), then run the commands above.
 

@@ -40,7 +40,6 @@ from pipecat.services.google.vertex.llm import (
     GoogleVertexLLMService,
     GoogleVertexLLMSettings,
 )
-from pipecat.services.inworld.tts import InworldTTSSettings
 from pipecat.services.groq.llm import GroqLLMService, GroqLLMSettings
 from pipecat.services.huggingface.llm import (
     HuggingFaceLLMService,
@@ -50,6 +49,7 @@ from pipecat.services.huggingface.stt import (
     HuggingFaceSTTService,
     HuggingFaceSTTSettings,
 )
+from pipecat.services.inworld.tts import InworldTTSSettings
 from pipecat.services.minimax.llm import MiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSSettings
 from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE

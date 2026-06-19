@@ -1,0 +1,287 @@
+# Dokploy-friendly compose for Dograh.
+#
+# Differences vs the standard docker-compose.yaml:
+#   - Postgres/Redis passwords are REQUIRED (no insecure defaults).
+#   - Postgres/Redis are not exposed on the host — only reachable inside the
+#     Docker network.
+#   - API and UI bind to 127.0.0.1 instead of 0.0.0.0; the public entrypoint
+#     is the reverse proxy that Dokploy (Traefik) runs in front of the stack.
+#   - nginx uses `expose` instead of `ports` for the same reason — Traefik
+#     handles TLS termination and routes 443 -> nginx:80 internally.
+#   - No `cloudflared` service. Dokploy already provides public exposure.
+#   - `host.docker.internal:host-gateway` is added to the API so the ARI
+#     telephony provider can reach an Asterisk instance running on the host
+#     (or another container reachable via the host network).
+#   - Postgres USER and DB are configurable via env to support migrating
+#     existing installations.
+#
+# Required environment variables (set these in Dokploy's env panel):
+#   POSTGRES_PASSWORD   # openssl rand -hex 32
+#   REDIS_PASSWORD      # openssl rand -hex 32
+#   OSS_JWT_SECRET      # openssl rand -hex 64
+#   PUBLIC_HOST         # e.g. dograh.example.com
+#   PUBLIC_BASE_URL     # e.g. https://dograh.example.com
+#   BACKEND_API_ENDPOINT
+#   MINIO_PUBLIC_ENDPOINT
+#   ENVIRONMENT=production
+#   COMPOSE_PROFILES=remote
+#
+# Optional (defaults shown):
+#   POSTGRES_USER=postgres
+#   POSTGRES_DB=postgres
+#   REGISTRY=ghcr.io/dograh-hq      # or dograhai
+#   FASTAPI_WORKERS=1
+#   TURN_HOST, TURN_SECRET          # if you need TURN for WebRTC
+#
+# Deploy on Dokploy by pointing the application to this file
+# (Compose File: ./docker-compose.dokploy.yaml).
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-postgres}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set — generate one with: openssl rand -hex 32}"
+      POSTGRES_DB: "${POSTGRES_DB:-postgres}"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    command: >
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set — generate one with: openssl rand -hex 32}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  dograh-init:
+    image: bash:5.2
+    container_name: dograh_init
+    profiles: ["remote", "local-turn"]
+    environment:
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
+      SERVER_IP: "${SERVER_IP:-}"
+      PUBLIC_HOST: "${PUBLIC_HOST:-}"
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      TURN_HOST: "${TURN_HOST:-}"
+      TURN_SECRET: "${TURN_SECRET:-}"
+      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+    volumes:
+      - ./scripts:/workspace/scripts:ro
+      - ./deploy:/workspace/deploy:ro
+      - ./certs:/certs:ro
+      - nginx-generated:/generated/nginx
+      - coturn-generated:/generated/coturn
+    command:
+      - /workspace/scripts/run_dograh_init.sh
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx_https
+    profiles: ["remote"]
+    depends_on:
+      dograh-init:
+        condition: service_completed_successfully
+      ui:
+        condition: service_started
+    # No host port binding — Dokploy's Traefik handles TLS termination and
+    # proxies 443 -> nginx:80 inside the Docker network.
+    expose:
+      - "80"
+    volumes:
+      - nginx-generated:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
+    networks:
+      - app-network
+
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    restart: unless-stopped
+    profiles: ["remote", "local-turn"]
+    depends_on:
+      dograh-init:
+        condition: service_completed_successfully
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    volumes:
+      - coturn-generated:/etc/coturn:ro
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    networks:
+      - app-network
+
+  api:
+    image: ${REGISTRY:-dograhai}/dograh-api:latest
+    # Lets the ARI telephony provider reach an Asterisk instance running on
+    # the host (or another container reachable via the host network) using
+    # http://host.docker.internal:8088.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - shared-tmp:/tmp
+    environment:
+      # Core application config
+      ENVIRONMENT: "${ENVIRONMENT:-local}"
+      LOG_LEVEL: "INFO"
+
+      # Replace this environment variable if you are using a custom
+      # domain to host the stack
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+
+      # Database configuration (using containerized postgres)
+      DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-postgres}"
+
+      # Redis configuration (using containerized redis)
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379"
+
+      # Storage configuration - using local MinIO
+      ENABLE_AWS_S3: "false"
+
+      # MinIO
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      MINIO_ACCESS_KEY: "minioadmin"
+      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_BUCKET: "voice-audio"
+      MINIO_SECURE: "false"
+
+      FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+
+      # Trust X-Forwarded-* headers — Traefik (and the internal nginx) put the
+      # API behind a reverse proxy and forward X-Forwarded-Proto: https.
+      # Without this, request.url comes back as http://… and inbound webhook
+      # signature checks fail for every provider. The API port (8000) is bound
+      # to 127.0.0.1 so the host doesn't expose it directly.
+      FORWARDED_ALLOW_IPS: "*"
+
+      # Langfuse — credentials can be set here or per-organization via the UI
+      # at /settings.
+      # LANGFUSE_SECRET_KEY: ""
+      # LANGFUSE_PUBLIC_KEY: ""
+      # LANGFUSE_HOST: ""
+
+      # TURN server configuration (for WebRTC NAT traversal in remote server)
+      TURN_HOST: "${TURN_HOST:-}"
+      TURN_SECRET: "${TURN_SECRET:-}"
+      FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
+
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret — generate one with: openssl rand -hex 64}"
+
+      # Telemetry
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      POSTHOG_API_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.i.posthog.com"
+
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app-network
+
+  ui:
+    image: ${REGISTRY:-dograhai}/dograh-ui:latest
+    environment:
+      HOSTNAME: "0.0.0.0"
+      BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      NODE_ENV: "oss"
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.posthog.com"
+    ports:
+      - "127.0.0.1:3010:3010"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:3010 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio-data:
+    driver: local
+  shared-tmp:
+    driver: local
+  nginx-generated:
+    driver: local
+  coturn-generated:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge

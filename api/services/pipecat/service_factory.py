@@ -48,6 +48,7 @@ from pipecat.services.huggingface.stt import (
     HuggingFaceSTTService,
     HuggingFaceSTTSettings,
 )
+from pipecat.services.inworld.tts import InworldTTSService, InworldTTSSettings
 from pipecat.services.minimax.llm import MiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSSettings
 from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE
@@ -464,6 +465,25 @@ def create_tts_service(
                     if generation_config
                     else {}
                 ),
+            ),
+            text_filters=[xml_function_tag_filter],
+            skip_aggregator_types=["recording_router", "recording"],
+            silence_time_s=1.0,
+        )
+    elif user_config.tts.provider == ServiceProviders.INWORLD.value:
+        voice = getattr(user_config.tts, "voice", None) or "Ashley"
+        model = getattr(user_config.tts, "model", None) or "inworld-tts-2"
+        speed = getattr(user_config.tts, "speed", None)
+        language = getattr(user_config.tts, "language", None) or "en-US"
+        delivery_mode = getattr(user_config.tts, "delivery_mode", None) or "BALANCED"
+        return InworldTTSService(
+            api_key=user_config.tts.api_key,
+            settings=InworldTTSSettings(
+                voice=voice,
+                model=model,
+                language=language,
+                speaking_rate=speed,
+                delivery_mode=delivery_mode,
             ),
             text_filters=[xml_function_tag_filter],
             skip_aggregator_types=["recording_router", "recording"],

@@ -22,6 +22,20 @@ class _FakeWebSocket:
         self.state = State.CLOSED
 
 
+class _IterableFakeWebSocket(_FakeWebSocket):
+    def __init__(self, incoming_messages: list[dict]):
+        super().__init__()
+        self.incoming_messages = [json.dumps(message) for message in incoming_messages]
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> str:
+        if not self.incoming_messages:
+            raise StopAsyncIteration
+        return self.incoming_messages.pop(0)
+
+
 def test_dograh_llm_uses_explicit_mps_correlation_id():
     service = DograhLLMService(
         api_key="mps-secret",
@@ -108,3 +122,25 @@ async def test_dograh_tts_messages_use_explicit_mps_correlation_id(monkeypatch):
     assert fake_ws.messages[1]["type"] == "create_context"
     assert fake_ws.messages[1]["correlation_id"] == "mps-corr-123"
     assert fake_ws.messages[1]["mps_billing_version"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_dograh_tts_final_for_missing_context_is_ignored():
+    service = DograhTTSService(api_key="mps-secret")
+    service._websocket = _IterableFakeWebSocket(
+        [{"type": "final", "context_id": "ctx-already-removed"}]
+    )
+    service._remote_initialized_context_ids.add("ctx-already-removed")
+
+    remove_calls = []
+
+    async def fake_remove_audio_context(context_id: str):
+        remove_calls.append(context_id)
+
+    service.audio_context_available = lambda context_id: False
+    service.remove_audio_context = fake_remove_audio_context
+
+    await service._receive_messages()
+
+    assert remove_calls == []
+    assert "ctx-already-removed" not in service._remote_initialized_context_ids

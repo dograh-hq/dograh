@@ -376,7 +376,12 @@ class WorkflowRunClient(BaseDBClient):
             if cost_info:
                 run.cost_info = cost_info
             if initial_context:
-                run.initial_context = initial_context
+                # Merge initial context patches so independent call-start/runtime
+                # writers do not erase keys stored earlier in the run lifecycle.
+                run.initial_context = {
+                    **(run.initial_context or {}),
+                    **initial_context,
+                }
             if gathered_context:
                 # Lets merge the incoming gathered context keys with the existing ones
                 run.gathered_context = {

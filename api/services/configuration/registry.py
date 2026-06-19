@@ -14,6 +14,7 @@ from api.services.configuration.options import (
     AZURE_SPEECH_STT_LANGUAGES,
     AZURE_SPEECH_TTS_LANGUAGES,
     AZURE_SPEECH_TTS_VOICES,
+    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -38,6 +39,10 @@ from api.services.configuration.options import (
     SARVAM_TTS_MODELS,
     SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
+    SMALLEST_TTS_LANGUAGES,
+    SMALLEST_TTS_MODELS,
+    SMALLEST_TTS_PRO_VOICES,
+    SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
 )
 from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
@@ -56,6 +61,7 @@ class ServiceProviders(str, Enum):
     DEEPGRAM = "deepgram"
     GROQ = "groq"
     OPENROUTER = "openrouter"
+    INWORLD = "inworld"
     CARTESIA = "cartesia"
     # NEUPHONIC = "neuphonic"
     ELEVENLABS = "elevenlabs"
@@ -89,6 +95,7 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
+        ServiceProviders.INWORLD,
         ServiceProviders.ELEVENLABS,
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
@@ -244,6 +251,14 @@ GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
 DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
+INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Inworld",
+    description=(
+        "Inworld AI streaming text-to-speech with built-in and cloned voices. "
+        "Defaults to the Ashley system voice on inworld-tts-2."
+    ),
+    provider_docs_url="https://docs.inworld.ai/tts/tts",
+)
 SARVAM_PROVIDER_MODEL_CONFIG = provider_model_config("Sarvam")
 CAMB_PROVIDER_MODEL_CONFIG = provider_model_config("Camb.ai")
 RIME_PROVIDER_MODEL_CONFIG = provider_model_config("Rime")
@@ -952,6 +967,9 @@ class DograhTTSService(BaseTTSConfiguration):
 
 
 CARTESIA_TTS_MODELS = ["sonic-3.5", "sonic-3"]
+INWORLD_TTS_MODELS = ["inworld-tts-2"]
+INWORLD_TTS_VOICES = ["Ashley"]
+INWORLD_TTS_LANGUAGES = ["en-US"]
 
 
 @register_tts
@@ -974,6 +992,51 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
         le=2.0,
         description="Volume multiplier for generated speech.",
     )
+    language: str = Field(
+        default="en",
+        description="Cartesia language code for TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').",
+        json_schema_extra={"allow_custom_input": True},
+    )
+
+
+@register_tts
+class InworldTTSConfiguration(BaseTTSConfiguration):
+    model_config = INWORLD_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.INWORLD] = ServiceProviders.INWORLD
+    model: str = Field(
+        default="inworld-tts-2",
+        description="Inworld TTS model.",
+        json_schema_extra={"examples": INWORLD_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="Ashley",
+        description=(
+            "Inworld voice ID. Use Ashley for the default warm English voice, "
+            "or a workspace voice ID for a cloned/custom voice."
+        ),
+        json_schema_extra={"examples": INWORLD_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for synthesis.",
+        json_schema_extra={
+            "examples": INWORLD_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.25,
+        le=4.0,
+        description="Speech speed multiplier.",
+    )
+    delivery_mode: Literal["STABLE", "BALANCED", "CREATIVE"] = Field(
+        default="BALANCED",
+        description=(
+            "Controls stability versus expressiveness for inworld-tts-2 "
+            "(STABLE, BALANCED, or CREATIVE)."
+        ),
+    )
 
 
 @register_tts
@@ -987,9 +1050,10 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(
         default="anushka",
-        description="Sarvam voice name; must match the selected model's voice list.",
+        description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
             "examples": SARVAM_V2_VOICES,
+            "allow_custom_input": True,
             "model_options": {
                 "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
@@ -1172,43 +1236,6 @@ SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
     provider_docs_url="https://smallest.ai/docs",
 )
 
-SMALLEST_TTS_MODELS = ["lightning_v3.1", "lightning_v3.1_pro"]
-SMALLEST_TTS_VOICES = [
-    "sophia",
-    "avery",
-    "liam",
-    "lucas",
-    "olivia",
-    "ryan",
-    "freya",
-    "william",
-    "devansh",
-    "arjun",
-    "niharika",
-    "maya",
-    "dhruv",
-    "mia",
-    "maithili",
-]
-SMALLEST_TTS_LANGUAGES = [
-    "en",
-    "hi",
-    "fr",
-    "de",
-    "es",
-    "it",
-    "nl",
-    "pl",
-    "ru",
-    "ar",
-    "bn",
-    "gu",
-    "he",
-    "kn",
-    "mr",
-    "ta",
-]
-
 
 @register_tts
 class SmallestAITTSConfiguration(BaseTTSConfiguration):
@@ -1221,8 +1248,15 @@ class SmallestAITTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(
         default="sophia",
-        description="Smallest AI voice ID.",
-        json_schema_extra={"examples": SMALLEST_TTS_VOICES, "allow_custom_input": True},
+        description="Smallest AI voice ID. Available voices differ by model: lightning_v3.1 has a broad multilingual pool; lightning_v3.1_pro has premium American, British, and Indian accent voices (English + Hindi only).",
+        json_schema_extra={
+            "examples": list(SMALLEST_TTS_VOICES),
+            "allow_custom_input": True,
+            "model_options": {
+                "lightning_v3.1": list(SMALLEST_TTS_VOICES),
+                "lightning_v3.1_pro": list(SMALLEST_TTS_PRO_VOICES),
+            },
+        },
     )
     language: str = Field(
         default="en",
@@ -1247,6 +1281,7 @@ TTSConfig = Annotated[
         OpenAITTSService,
         ElevenlabsTTSConfiguration,
         CartesiaTTSConfiguration,
+        InworldTTSConfiguration,
         DograhTTSService,
         SarvamTTSConfiguration,
         CambTTSConfiguration,
@@ -1273,12 +1308,16 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     language: str = Field(
         default="multi",
-        description="Language code; 'multi' enables auto-detect (Nova-3 only).",
+        description=(
+            "Language code. 'multi' enables Nova-3 auto-detect and omits "
+            "language hints for Flux multilingual auto-detect."
+        ),
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
             "model_options": {
                 "nova-3-general": DEEPGRAM_LANGUAGES,
                 "flux-general-en": ("en",),
+                "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },
         },
     )

@@ -15,7 +15,7 @@ from api.db import db_client
 from api.db.agent_trigger_client import TriggerPathConflictError
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
-from api.enums import CallType, PostHogEvent, StorageBackend
+from api.enums import CallType, PostHogEvent, StorageBackend, WorkflowStatus
 from api.schemas.ai_model_configuration import OrganizationAIModelConfigurationV2
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.sdk_expose import sdk_expose
@@ -578,6 +578,31 @@ async def get_workflow_count(
     )
 
 
+def _validate_status_filter(status: Optional[str]) -> List[str]:
+    """Parse and validate a workflow ``status`` query filter.
+
+    Accepts a single value or a comma-separated list. Returns the list of
+    validated status values (empty when no filter was supplied). Any value
+    outside the ``workflow_status`` enum raises 422 so the request fails as a
+    clean client error instead of a 500 from the Postgres enum cast.
+    """
+    if status is None or status == "":
+        return []
+    allowed = {s.value for s in WorkflowStatus}
+    requested = [s.strip() for s in status.split(",")]
+    invalid = sorted({s for s in requested if s not in allowed})
+    if invalid:
+        invalid_display = ["<empty>" if s == "" else s for s in invalid]
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid workflow status filter: {invalid_display}. "
+                f"Allowed values: {sorted(allowed)}."
+            ),
+        )
+    return requested
+
+
 @router.get(
     "/fetch",
     **sdk_expose(
@@ -597,21 +622,22 @@ async def get_workflows(
     Returns a lightweight response with only essential fields for listing.
     Use GET /workflow/fetch/{workflow_id} to get full workflow details.
     """
-    # Handle comma-separated status values
-    if status and "," in status:
-        # Split comma-separated values and fetch workflows for each status
-        status_list = [s.strip() for s in status.split(",")]
+    statuses = _validate_status_filter(status)
+    if statuses:
+        # Fetch workflows for each requested status and combine the results.
         all_workflows = []
-        for status_value in status_list:
-            workflows = await db_client.get_all_workflows_for_listing(
-                organization_id=user.selected_organization_id, status=status_value
+        for status_value in statuses:
+            all_workflows.extend(
+                await db_client.get_all_workflows_for_listing(
+                    organization_id=user.selected_organization_id,
+                    status=status_value,
+                )
             )
-            all_workflows.extend(workflows)
         workflows = all_workflows
     else:
-        # Single status or no status filter
+        # No status filter
         workflows = await db_client.get_all_workflows_for_listing(
-            organization_id=user.selected_organization_id, status=status
+            organization_id=user.selected_organization_id, status=None
         )
 
     # Get run counts for all workflows in a single query
@@ -820,10 +846,20 @@ async def get_workflows_summary(
     ),
 ) -> List[WorkflowSummaryResponse]:
     """Get minimal workflow information (id and name only) for all workflows"""
-    workflows = await db_client.get_all_workflows(
-        organization_id=user.selected_organization_id,
-        status=status,
-    )
+    statuses = _validate_status_filter(status)
+    if statuses:
+        workflows = []
+        for status_value in statuses:
+            workflows.extend(
+                await db_client.get_all_workflows(
+                    organization_id=user.selected_organization_id,
+                    status=status_value,
+                )
+            )
+    else:
+        workflows = await db_client.get_all_workflows(
+            organization_id=user.selected_organization_id, status=None
+        )
     return [
         WorkflowSummaryResponse(id=workflow.id, name=workflow.name)
         for workflow in workflows

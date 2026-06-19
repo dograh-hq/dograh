@@ -633,6 +633,11 @@
       // Request microphone permission
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Release any stream still held from a prior attempt before retaining
+        // the new one, so a re-entrant start can't leak the microphone.
+        if (state.stream) {
+          state.stream.getTracks().forEach(track => track.stop());
+        }
         state.stream = stream;
       } catch (micError) {
         // Handle specific microphone permission errors
@@ -660,6 +665,31 @@
 
     } catch (error) {
       console.error('Dograh Widget: Failed to start call', error);
+
+      // Release anything acquired before the failure so a retry starts clean.
+      // getUserMedia may have succeeded before a later step (WebSocket /
+      // negotiation) threw, which would otherwise leave the mic held and block
+      // the next getUserMedia(). Null the refs before close() so the peer/ws
+      // state handlers short-circuit instead of re-entering teardown.
+      if (state.stream) {
+        state.stream.getTracks().forEach(track => track.stop());
+        state.stream = null;
+      }
+      if (state.pc) {
+        const pc = state.pc;
+        state.pc = null;
+        if (pc.signalingState !== 'closed') {
+          pc.close();
+        }
+      }
+      if (state.ws) {
+        const ws = state.ws;
+        state.ws = null;
+        if (ws.readyState !== WebSocket.CLOSED && ws.readyState !== WebSocket.CLOSING) {
+          ws.close();
+        }
+      }
+
       updateStatus('failed', 'Connection failed', error.message || 'Please check your microphone and try again');
 
       // Trigger error callback

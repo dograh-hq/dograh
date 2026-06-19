@@ -20,15 +20,23 @@ async function fetchAuthProvider(): Promise<string> {
     const res = await fetch(`${backendUrl}/api/v1/health`);
     if (res.ok) {
       const data = await res.json();
+      // Only cache a DEFINITIVE answer from the backend. Never cache a failure:
+      // this is a module-scoped cache with no TTL, so a single early request
+      // during container startup (before the api service is reachable) would
+      // otherwise poison it to 'local' for the life of the worker — redirecting
+      // every Stack user to the local /auth/login form even though the backend
+      // reports `stack`.
       cachedAuthProvider = (data.auth_provider as string) || 'local';
       return cachedAuthProvider;
     }
   } catch {
-    // Backend not reachable — fall back to local
+    // Backend not reachable — fall through without caching so we retry next request.
   }
 
-  cachedAuthProvider = 'local';
-  return cachedAuthProvider;
+  // Provider unknown (backend unreachable). Return a non-'local' sentinel so the
+  // middleware does NOT guard/redirect: assuming 'local' here would bounce Stack
+  // users to /auth/login. Deliberately not cached — the next request retries.
+  return 'unknown';
 }
 
 export async function middleware(request: NextRequest) {

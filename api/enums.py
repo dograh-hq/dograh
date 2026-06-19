@@ -174,3 +174,5 @@ class PostHogEvent(str, Enum):
     AGENT_EMBEDDED = "agent_embedded"
     SIGNED_UP = "signed_up"
     SIGNED_IN = "signed_in"
+    ORGANIZATION_CREATED = "organization_created"
+    ORGANIZATION_USER_ASSOCIATED = "organization_user_associated"

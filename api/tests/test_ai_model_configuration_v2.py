@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import ValidationError
@@ -401,6 +401,7 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
     ensure_billing = AsyncMock(return_value={"billing_mode": "v2"})
     upsert = AsyncMock()
     migrate_workflows = AsyncMock()
+    sync_posthog_billing = Mock()
 
     monkeypatch.setattr(organization_routes, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
@@ -438,6 +439,11 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
         "_model_configuration_v2_response",
         AsyncMock(return_value=expected_response),
     )
+    monkeypatch.setattr(
+        organization_routes,
+        "_sync_posthog_organization_mps_billing_v2_status",
+        sync_posthog_billing,
+    )
 
     user = SimpleNamespace(
         id=7,
@@ -456,4 +462,5 @@ async def test_migrate_model_configuration_v2_initializes_hosted_mps_billing(
         organization_id=42,
         fallback_user_config=legacy,
     )
+    sync_posthog_billing.assert_called_once_with(42, uses_mps_billing_v2=True)
     assert response == expected_response

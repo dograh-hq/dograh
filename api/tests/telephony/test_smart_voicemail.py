@@ -4,6 +4,8 @@ Covers the three pure/unit-testable surfaces: config validation, the Vonage
 NCCO builders, and the orchestrator's idempotent resolution latch + branch.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from pydantic import ValidationError
 from unittest.mock import AsyncMock, patch
@@ -178,6 +180,71 @@ async def test_voicemail_result_hangs_up_human_and_hands_caller_to_ai():
     assert args[0] == "caller-leg"
     assert args[1][0]["action"] == "connect"
     assert args[1][0]["endpoint"][0]["uri"] == "wss://x/api/v1/telephony/ws/33/44/1"
+
+
+async def _run_start(orch, detection):
+    prov = _provider_with_mocked_io()
+    prov.place_call_with_ncco = AsyncMock(return_value={"uuid": "screen-1"})
+    nd = SimpleNamespace(call_id="caller-1", from_number="+17373338910")
+    ncco = await orch.start(
+        provider=prov,
+        smart_voicemail_config={
+            "forward_to_number": "+15129701653",
+            "ring_timeout_seconds": 20,
+            "detection": detection,
+        },
+        normalized_data=nd,
+        organization_id=1,
+        telephony_configuration_id=3,
+        workflow_id=5,
+        user_id=1,
+        workflow_run_id=99,
+        backend_endpoint="https://x",
+        wss_backend_endpoint="wss://x",
+    )
+    return prov, ncco
+
+
+async def test_start_dials_from_our_did_not_caller():
+    orch = SmartVoicemailOrchestrator(redis_client=_FakeRedis())
+    prov, ncco = await _run_start(orch, "vonage")
+    kw = prov.place_call_with_ncco.await_args.kwargs
+    # Must dial from our owned DID, never the original caller's number.
+    assert kw["from_number"] == prov.from_numbers[0]
+    assert kw["from_number"] != "+17373338910"
+    assert kw["to_number"] == "+15129701653"
+    # Caller is parked in the ringback/hold conference.
+    assert ncco[0]["action"] == "conversation"
+
+
+async def test_start_vonage_detection_uses_amd_and_hold_conf():
+    orch = SmartVoicemailOrchestrator(redis_client=_FakeRedis())
+    prov, _ = await _run_start(orch, "vonage")
+    kw = prov.place_call_with_ncco.await_args.kwargs
+    assert kw["advanced_machine_detection"] == {"behavior": "continue", "mode": "default"}
+    # Human leg holds in a silent conference (not our websocket).
+    assert kw["ncco"][0]["action"] == "conversation"
+
+
+async def test_start_own_detection_connects_websocket_no_amd():
+    orch = SmartVoicemailOrchestrator(redis_client=_FakeRedis())
+    prov, _ = await _run_start(orch, "own")
+    kw = prov.place_call_with_ncco.await_args.kwargs
+    assert kw["advanced_machine_detection"] is None
+    assert kw["ncco"][0]["action"] == "connect"
+    assert kw["ncco"][0]["endpoint"][0]["type"] == "websocket"
+
+
+def test_human_hold_ncco_is_silent_conference():
+    ncco = VonageProvider.build_human_hold_ncco("svhold-1")
+    assert ncco[0]["action"] == "conversation"
+    assert ncco[0]["name"] == "svhold-1"
+    assert "musicOnHoldUrl" not in ncco[0]
+
+
+def test_detection_defaults_to_vonage():
+    cfg = SmartVoicemailConfig(enabled=True, forward_to_number="+14155551234")
+    assert cfg.detection == "vonage"
 
 
 async def test_latch_makes_first_result_win():

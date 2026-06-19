@@ -105,9 +105,19 @@ class SmartVoicemailOrchestrator:
         """
         forward_to = smart_voicemail_config.get("forward_to_number")
         ring_timeout = int(smart_voicemail_config.get("ring_timeout_seconds", 25))
+        detection = smart_voicemail_config.get("detection", "vonage")
         conference_name = f"sv-{workflow_run_id}"
         caller_leg_uuid = normalized_data.call_id
-        caller_id = normalized_data.from_number  # original caller's number
+
+        # Dial the screening leg FROM our own Vonage DID. Vonage rejects an
+        # un-owned number as caller ID for outbound PSTN — the create returns
+        # 201 and the call then immediately goes to "failed" — so we cannot
+        # present the original caller's number here.
+        our_did = (
+            provider.from_numbers[0]
+            if getattr(provider, "from_numbers", None)
+            else None
+        )
 
         screening_ws_url = (
             f"{wss_backend_endpoint}/api/v1/telephony/ws/screening/"
@@ -122,9 +132,16 @@ class SmartVoicemailOrchestrator:
             f"{workflow_run_id}"
         )
 
-        fallback_from = (
-            provider.from_numbers[0] if getattr(provider, "from_numbers", None) else None
-        )
+        # Detection source decides what the human (screening) leg connects to:
+        #  - "own"    → our listen-only websocket pipeline (VoicemailDetector)
+        #  - "vonage" → a silent hold conference + Vonage Advanced Machine
+        #               Detection; the human/machine webhook drives the result.
+        if detection == "own":
+            screening_ncco = provider.build_screening_connect_ncco(screening_ws_url)
+            amd = None
+        else:
+            screening_ncco = provider.build_human_hold_ncco(f"svhold-{workflow_run_id}")
+            amd = {"behavior": "continue", "mode": "default"}
 
         state: Dict[str, Any] = {
             "organization_id": organization_id,
@@ -137,17 +154,18 @@ class SmartVoicemailOrchestrator:
             "screening_leg_uuid": None,
             "forward_to_number": forward_to,
             "ai_ws_url": ai_ws_url,
+            "detection": detection,
         }
         await self._store_state(workflow_run_id, state)
 
         try:
             resp = await provider.place_call_with_ncco(
                 to_number=forward_to,
-                from_number=caller_id,
-                ncco=provider.build_screening_connect_ncco(screening_ws_url),
+                from_number=our_did,
+                ncco=screening_ncco,
                 event_url=event_url,
                 ringing_timer=ring_timeout,
-                fallback_from=fallback_from,
+                advanced_machine_detection=amd,
             )
             state["screening_leg_uuid"] = resp.get("uuid")
             await self._store_state(workflow_run_id, state)
@@ -223,9 +241,18 @@ class SmartVoicemailOrchestrator:
         await self._cleanup(workflow_run_id)
 
     async def on_screening_answered(self, workflow_run_id: int) -> None:
-        """Arm a watchdog: if the detector never fires after a silent pick-up,
-        default to a human bridge."""
+        """For the built-in detector, arm a watchdog: if it never fires after a
+        silent pick-up, default to a human bridge.
+
+        For Vonage AMD the human/machine webhook always resolves, so no watchdog
+        is needed — and one would risk bridging a voicemail before AMD reports a
+        machine. Skip it unless detection is ``own``.
+        """
         import asyncio
+
+        state = await self._load_state(workflow_run_id)
+        if not state or state.get("detection", "vonage") != "own":
+            return
 
         async def _watchdog():
             await asyncio.sleep(SILENT_ANSWER_TIMEOUT_S)

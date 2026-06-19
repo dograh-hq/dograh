@@ -651,6 +651,7 @@ class VonageProvider(TelephonyProvider):
         event_url: Optional[str] = None,
         ringing_timer: Optional[int] = None,
         fallback_from: Optional[str] = None,
+        advanced_machine_detection: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Place an outbound call answered by an inline NCCO (no answer_url).
 
@@ -679,6 +680,8 @@ class VonageProvider(TelephonyProvider):
                 # Vonage accepts 1-60s; clamp so a larger configured timeout
                 # doesn't get rejected.
                 data["ringing_timer"] = max(1, min(int(ringing_timer), 60))
+            if advanced_machine_detection:
+                data["advanced_machine_detection"] = advanced_machine_detection
             return data
 
         headers = self._get_auth_headers()
@@ -786,6 +789,21 @@ class VonageProvider(TelephonyProvider):
                         "headers": {},
                     }
                 ],
+            }
+        ]
+
+    @staticmethod
+    def build_human_hold_ncco(hold_conference_name: str) -> List[Dict[str, Any]]:
+        """Hold the human (screening) leg in a private, silent conference while
+        Vonage Advanced Machine Detection runs. Isolated from the caller's
+        conference so they hear nothing until we bridge or drop them.
+        """
+        return [
+            {
+                "action": "conversation",
+                "name": hold_conference_name,
+                "startOnEnter": True,
+                "endOnExit": True,
             }
         ]
 

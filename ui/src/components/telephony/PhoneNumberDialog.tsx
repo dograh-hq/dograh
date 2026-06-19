@@ -45,6 +45,7 @@ type SmartVoicemail = {
   enabled?: boolean;
   forward_to_number?: string | null;
   ring_timeout_seconds?: number;
+  detection?: "vonage" | "own";
 };
 
 // extra_metadata is an open dict in the generated types; pull the
@@ -102,6 +103,7 @@ export function PhoneNumberDialog({
   const [svEnabled, setSvEnabled] = useState(false);
   const [svForwardTo, setSvForwardTo] = useState("");
   const [svRingTimeout, setSvRingTimeout] = useState(25);
+  const [svDetection, setSvDetection] = useState<"vonage" | "own">("vonage");
 
   // Reset form when the dialog opens.
   useEffect(() => {
@@ -118,6 +120,7 @@ export function PhoneNumberDialog({
     setSvEnabled(sv.enabled ?? false);
     setSvForwardTo(sv.forward_to_number ?? "");
     setSvRingTimeout(sv.ring_timeout_seconds ?? 25);
+    setSvDetection(sv.detection === "own" ? "own" : "vonage");
     setAddressTouched(false);
   }, [open, existing]);
 
@@ -169,6 +172,7 @@ export function PhoneNumberDialog({
             enabled: true,
             forward_to_number: svForwardTo.trim(),
             ring_timeout_seconds: svRingTimeout,
+            detection: svDetection,
           }
         : { enabled: false };
       const extraMetadata = {
@@ -356,6 +360,25 @@ export function PhoneNumberDialog({
                       )
                     }
                   />
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <Label htmlFor="sv-detection">Voicemail detection</Label>
+                  <Select
+                    value={svDetection}
+                    onValueChange={(v) => setSvDetection(v === "own" ? "own" : "vonage")}
+                  >
+                    <SelectTrigger id="sv-detection">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="vonage">Vonage (carrier, recommended)</SelectItem>
+                      <SelectItem value="own">Dograh built-in (AI)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Vonage&apos;s carrier detection is more reliable (~$0.008/call). The
+                    built-in detector is free but less accurate.
+                  </p>
                 </div>
               </div>
             )}

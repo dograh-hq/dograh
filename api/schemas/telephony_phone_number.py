@@ -2,7 +2,7 @@
 
 import re
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -27,6 +27,10 @@ class SmartVoicemailConfig(BaseModel):
     forward_to_number: Optional[str] = Field(default=None, max_length=32)
     # How long to ring the human before giving up and handing to the AI.
     ring_timeout_seconds: int = Field(default=25, ge=5, le=120)
+    # Voicemail-detection source for the screening leg:
+    #   "vonage" — Vonage Advanced Machine Detection (carrier-grade, ~$0.008/call)
+    #   "own"    — the built-in pipecat VoicemailDetector (LLM-over-STT, free)
+    detection: Literal["vonage", "own"] = "vonage"
 
     @model_validator(mode="after")
     def _validate(self) -> "SmartVoicemailConfig":

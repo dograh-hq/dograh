@@ -135,7 +135,13 @@ async def handle_vonage_smart_voicemail_events(
     )
 
     orchestrator = get_smart_voicemail_orchestrator()
-    if status == "answered":
+    if status == "human":
+        # Vonage Advanced Machine Detection: a person answered.
+        await orchestrator.on_screening_result(workflow_run_id, "human")
+    elif status == "machine":
+        # Vonage AMD: voicemail/answerphone answered.
+        await orchestrator.on_screening_result(workflow_run_id, "voicemail")
+    elif status == "answered":
         await orchestrator.on_screening_answered(workflow_run_id)
     elif status in _SCREENING_NO_ANSWER_STATUSES:
         await orchestrator.on_screening_result(workflow_run_id, "no_answer")

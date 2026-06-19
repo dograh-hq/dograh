@@ -84,6 +84,14 @@ else
     echo "OSS_JWT_SECRET is already set in $ENV_FILE."
 fi
 
+existing_redis_password="$(dotenv_value REDIS_PASSWORD || true)"
+if [[ -z "$existing_redis_password" ]]; then
+    set_dotenv_value REDIS_PASSWORD "$(generate_secret)"
+    echo "Created REDIS_PASSWORD in $ENV_FILE."
+else
+    echo "REDIS_PASSWORD is already set in $ENV_FILE."
+fi
+
 echo ""
 echo "Docker registry: $REGISTRY"
 echo "Telemetry enabled: $ENABLE_TELEMETRY"

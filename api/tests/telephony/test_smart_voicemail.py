@@ -221,7 +221,11 @@ async def test_start_vonage_detection_uses_amd_and_hold_conf():
     orch = SmartVoicemailOrchestrator(redis_client=_FakeRedis())
     prov, _ = await _run_start(orch, "vonage")
     kw = prov.place_call_with_ncco.await_args.kwargs
-    assert kw["advanced_machine_detection"] == {"behavior": "continue", "mode": "default"}
+    assert kw["advanced_machine_detection"] == {
+        "behavior": "continue",
+        "mode": "default",
+        "beep_timeout": 45,
+    }
     # Human leg holds in a silent conference (not our websocket).
     assert kw["ncco"][0]["action"] == "conversation"
 

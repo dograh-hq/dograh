@@ -8,7 +8,6 @@ from loguru import logger
 from api.constants import MPS_API_URL
 from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
 from api.services.configuration.registry import ServiceProviders
-from api.services.pipecat.inworld_tts import InworldOwnedSessionTTSService
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
@@ -49,7 +48,7 @@ from pipecat.services.huggingface.stt import (
     HuggingFaceSTTService,
     HuggingFaceSTTSettings,
 )
-from pipecat.services.inworld.tts import InworldTTSSettings
+from pipecat.services.inworld.tts import InworldTTSService, InworldTTSSettings
 from pipecat.services.minimax.llm import MiniMaxLLMService
 from pipecat.services.minimax.tts import MiniMaxTTSSettings
 from pipecat.services.openai._constants import OPENAI_SAMPLE_RATE
@@ -477,11 +476,8 @@ def create_tts_service(
         speed = getattr(user_config.tts, "speed", None)
         language = getattr(user_config.tts, "language", None) or "en-US"
         delivery_mode = getattr(user_config.tts, "delivery_mode", None) or "BALANCED"
-        session = aiohttp.ClientSession()
-        return InworldOwnedSessionTTSService(
+        return InworldTTSService(
             api_key=user_config.tts.api_key,
-            aiohttp_session=session,
-            streaming=True,
             settings=InworldTTSSettings(
                 voice=voice,
                 model=model,

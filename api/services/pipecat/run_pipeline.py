@@ -470,7 +470,10 @@ async def _run_pipeline(
         workflow_run_id, initial_context=merged_call_context_vars
     )
 
-    workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(run_workflow_json))
+    workflow_graph = WorkflowGraph(
+        ReactFlowDTO.model_validate(run_workflow_json),
+        skip_instance_constraints_for={"trigger"},
+    )
 
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
     pre_call_fetch_task = None

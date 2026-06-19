@@ -414,4 +414,9 @@ def test_to_mcp_dict_retains_authoring_signal_startcall():
     ]
 
     # graph_constraints drops its null sub-fields.
-    assert projected["graph_constraints"] == {"min_incoming": 0, "max_incoming": 0}
+    assert projected["graph_constraints"] == {
+        "min_incoming": 0,
+        "max_incoming": 0,
+        "min_instances": 1,
+        "max_instances": 1,
+    }

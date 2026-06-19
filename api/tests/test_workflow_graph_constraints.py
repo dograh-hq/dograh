@@ -72,14 +72,24 @@ _SCENARIOS = [
     (
         "no_start_node",
         ["no_start_node"],
-        ["Workflow has no start node"],
+        ["Workflow must have at least one Start Call"],
     ),
     # Two startCall nodes — surfaced separately from no_start_node so
     # the editor can show a count-specific message.
     (
         "multiple_start_nodes",
         ["multiple_start_nodes:2"],
-        ["Workflow has 2 start nodes"],
+        ["Workflow can have at most one Start Call"],
+    ),
+    (
+        "multiple_trigger_nodes",
+        ["max_instances_1:trigger:2"],
+        ["Workflow can have at most one API Trigger"],
+    ),
+    (
+        "multiple_global_nodes",
+        ["max_instances_1:globalNode:2"],
+        ["Workflow can have at most one Global Node"],
     ),
 ]
 
@@ -122,3 +132,35 @@ def test_workflow_graph_rejects_violations(name, expected_graph_messages):
         assert any(expected in m for m in actual_messages), (
             f"Expected substring {expected!r} not found in graph errors: {actual_messages}"
         )
+
+
+def test_workflow_graph_can_skip_duplicate_api_trigger_check_for_runtime():
+    raw, _ = _load("multiple_trigger_nodes")
+    dto = ReactFlowDTO.model_validate_json(raw)
+
+    WorkflowGraph(dto, skip_instance_constraints_for={"trigger"})
+
+
+def test_workflow_graph_start_semantics_come_from_node_type_not_legacy_flag():
+    dto = ReactFlowDTO.model_validate(
+        {
+            "nodes": [
+                {
+                    "id": "start-1",
+                    "type": "startCall",
+                    "position": {"x": 0, "y": 0},
+                    "data": {
+                        "name": "Start",
+                        "prompt": "Greet.",
+                        "is_start": False,
+                    },
+                }
+            ],
+            "edges": [],
+        }
+    )
+
+    graph = WorkflowGraph(dto)
+
+    assert graph.start_node_id == "start-1"
+    assert graph.nodes["start-1"].is_start is True

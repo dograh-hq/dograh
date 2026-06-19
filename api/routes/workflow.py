@@ -58,7 +58,10 @@ from api.services.workflow.trigger_paths import (
     trigger_path_to_node_id,
     validate_trigger_paths,
 )
-from api.services.workflow.workflow_graph import WorkflowGraph
+from api.services.workflow.workflow_graph import (
+    WorkflowGraph,
+    validate_node_instance_constraints,
+)
 from api.utils.artifacts import artifact_url
 from api.utils.recording_artifacts import (
     get_recording_storage_key,
@@ -189,6 +192,27 @@ def _validation_errors_http_exception(
     return HTTPException(
         status_code=status_code,
         detail=ValidateWorkflowResponse(is_valid=False, errors=errors).model_dump(),
+    )
+
+
+def _node_instance_validation_errors(
+    workflow_definition: Optional[dict],
+) -> list[WorkflowError]:
+    """Validate spec-driven max_instances without requiring a complete draft."""
+    if not workflow_definition:
+        return []
+    nodes = workflow_definition.get("nodes")
+    if not isinstance(nodes, list):
+        return []
+
+    node_types = [
+        node.get("type")
+        for node in nodes
+        if isinstance(node, dict) and isinstance(node.get("type"), str)
+    ]
+    return validate_node_instance_constraints(
+        node_types,
+        enforce_min_instances=False,
     )
 
 
@@ -384,6 +408,9 @@ async def create_workflow(
     trigger_path_issues = validate_trigger_paths(workflow_definition)
     if trigger_path_issues:
         raise _trigger_path_validation_http_exception(trigger_path_issues)
+    instance_errors = _node_instance_validation_errors(workflow_definition)
+    if instance_errors:
+        raise _validation_errors_http_exception(instance_errors)
 
     # Validate trigger path uniqueness BEFORE creating the workflow so we
     # don't leave an orphaned workflow record when the trigger conflicts.
@@ -990,6 +1017,9 @@ async def update_workflow(
         trigger_path_issues = validate_trigger_paths(workflow_definition)
         if trigger_path_issues:
             raise _trigger_path_validation_http_exception(trigger_path_issues)
+        instance_errors = _node_instance_validation_errors(workflow_definition)
+        if instance_errors:
+            raise _validation_errors_http_exception(instance_errors, status_code=409)
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id

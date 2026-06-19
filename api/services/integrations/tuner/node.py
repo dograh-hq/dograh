@@ -40,10 +40,7 @@ from api.services.workflow.node_specs.model_spec import (
         )
     ],
     graph_constraints=GraphConstraints(
-        min_incoming=0,
-        max_incoming=0,
-        min_outgoing=0,
-        max_outgoing=0,
+        min_incoming=0, max_incoming=0, min_outgoing=0, max_outgoing=0, max_instances=1
     ),
     property_order=(
         "name",

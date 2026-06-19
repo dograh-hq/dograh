@@ -9,6 +9,7 @@ from api.services.workflow.text_chat_session_service import (
     TextChatTurnNotFoundError,
     _reload_text_chat_session,
     build_pending_text_chat_turn,
+    execute_pending_text_chat_turn,
     truncate_text_chat_future_turns,
     validate_text_chat_turn_cursor,
 )
@@ -75,6 +76,36 @@ async def test_reload_text_chat_session_uses_run_id_to_resolve_organization(
     assert result is reloaded_session
     get_org_id.assert_awaited_once_with(123)
     get_text_session.assert_awaited_once_with(123, organization_id=77)
+
+
+@pytest.mark.asyncio
+async def test_execute_pending_turn_surfaces_original_exception_message(monkeypatch):
+    session = WorkflowRunTextSessionModel(workflow_run_id=42)
+    session.session_data = {
+        "turns": [{"id": "turn-1", "status": "pending"}],
+        "cursor_turn_id": "turn-1",
+    }
+    session.checkpoint = None
+
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "execute_text_chat_pending_turn",
+        AsyncMock(side_effect=RuntimeError("Workflow has 2 start nodes")),
+    )
+    monkeypatch.setattr(
+        text_chat_session_service,
+        "_mark_pending_turn_failed",
+        AsyncMock(),
+    )
+
+    with pytest.raises(
+        TextChatSessionExecutionError, match="Workflow has 2 start nodes"
+    ):
+        await execute_pending_text_chat_turn(
+            workflow_id=1,
+            run_id=42,
+            text_session=session,
+        )
 
 
 @pytest.mark.asyncio

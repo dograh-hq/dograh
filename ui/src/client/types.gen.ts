@@ -519,6 +519,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & ElevenlabsTtsConfiguration) | ({
         provider: 'cartesia';
     } & CartesiaTtsConfiguration) | ({
+        provider: 'inworld';
+    } & InworldTtsConfiguration) | ({
         provider: 'dograh';
     } & DograhTtsService) | ({
         provider: 'sarvam';
@@ -1078,6 +1080,12 @@ export type CartesiaTtsConfiguration = {
      * Volume multiplier for generated speech.
      */
     volume?: number;
+    /**
+     * Language
+     *
+     * Cartesia language code for TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').
+     */
+    language?: string;
 };
 
 /**
@@ -1779,7 +1787,7 @@ export type DeepgramSttConfiguration = {
     /**
      * Language
      *
-     * Language code; 'multi' enables auto-detect (Nova-3 only).
+     * Language code. 'multi' enables Nova-3 auto-detect and omits language hints for Flux multilingual auto-detect.
      */
     language?: string;
 };
@@ -2740,6 +2748,14 @@ export type GraphConstraints = {
      * Max Outgoing
      */
     max_outgoing?: number | null;
+    /**
+     * Min Instances
+     */
+    min_instances?: number | null;
+    /**
+     * Max Instances
+     */
+    max_instances?: number | null;
 };
 
 /**
@@ -2830,6 +2846,14 @@ export type HealthResponse = {
      * Force Turn Relay
      */
     force_turn_relay: boolean;
+    /**
+     * Stack Project Id
+     */
+    stack_project_id?: string | null;
+    /**
+     * Stack Publishable Client Key
+     */
+    stack_publishable_client_key?: string | null;
 };
 
 /**
@@ -3097,6 +3121,52 @@ export type InitiateCallRequest = {
      * From Phone Number Id
      */
     from_phone_number_id?: number | null;
+};
+
+/**
+ * Inworld
+ *
+ * Inworld AI streaming text-to-speech with built-in and cloned voices. Defaults to the Ashley system voice on inworld-tts-2.
+ */
+export type InworldTtsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'inworld';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Inworld TTS model.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Inworld voice ID. Use Ashley for the default warm English voice, or a workspace voice ID for a cloned/custom voice.
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * BCP-47 language code for synthesis.
+     */
+    language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier.
+     */
+    speed?: number;
+    /**
+     * Delivery Mode
+     *
+     * Controls stability versus expressiveness for inworld-tts-2 (STABLE, BALANCED, or CREATIVE).
+     */
+    delivery_mode?: 'STABLE' | 'BALANCED' | 'CREATIVE';
 };
 
 /**
@@ -4800,7 +4870,7 @@ export type SarvamTtsConfiguration = {
     /**
      * Voice
      *
-     * Sarvam voice name; must match the selected model's voice list.
+     * Sarvam voice name or custom voice ID.
      */
     voice?: string;
     /**
@@ -4964,7 +5034,7 @@ export type SmallestAittsConfiguration = {
     /**
      * Voice
      *
-     * Smallest AI voice ID.
+     * Smallest AI voice ID. Available voices differ by model: lightning_v3.1 has a broad multilingual pool; lightning_v3.1_pro has premium American, British, and Indian accent voices (English + Hindi only).
      */
     voice?: string;
     /**

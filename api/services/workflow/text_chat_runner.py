@@ -458,7 +458,8 @@ async def execute_text_chat_pending_turn(
     )
 
     workflow_graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(run_definition.workflow_json)
+        ReactFlowDTO.model_validate(run_definition.workflow_json),
+        skip_instance_constraints_for={"trigger"},
     )
     base_checkpoint = _resolve_checkpoint_for_pending_turn(session_data, checkpoint)
 

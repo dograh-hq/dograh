@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.37.0 (2026-06-19)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat: add Inworld TTS provider support by @manasseh-zw in https://github.com/dograh-hq/dograh/pull/420
+### Bug Fixes
+* fix(workflow): detect duplicate trigger paths when first node has no id by @Mubashirrrr in https://github.com/dograh-hq/dograh/pull/409
+* fix(qa): tolerate non-dict JSON from QA LLM instead of crashing by @Mubashirrrr in https://github.com/dograh-hq/dograh/pull/408
+* fix(devcontainer): expose UI/API ports for host access by @faisu in https://github.com/dograh-hq/dograh/pull/405
+* fix: disable duplicate trigger nodes in workflow builder by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/402
+* fix(ui): proxy WebSocket signaling upgrade so local web calls work (#425) by @yogi6969 in https://github.com/dograh-hq/dograh/pull/454
+
+## New Contributors
+* @faisu made their first contribution in https://github.com/dograh-hq/dograh/pull/405
+* @yogi6969 made their first contribution in https://github.com/dograh-hq/dograh/pull/454
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.36.0...dograh-v1.37.0
+
 ## 1.36.0 (2026-06-18)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

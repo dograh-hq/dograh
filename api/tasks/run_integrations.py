@@ -27,6 +27,7 @@ from api.services.workflow.dto import (
 )
 from api.services.workflow.qa import run_per_node_qa_analysis
 from api.utils.credential_auth import build_auth_header
+from api.utils.recording_artifacts import get_recording_storage_key
 from api.utils.template_renderer import render_template
 
 
@@ -339,6 +340,10 @@ def _build_render_context(
     Returns:
         Dict containing all fields available for template rendering
     """
+    extra = workflow_run.extra or {}
+    user_recording_key = get_recording_storage_key(extra, "user")
+    bot_recording_key = get_recording_storage_key(extra, "bot")
+
     context = {
         # Top-level fields
         "workflow_run_id": workflow_run.id,
@@ -353,6 +358,7 @@ def _build_render_context(
         "cost_info": workflow_run.usage_info or {},
         # Annotations (includes QA results)
         "annotations": workflow_run.annotations or {},
+        "extra": extra,
     }
 
     # Add public download URLs if token is available
@@ -366,9 +372,17 @@ def _build_render_context(
         context["transcript_url"] = (
             f"{base_url}/transcript" if workflow_run.transcript_url else None
         )
+        context["user_recording_url"] = (
+            f"{base_url}/user_recording" if user_recording_key else None
+        )
+        context["bot_recording_url"] = (
+            f"{base_url}/bot_recording" if bot_recording_key else None
+        )
     else:
         context["recording_url"] = workflow_run.recording_url
         context["transcript_url"] = workflow_run.transcript_url
+        context["user_recording_url"] = user_recording_key
+        context["bot_recording_url"] = bot_recording_key
 
     return context
 

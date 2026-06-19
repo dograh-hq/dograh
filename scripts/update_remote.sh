@@ -71,10 +71,10 @@ if [[ -z "${FASTAPI_WORKERS:-}" ]]; then
     if [[ -t 0 ]]; then
         echo ""
         echo -e "${YELLOW}FASTAPI_WORKERS not set in .env. Number of uvicorn workers nginx will load-balance:${NC}"
-        read -p "[4]: " FASTAPI_WORKERS
-        FASTAPI_WORKERS="${FASTAPI_WORKERS:-4}"
+        read -p "[2]: " FASTAPI_WORKERS
+        FASTAPI_WORKERS="${FASTAPI_WORKERS:-2}"
     else
-        FASTAPI_WORKERS="4"
+        FASTAPI_WORKERS="2"
     fi
 fi
 

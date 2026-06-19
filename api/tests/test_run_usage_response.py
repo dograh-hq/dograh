@@ -1,4 +1,4 @@
-from api.services.pricing.run_usage_response import format_public_usage_info
+from api.services.workflow.run_usage_response import format_public_usage_info
 
 
 def test_format_public_usage_info():

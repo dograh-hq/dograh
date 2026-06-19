@@ -270,6 +270,12 @@ class TestDispatcherThreadsTelephonyConfig:
                 "api.services.campaign.campaign_call_dispatcher.get_backend_endpoints",
                 AsyncMock(return_value=("https://example.com", None)),
             ),
+            patch(
+                "api.services.campaign.campaign_call_dispatcher.authorize_workflow_run_start",
+                AsyncMock(
+                    return_value=SimpleNamespace(has_quota=True, error_message="")
+                ),
+            ),
         ):
             mock_db.get_workflow_by_id = AsyncMock(return_value=SimpleNamespace(id=1))
             mock_db.create_workflow_run = AsyncMock(return_value=workflow_run)

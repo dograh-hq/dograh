@@ -8,7 +8,7 @@ interface ApiKeyErrorDialogProps {
     onOpenChange: (open: boolean) => void;
     error: string | null;
     errorCode: string | null;
-    onNavigateToCredits: () => void;
+    onNavigateToBilling: () => void;
     onNavigateToModelConfig: () => void;
 }
 
@@ -17,15 +17,16 @@ export const ApiKeyErrorDialog = ({
     onOpenChange,
     error,
     errorCode,
-    onNavigateToCredits,
+    onNavigateToBilling,
     onNavigateToModelConfig,
 }: ApiKeyErrorDialogProps) => {
-    const isQuotaError = errorCode === 'quota_exceeded';
+    const isBillingCreditsError = errorCode === 'insufficient_credits';
+    const isQuotaError = isBillingCreditsError || errorCode === 'quota_exceeded';
 
     const title = isQuotaError ? "Insufficient Credits" : "API Configuration Error";
     const icon = isQuotaError ? <CreditCard className="h-5 w-5 text-orange-500" /> : <Key className="h-5 w-5 text-red-500" />;
-    const buttonText = isQuotaError ? "Add Credits" : "Go to Model Configurations";
-    const onNavigate = isQuotaError ? onNavigateToCredits : onNavigateToModelConfig;
+    const buttonText = isBillingCreditsError ? "Go to Billing" : "Go to Model Configurations";
+    const onNavigate = isBillingCreditsError ? onNavigateToBilling : onNavigateToModelConfig;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -40,9 +41,9 @@ export const ApiKeyErrorDialog = ({
                             <AlertCircle className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
                             <div className="text-sm space-y-1">
                                 <p className="font-medium text-foreground">{error}</p>
-                                {isQuotaError && (
+                                {isBillingCreditsError && (
                                     <p className="text-muted-foreground">
-                                        Your Dograh service credits are too low to start a call.
+                                        Purchase credits from Billing to continue using Dograh-managed models.
                                     </p>
                                 )}
                             </div>

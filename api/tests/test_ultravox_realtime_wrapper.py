@@ -10,7 +10,7 @@ from pipecat.processors.frame_processor import FrameDirection
 from websockets.exceptions import ConnectionClosedError
 from websockets.frames import Close
 
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import UltravoxRealtimeLLMConfiguration
 from api.services.pipecat.realtime.ultravox_realtime import (
     _RESUMPTION_USER_MESSAGE,
@@ -430,7 +430,7 @@ async def test_receive_messages_reports_unexpected_websocket_close():
 
 
 def test_factory_creates_dograh_ultravox_realtime_service():
-    user_config = UserConfiguration(
+    effective_config = EffectiveAIModelConfiguration(
         is_realtime=True,
         realtime=UltravoxRealtimeLLMConfiguration(
             provider="ultravox_realtime",
@@ -441,7 +441,7 @@ def test_factory_creates_dograh_ultravox_realtime_service():
     )
 
     service = create_realtime_llm_service(
-        user_config,
+        effective_config,
         audio_config=SimpleNamespace(),
     )
 

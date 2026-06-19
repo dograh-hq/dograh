@@ -53,7 +53,7 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
     for run in runs:
         initial = run.initial_context or {}
         gathered = run.gathered_context or {}
-        cost = run.cost_info or {}
+        usage = run.usage_info or {}
 
         call_tags = gathered.get("call_tags", [])
         if isinstance(call_tags, list):
@@ -67,7 +67,7 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
             run.created_at.isoformat() if run.created_at else "",
             initial.get("phone_number", ""),
             gathered.get("mapped_call_disposition", ""),
-            cost.get("call_duration_seconds", ""),
+            usage.get("call_duration_seconds", ""),
         ]
 
         extracted = gathered.get("extracted_variables", {})

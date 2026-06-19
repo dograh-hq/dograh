@@ -6,6 +6,23 @@ description: Set up the Dograh contributor environment with the devcontainer-fir
 If the steps below do not work for you, please open an issue on [GitHub](https://github.com/dograh-hq/dograh/issues).
 </Note>
 
+<Tip>
+**Using Claude Code or Codex?** Install the official Dograh setup skill and let your agent walk you through the contributor setup — it covers both the devcontainer and host-managed paths, runs Dograh's own scripts, and verifies the stack is healthy.
+
+<CodeGroup>
+```text Claude Code
+/plugin marketplace add dograh-hq/dograh-plugins
+/plugin install dograh@dograh
+```
+```text Codex
+codex plugin marketplace add dograh-hq/dograh-plugins
+codex plugin add dograh@dograh
+```
+</CodeGroup>
+
+Start a new session, then ask it to *"set up Dograh for development"* (or run `/dograh-setup develop` in Claude Code). More at [dograh-hq/dograh-plugins](https://github.com/dograh-hq/dograh-plugins).
+</Tip>
+
 ### Recommended: Devcontainer Setup
 
 #### System Requirements

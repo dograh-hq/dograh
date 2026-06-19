@@ -141,9 +141,13 @@ class SmartVoicemailOrchestrator:
             amd = None
         else:
             screening_ncco = provider.build_human_hold_ncco(f"svhold-{workflow_run_id}")
-            # beep_timeout is required in [30, 120] whenever
-            # advanced_machine_detection is present (Vonage 400s otherwise).
-            amd = {"behavior": "continue", "mode": "default", "beep_timeout": 45}
+            # mode "detect" = SYNCHRONOUS detection: AMD analyzes the clean
+            # answered leg and fires the human/machine webhook BEFORE the NCCO
+            # (the hold-conference join) runs. Async "default" lets the
+            # conference join run during analysis, which disrupts AMD and makes
+            # it misfire "machine" on a real human. beep_timeout is required in
+            # [30,120] whenever advanced_machine_detection is present.
+            amd = {"behavior": "continue", "mode": "detect", "beep_timeout": 45}
 
         state: Dict[str, Any] = {
             "organization_id": organization_id,

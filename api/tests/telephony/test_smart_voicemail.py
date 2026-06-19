@@ -223,7 +223,7 @@ async def test_start_vonage_detection_uses_amd_and_hold_conf():
     kw = prov.place_call_with_ncco.await_args.kwargs
     assert kw["advanced_machine_detection"] == {
         "behavior": "continue",
-        "mode": "default",
+        "mode": "detect",
         "beep_timeout": 45,
     }
     # Human leg holds in a silent conference (not our websocket).

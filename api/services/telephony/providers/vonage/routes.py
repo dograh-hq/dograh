@@ -130,8 +130,10 @@ async def handle_vonage_smart_voicemail_events(
     set_current_run_id(workflow_run_id)
     event_data = await request.json()
     status = (event_data or {}).get("status", "")
+    # Log the full payload — on failure Vonage carries the reason/detail here.
     logger.info(
-        f"[run {workflow_run_id}] smart-voicemail screening event: {status}"
+        f"[run {workflow_run_id}] smart-voicemail screening event: {status} "
+        f"| payload={event_data}"
     )
 
     orchestrator = get_smart_voicemail_orchestrator()

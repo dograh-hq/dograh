@@ -33,12 +33,12 @@ function NodeSection({
     title,
     specs,
     onNodeSelect,
-    disableTriggers,
+    nodeTypeCounts,
 }: {
     title: string;
     specs: NodeSpec[];
     onNodeSelect: (nodeType: NodeType) => void;
-    disableTriggers: boolean;
+    nodeTypeCounts: Map<string, number>;
 }) {
     if (specs.length === 0) return null;
     return (
@@ -49,7 +49,11 @@ function NodeSection({
             <div className="space-y-2">
                 {specs.map((spec) => {
                     const Icon = resolveIcon(spec.icon);
-                    const disabled = disableTriggers && spec.category === 'trigger';
+                    const maxInstances = spec.graph_constraints?.max_instances;
+                    const disabled =
+                        maxInstances !== undefined &&
+                        maxInstances !== null &&
+                        (nodeTypeCounts.get(spec.name) ?? 0) >= maxInstances;
                     return (
                         <Button
                             key={spec.name}
@@ -57,7 +61,11 @@ function NodeSection({
                             className="w-full justify-start p-4 h-auto hover:bg-accent/50 transition-colors"
                             onClick={() => onNodeSelect(spec.name as NodeType)}
                             disabled={disabled}
-                            title={disabled ? 'A trigger already exists in this workflow' : undefined}
+                            title={
+                                disabled
+                                    ? `${spec.display_name} limit reached for this workflow`
+                                    : undefined
+                            }
                         >
                             <div className="flex items-center">
                                 <div className="bg-muted p-2 rounded-lg mr-3 border border-border">
@@ -81,7 +89,7 @@ function NodeSection({
 }
 
 export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: AddNodePanelProps) {
-    const { specs, bySpecName } = useNodeSpecs();
+    const { specs } = useNodeSpecs();
 
     // Group registered specs by category, preserving the SECTION_ORDER.
     // Adding a new node type with a new spec.category just shows up here.
@@ -92,10 +100,13 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: A
         }));
     }, [specs]);
 
-    const hasTrigger = useMemo(
-        () => nodes.some((n) => bySpecName.get(n.type)?.category === 'trigger'),
-        [nodes, bySpecName],
-    );
+    const nodeTypeCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        nodes.forEach((node) => {
+            counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+        });
+        return counts;
+    }, [nodes]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -139,7 +150,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: A
                             title={title}
                             specs={specs}
                             onNodeSelect={onNodeSelect}
-                            disableTriggers={hasTrigger}
+                            nodeTypeCounts={nodeTypeCounts}
                         />
                     ))}
                 </div>

@@ -42,15 +42,15 @@ async def test_whole_call_qa_tolerates_array_llm_response():
             "resolve_llm_config",
             new=AsyncMock(return_value=("openai", "gpt-4o", "sk-test", {})),
         ),
-        patch.object(qa_analysis, "create_llm_service_from_provider", return_value=object()),
+        patch.object(
+            qa_analysis, "create_llm_service_from_provider", return_value=object()
+        ),
         patch.object(
             qa_analysis,
             "_run_llm_inference",
             new=AsyncMock(return_value='["tag1", "tag2"]'),
         ),
-        patch.object(
-            qa_analysis, "setup_langfuse_parent_context", return_value=None
-        ),
+        patch.object(qa_analysis, "setup_langfuse_parent_context", return_value=None),
         patch.object(qa_analysis, "add_qa_span_to_trace", return_value=None),
         patch.object(qa_analysis.logger, "warning", warning_mock),
     ):

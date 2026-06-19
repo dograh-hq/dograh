@@ -243,6 +243,8 @@ class GraphConstraints(BaseModel):
     max_incoming: Optional[int] = None
     min_outgoing: Optional[int] = None
     max_outgoing: Optional[int] = None
+    min_instances: Optional[int] = None
+    max_instances: Optional[int] = None
 
     model_config = ConfigDict(extra="forbid")
 

@@ -114,7 +114,7 @@ export const useWorkflowState = ({
 
     // Spec catalog. Workflow init waits on this to populate defaults; node
     // creation looks up per-type schemas through it.
-    const { bySpecName, loading: specsLoading } = useNodeSpecs();
+    const { specs, bySpecName, loading: specsLoading } = useNodeSpecs();
 
     // Get state and actions from the store
     const {
@@ -307,11 +307,22 @@ export const useWorkflowState = ({
         // This avoids a race condition where rfInstance.toObject() may return
         // stale node data if React hasn't re-rendered yet after a store update.
         const { nodes: currentNodes, edges: currentEdges } = useWorkflowStore.getState();
-        const triggerCount = currentNodes.filter(
-            (n) => bySpecName.get(n.type)?.category === 'trigger',
-        ).length;
-        if (triggerCount > 1) {
-            toast.error('A workflow can only have one trigger. Remove the extra trigger node before saving.');
+        const nodeTypeCounts = new Map<string, number>();
+        currentNodes.forEach((node) => {
+            nodeTypeCounts.set(node.type, (nodeTypeCounts.get(node.type) ?? 0) + 1);
+        });
+        const maxInstanceViolation = specs.find((spec) => {
+            const maxInstances = spec.graph_constraints?.max_instances;
+            return (
+                maxInstances !== undefined &&
+                maxInstances !== null &&
+                (nodeTypeCounts.get(spec.name) ?? 0) > maxInstances
+            );
+        });
+        if (maxInstanceViolation) {
+            toast.error(
+                `${maxInstanceViolation.display_name} limit reached. Remove the extra node before saving.`,
+            );
             return;
         }
         const viewport = rfInstance.current.getViewport();
@@ -380,7 +391,7 @@ export const useWorkflowState = ({
         user,
         validateWorkflow,
         applyWorkflowErrors,
-        bySpecName,
+        specs,
     ]);
 
     // Set up keyboard shortcut for save (Cmd/Ctrl + S)

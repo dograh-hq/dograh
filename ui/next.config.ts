@@ -8,20 +8,35 @@ const nextConfig: NextConfig = {
     serverSourceMaps: true,
   },
   async rewrites() {
-    return [
-      {
-        source: "/ingest/static/:path*",
-        destination: "https://us-assets.i.posthog.com/static/:path*",
-      },
-      {
-        source: "/ingest/:path*",
-        destination: "https://us.i.posthog.com/:path*",
-      },
-      {
-        source: "/ingest/decide",
-        destination: "https://us.i.posthog.com/decide",
-      },
-    ];
+    return {
+      // beforeFiles runs before Next.js route handlers, so the WebSocket
+      // signaling path is proxied straight to the backend instead of being
+      // swallowed by api/v1/[...path]/route.ts — a Route Handler that proxies
+      // HTTP fine but CANNOT upgrade WebSocket connections. The pre-1.34.0
+      // /api proxy *rewrite* used to carry this upgrade; removing it broke all
+      // local web calls (dograh #425). Scoped to /ws/ so HTTP /api/v1 still
+      // flows through the route handler (auth/cookie handling intact).
+      beforeFiles: [
+        {
+          source: "/api/v1/ws/:path*",
+          destination: `${process.env.BACKEND_URL || 'http://localhost:8000'}/api/v1/ws/:path*`,
+        },
+      ],
+      afterFiles: [
+        {
+          source: "/ingest/static/:path*",
+          destination: "https://us-assets.i.posthog.com/static/:path*",
+        },
+        {
+          source: "/ingest/:path*",
+          destination: "https://us.i.posthog.com/:path*",
+        },
+        {
+          source: "/ingest/decide",
+          destination: "https://us.i.posthog.com/decide",
+        },
+      ],
+    };
   },
   // This is required to support PostHog trailing slash API requests
   skipTrailingSlashRedirect: true,

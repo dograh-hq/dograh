@@ -512,7 +512,7 @@ class MPSServiceKeyClient:
             if response.status_code == 200:
                 return response.json()
 
-            logger.error(
+            logger.warning(
                 "Failed to authorize MPS workflow run start: "
                 f"{response.status_code} - {response.text}"
             )

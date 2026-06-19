@@ -15,5 +15,12 @@ Please note that you must copy and keep the API key secretly, since this is the 
 ### Service Keys
 Service Keys are the keys which you generate to be used in [Model Configurations](inference-providers). In order to generate that, you can go to `/api-keys` and create a new key. 
 
+<Note>
+You can use a Service Key created in Dograh Cloud (`https://app.dograh.com/api-keys`) in your self-hosted Dograh deployment. Create the Service Key from your Dograh Cloud account, then paste it into **Model Configurations** in your self-hosted instance to use Dograh-managed inference providers. You can purchase Dograh credits in Dograh Cloud; billing happens on the Cloud account that owns the Service Key.
+</Note>
+
 ![Create a new Service Key](../images/service-keys.png)
 
+<Warning>
+Service Keys are scoped to the Dograh Cloud account that created them. You cannot use a Service Key from one cloud-hosted account in another cloud-hosted account; create a new Service Key from the account where you want to use it.
+</Warning>

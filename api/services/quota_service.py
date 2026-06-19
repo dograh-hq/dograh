@@ -37,6 +37,12 @@ BILLING_V2_QUOTA_EXCEEDED_MESSAGE = (
     "or change providers in Models configurations."
 )
 
+SERVICE_TOKEN_ORG_MISMATCH_MESSAGE = (
+    "The Dograh service token being used is created from another account. "
+    "Please create a new service token from the Developers tab and use it in "
+    "your model configuration."
+)
+
 
 @dataclass
 class QuotaCheckResult:
@@ -96,6 +102,26 @@ def _dograh_api_keys(user_config: Any) -> set[str]:
         if api_key:
             api_keys.add(api_key)
     return api_keys
+
+
+def _is_service_key_org_mismatch_error(error: Exception) -> bool:
+    response = getattr(error, "response", None)
+    if getattr(response, "status_code", None) != 403:
+        return False
+
+    detail: Any = None
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            detail = payload.get("detail")
+    except Exception:
+        detail = None
+
+    if isinstance(detail, str):
+        return detail.lower() == "service key organization mismatch"
+
+    response_text = getattr(response, "text", "")
+    return "Service key organization mismatch" in response_text
 
 
 async def _store_run_correlation_id(
@@ -173,11 +199,20 @@ async def _authorize_hosted_workflow_run_start(
             },
         )
     except Exception as e:
-        logger.error(
+        logger.warning(
             "Failed to authorize workflow start with MPS for org {}: {}",
             organization_id,
             e,
         )
+        if _is_service_key_org_mismatch_error(e):
+            return (
+                QuotaCheckResult(
+                    has_quota=False,
+                    error_code="service_key_org_mismatch",
+                    error_message=SERVICE_TOKEN_ORG_MISMATCH_MESSAGE,
+                ),
+                True,
+            )
         return (
             QuotaCheckResult(
                 has_quota=False,

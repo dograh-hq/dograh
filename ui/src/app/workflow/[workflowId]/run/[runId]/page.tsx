@@ -408,10 +408,6 @@ function RunMetricsSection({
             </CardHeader>
             <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 <MetricCard label="Duration" value={formatDuration(costInfo?.call_duration_seconds)} />
-                <MetricCard
-                    label="Token Usage"
-                    value={costInfo?.dograh_token_usage != null ? costInfo.dograh_token_usage.toLocaleString() : 'N/A'}
-                />
                 <MetricCard label="User Turns" value={String(metrics.userTurns)} />
                 <MetricCard label="Bot Turns" value={String(metrics.botTurns)} />
                 <MetricCard label="Tool Calls" value={String(metrics.toolCalls)} />

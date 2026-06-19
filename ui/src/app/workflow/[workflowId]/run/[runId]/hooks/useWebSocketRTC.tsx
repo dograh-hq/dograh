@@ -33,6 +33,7 @@ const HANDLED_SERVICE_ERROR_TYPES = new Set([
     'quota_exceeded',
     'insufficient_credits',
     'invalid_service_key',
+    'service_key_org_mismatch',
     'quota_check_failed',
 ]);
 

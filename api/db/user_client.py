@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from loguru import logger
 from pydantic import ValidationError
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
@@ -29,8 +30,6 @@ class UserClient(BaseDBClient):
 
             # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING
             # This is atomic and handles race conditions at the database level
-            from sqlalchemy.dialects.postgresql import insert
-
             stmt = insert(UserModel.__table__).values(
                 provider_id=provider_id,
                 created_at=datetime.now(timezone.utc),
@@ -88,21 +87,22 @@ class UserClient(BaseDBClient):
     ) -> dict:
         """Create or update the JSON value stored for a user under `key`."""
         async with self.async_session() as session:
-            row = await self._get_user_configuration_row(session, user_id, key)
-            if row:
-                row.configuration = value
-            else:
-                row = UserConfigurationModel(
-                    user_id=user_id, key=key, configuration=value
-                )
-                session.add(row)
+            stmt = insert(UserConfigurationModel.__table__).values(
+                user_id=user_id,
+                key=key,
+                configuration=value,
+            )
+            stmt = stmt.on_conflict_do_update(
+                constraint="_user_configuration_key_uc",
+                set_={"configuration": stmt.excluded.configuration},
+            ).returning(UserConfigurationModel.configuration)
             try:
+                result = await session.execute(stmt)
                 await session.commit()
             except Exception as e:
                 await session.rollback()
                 raise e
-            await session.refresh(row)
-            return row.configuration
+            return result.scalar_one()
 
     async def get_user_configurations(
         self, user_id: int

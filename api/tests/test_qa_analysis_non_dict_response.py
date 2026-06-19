@@ -9,7 +9,7 @@ empty results.
 """
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -29,6 +29,7 @@ async def test_whole_call_qa_tolerates_array_llm_response():
         },
         usage_info={"call_duration_seconds": 12},
     )
+    warning_mock = Mock()
 
     with (
         patch.object(
@@ -51,6 +52,7 @@ async def test_whole_call_qa_tolerates_array_llm_response():
             qa_analysis, "setup_langfuse_parent_context", return_value=None
         ),
         patch.object(qa_analysis, "add_qa_span_to_trace", return_value=None),
+        patch.object(qa_analysis.logger, "warning", warning_mock),
     ):
         # Before the fix this raised AttributeError: 'list' object has no
         # attribute 'get'.
@@ -62,3 +64,9 @@ async def test_whole_call_qa_tolerates_array_llm_response():
     assert node_result["tags"] == []
     assert node_result["summary"] == ""
     assert node_result["score"] is None
+    warning_mock.assert_called_once()
+    warning_message = warning_mock.call_args.args[0]
+    assert "non-object JSON" in warning_message
+    assert "run 99" in warning_message
+    assert "list" in warning_message
+    assert "tag1" not in warning_message

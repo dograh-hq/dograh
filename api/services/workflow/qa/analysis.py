@@ -210,6 +210,11 @@ async def run_per_node_qa_analysis(
             # top-level JSON array); coerce non-dict results so the .get()
             # lookups below don't raise AttributeError.
             if not isinstance(parsed, dict):
+                logger.warning(
+                    f"QA LLM returned non-object JSON for node '{node_name}' "
+                    f"on run {workflow_run_id}; got {type(parsed).__name__}, "
+                    "using empty QA result"
+                )
                 parsed = {}
             node_result["tags"] = parsed.get("tags", [])
             node_result["summary"] = parsed.get("summary", "")
@@ -305,6 +310,11 @@ async def _run_whole_call_qa_analysis(
         # top-level JSON array); coerce non-dict results so the .get()
         # lookups below don't raise AttributeError.
         if not isinstance(parsed, dict):
+            logger.warning(
+                f"QA LLM returned non-object JSON for whole-call QA on run "
+                f"{workflow_run_id}; got {type(parsed).__name__}, using empty "
+                "QA result"
+            )
             parsed = {}
         node_result["tags"] = parsed.get("tags", [])
         node_result["summary"] = parsed.get("summary", "")

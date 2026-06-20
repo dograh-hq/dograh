@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
 from api.services import quota_service
@@ -281,6 +282,69 @@ async def test_authorize_workflow_run_managed_v2_stores_hosted_correlation(
             "existing": "value",
             MPS_CORRELATION_ID_CONTEXT_KEY: "mps-corr-123",
         },
+    )
+
+
+@pytest.mark.asyncio
+async def test_authorize_workflow_run_service_token_from_wrong_org_prompts_new_token(
+    monkeypatch,
+):
+    api_key = "mps_sk_12345678"
+    get_config = AsyncMock(
+        return_value=_dograh_config(api_key, managed_service_version=2)
+    )
+    request = httpx.Request(
+        "POST",
+        "http://localhost:8004/api/v1/billing/accounts/42/run-authorization",
+    )
+    response = httpx.Response(
+        403,
+        json={"detail": "Service key organization mismatch"},
+        request=request,
+    )
+    authorize = AsyncMock(
+        side_effect=httpx.HTTPStatusError(
+            "Failed to authorize MPS workflow run start",
+            request=request,
+            response=response,
+        )
+    )
+
+    monkeypatch.setattr(quota_service, "DEPLOYMENT_MODE", "saas")
+    _patch_workflow_context(monkeypatch)
+    monkeypatch.setattr(
+        quota_service,
+        "get_effective_ai_model_configuration_for_workflow",
+        get_config,
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_workflow_run_start",
+        authorize,
+    )
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "check_service_key_usage",
+        AsyncMock(),
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7,
+        workflow_run_id=88,
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "service_key_org_mismatch"
+    assert result.error_message == quota_service.SERVICE_TOKEN_ORG_MISMATCH_MESSAGE
+    assert "new service token from the Developers tab" in result.error_message
+    authorize.assert_awaited_once_with(
+        organization_id=42,
+        workflow_run_id=88,
+        service_key=api_key,
+        require_correlation_id=True,
+        minimum_credits=quota_service.MINIMUM_DOGRAH_CREDITS_FOR_CALL,
+        created_by="provider-123",
+        metadata={"dograh_user_id": "123", "workflow_id": 7},
     )
 
 

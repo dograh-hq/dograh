@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "call": "tsx --env-file=.env fetch_workflow_and_call.ts",
-    "create": "tsx --env-file=.env create_workflow.ts"
+    "create": "tsx --env-file=.env create_workflow.ts",
+    "build": "tsx --env-file=.env build_workflow_with_sdk.ts",
+    "edit": "tsx --env-file=.env load_and_edit_workflow.ts"
   },
   "dependencies": {
     "@dograh/sdk": "latest"

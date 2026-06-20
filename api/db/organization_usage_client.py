@@ -18,8 +18,9 @@ from api.db.models import (
     WorkflowModel,
     WorkflowRunModel,
 )
-from api.enums import OrganizationConfigurationKey
+from api.enums import OrganizationConfigurationKey, UserConfigurationKey
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class OrganizationUsageClient(BaseDBClient):
@@ -226,6 +227,9 @@ class OrganizationUsageClient(BaseDBClient):
                     "call_duration_seconds": int(round(call_duration)),
                     "recording_url": run.recording_url,
                     "transcript_url": run.transcript_url,
+                    "user_recording_url": get_recording_storage_key(run.extra, "user"),
+                    "bot_recording_url": get_recording_storage_key(run.extra, "bot"),
+                    "extra": run.extra,
                     "public_access_token": run.public_access_token,
                     "phone_number": phone_number,
                     "caller_number": caller_number,
@@ -343,7 +347,9 @@ class OrganizationUsageClient(BaseDBClient):
             if user_id:
                 config_result = await session.execute(
                     select(UserConfigurationModel).where(
-                        UserConfigurationModel.user_id == user_id
+                        UserConfigurationModel.user_id == user_id,
+                        UserConfigurationModel.key
+                        == UserConfigurationKey.MODEL_CONFIGURATION.value,
                     )
                 )
                 config_obj = config_result.scalar_one_or_none()

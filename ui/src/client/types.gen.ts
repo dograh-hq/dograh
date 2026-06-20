@@ -499,6 +499,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & AwsBedrockLlmConfiguration) | ({
         provider: 'speaches';
     } & SpeachesLlmConfiguration) | ({
+        provider: 'huggingface';
+    } & HuggingFaceLlmConfiguration) | ({
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
@@ -517,6 +519,8 @@ export type ByokPipelineAiModelConfiguration = {
     } & ElevenlabsTtsConfiguration) | ({
         provider: 'cartesia';
     } & CartesiaTtsConfiguration) | ({
+        provider: 'inworld';
+    } & InworldTtsConfiguration) | ({
         provider: 'dograh';
     } & DograhTtsService) | ({
         provider: 'sarvam';
@@ -530,7 +534,9 @@ export type ByokPipelineAiModelConfiguration = {
         provider: 'minimax';
     } & MiniMaxTtsConfiguration) | ({
         provider: 'azure_speech';
-    } & AzureSpeechTtsConfiguration);
+    } & AzureSpeechTtsConfiguration) | ({
+        provider: 'smallest';
+    } & SmallestAittsConfiguration);
     /**
      * Stt
      */
@@ -551,12 +557,16 @@ export type ByokPipelineAiModelConfiguration = {
     } & SarvamSttConfiguration) | ({
         provider: 'speaches';
     } & SpeachesSttConfiguration) | ({
+        provider: 'huggingface';
+    } & HuggingFaceSttConfiguration) | ({
         provider: 'assemblyai';
     } & AssemblyAisttConfiguration) | ({
         provider: 'gladia';
     } & GladiaSttConfiguration) | ({
         provider: 'azure_speech';
-    } & AzureSpeechSttConfiguration);
+    } & AzureSpeechSttConfiguration) | ({
+        provider: 'smallest';
+    } & SmallestAisttConfiguration);
     /**
      * Embeddings
      */
@@ -613,6 +623,8 @@ export type ByokRealtimeAiModelConfiguration = {
     } & AwsBedrockLlmConfiguration) | ({
         provider: 'speaches';
     } & SpeachesLlmConfiguration) | ({
+        provider: 'huggingface';
+    } & HuggingFaceLlmConfiguration) | ({
         provider: 'minimax';
     } & MiniMaxLlmConfiguration) | ({
         provider: 'sarvam';
@@ -1068,6 +1080,12 @@ export type CartesiaTtsConfiguration = {
      * Volume multiplier for generated speech.
      */
     volume?: number;
+    /**
+     * Language
+     *
+     * Cartesia language code for TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').
+     */
+    language?: string;
 };
 
 /**
@@ -1769,7 +1787,7 @@ export type DeepgramSttConfiguration = {
     /**
      * Language
      *
-     * Language code; 'multi' enables auto-detect (Nova-3 only).
+     * Language code. 'multi' enables Nova-3 auto-detect and omits language hints for Flux multilingual auto-detect.
      */
     language?: string;
 };
@@ -2730,6 +2748,14 @@ export type GraphConstraints = {
      * Max Outgoing
      */
     max_outgoing?: number | null;
+    /**
+     * Min Instances
+     */
+    min_instances?: number | null;
+    /**
+     * Max Instances
+     */
+    max_instances?: number | null;
 };
 
 /**
@@ -2820,6 +2846,14 @@ export type HealthResponse = {
      * Force Turn Relay
      */
     force_turn_relay: boolean;
+    /**
+     * Stack Project Id
+     */
+    stack_project_id?: string | null;
+    /**
+     * Stack Publishable Client Key
+     */
+    stack_publishable_client_key?: string | null;
 };
 
 /**
@@ -2914,6 +2948,80 @@ export type HttpApiToolDefinition = {
      * HTTP API configuration.
      */
     config: HttpApiConfig;
+};
+
+/**
+ * Hugging Face
+ *
+ * Hosted Hugging Face Inference Providers API for usage-based inference.
+ */
+export type HuggingFaceLlmConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'huggingface';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Hugging Face chat-completion model identifier, optionally with provider suffix.
+     */
+    model?: string;
+    /**
+     * Base Url
+     *
+     * Hugging Face OpenAI-compatible chat-completions router base URL.
+     */
+    base_url?: string;
+    /**
+     * Bill To
+     *
+     * Optional Hugging Face organization or user to bill using X-HF-Bill-To.
+     */
+    bill_to?: string | null;
+};
+
+/**
+ * Hugging Face
+ *
+ * Hosted Hugging Face Inference Providers API for usage-based inference.
+ */
+export type HuggingFaceSttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'huggingface';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Hugging Face ASR model identifier served through Inference Providers.
+     */
+    model?: string;
+    /**
+     * Base Url
+     *
+     * Hugging Face Inference Providers router base URL.
+     */
+    base_url?: string;
+    /**
+     * Bill To
+     *
+     * Optional Hugging Face organization or user to bill using X-HF-Bill-To.
+     */
+    bill_to?: string | null;
+    /**
+     * Return Timestamps
+     *
+     * Request timestamp chunks when supported by the selected provider/model.
+     */
+    return_timestamps?: boolean;
 };
 
 /**
@@ -3013,6 +3121,52 @@ export type InitiateCallRequest = {
      * From Phone Number Id
      */
     from_phone_number_id?: number | null;
+};
+
+/**
+ * Inworld
+ *
+ * Inworld AI streaming text-to-speech with built-in and cloned voices. Defaults to the Ashley system voice on inworld-tts-2.
+ */
+export type InworldTtsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'inworld';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Inworld TTS model.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Inworld voice ID. Use Ashley for the default warm English voice, or a workspace voice ID for a cloned/custom voice.
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * BCP-47 language code for synthesis.
+     */
+    language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier.
+     */
+    speed?: number;
+    /**
+     * Delivery Mode
+     *
+     * Controls stability versus expressiveness for inworld-tts-2 (STABLE, BALANCED, or CREATIVE).
+     */
+    delivery_mode?: 'STABLE' | 'BALANCED' | 'CREATIVE';
 };
 
 /**
@@ -3535,6 +3689,61 @@ export type NodeTypesResponse = {
      * Node Types
      */
     node_types: Array<NodeSpec>;
+};
+
+/**
+ * OnboardingState
+ *
+ * Per-user onboarding state, stored under UserConfigurationKey.ONBOARDING.
+ *
+ * Server-authoritative replacement for the browser-localStorage onboarding
+ * store, so the post-signup gate and one-time tooltips hold across devices.
+ */
+export type OnboardingState = {
+    /**
+     * Completed At
+     */
+    completed_at?: string | null;
+    /**
+     * Skipped
+     */
+    skipped?: boolean;
+    /**
+     * Seen Tooltips
+     */
+    seen_tooltips?: Array<string>;
+    /**
+     * Completed Actions
+     */
+    completed_actions?: Array<string>;
+};
+
+/**
+ * OnboardingStateUpdate
+ *
+ * Partial update merged into the stored state.
+ *
+ * Scalars overwrite when supplied; list entries are unioned into the stored
+ * lists, so concurrent updates (e.g. two tabs marking different tooltips)
+ * don't drop each other's items.
+ */
+export type OnboardingStateUpdate = {
+    /**
+     * Completed At
+     */
+    completed_at?: string | null;
+    /**
+     * Skipped
+     */
+    skipped?: boolean | null;
+    /**
+     * Seen Tooltips
+     */
+    seen_tooltips?: Array<string> | null;
+    /**
+     * Completed Actions
+     */
+    completed_actions?: Array<string> | null;
 };
 
 /**
@@ -4661,7 +4870,7 @@ export type SarvamTtsConfiguration = {
     /**
      * Voice
      *
-     * Sarvam voice name; must match the selected model's voice list.
+     * Sarvam voice name or custom voice ID.
      */
     voice?: string;
     /**
@@ -4670,6 +4879,12 @@ export type SarvamTtsConfiguration = {
      * BCP-47 Indian-language code (e.g. hi-IN, en-IN).
      */
     language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier.
+     */
+    speed?: number;
 };
 
 /**
@@ -4766,6 +4981,74 @@ export type SignupRequest = {
      * Name
      */
     name?: string | null;
+};
+
+/**
+ * Smallest AI
+ *
+ * Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.
+ */
+export type SmallestAisttConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'smallest';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Smallest AI STT model. Supports 38 languages with real-time streaming.
+     */
+    model?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code for transcription.
+     */
+    language?: string;
+};
+
+/**
+ * Smallest AI
+ *
+ * Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.
+ */
+export type SmallestAittsConfiguration = {
+    /**
+     * Provider
+     */
+    provider?: 'smallest';
+    /**
+     * Api Key
+     */
+    api_key: string | Array<string>;
+    /**
+     * Model
+     *
+     * Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.
+     */
+    model?: string;
+    /**
+     * Voice
+     *
+     * Smallest AI voice ID. Available voices differ by model: lightning_v3.1 has a broad multilingual pool; lightning_v3.1_pro has premium American, British, and Indian accent voices (English + Hindi only).
+     */
+    voice?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code for synthesis.
+     */
+    language?: string;
+    /**
+     * Speed
+     *
+     * Speech speed multiplier (0.5 to 2.0).
+     */
+    speed?: number;
 };
 
 /**
@@ -6361,6 +6644,14 @@ export type WorkflowRunResponseSchema = {
      */
     recording_url: string | null;
     /**
+     * User Recording Url
+     */
+    user_recording_url?: string | null;
+    /**
+     * Bot Recording Url
+     */
+    bot_recording_url?: string | null;
+    /**
      * Transcript Public Url
      */
     transcript_public_url?: string | null;
@@ -6368,6 +6659,14 @@ export type WorkflowRunResponseSchema = {
      * Recording Public Url
      */
     recording_public_url?: string | null;
+    /**
+     * User Recording Public Url
+     */
+    user_recording_public_url?: string | null;
+    /**
+     * Bot Recording Public Url
+     */
+    bot_recording_public_url?: string | null;
     /**
      * Public Access Token
      */
@@ -6528,6 +6827,14 @@ export type WorkflowRunUsageResponse = {
      */
     transcript_url?: string | null;
     /**
+     * User Recording Url
+     */
+    user_recording_url?: string | null;
+    /**
+     * Bot Recording Url
+     */
+    bot_recording_url?: string | null;
+    /**
      * Recording Public Url
      */
     recording_public_url?: string | null;
@@ -6535,6 +6842,14 @@ export type WorkflowRunUsageResponse = {
      * Transcript Public Url
      */
     transcript_public_url?: string | null;
+    /**
+     * User Recording Public Url
+     */
+    user_recording_public_url?: string | null;
+    /**
+     * Bot Recording Public Url
+     */
+    bot_recording_public_url?: string | null;
     /**
      * Public Access Token
      */
@@ -8562,6 +8877,84 @@ export type UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponses = {
 };
 
 export type UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponse = UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponses[keyof UpdateUserConfigurationsApiV1UserConfigurationsUserPutResponses];
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/user/onboarding-state';
+};
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetError = GetUserOnboardingStateApiV1UserOnboardingStateGetErrors[keyof GetUserOnboardingStateApiV1UserOnboardingStateGetErrors];
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: OnboardingState;
+};
+
+export type GetUserOnboardingStateApiV1UserOnboardingStateGetResponse = GetUserOnboardingStateApiV1UserOnboardingStateGetResponses[keyof GetUserOnboardingStateApiV1UserOnboardingStateGetResponses];
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutData = {
+    body: OnboardingStateUpdate;
+    headers?: {
+        /**
+         * Authorization
+         */
+        authorization?: string | null;
+        /**
+         * X-Api-Key
+         */
+        'X-API-Key'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/user/onboarding-state';
+};
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutError = UpdateUserOnboardingStateApiV1UserOnboardingStatePutErrors[keyof UpdateUserOnboardingStateApiV1UserOnboardingStatePutErrors];
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponses = {
+    /**
+     * Successful Response
+     */
+    200: OnboardingState;
+};
+
+export type UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponse = UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponses[keyof UpdateUserOnboardingStateApiV1UserOnboardingStatePutResponses];
 
 export type ValidateUserConfigurationsApiV1UserConfigurationsUserValidateGetData = {
     body?: never;
@@ -12331,7 +12724,7 @@ export type DownloadWorkflowArtifactApiV1PublicDownloadWorkflowTokenArtifactType
         /**
          * Artifact Type
          */
-        artifact_type: 'recording' | 'transcript';
+        artifact_type: string;
     };
     query?: {
         /**

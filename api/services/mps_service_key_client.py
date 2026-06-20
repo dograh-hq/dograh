@@ -512,7 +512,7 @@ class MPSServiceKeyClient:
             if response.status_code == 200:
                 return response.json()
 
-            logger.error(
+            logger.warning(
                 "Failed to authorize MPS workflow run start: "
                 f"{response.status_code} - {response.text}"
             )
@@ -601,16 +601,15 @@ class MPSServiceKeyClient:
                 if response.status_code == 200:
                     return response.json()
 
-                should_retry = (
-                    response.status_code == 409
-                    and "usage_not_ready" in response.text
-                    and attempt < max_attempts
+                usage_not_ready = (
+                    response.status_code == 409 and "usage_not_ready" in response.text
                 )
-                if should_retry:
+                if usage_not_ready and attempt < max_attempts:
                     await asyncio.sleep(attempt)
                     continue
 
-                logger.error(
+                log = logger.warning if usage_not_ready else logger.error
+                log(
                     "Failed to report platform usage: "
                     f"{response.status_code} - {response.text}"
                 )

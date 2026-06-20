@@ -164,6 +164,17 @@ services:
       # from this value and nginx load-balances across them with least_conn.
       FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
 
+      # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
+      # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches
+      # uvicorn from a Docker-network IP (not loopback), but uvicorn trusts only
+      # 127.0.0.1 by default — so without this it ignores the header, request.url
+      # comes back as http://…, and inbound webhook signature checks fail for
+      # every provider at once (telephony providers sign the public https URL, so
+      # the recomputed signature won't match). "*" trusts all peers; the api port
+      # (8000) is published, so firewall/harden it at the host — or narrow this
+      # to your Docker bridge subnet — if that exposure matters to you.
+      FORWARDED_ALLOW_IPS: "*"
+
       # Langfuse — credentials can be set here or per-organization via the UI
       # at /settings. Tracing is automatically active when credentials are
       # available; uncomment to set defaults for all organizations.
@@ -211,9 +222,13 @@ services:
   ui:
     image: ${REGISTRY:-dograhai}/dograh-ui:latest
     environment:
+      # Bind the Next.js standalone server to all interfaces
+      HOSTNAME: "0.0.0.0"
+
       # Server-side URL (SSR, internal Docker network)
       BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
       NODE_ENV: "oss"
+
       # Flag to enable/ disable posthog
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
 
@@ -229,7 +244,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:3010 || exit 1",
         ]
       interval: 30s
       timeout: 10s

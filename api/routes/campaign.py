@@ -375,7 +375,7 @@ async def create_campaign(
         if workflow_def:
             try:
                 dto = ReactFlowDTO(**workflow_def)
-                graph = WorkflowGraph(dto)
+                graph = WorkflowGraph(dto, skip_instance_constraints_for={"trigger"})
                 required_vars = graph.get_required_template_variables()
 
                 if (

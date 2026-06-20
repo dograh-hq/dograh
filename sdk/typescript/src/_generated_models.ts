@@ -536,6 +536,10 @@ export interface components {
             min_outgoing?: number | null;
             /** Max Outgoing */
             max_outgoing?: number | null;
+            /** Min Instances */
+            min_instances?: number | null;
+            /** Max Instances */
+            max_instances?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {

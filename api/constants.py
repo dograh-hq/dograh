@@ -30,6 +30,12 @@ CORS_ALLOWED_ORIGINS = [
     o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
 ]
 AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
+# Stack Auth public client config. These are safe to expose to the browser (the
+# publishable client key is public by design, and the project id is non-sensitive),
+# and are served to the UI at runtime via /api/v1/health so the frontend no longer
+# needs them baked into the bundle at build time.
+STACK_AUTH_PROJECT_ID = os.getenv("STACK_AUTH_PROJECT_ID")
+STACK_PUBLISHABLE_CLIENT_KEY = os.getenv("STACK_PUBLISHABLE_CLIENT_KEY")
 DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 

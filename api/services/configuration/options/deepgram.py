@@ -1,4 +1,21 @@
-DEEPGRAM_STT_MODELS = ("nova-3-general", "flux-general-en", "flux-general-multi")
+DEEPGRAM_FLUX_MODELS = ("flux-general-en", "flux-general-multi")
+DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES = (
+    "de",
+    "en",
+    "es",
+    "fr",
+    "hi",
+    "it",
+    "ja",
+    "nl",
+    "pt",
+    "ru",
+)
+DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS = (
+    "multi",
+    *DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
+)
+DEEPGRAM_STT_MODELS = ("nova-3-general", *DEEPGRAM_FLUX_MODELS)
 DEEPGRAM_LANGUAGES = (
     "multi",
     "ar",

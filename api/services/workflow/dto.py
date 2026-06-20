@@ -196,7 +196,12 @@ class _ToolDocumentRefsMixin(BaseModel):
             },
         )
     ],
-    graph_constraints=GraphConstraints(min_incoming=0, max_incoming=0),
+    graph_constraints=GraphConstraints(
+        min_incoming=0,
+        max_incoming=0,
+        min_instances=1,
+        max_instances=1,
+    ),
     property_order=(
         "name",
         "greeting_type",
@@ -539,6 +544,7 @@ class EndCallNodeData(
         max_incoming=0,
         min_outgoing=0,
         max_outgoing=0,
+        max_instances=1,
     ),
     property_order=("name", "prompt"),
     field_overrides={
@@ -597,7 +603,11 @@ class GlobalNodeData(BaseNodeData, _PromptedNodeDataMixin):
     examples=[
         NodeExample(name="default", data={"name": "Inbound Trigger", "enabled": True})
     ],
-    graph_constraints=GraphConstraints(min_incoming=0, max_incoming=0),
+    graph_constraints=GraphConstraints(
+        min_incoming=0,
+        max_incoming=0,
+        max_instances=1,
+    ),
     property_order=("name", "enabled", "trigger_path"),
     field_overrides={
         "name": {
@@ -718,6 +728,8 @@ class TriggerNodeData(BaseNodeData):
                 "rsvp": "{{gathered_context.rsvp}}",
                 "duration": "{{cost_info.call_duration_seconds}}",
                 "recording_url": "{{recording_url}}",
+                "user_recording_url": "{{user_recording_url}}",
+                "bot_recording_url": "{{bot_recording_url}}",
                 "transcript_url": "{{transcript_url}}",
             },
         },

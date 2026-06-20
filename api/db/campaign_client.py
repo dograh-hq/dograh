@@ -10,6 +10,7 @@ from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_cl
 from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
+from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class CampaignClient(BaseDBClient):
@@ -45,9 +46,11 @@ class CampaignClient(BaseDBClient):
                 source_id=source_id,
                 created_by=user_id,
                 organization_id=organization_id,
-                retry_config=retry_config
-                if retry_config
-                else CampaignModel.retry_config.default.arg,
+                retry_config=(
+                    retry_config
+                    if retry_config
+                    else CampaignModel.retry_config.default.arg
+                ),
                 orchestrator_metadata=orchestrator_metadata,
                 telephony_configuration_id=telephony_configuration_id,
             )
@@ -216,6 +219,12 @@ class CampaignClient(BaseDBClient):
                         "is_completed": run.is_completed,
                         "recording_url": run.recording_url,
                         "transcript_url": run.transcript_url,
+                        "user_recording_url": get_recording_storage_key(
+                            run.extra, "user"
+                        ),
+                        "bot_recording_url": get_recording_storage_key(
+                            run.extra, "bot"
+                        ),
                         "cost_info": format_public_cost_info(
                             run.cost_info, run.usage_info
                         ),
@@ -270,9 +279,11 @@ class CampaignClient(BaseDBClient):
                 source_id=parent_campaign.source_id,
                 created_by=parent_campaign.created_by,
                 organization_id=parent_campaign.organization_id,
-                retry_config=retry_config
-                if retry_config
-                else CampaignModel.retry_config.default.arg,
+                retry_config=(
+                    retry_config
+                    if retry_config
+                    else CampaignModel.retry_config.default.arg
+                ),
                 orchestrator_metadata=child_meta,
                 rate_limit_per_second=parent_campaign.rate_limit_per_second,
                 total_rows=len(queued_runs_data),
@@ -338,8 +349,7 @@ class CampaignClient(BaseDBClient):
         # Retries create new queued_runs with suffixed source_uuids linked via
         # parent_queued_run_id, so group by the ROOT queued_run using a
         # recursive walk and pick the latest workflow_run across the tree.
-        sql = text(
-            f"""
+        sql = text(f"""
             WITH RECURSIVE run_tree AS (
                 SELECT id AS root_id, id AS run_id
                 FROM queued_runs
@@ -366,8 +376,7 @@ class CampaignClient(BaseDBClient):
             JOIN latest_run_per_root lr ON lr.root_id = q0.id
             WHERE q0.campaign_id = :cid
               AND ({tag_filter})
-            """
-        )
+            """)
 
         async with self.async_session() as session:
             result = await session.execute(sql, {"cid": campaign_id})

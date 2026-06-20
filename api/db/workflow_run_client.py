@@ -17,6 +17,7 @@ from api.db.models import (
 from api.enums import CallType, StorageBackend
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.services.workflow.run_usage_response import format_public_cost_info
+from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class WorkflowRunClient(BaseDBClient):
@@ -188,13 +189,19 @@ class WorkflowRunClient(BaseDBClient):
                         "workflow_name": run.workflow.name if run.workflow else None,
                         "user_id": run.workflow.user_id if run.workflow else None,
                         "organization_id": organization.id if organization else None,
-                        "organization_name": organization.provider_id
-                        if organization
-                        else None,
+                        "organization_name": (
+                            organization.provider_id if organization else None
+                        ),
                         "mode": run.mode,
                         "is_completed": run.is_completed,
                         "recording_url": run.recording_url,
                         "transcript_url": run.transcript_url,
+                        "user_recording_url": get_recording_storage_key(
+                            run.extra, "user"
+                        ),
+                        "bot_recording_url": get_recording_storage_key(
+                            run.extra, "bot"
+                        ),
                         "usage_info": run.usage_info,
                         "cost_info": run.cost_info,
                         "initial_context": run.initial_context,
@@ -313,6 +320,12 @@ class WorkflowRunClient(BaseDBClient):
                         "is_completed": run.is_completed,
                         "recording_url": run.recording_url,
                         "transcript_url": run.transcript_url,
+                        "user_recording_url": get_recording_storage_key(
+                            run.extra, "user"
+                        ),
+                        "bot_recording_url": get_recording_storage_key(
+                            run.extra, "bot"
+                        ),
                         "cost_info": format_public_cost_info(
                             run.cost_info, run.usage_info
                         ),
@@ -340,6 +353,7 @@ class WorkflowRunClient(BaseDBClient):
         logs: dict | None = None,
         state: str | None = None,
         annotations: dict | None = None,
+        extra: dict | None = None,
     ) -> WorkflowRunModel:
         async with self.async_session() as session:
             # Use SELECT FOR UPDATE to lock the row during the update
@@ -362,7 +376,12 @@ class WorkflowRunClient(BaseDBClient):
             if cost_info:
                 run.cost_info = cost_info
             if initial_context:
-                run.initial_context = initial_context
+                # Merge initial context patches so independent call-start/runtime
+                # writers do not erase keys stored earlier in the run lifecycle.
+                run.initial_context = {
+                    **(run.initial_context or {}),
+                    **initial_context,
+                }
             if gathered_context:
                 # Lets merge the incoming gathered context keys with the existing ones
                 run.gathered_context = {
@@ -374,6 +393,8 @@ class WorkflowRunClient(BaseDBClient):
                 run.logs = {**run.logs, **logs}
             if annotations:
                 run.annotations = {**run.annotations, **annotations}
+            if extra:
+                run.extra = {**run.extra, **extra}
             if is_completed:
                 run.is_completed = is_completed
             if state:

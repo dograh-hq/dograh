@@ -37,7 +37,7 @@ RUN --mount=type=bind,source=api/requirements.txt,target=/tmp/req.txt \
 #      sys.prefix/nltk_data, so it travels with the venv on COPY.
 RUN --mount=type=bind,source=pipecat,target=/tmp/pipecat,rw \
     --mount=type=cache,target=/root/.cache/uv \
-    uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp]' \
+    uv pip install '/tmp/pipecat[cartesia,deepgram,openai,elevenlabs,groq,google,azure,sarvam,soundfile,silero,webrtc,speechmatics,openrouter,camb,mcp,inworld,smallest]' \
  && uv pip uninstall opencv-python \
  && uv pip install opencv-python-headless \
  && python -c "import nltk; nltk.download('punkt_tab', download_dir='/opt/venv/nltk_data', quiet=True)"

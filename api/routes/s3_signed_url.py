@@ -40,14 +40,22 @@ class PresignedUploadUrlResponse(BaseModel):
 router = APIRouter(prefix="/s3", tags=["s3"])
 
 
+ORG_SCOPED_STORAGE_PREFIXES = ("campaigns", "knowledge_base")
+
+
 def _extract_org_id_from_key(key: str) -> Optional[int]:
     """Try to extract an organization ID from a storage key.
 
-    Matches keys of the form ``{prefix}/{org_id}/...`` where *org_id* is a
-    positive integer.  Returns ``None`` when the pattern does not match.
+    Matches known org-scoped keys of the form ``{prefix}/{org_id}/...`` where
+    *org_id* is a positive integer. Returns ``None`` when the pattern does not
+    match.
     """
     parts = key.split("/")
-    if len(parts) >= 3 and parts[1].isdigit():
+    if (
+        len(parts) >= 3
+        and parts[0] in ORG_SCOPED_STORAGE_PREFIXES
+        and parts[1].isdigit()
+    ):
         return int(parts[1])
     return None
 
@@ -58,15 +66,20 @@ def _extract_legacy_workflow_run_id(key: str) -> Optional[int]:
     Supports:
       - ``transcripts/{run_id}.txt``
       - ``recordings/{run_id}.wav``
+      - ``recordings/{run_id}/user.wav``
+      - ``recordings/{run_id}/bot.wav``
 
     Returns ``None`` when the key does not match a legacy pattern.
     """
     if key.startswith("transcripts/") and key.endswith(".txt"):
         run_id_str = key[len("transcripts/") : -4]
-    elif key.startswith("recordings/") and key.endswith(".wav"):
-        run_id_str = key[len("recordings/") : -4]
     else:
-        return None
+        recording_match = re.fullmatch(
+            r"recordings/(\d+)(?:\.wav|/(?:user|bot)\.wav)", key
+        )
+        if not recording_match:
+            return None
+        run_id_str = recording_match.group(1)
 
     return int(run_id_str) if run_id_str.isdigit() else None
 
@@ -89,8 +102,13 @@ async def _validate_and_extract_workflow_run_id(
     """
     if key.startswith("transcripts/") and key.endswith(".txt"):
         run_id_str = key[len("transcripts/") : -4]  # strip prefix & suffix
-    elif key.startswith("recordings/") and key.endswith(".wav"):
-        run_id_str = key[len("recordings/") : -4]
+    elif key.startswith("recordings/"):
+        run_id = _extract_legacy_workflow_run_id(key)
+        if run_id is None:
+            raise HTTPException(
+                status_code=400, detail="Invalid workflow_run_id in key"
+            )
+        return run_id
     elif allow_special_paths and key.startswith("voicemail_detections/"):
         return None  # Skip validation for these paths
     else:
@@ -159,9 +177,9 @@ async def get_signed_url(
     """Return a short-lived signed URL for a file stored on S3 / MinIO.
 
     Access Control:
-    * Keys that embed an organization ID (``{prefix}/{org_id}/...``) are
-      authorized by matching the org_id against the requesting user's
-      organization.
+    * Known org-scoped keys (for example ``campaigns/{org_id}/...`` and
+      ``knowledge_base/{org_id}/...``) are authorized by matching the org_id
+      against the requesting user's organization.
     * Legacy keys (``recordings/{run_id}.wav``, ``transcripts/{run_id}.txt``)
       are authorized via the workflow run they belong to.
     * Superusers can request any key.

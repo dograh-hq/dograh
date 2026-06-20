@@ -201,7 +201,7 @@ async def execute_pending_text_chat_turn(
             error_message=str(e),
         )
         raise TextChatSessionExecutionError(
-            "Failed to execute text chat assistant turn"
+            f"Failed to execute text chat assistant turn: {e}"
         ) from e
 
     completed_session_data = normalize_text_chat_session_data(text_session.session_data)

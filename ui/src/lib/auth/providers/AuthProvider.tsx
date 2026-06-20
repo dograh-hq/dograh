@@ -42,31 +42,57 @@ const LoadingFallback = (
   </div>
 );
 
+interface ResolvedAuthConfig {
+  provider: string;
+  // Public Stack client config, fetched from the backend at runtime. Null unless
+  // the provider is 'stack' and the backend supplied both values.
+  stack: { projectId: string; publishableClientKey: string } | null;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [authProvider, setAuthProvider] = useState<string | null>(null);
+  const [config, setConfig] = useState<ResolvedAuthConfig | null>(null);
 
   useEffect(() => {
     fetch('/api/config/auth')
       .then((res) => res.json())
       .then((data) => {
         logger.debug(`Setting auth provider as ${data.provider}`)
-        setAuthProvider(data.provider || 'stack')
-  })
+        setConfig({
+          provider: data.provider || 'local',
+          stack:
+            data.stackProjectId && data.stackPublishableClientKey
+              ? {
+                  projectId: data.stackProjectId,
+                  publishableClientKey: data.stackPublishableClientKey,
+                }
+              : null,
+        })
+      })
       .catch((e) => {
         logger.error(`Got error ${e} while setting auth provider`)
-        setAuthProvider('local')
+        setConfig({ provider: 'local', stack: null })
       });
   }, []);
 
-  if (!authProvider) {
+  if (!config) {
     return LoadingFallback;
   }
 
   // For Stack provider, use the dedicated wrapper
-  if (authProvider === 'stack') {
+  if (config.provider === 'stack') {
+    if (!config.stack) {
+      logger.error(
+        'Auth provider is "stack" but the backend returned no Stack client config. ' +
+        'Ensure STACK_AUTH_PROJECT_ID and STACK_PUBLISHABLE_CLIENT_KEY are set on the API service.'
+      );
+      return LoadingFallback;
+    }
     return (
       <Suspense fallback={LoadingFallback}>
-        <StackProviderWrapper>
+        <StackProviderWrapper
+          projectId={config.stack.projectId}
+          publishableClientKey={config.stack.publishableClientKey}
+        >
           {children}
         </StackProviderWrapper>
       </Suspense>

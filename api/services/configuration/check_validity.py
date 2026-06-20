@@ -1,5 +1,6 @@
 from typing import Optional, TypedDict
 
+import httpx
 import openai
 from deepgram import DeepgramClient
 from groq import Groq
@@ -38,6 +39,7 @@ class UserConfigurationValidator:
             ServiceProviders.DEEPGRAM.value: self._check_deepgram_api_key,
             ServiceProviders.GROQ.value: self._check_groq_api_key,
             ServiceProviders.OPENROUTER.value: self._check_openrouter_api_key,
+            ServiceProviders.INWORLD.value: self._check_inworld_api_key,
             ServiceProviders.ELEVENLABS.value: self._validate_elevenlabs_api_key,
             ServiceProviders.GOOGLE.value: self._check_google_api_key,
             ServiceProviders.AZURE.value: self._check_azure_api_key,
@@ -49,6 +51,7 @@ class UserConfigurationValidator:
             ServiceProviders.CAMB.value: self._check_camb_api_key,
             ServiceProviders.AWS_BEDROCK.value: self._check_aws_bedrock_api_key,
             ServiceProviders.SPEACHES.value: self._check_speaches_api_key,
+            ServiceProviders.HUGGINGFACE.value: self._check_huggingface_api_key,
             ServiceProviders.GOOGLE_VERTEX.value: self._check_google_vertex_llm_api_key,
             ServiceProviders.OPENAI_REALTIME.value: self._check_openai_api_key,
             ServiceProviders.GROK_REALTIME.value: self._check_grok_realtime_api_key,
@@ -60,6 +63,7 @@ class UserConfigurationValidator:
             ServiceProviders.GLADIA.value: self._check_gladia_api_key,
             ServiceProviders.RIME.value: self._check_rime_api_key,
             ServiceProviders.MINIMAX.value: self._check_minimax_api_key,
+            ServiceProviders.SMALLEST.value: self._check_smallest_api_key,
         }
 
     async def validate(
@@ -343,6 +347,32 @@ class UserConfigurationValidator:
     def _check_openrouter_api_key(self, model: str, api_key: str) -> bool:
         return True
 
+    def _check_inworld_api_key(self, model: str, api_key: str) -> bool:
+        try:
+            response = httpx.get(
+                "https://api.inworld.ai/voices/v1/voices",
+                headers={"Authorization": f"Basic {api_key}"},
+                params={"pageSize": 1},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+            return True
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 403):
+                raise ValueError(
+                    "Invalid Inworld API key. The key was rejected by the Inworld API. "
+                    "Please verify that your API key is correct, active, and has voice read access."
+                ) from exc
+            raise ValueError(
+                "The Inworld API returned an error while validating the API key. "
+                "Please try again later."
+            ) from exc
+        except httpx.RequestError as exc:
+            raise ValueError(
+                "Could not connect to the Inworld API. Please check your network connection "
+                "and try again."
+            ) from exc
+
     def _check_grok_realtime_api_key(self, model: str, api_key: str) -> bool:
         return True
 
@@ -358,6 +388,14 @@ class UserConfigurationValidator:
     def _check_speaches_api_key(self, model: str, service_config) -> bool:
         if not getattr(service_config, "base_url", None):
             raise ValueError("base_url is required for Speaches services")
+        return True
+
+    def _check_huggingface_api_key(self, model: str, api_key: str) -> bool:
+        if not api_key.startswith("hf_"):
+            raise ValueError(
+                "Invalid Hugging Face API token format. Use a token that starts with "
+                "'hf_' and has Inference Providers permission."
+            )
         return True
 
     def _check_google_vertex_realtime_api_key(self, model: str, service_config) -> bool:
@@ -389,6 +427,7 @@ class UserConfigurationValidator:
         return True
 
     def _check_minimax_api_key(self, model: str, api_key: str) -> bool:
-        # MiniMax doesn't publish a cheap key-validation endpoint; trust the key
-        # at save time and surface auth errors at first call (same as Rime/Sarvam).
+        return True
+
+    def _check_smallest_api_key(self, model: str, api_key: str) -> bool:
         return True

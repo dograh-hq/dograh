@@ -8,6 +8,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 
 from api.db.models import WorkflowRunModel
 from api.services.gen_ai.json_parser import parse_llm_json
+from api.services.managed_model_services import get_mps_correlation_id
 from api.services.pipecat.service_factory import create_llm_service_from_provider
 from api.services.workflow.dto import QANodeData
 from api.services.workflow.qa.conversation import (
@@ -132,8 +133,15 @@ async def run_per_node_qa_analysis(
     # Set up Langfuse tracing
     parent_ctx = setup_langfuse_parent_context(workflow_run)
 
-    # Build LLM service
-    llm = create_llm_service_from_provider(provider, model, api_key, **service_kwargs)
+    # Build LLM service. Reuse the run's MPS correlation id (minted at run
+    # start, persisted on initial_context) so managed-model-services calls carry
+    # billing-v2 markers — orgs on billing v2 reject managed calls that lack them.
+    mps_correlation_id = get_mps_correlation_id(
+        getattr(workflow_run, "initial_context", None)
+    )
+    llm = create_llm_service_from_provider(
+        provider, model, api_key, correlation_id=mps_correlation_id, **service_kwargs
+    )
 
     node_results: dict[str, Any] = {}
     prior_conversation: list[dict] = []  # Running accumulation of all prior nodes
@@ -206,6 +214,16 @@ async def run_per_node_qa_analysis(
         }
         try:
             parsed = parse_llm_json(raw_response)
+            # parse_llm_json can return a list (e.g. when the model emits a
+            # top-level JSON array); coerce non-dict results so the .get()
+            # lookups below don't raise AttributeError.
+            if not isinstance(parsed, dict):
+                logger.warning(
+                    f"QA LLM returned non-object JSON for node '{node_name}' "
+                    f"on run {workflow_run_id}; got {type(parsed).__name__}, "
+                    "using empty QA result"
+                )
+                parsed = {}
             node_result["tags"] = parsed.get("tags", [])
             node_result["summary"] = parsed.get("summary", "")
             node_result["score"] = parsed.get("call_quality_score")
@@ -280,8 +298,14 @@ async def _run_whole_call_qa_analysis(
         {"role": "user", "content": f"## Transcript\n{transcript}"},
     ]
 
-    # Call LLM
-    llm = create_llm_service_from_provider(provider, model, api_key, **service_kwargs)
+    # Build LLM service. Reuse the run's MPS correlation id so managed-model
+    # calls carry billing-v2 markers (see run_per_node_qa_analysis).
+    mps_correlation_id = get_mps_correlation_id(
+        getattr(workflow_run, "initial_context", None)
+    )
+    llm = create_llm_service_from_provider(
+        provider, model, api_key, correlation_id=mps_correlation_id, **service_kwargs
+    )
 
     try:
         raw_response = await _run_llm_inference(llm, messages, system_content)
@@ -296,6 +320,16 @@ async def _run_whole_call_qa_analysis(
     }
     try:
         parsed = parse_llm_json(raw_response)
+        # parse_llm_json can return a list (e.g. when the model emits a
+        # top-level JSON array); coerce non-dict results so the .get()
+        # lookups below don't raise AttributeError.
+        if not isinstance(parsed, dict):
+            logger.warning(
+                f"QA LLM returned non-object JSON for whole-call QA on run "
+                f"{workflow_run_id}; got {type(parsed).__name__}, using empty "
+                "QA result"
+            )
+            parsed = {}
         node_result["tags"] = parsed.get("tags", [])
         node_result["summary"] = parsed.get("summary", "")
         node_result["score"] = parsed.get("call_quality_score")

@@ -5,6 +5,7 @@ import pytest
 
 from api.services import workflow_run_billing as workflow_run_billing_mod
 from api.services.workflow_run_billing import (
+    _is_usage_not_ready_error,
     report_completed_workflow_run_platform_usage,
     report_workflow_run_platform_usage,
 )
@@ -22,6 +23,16 @@ def _make_workflow_run():
             user=SimpleNamespace(selected_organization_id=42),
         ),
     )
+
+
+def test_is_usage_not_ready_error_detects_mps_409():
+    exc = Exception("Failed to report platform usage")
+    exc.response = SimpleNamespace(
+        status_code=409,
+        text='{"detail":"usage_not_ready"}',
+    )
+
+    assert _is_usage_not_ready_error(exc) is True
 
 
 @pytest.mark.asyncio

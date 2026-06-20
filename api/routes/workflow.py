@@ -15,7 +15,7 @@ from api.db import db_client
 from api.db.agent_trigger_client import TriggerPathConflictError
 from api.db.models import UserModel
 from api.db.workflow_template_client import WorkflowTemplateClient
-from api.enums import CallType, PostHogEvent, StorageBackend
+from api.enums import CallType, PostHogEvent, StorageBackend, WorkflowStatus
 from api.schemas.ai_model_configuration import OrganizationAIModelConfigurationV2
 from api.schemas.workflow import WorkflowRunResponseSchema
 from api.sdk_expose import sdk_expose
@@ -58,8 +58,15 @@ from api.services.workflow.trigger_paths import (
     trigger_path_to_node_id,
     validate_trigger_paths,
 )
-from api.services.workflow.workflow_graph import WorkflowGraph
+from api.services.workflow.workflow_graph import (
+    WorkflowGraph,
+    validate_node_instance_constraints,
+)
 from api.utils.artifacts import artifact_url
+from api.utils.recording_artifacts import (
+    get_recording_storage_key,
+    has_recording_track,
+)
 
 router = APIRouter(prefix="/workflow")
 
@@ -185,6 +192,27 @@ def _validation_errors_http_exception(
     return HTTPException(
         status_code=status_code,
         detail=ValidateWorkflowResponse(is_valid=False, errors=errors).model_dump(),
+    )
+
+
+def _node_instance_validation_errors(
+    workflow_definition: Optional[dict],
+) -> list[WorkflowError]:
+    """Validate spec-driven max_instances without requiring a complete draft."""
+    if not workflow_definition:
+        return []
+    nodes = workflow_definition.get("nodes")
+    if not isinstance(nodes, list):
+        return []
+
+    node_types = [
+        node.get("type")
+        for node in nodes
+        if isinstance(node, dict) and isinstance(node.get("type"), str)
+    ]
+    return validate_node_instance_constraints(
+        node_types,
+        enforce_min_instances=False,
     )
 
 
@@ -380,6 +408,9 @@ async def create_workflow(
     trigger_path_issues = validate_trigger_paths(workflow_definition)
     if trigger_path_issues:
         raise _trigger_path_validation_http_exception(trigger_path_issues)
+    instance_errors = _node_instance_validation_errors(workflow_definition)
+    if instance_errors:
+        raise _validation_errors_http_exception(instance_errors)
 
     # Validate trigger path uniqueness BEFORE creating the workflow so we
     # don't leave an orphaned workflow record when the trigger conflicts.
@@ -574,6 +605,31 @@ async def get_workflow_count(
     )
 
 
+def _validate_status_filter(status: Optional[str]) -> List[str]:
+    """Parse and validate a workflow ``status`` query filter.
+
+    Accepts a single value or a comma-separated list. Returns the list of
+    validated status values (empty when no filter was supplied). Any value
+    outside the ``workflow_status`` enum raises 422 so the request fails as a
+    clean client error instead of a 500 from the Postgres enum cast.
+    """
+    if status is None or status == "":
+        return []
+    allowed = {s.value for s in WorkflowStatus}
+    requested = [s.strip() for s in status.split(",")]
+    invalid = sorted({s for s in requested if s not in allowed})
+    if invalid:
+        invalid_display = ["<empty>" if s == "" else s for s in invalid]
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Invalid workflow status filter: {invalid_display}. "
+                f"Allowed values: {sorted(allowed)}."
+            ),
+        )
+    return requested
+
+
 @router.get(
     "/fetch",
     **sdk_expose(
@@ -593,21 +649,22 @@ async def get_workflows(
     Returns a lightweight response with only essential fields for listing.
     Use GET /workflow/fetch/{workflow_id} to get full workflow details.
     """
-    # Handle comma-separated status values
-    if status and "," in status:
-        # Split comma-separated values and fetch workflows for each status
-        status_list = [s.strip() for s in status.split(",")]
+    statuses = _validate_status_filter(status)
+    if statuses:
+        # Fetch workflows for each requested status and combine the results.
         all_workflows = []
-        for status_value in status_list:
-            workflows = await db_client.get_all_workflows_for_listing(
-                organization_id=user.selected_organization_id, status=status_value
+        for status_value in statuses:
+            all_workflows.extend(
+                await db_client.get_all_workflows_for_listing(
+                    organization_id=user.selected_organization_id,
+                    status=status_value,
+                )
             )
-            all_workflows.extend(workflows)
         workflows = all_workflows
     else:
-        # Single status or no status filter
+        # No status filter
         workflows = await db_client.get_all_workflows_for_listing(
-            organization_id=user.selected_organization_id, status=status
+            organization_id=user.selected_organization_id, status=None
         )
 
     # Get run counts for all workflows in a single query
@@ -816,10 +873,20 @@ async def get_workflows_summary(
     ),
 ) -> List[WorkflowSummaryResponse]:
     """Get minimal workflow information (id and name only) for all workflows"""
-    workflows = await db_client.get_all_workflows(
-        organization_id=user.selected_organization_id,
-        status=status,
-    )
+    statuses = _validate_status_filter(status)
+    if statuses:
+        workflows = []
+        for status_value in statuses:
+            workflows.extend(
+                await db_client.get_all_workflows(
+                    organization_id=user.selected_organization_id,
+                    status=status_value,
+                )
+            )
+    else:
+        workflows = await db_client.get_all_workflows(
+            organization_id=user.selected_organization_id, status=None
+        )
     return [
         WorkflowSummaryResponse(id=workflow.id, name=workflow.name)
         for workflow in workflows
@@ -950,6 +1017,9 @@ async def update_workflow(
         trigger_path_issues = validate_trigger_paths(workflow_definition)
         if trigger_path_issues:
             raise _trigger_path_validation_http_exception(trigger_path_issues)
+        instance_errors = _node_instance_validation_errors(workflow_definition)
+        if instance_errors:
+            raise _validation_errors_http_exception(instance_errors, status_code=409)
         if workflow_definition:
             existing_workflow = await db_client.get_workflow(
                 workflow_id, organization_id=user.selected_organization_id
@@ -1255,7 +1325,16 @@ async def get_workflow_run(
         raise HTTPException(status_code=404, detail="Workflow run not found")
 
     public_access_token = run.public_access_token
-    if (run.transcript_url or run.recording_url) and not public_access_token:
+    user_recording_url = get_recording_storage_key(run.extra, "user")
+    bot_recording_url = get_recording_storage_key(run.extra, "bot")
+    has_user_recording = has_recording_track(run.extra, "user")
+    has_bot_recording = has_recording_track(run.extra, "bot")
+    if (
+        run.transcript_url
+        or run.recording_url
+        or has_user_recording
+        or has_bot_recording
+    ) and not public_access_token:
         public_access_token = await db_client.ensure_public_access_token(run.id)
 
     return {
@@ -1266,8 +1345,20 @@ async def get_workflow_run(
         "is_completed": run.is_completed,
         "transcript_url": run.transcript_url,
         "recording_url": run.recording_url,
+        "user_recording_url": user_recording_url,
+        "bot_recording_url": bot_recording_url,
         "transcript_public_url": artifact_url(public_access_token, "transcript"),
         "recording_public_url": artifact_url(public_access_token, "recording"),
+        "user_recording_public_url": (
+            artifact_url(public_access_token, "user_recording")
+            if has_user_recording
+            else None
+        ),
+        "bot_recording_public_url": (
+            artifact_url(public_access_token, "bot_recording")
+            if has_bot_recording
+            else None
+        ),
         "public_access_token": public_access_token,
         "cost_info": format_public_cost_info(run.cost_info, run.usage_info),
         "usage_info": format_public_usage_info(run.usage_info),

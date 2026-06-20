@@ -84,6 +84,17 @@
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
 ```
 
+> **⚡ 想让 AI 智能体帮你完成部署?**
+> 如果你使用 **Claude Code** 或 **Codex**,可以安装官方的 [Dograh 部署技能(skill)](https://github.com/dograh-hq/dograh-plugins),让智能体替你完成安装、配置与排障——它会识别你的操作系统、选择合适的部署方式、运行 Dograh 自带的部署脚本并验证结果。
+>
+> ```text
+> # 在 Claude Code 中
+> /plugin marketplace add dograh-hq/dograh-plugins
+> /plugin install dograh@dograh
+> ```
+>
+> 然后开启一个新会话,让它 _"set up Dograh"_(或运行 `/dograh-setup`)。Codex 同样支持——详见[插件仓库](https://github.com/dograh-hq/dograh-plugins#install)。
+
 > **提示**
 > 首次启动需要 2-3 分钟拉取所有镜像。启动完成后,打开 http://localhost:3010 即可创建你的第一个 AI 语音助手!
 > 常见问题及解决方案请参见 🔧 **[故障排查](docs/troubleshooting.md)**。

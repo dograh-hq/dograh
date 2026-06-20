@@ -5,6 +5,7 @@ from pydantic import model_validator
 from api.services.integrations.base import IntegrationNodeRegistration
 from api.services.workflow.node_data import BaseNodeData
 from api.services.workflow.node_specs._base import (
+    DisplayOptions,
     GraphConstraints,
     NodeCategory,
     NodeExample,
@@ -15,6 +16,9 @@ from api.services.workflow.node_specs.model_spec import (
     node_spec,
     spec_field,
 )
+
+# Cost rate fields are only shown once the user turns on cost calculation.
+_COST_FIELDS_VISIBLE = DisplayOptions(show={"cost_calculation_enabled": [True]})
 
 
 @node_spec(
@@ -48,6 +52,14 @@ from api.services.workflow.node_specs.model_spec import (
         "tuner_agent_id",
         "tuner_workspace_id",
         "tuner_api_key",
+        "cost_calculation_enabled",
+        "cost_llm_input_rate",
+        "cost_llm_cached_input_rate",
+        "cost_llm_output_rate",
+        "cost_tts_rate",
+        "cost_stt_rate",
+        "cost_telephony_rate",
+        "cost_extra",
     ),
     field_overrides={
         "name": {
@@ -101,6 +113,83 @@ class TunerNodeData(BaseNodeData):
         ui_type=PropertyType.string,
         display_name="Tuner API Key",
         description="Bearer token used when posting completed calls to Tuner.",
+    )
+
+    cost_calculation_enabled: bool = spec_field(
+        default=False,
+        ui_type=PropertyType.boolean,
+        display_name="Calculate cost",
+        description="Send a per-call cost to Tuner, computed from your own provider rates (BYOK). All rates below are optional.",
+    )
+    cost_llm_input_rate: float | None = spec_field(
+        default=None,
+        ge=0,
+        le=1000,
+        ui_type=PropertyType.number,
+        display_name="LLM input",
+        description="USD per 1M tokens",
+        display_options=_COST_FIELDS_VISIBLE,
+        extra={"layout": "half"},
+    )
+    cost_llm_cached_input_rate: float | None = spec_field(
+        default=None,
+        ge=0,
+        le=1000,
+        ui_type=PropertyType.number,
+        display_name="LLM cached input",
+        description="USD per 1M cached tokens",
+        display_options=_COST_FIELDS_VISIBLE,
+        extra={"layout": "half"},
+    )
+    cost_llm_output_rate: float | None = spec_field(
+        default=None,
+        ge=0,
+        le=1000,
+        ui_type=PropertyType.number,
+        display_name="LLM output",
+        description="USD per 1M tokens",
+        display_options=_COST_FIELDS_VISIBLE,
+        extra={"layout": "half"},
+    )
+    cost_tts_rate: float | None = spec_field(
+        default=None,
+        ge=0,
+        le=100,
+        ui_type=PropertyType.number,
+        display_name="TTS",
+        description="USD per 1K characters",
+        display_options=_COST_FIELDS_VISIBLE,
+        extra={"layout": "half"},
+    )
+    cost_stt_rate: float | None = spec_field(
+        default=None,
+        ge=0,
+        le=100,
+        ui_type=PropertyType.number,
+        display_name="STT",
+        description="USD per minute",
+        display_options=_COST_FIELDS_VISIBLE,
+        extra={"layout": "half"},
+    )
+    cost_telephony_rate: float | None = spec_field(
+        default=None,
+        ge=0,
+        le=100,
+        ui_type=PropertyType.number,
+        display_name="Telephony",
+        description="USD per minute",
+        display_options=_COST_FIELDS_VISIBLE,
+        extra={"layout": "half"},
+    )
+    cost_extra: float | None = spec_field(
+        default=None,
+        ge=0,
+        le=1000,
+        ui_type=PropertyType.number,
+        display_name="Extra",
+        description="Flat USD per call",
+        display_options=_COST_FIELDS_VISIBLE,
+        extra={"layout": "half"},
     )
 
     @model_validator(mode="after")

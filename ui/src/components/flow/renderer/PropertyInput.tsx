@@ -175,13 +175,20 @@ function StringWidget({ spec, value, onChange }: WidgetProps) {
 
 function NumberWidget({ spec, value, onChange }: WidgetProps) {
     const v = (value as number | undefined) ?? "";
+    const isHalf = (spec.extra as { layout?: string } | undefined)?.layout === "half";
     return (
         <div className="grid gap-2">
             <StackedLabel spec={spec} />
             <Input
                 type="number"
                 value={v as number | string}
-                step={spec.min_value && spec.min_value < 1 ? 0.1 : 1}
+                step={
+                    isHalf
+                        ? "any"
+                        : spec.min_value && spec.min_value < 1
+                          ? 0.1
+                          : 1
+                }
                 min={spec.min_value ?? undefined}
                 max={spec.max_value ?? undefined}
                 onChange={(e) => {
@@ -189,7 +196,7 @@ function NumberWidget({ spec, value, onChange }: WidgetProps) {
                     onChange(next === "" ? undefined : parseFloat(next));
                 }}
                 placeholder={spec.placeholder ?? undefined}
-                className="w-32"
+                className={isHalf ? "w-full" : "w-32"}
             />
         </div>
     );

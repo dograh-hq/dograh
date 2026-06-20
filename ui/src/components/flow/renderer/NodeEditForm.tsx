@@ -31,18 +31,31 @@ export function NodeEditForm({ spec, values, onChange, context }: NodeEditFormPr
     );
 
     return (
-        <div className="grid gap-3">
+        <div className="flex flex-wrap gap-3">
             {spec.properties
                 .filter((p) => evaluateDisplayOptions(p.display_options, values))
-                .map((p) => (
-                    <PropertyInput
-                        key={p.name}
-                        spec={p}
-                        value={values[p.name]}
-                        onChange={(v) => setProp(p.name, v)}
-                        context={context}
-                    />
-                ))}
+                .map((p) => {
+                    const isHalf =
+                        (p.extra as { layout?: string } | undefined)?.layout ===
+                        "half";
+                    return (
+                        <div
+                            key={p.name}
+                            className={
+                                isHalf
+                                    ? "basis-[calc(50%_-_0.375rem)] grow"
+                                    : "basis-full"
+                            }
+                        >
+                            <PropertyInput
+                                spec={p}
+                                value={values[p.name]}
+                                onChange={(v) => setProp(p.name, v)}
+                                context={context}
+                            />
+                        </div>
+                    );
+                })}
         </div>
     );
 }

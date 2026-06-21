@@ -152,6 +152,8 @@ echo -e "${BLUE}[$ENV_STEP/$TOTAL_STEPS] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 REDIS_PASSWORD=$(openssl rand -hex 32)
+MINIO_ROOT_USER="dograh$(openssl rand -hex 6)"
+MINIO_ROOT_PASSWORD=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
 # Container registry for Dograh images
@@ -169,6 +171,11 @@ POSTGRES_PASSWORD=$POSTGRES_PASSWORD
 # REDIS_URL. This can be rotated by updating .env and recreating the redis
 # container.
 REDIS_PASSWORD=$REDIS_PASSWORD
+
+# MinIO root credentials. Used by the MinIO container and the API's
+# MINIO_ACCESS_KEY / MINIO_SECRET_KEY.
+MINIO_ROOT_USER=$MINIO_ROOT_USER
+MINIO_ROOT_PASSWORD=$MINIO_ROOT_PASSWORD
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY

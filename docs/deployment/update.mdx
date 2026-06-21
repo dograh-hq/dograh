@@ -66,7 +66,7 @@ The script overwrites `docker-compose.yaml` and the remote helper bundle (`remot
 
 ## Local deployment
 
-For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh` / `setup_local.ps1`), refresh `docker-compose.yaml` and the startup script, stop the stack, then run the startup script. The script preserves existing `.env` secrets, creates `REDIS_PASSWORD` if it is missing, and only creates `POSTGRES_PASSWORD` for brand-new `.env` files so existing Postgres volumes keep using their original password:
+For local Docker installs (the [Quick Start](/deployment/docker#quick-start) flow or `setup_local.sh` / `setup_local.ps1`), refresh `docker-compose.yaml` and the startup script, stop the stack, then run the startup script. The script preserves existing `.env` secrets, creates `REDIS_PASSWORD` and MinIO credentials if they are missing, and only creates `POSTGRES_PASSWORD` for brand-new `.env` files. If a retained local Postgres volume already exists, it syncs the database user's password to `.env` before starting the full stack:
 
 <CodeGroup>
 ```bash macOS/Linux
@@ -145,6 +145,6 @@ sudo docker compose --profile remote up -d
 If you update the `pipecat` submodule, you **must** run `git submodule update --init --recursive` before rebuilding, or the Docker build will not pick up `pipecat` changes.
 </Warning>
 
-If you maintain a fork with local customizations on top of upstream, merging conflicts in `docker-compose.yaml`, `remote_up.sh`, `scripts/run_dograh_init.sh`, `deploy/templates/*`, or `setup_remote.sh` is up to you — resolve them as you would any other git merge. Leave `OSS_JWT_SECRET`, `TURN_SECRET`, `POSTGRES_PASSWORD`, and `REDIS_PASSWORD` in `.env` unchanged across updates to preserve sessions, WebRTC auth, and service credentials.
+If you maintain a fork with local customizations on top of upstream, merging conflicts in `docker-compose.yaml`, `remote_up.sh`, `scripts/run_dograh_init.sh`, `deploy/templates/*`, or `setup_remote.sh` is up to you — resolve them as you would any other git merge. Leave `OSS_JWT_SECRET`, `TURN_SECRET`, `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_USER`, and `MINIO_ROOT_PASSWORD` in `.env` unchanged across updates to preserve sessions, WebRTC auth, and service credentials.
 
 The same migration warning above applies: rolling back across a schema change can leave the DB in a state the older API can't read.

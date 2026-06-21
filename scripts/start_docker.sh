@@ -26,6 +26,10 @@ generate_secret() {
     fail "Could not generate a secret. Install python3 or openssl, or set secrets manually in .env."
 }
 
+generate_minio_root_user() {
+    printf 'dograh%s\n' "$(generate_secret | cut -c1-12)"
+}
+
 dotenv_value() {
     local key=$1
     local line
@@ -74,6 +78,63 @@ set_dotenv_value() {
     fi
 }
 
+postgres_volume_name() {
+    local volume_name=""
+    local project_name=""
+
+    if command -v python3 >/dev/null 2>&1; then
+        volume_name="$(
+            docker compose config --format json 2>/dev/null \
+                | python3 -c 'import json, sys; print(json.load(sys.stdin).get("volumes", {}).get("postgres_data", {}).get("name", ""))' 2>/dev/null \
+                || true
+        )"
+        if [[ -n "$volume_name" ]]; then
+            printf '%s\n' "$volume_name"
+            return
+        fi
+    fi
+
+    project_name="${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}"
+    project_name="$(printf '%s' "$project_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')"
+    printf '%s_postgres_data\n' "$project_name"
+}
+
+sync_postgres_password() {
+    local postgres_password=$1
+    local volume_name=""
+    local postgres_ready=false
+
+    [[ -n "$postgres_password" ]] || return
+
+    volume_name="$(postgres_volume_name)"
+    if ! docker volume inspect "$volume_name" >/dev/null 2>&1; then
+        return
+    fi
+
+    echo "Existing Postgres volume detected; syncing postgres password from $ENV_FILE."
+    REGISTRY="$REGISTRY" ENABLE_TELEMETRY="$ENABLE_TELEMETRY" docker compose up -d postgres
+
+    for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+        if docker compose exec -T postgres pg_isready -U postgres >/dev/null 2>&1; then
+            postgres_ready=true
+            break
+        fi
+        sleep 1
+    done
+
+    if [[ "$postgres_ready" != "true" ]]; then
+        fail "Postgres did not become ready while syncing POSTGRES_PASSWORD."
+    fi
+
+    printf '%s\n' "ALTER USER postgres WITH PASSWORD :'dograh_password';" \
+        | docker compose exec -T postgres psql \
+        -U postgres \
+        -d postgres \
+        -v ON_ERROR_STOP=1 \
+        -v "dograh_password=$postgres_password" >/dev/null
+    echo "Postgres password synced."
+}
+
 [[ -f docker-compose.yaml ]] || fail "docker-compose.yaml not found. Download it first, then re-run this script."
 
 env_file_existed=false
@@ -109,6 +170,34 @@ else
     echo "REDIS_PASSWORD is already set in $ENV_FILE."
 fi
 
+existing_minio_root_user="$(dotenv_value MINIO_ROOT_USER || true)"
+if [[ -z "$existing_minio_root_user" ]]; then
+    existing_minio_access_key="$(dotenv_value MINIO_ACCESS_KEY || true)"
+    if [[ -n "$existing_minio_access_key" ]]; then
+        set_dotenv_value MINIO_ROOT_USER "$existing_minio_access_key"
+        echo "Created MINIO_ROOT_USER in $ENV_FILE from existing MINIO_ACCESS_KEY."
+    else
+        set_dotenv_value MINIO_ROOT_USER "$(generate_minio_root_user)"
+        echo "Created MINIO_ROOT_USER in $ENV_FILE."
+    fi
+else
+    echo "MINIO_ROOT_USER is already set in $ENV_FILE."
+fi
+
+existing_minio_root_password="$(dotenv_value MINIO_ROOT_PASSWORD || true)"
+if [[ -z "$existing_minio_root_password" ]]; then
+    existing_minio_secret_key="$(dotenv_value MINIO_SECRET_KEY || true)"
+    if [[ -n "$existing_minio_secret_key" ]]; then
+        set_dotenv_value MINIO_ROOT_PASSWORD "$existing_minio_secret_key"
+        echo "Created MINIO_ROOT_PASSWORD in $ENV_FILE from existing MINIO_SECRET_KEY."
+    else
+        set_dotenv_value MINIO_ROOT_PASSWORD "$(generate_secret)"
+        echo "Created MINIO_ROOT_PASSWORD in $ENV_FILE."
+    fi
+else
+    echo "MINIO_ROOT_PASSWORD is already set in $ENV_FILE."
+fi
+
 echo ""
 echo "Docker registry: $REGISTRY"
 echo "Telemetry enabled: $ENABLE_TELEMETRY"
@@ -129,5 +218,8 @@ case "$answer" in
         exit 0
         ;;
 esac
+
+postgres_password="$(dotenv_value POSTGRES_PASSWORD || true)"
+sync_postgres_password "$postgres_password"
 
 REGISTRY="$REGISTRY" ENABLE_TELEMETRY="$ENABLE_TELEMETRY" docker compose up --pull always

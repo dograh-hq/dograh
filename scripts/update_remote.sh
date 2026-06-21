@@ -44,7 +44,11 @@ generate_secret() {
         return
     fi
 
-    dograh_fail "Could not generate REDIS_PASSWORD. Install python3 or openssl, or set REDIS_PASSWORD manually in .env."
+    dograh_fail "Could not generate a secret. Install python3 or openssl, or set missing secrets manually in .env."
+}
+
+generate_minio_root_user() {
+    printf 'dograh%s\n' "$(generate_secret | cut -c1-12)"
 }
 
 echo -e "${BLUE}"
@@ -238,6 +242,24 @@ dograh_set_env_key .env FASTAPI_WORKERS "$FASTAPI_WORKERS"
 if [[ -z "${REDIS_PASSWORD:-}" ]]; then
     dograh_set_env_key .env REDIS_PASSWORD "$(generate_secret)"
     dograh_success "✓ REDIS_PASSWORD created in .env"
+fi
+if [[ -z "${MINIO_ROOT_USER:-}" ]]; then
+    if [[ -n "${MINIO_ACCESS_KEY:-}" ]]; then
+        dograh_set_env_key .env MINIO_ROOT_USER "$MINIO_ACCESS_KEY"
+        dograh_success "✓ MINIO_ROOT_USER created in .env from existing MINIO_ACCESS_KEY"
+    else
+        dograh_set_env_key .env MINIO_ROOT_USER "$(generate_minio_root_user)"
+        dograh_success "✓ MINIO_ROOT_USER created in .env"
+    fi
+fi
+if [[ -z "${MINIO_ROOT_PASSWORD:-}" ]]; then
+    if [[ -n "${MINIO_SECRET_KEY:-}" ]]; then
+        dograh_set_env_key .env MINIO_ROOT_PASSWORD "$MINIO_SECRET_KEY"
+        dograh_success "✓ MINIO_ROOT_PASSWORD created in .env from existing MINIO_SECRET_KEY"
+    else
+        dograh_set_env_key .env MINIO_ROOT_PASSWORD "$(generate_secret)"
+        dograh_success "✓ MINIO_ROOT_PASSWORD created in .env"
+    fi
 fi
 dograh_prepare_remote_install "$(pwd)"
 docker compose config -q

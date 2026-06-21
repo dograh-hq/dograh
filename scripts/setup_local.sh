@@ -151,6 +151,7 @@ ENV_STEP=$TOTAL_STEPS
 echo -e "${BLUE}[$ENV_STEP/$TOTAL_STEPS] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
+REDIS_PASSWORD=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
 # Container registry for Dograh images
@@ -163,6 +164,11 @@ OSS_JWT_SECRET=$OSS_JWT_SECRET
 # API's DATABASE_URL. Do not change after the first start — the password is
 # baked into the postgres data volume when it is first created.
 POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+
+# Redis password. Used by the redis container's --requirepass and the API's
+# REDIS_URL. This can be rotated by updating .env and recreating the redis
+# container.
+REDIS_PASSWORD=$REDIS_PASSWORD
 
 # Telemetry (set to false to disable)
 ENABLE_TELEMETRY=$ENABLE_TELEMETRY

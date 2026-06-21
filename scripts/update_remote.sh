@@ -31,6 +31,22 @@ trap cleanup EXIT
 REPO="dograh-hq/dograh"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
+generate_secret() {
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import secrets; print(secrets.token_hex(32))'; then
+        return
+    fi
+
+    if command -v openssl >/dev/null 2>&1 && openssl rand -hex 32; then
+        return
+    fi
+
+    if [[ -r /dev/urandom ]] && command -v od >/dev/null 2>&1 && command -v tr >/dev/null 2>&1 && od -An -N32 -tx1 /dev/urandom | tr -d ' \n'; then
+        return
+    fi
+
+    dograh_fail "Could not generate REDIS_PASSWORD. Install python3 or openssl, or set REDIS_PASSWORD manually in .env."
+}
+
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                  Dograh Remote Update                        ║"
@@ -96,7 +112,7 @@ if [[ -z "$TARGET_VERSION" ]]; then
     if [[ -t 0 ]]; then
         echo ""
         echo -e "${YELLOW}Target version. Accepted forms: bare semver (1.28.0), v-prefixed (v1.28.0),${NC}"
-        echo -e "${YELLOW}full git tag (dograh-v1.28.0), or 'main' for bleeding edge.${NC}"
+        echo -e "${YELLOW}full git tag (dograh-v1.28.0), or 'main' for the latest deployment files.${NC}"
         read -p "[$LATEST_TAG]: " TARGET_VERSION
         TARGET_VERSION="${TARGET_VERSION:-$LATEST_TAG}"
     else
@@ -219,6 +235,10 @@ fi
 
 echo -e "${BLUE}[3/3] Synchronizing environment and validating init-based remote config...${NC}"
 dograh_set_env_key .env FASTAPI_WORKERS "$FASTAPI_WORKERS"
+if [[ -z "${REDIS_PASSWORD:-}" ]]; then
+    dograh_set_env_key .env REDIS_PASSWORD "$(generate_secret)"
+    dograh_success "✓ REDIS_PASSWORD created in .env"
+fi
 dograh_prepare_remote_install "$(pwd)"
 docker compose config -q
 dograh_success "✓ Remote init configuration validated"

@@ -27,11 +27,11 @@ services:
     ports:
       - "6379:6379"
     command: >
-      --requirepass ${REDIS_PASSWORD:-redissecret}
+      --requirepass redissecret
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redissecret}", "ping"]
+      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
       interval: 3s
       timeout: 10s
       retries: 10

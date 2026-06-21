@@ -410,6 +410,101 @@ dograh_prepare_remote_install() {
     dograh_preflight_remote_init_render "$project_dir"
 }
 
+# ---------------------------------------------------------------------------
+# TLS certificate helpers (self-signed bootstrap + Let's Encrypt via webroot)
+# ---------------------------------------------------------------------------
+
+# Map an IPv4 address to a public sslip.io / nip.io hostname, e.g.
+# 203.0.113.10 -> 203-0-113-10.sslip.io. The hostname resolves back to the
+# embedded IP from any public resolver, so Let's Encrypt can validate it over
+# the HTTP-01 challenge without the operator owning a domain. Public IPs only:
+# Let's Encrypt refuses to validate private/reserved addresses.
+dograh_sslip_host_from_ip() {
+    local ip=$1
+    local suffix=${2:-sslip.io}
+
+    dograh_is_ipv4 "$ip" || dograh_fail "dograh_sslip_host_from_ip: '$ip' is not an IPv4 address"
+    printf '%s.%s\n' "${ip//./-}" "$suffix"
+}
+
+# Install certbot via the host package manager if it is not already present.
+# Returns non-zero (instead of exiting) when no supported package manager is
+# found or the install fails, so callers can fall back to a self-signed cert.
+dograh_install_certbot() {
+    if command -v certbot >/dev/null 2>&1; then
+        return 0
+    fi
+
+    dograh_info "Installing Certbot..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y -qq certbot
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y -q certbot
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q certbot
+    else
+        dograh_warn "Could not detect a package manager (apt/dnf/yum) to install certbot."
+        return 1
+    fi
+}
+
+# Obtain (or renew) a Let's Encrypt certificate for $host using the webroot
+# challenge served by the running nginx container out of <project>/certs, then
+# copy the issued cert to certs/local.{crt,key} (the files nginx reads). This
+# needs nginx already running and serving /.well-known/acme-challenge/ on :80.
+# Returns non-zero on failure so callers can keep the self-signed cert.
+dograh_issue_letsencrypt_webroot() {
+    local project_dir=$1
+    local host=$2
+    local email=${3:-}
+    local webroot="$project_dir/certs"
+    local live_dir="/etc/letsencrypt/live/$host"
+    local -a email_args
+
+    if [[ -n "$email" ]]; then
+        email_args=(--email "$email")
+    else
+        email_args=(--register-unsafely-without-email)
+    fi
+
+    mkdir -p "$webroot/.well-known/acme-challenge"
+
+    certbot certonly --webroot -w "$webroot" \
+        --non-interactive --agree-tos --keep-until-expiring \
+        "${email_args[@]}" \
+        -d "$host" || return 1
+
+    [[ -f "$live_dir/fullchain.pem" && -f "$live_dir/privkey.pem" ]] || return 1
+
+    cp "$live_dir/fullchain.pem" "$webroot/local.crt"
+    cp "$live_dir/privkey.pem" "$webroot/local.key"
+    chmod 644 "$webroot/local.crt" "$webroot/local.key"
+}
+
+# Install a certbot deploy hook so renewed certificates are copied into
+# <project>/certs and nginx is restarted to load them. Renewal itself is driven
+# by certbot's packaged systemd timer / cron; webroot renewals need no downtime
+# because the running nginx serves the challenge.
+dograh_install_cert_renewal_hook() {
+    local project_dir=$1
+    local host=$2
+    local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
+    local hook_path="$hook_dir/dograh-reload.sh"
+
+    mkdir -p "$hook_dir"
+
+    cat > "$hook_path" << HOOK_EOF
+#!/bin/bash
+cp /etc/letsencrypt/live/$host/fullchain.pem $project_dir/certs/local.crt
+cp /etc/letsencrypt/live/$host/privkey.pem $project_dir/certs/local.key
+chmod 644 $project_dir/certs/local.crt $project_dir/certs/local.key
+
+cd $project_dir
+docker compose --profile remote restart nginx 2>/dev/null || true
+HOOK_EOF
+    chmod +x "$hook_path"
+}
+
 dograh_download_bundle_file_for_ref() {
     local destination=$1
     local remote_path=$2

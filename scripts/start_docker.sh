@@ -23,7 +23,7 @@ generate_secret() {
         return
     fi
 
-    fail "Could not generate OSS_JWT_SECRET. Install python3 or openssl, or set OSS_JWT_SECRET manually in .env."
+    fail "Could not generate a secret. Install python3 or openssl, or set secrets manually in .env."
 }
 
 dotenv_value() {
@@ -76,12 +76,37 @@ set_dotenv_value() {
 
 [[ -f docker-compose.yaml ]] || fail "docker-compose.yaml not found. Download it first, then re-run this script."
 
+env_file_existed=false
+if [[ -f "$ENV_FILE" ]]; then
+    env_file_existed=true
+fi
+
 existing_secret="$(dotenv_value OSS_JWT_SECRET || true)"
 if [[ -z "$existing_secret" ]]; then
     set_dotenv_value OSS_JWT_SECRET "$(generate_secret)"
     echo "Created OSS_JWT_SECRET in $ENV_FILE."
 else
     echo "OSS_JWT_SECRET is already set in $ENV_FILE."
+fi
+
+existing_postgres_password="$(dotenv_value POSTGRES_PASSWORD || true)"
+if [[ -z "$existing_postgres_password" ]]; then
+    if [[ "$env_file_existed" == "false" ]]; then
+        set_dotenv_value POSTGRES_PASSWORD "$(generate_secret)"
+        echo "Created POSTGRES_PASSWORD in $ENV_FILE."
+    else
+        echo "POSTGRES_PASSWORD is not set in $ENV_FILE; keeping the docker-compose fallback for existing local data volumes."
+    fi
+else
+    echo "POSTGRES_PASSWORD is already set in $ENV_FILE."
+fi
+
+existing_redis_password="$(dotenv_value REDIS_PASSWORD || true)"
+if [[ -z "$existing_redis_password" ]]; then
+    set_dotenv_value REDIS_PASSWORD "$(generate_secret)"
+    echo "Created REDIS_PASSWORD in $ENV_FILE."
+else
+    echo "REDIS_PASSWORD is already set in $ENV_FILE."
 fi
 
 echo ""

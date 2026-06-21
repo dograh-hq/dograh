@@ -65,12 +65,34 @@ if (-not (Test-Path 'docker-compose.yaml')) {
     exit 1
 }
 
+$envFileExisted = Test-Path $EnvFile
+
 $existingSecret = Get-DotEnvValue -Path $EnvFile -Key 'OSS_JWT_SECRET'
 if ([string]::IsNullOrEmpty($existingSecret)) {
     Set-DotEnvValue -Path $EnvFile -Key 'OSS_JWT_SECRET' -Value (New-HexSecret)
     Write-Host "Created OSS_JWT_SECRET in $EnvFile."
 } else {
     Write-Host "OSS_JWT_SECRET is already set in $EnvFile."
+}
+
+$existingPostgresPassword = Get-DotEnvValue -Path $EnvFile -Key 'POSTGRES_PASSWORD'
+if ([string]::IsNullOrEmpty($existingPostgresPassword)) {
+    if (-not $envFileExisted) {
+        Set-DotEnvValue -Path $EnvFile -Key 'POSTGRES_PASSWORD' -Value (New-HexSecret)
+        Write-Host "Created POSTGRES_PASSWORD in $EnvFile."
+    } else {
+        Write-Host "POSTGRES_PASSWORD is not set in $EnvFile; keeping the docker-compose fallback for existing local data volumes."
+    }
+} else {
+    Write-Host "POSTGRES_PASSWORD is already set in $EnvFile."
+}
+
+$existingRedisPassword = Get-DotEnvValue -Path $EnvFile -Key 'REDIS_PASSWORD'
+if ([string]::IsNullOrEmpty($existingRedisPassword)) {
+    Set-DotEnvValue -Path $EnvFile -Key 'REDIS_PASSWORD' -Value (New-HexSecret)
+    Write-Host "Created REDIS_PASSWORD in $EnvFile."
+} else {
+    Write-Host "REDIS_PASSWORD is already set in $EnvFile."
 }
 
 Write-Host ''

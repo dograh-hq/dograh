@@ -303,7 +303,6 @@ def test_all_registered_node_models_inherit_base_node_data():
                 "cost_tts_rate",
                 "cost_stt_rate",
                 "cost_telephony_rate",
-                "cost_extra",
             ],
         ),
     ],

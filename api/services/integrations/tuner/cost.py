@@ -90,7 +90,6 @@ def compute_call_cost_cents(
         tuner_data.cost_tts_rate,
         tuner_data.cost_stt_rate,
         tuner_data.cost_telephony_rate,
-        tuner_data.cost_extra,
     )
     if all(rate is None for rate in raw_rates):
         return None
@@ -110,7 +109,6 @@ def compute_call_cost_cents(
     tts_rate = tuner_data.cost_tts_rate or 0.0
     stt_rate = tuner_data.cost_stt_rate or 0.0
     telephony_rate = tuner_data.cost_telephony_rate or 0.0
-    extra = tuner_data.cost_extra or 0.0
 
     # Cached tokens are a discounted subset of prompt tokens. Only split them out
     # when a cached rate is configured; otherwise bill all prompt tokens normally.
@@ -129,7 +127,6 @@ def compute_call_cost_cents(
         + tts_characters * tts_rate / 1_000
         + duration_minutes * stt_rate
         + duration_minutes * telephony_rate
-        + extra
     )
 
     return round(cost_usd * 100, 4)

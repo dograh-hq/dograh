@@ -59,7 +59,6 @@ _COST_FIELDS_VISIBLE = DisplayOptions(show={"cost_calculation_enabled": [True]})
         "cost_tts_rate",
         "cost_stt_rate",
         "cost_telephony_rate",
-        "cost_extra",
     ),
     field_overrides={
         "name": {
@@ -178,16 +177,6 @@ class TunerNodeData(BaseNodeData):
         ui_type=PropertyType.number,
         display_name="Telephony",
         description="USD per minute",
-        display_options=_COST_FIELDS_VISIBLE,
-        extra={"layout": "half"},
-    )
-    cost_extra: float | None = spec_field(
-        default=None,
-        ge=0,
-        le=1000,
-        ui_type=PropertyType.number,
-        display_name="Extra",
-        description="Flat USD per call",
         display_options=_COST_FIELDS_VISIBLE,
         extra={"layout": "half"},
     )

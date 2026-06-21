@@ -49,7 +49,7 @@ On a box that does **not** already run Traefik:
 
 ```bash
 cp .env.example .env     # fill in PUBLIC_HOST, TURN_HOST, secrets, ACME_EMAIL
-docker network create traefik
+docker network create traefik-proxy
 docker compose -f docker-compose.traefik.yaml --env-file .env up -d   # stand-in Traefik
 docker compose --env-file .env up -d                                  # app stack
 ```

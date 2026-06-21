@@ -12,7 +12,7 @@
 #   - a long idleTimeout so long-lived signaling WebSockets aren't cut
 #
 # Bring up BEFORE the app stack, on the same external network:
-#   docker network create traefik
+#   docker network create traefik-proxy
 #   docker compose -f docker-compose.traefik.yaml --env-file .env up -d
 #   docker compose --env-file .env up -d
 # =================================================================
@@ -55,4 +55,4 @@ volumes:
 networks:
   traefik:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik}
+    name: ${TRAEFIK_NETWORK:-traefik-proxy}

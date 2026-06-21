@@ -87,7 +87,7 @@ services:
       retries: 5
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-proxy}"
       # Audio file downloads. Highest priority so it wins over the UI catch-all.
       - "traefik.http.routers.dograh-audio.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/voice-audio`)"
       - "traefik.http.routers.dograh-audio.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
@@ -209,7 +209,7 @@ services:
       start_period: 60s
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-proxy}"
       # REST API + the signaling WebSocket (/api/v1/ws/signaling/...).
       # Traefik upgrades WebSockets automatically — no extra labels needed.
       # Higher priority than the UI so /api/v1 is matched first.
@@ -249,7 +249,7 @@ services:
       start_period: 30s
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-proxy}"
       # Catch-all for everything that is not /api/v1 or /voice-audio.
       - "traefik.http.routers.dograh-ui.rule=Host(`${PUBLIC_HOST}`)"
       - "traefik.http.routers.dograh-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
@@ -278,4 +278,4 @@ networks:
   # Traefik network. This file does not create it; it must already exist.
   traefik:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik}
+    name: ${TRAEFIK_NETWORK:-traefik-proxy}

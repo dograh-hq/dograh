@@ -52,6 +52,10 @@ ATTRIBUTE_FIELD_MAPPING = {
     "callTags": "gathered_context.call_tags",
     "callerNumber": "initial_context.caller_number",
     "calledNumber": "initial_context.called_number",
+    # QA analysis (rolled up to top-level annotations by run_integrations).
+    "sentiment": "annotations.overall_sentiment",
+    "qaTags": "annotations.tags",
+    "callQualityScore": "annotations.call_quality_score",
 }
 
 
@@ -178,6 +182,30 @@ def apply_workflow_run_filters(
                     call_tags = gathered_context_jsonb.op("->")("call_tags")
                     filter_conditions.append(call_tags.op("@>")(func.cast(tags, JSONB)))
 
+            elif (
+                filter_type in ("tags", "multiSelect")
+                and field == "annotations.overall_sentiment"
+            ):
+                # overall_sentiment is a client-defined scalar string (the QA
+                # prompt decides the taxonomy), so we match the value directly.
+                codes = value.get("codes", [])
+                if codes:
+                    filter_conditions.append(
+                        cast(WorkflowRunModel.annotations, JSONB)
+                        .op("->>")("overall_sentiment")
+                        .in_(codes)
+                    )
+
+            elif (
+                filter_type in ("tags", "multiSelect")
+                and field == "annotations.tags"
+            ):
+                tags = value.get("codes", [])
+                if tags:
+                    annotations_jsonb = cast(WorkflowRunModel.annotations, JSONB)
+                    qa_tags = annotations_jsonb.op("->")("tags")
+                    filter_conditions.append(qa_tags.op("@>")(func.cast(tags, JSONB)))
+
             elif filter_type == "text" and field == "initial_context.caller_number":
                 phone = value.get("value", "").strip()
                 if phone:
@@ -232,6 +260,15 @@ def apply_workflow_run_filters(
                         filter_conditions.append(cast(cost_text, Integer) >= min_val)
                     if max_val is not None:
                         filter_conditions.append(cast(cost_text, Integer) <= max_val)
+
+                elif field == "annotations.call_quality_score":
+                    score_text = cast(WorkflowRunModel.annotations, JSONB).op("->>")(
+                        "call_quality_score"
+                    )
+                    if min_val is not None:
+                        filter_conditions.append(cast(score_text, Float) >= min_val)
+                    if max_val is not None:
+                        filter_conditions.append(cast(score_text, Float) <= max_val)
 
     if filter_conditions:
         base_query = base_query.where(and_(*filter_conditions))

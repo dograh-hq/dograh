@@ -172,6 +172,7 @@ export function WorkflowRunsTable({
                                             </div>
                                         </TableHead>
                                         <TableHead className="font-semibold">Disposition</TableHead>
+                                        <TableHead className="font-semibold">Sentiment</TableHead>
                                         <TableHead className="font-semibold">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -205,6 +206,19 @@ export function WorkflowRunsTable({
                                                 ) : (
                                                     <span className="text-sm text-muted-foreground">-</span>
                                                 )}
+                                            </TableCell>
+                                            <TableCell>
+                                                {(() => {
+                                                    const sentiment = run.annotations?.overall_sentiment as string | undefined;
+                                                    if (!sentiment) return <span className="text-sm text-muted-foreground">-</span>;
+                                                    const s = sentiment.toLowerCase();
+                                                    const cls = s.includes("pos")
+                                                        ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+                                                        : s.includes("neg")
+                                                            ? "bg-red-100 text-red-800 hover:bg-red-100"
+                                                            : "bg-zinc-100 text-zinc-700 hover:bg-zinc-100";
+                                                    return <Badge className={cls} variant="secondary">{sentiment}</Badge>;
+                                                })()}
                                             </TableCell>
                                             <TableCell>
                                                 <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>

@@ -239,6 +239,9 @@ class CampaignClient(BaseDBClient):
                         "initial_context": run.initial_context,
                         "gathered_context": run.gathered_context,
                         "call_type": run.call_type,
+                        # QA analysis (sentiment / tags / summary / quality) so the
+                        # campaign runs view can show + filter it.
+                        "annotations": run.annotations,
                     }
                 )
                 for run in result.scalars().all()

@@ -212,7 +212,7 @@ export function CampaignRuns({ campaignId, workflowId, searchParams }: CampaignR
 
     // Use a subset of filter attributes relevant for campaigns
     const campaignFilterAttributes: FilterAttribute[] = configuredAttributes.filter(
-        attr => ['dateRange', 'dispositionCode', 'duration', 'status', 'tokenUsage'].includes(attr.id)
+        attr => ['dateRange', 'dispositionCode', 'duration', 'status', 'tokenUsage', 'sentiment', 'qaTags', 'callQualityScore'].includes(attr.id)
     );
 
     return (

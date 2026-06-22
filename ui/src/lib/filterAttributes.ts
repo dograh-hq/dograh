@@ -55,6 +55,38 @@ export const baseFilterAttributes: Record<string, Omit<FilterAttribute, "id">> =
       placeholder: "Enter tags",
     },
   },
+  // QA analysis (sentiment / tags / quality), surfaced from the QA node.
+  // Sentiment values are client-defined (the QA prompt sets the taxonomy),
+  // so this is free-entry rather than a fixed dropdown.
+  sentiment: {
+    type: "tags",
+    label: "Sentiment",
+    config: {
+      placeholder: "e.g. Positive, Negative, Neutral",
+    },
+  },
+  qaTags: {
+    type: "tags",
+    label: "QA Tags",
+    config: {
+      placeholder: "Enter QA tags",
+    },
+  },
+  callQualityScore: {
+    type: "numberRange",
+    label: "Call Quality Score",
+    config: {
+      min: 0,
+      max: 100,
+      step: 1,
+      unit: "score",
+      numberPresets: [
+        { label: "Low (0-40)", min: 0, max: 40 },
+        { label: "Medium (40-70)", min: 40, max: 70 },
+        { label: "High (70-100)", min: 70, max: 100 },
+      ],
+    },
+  },
   tokenUsage: {
     type: "numberRange",
     label: "Token Usage",
@@ -145,6 +177,9 @@ export const workflowFilterAttributes = createFilterAttributes([
   "duration",
   "status",
   "tokenUsage",
+  "sentiment",
+  "qaTags",
+  "callQualityScore",
 ]);
 
 // Superadmin filter attributes (includes additional fields)

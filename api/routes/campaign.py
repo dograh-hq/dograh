@@ -713,6 +713,10 @@ async def get_campaign_runs(
             "duration",
             "status",
             "tokenUsage",
+            # QA analysis filters (sentiment / tags / quality score)
+            "sentiment",
+            "qaTags",
+            "callQualityScore",
         }
         for filter_item in filter_criteria:
             attribute = filter_item.get("attribute")

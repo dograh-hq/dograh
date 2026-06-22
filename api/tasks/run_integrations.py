@@ -252,6 +252,12 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
 
                 # Collect unique tags across all QA node results for top-level filtering
                 all_tags: set[str] = set()
+                # Roll up the first available sentiment / summary / quality score to
+                # the top level so the campaign view can display + filter them without
+                # knowing per-node keys (mirrors the `tags` rollup below).
+                rollup_sentiment = None
+                rollup_summary = None
+                rollup_quality = None
                 for qa_key, qa_result in qa_results.items():
                     for node_result in qa_result.get("node_results", {}).values():
                         for tag in node_result.get("tags", []):
@@ -259,8 +265,24 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                                 all_tags.add(tag)
                             elif isinstance(tag, dict) and "tag" in tag:
                                 all_tags.add(tag["tag"])
+                        if rollup_sentiment is None and node_result.get(
+                            "overall_sentiment"
+                        ):
+                            rollup_sentiment = node_result["overall_sentiment"]
+                        if rollup_summary is None and node_result.get("summary"):
+                            rollup_summary = node_result["summary"]
+                        if rollup_quality is None and node_result.get(
+                            "call_quality_score"
+                        ) is not None:
+                            rollup_quality = node_result["call_quality_score"]
                 if all_tags:
                     qa_results["tags"] = sorted(all_tags)
+                if rollup_sentiment is not None:
+                    qa_results["overall_sentiment"] = rollup_sentiment
+                if rollup_summary is not None:
+                    qa_results["summary"] = rollup_summary
+                if rollup_quality is not None:
+                    qa_results["call_quality_score"] = rollup_quality
 
                 await db_client.update_workflow_run(
                     workflow_run_id, annotations=qa_results

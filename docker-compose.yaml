@@ -148,6 +148,15 @@ services:
       # Storage configuration - using local MinIO
       ENABLE_AWS_S3: "false"
 
+      # To use AWS S3 or any S3-compatible server (MinIO, rustfs, Ceph, ...)
+      # instead of the bundled MinIO, set ENABLE_AWS_S3 to "true" and provide:
+      #   S3_BUCKET, S3_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+      # For a non-AWS S3-compatible server, also set:
+      #   S3_ENDPOINT_URL        e.g. https://s3.example.com
+      #   S3_SIGNATURE_VERSION   set "s3v4" if the server requires SigV4 (e.g. rustfs)
+      #   S3_ADDRESSING_STYLE    set "path" if the server / TLS cert requires path-style
+      # The S3 backend issues real presigned URLs, so the bucket can stay private.
+
       # MinIO
       MINIO_ENDPOINT: "minio:9000"
       # Full URL (with scheme) browsers use to reach MinIO. For remote

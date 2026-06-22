@@ -17,6 +17,7 @@ def _config_loader(value: dict) -> dict:
         "provider": "tone",
         "api_key": value.get("api_key"),
         "from_numbers": value.get("from_numbers", []),
+        "webhook_secret": value.get("webhook_secret"),
     }
 
 
@@ -36,6 +37,19 @@ _UI_METADATA = ProviderUIMetadata(
             label="Phone Numbers",
             type="string-array",
             description="E.164-formatted Tone phone numbers, e.g. +917314624707",
+        ),
+        ProviderUIField(
+            name="webhook_secret",
+            label="Webhook Secret",
+            type="password",
+            sensitive=True,
+            required=False,
+            description=(
+                "Optional shared secret for callback authentication. Generate any "
+                "random string (≥32 chars). Must also be configured on the Tone "
+                "side. Leave blank to skip verification (not recommended for "
+                "production)."
+            ),
         ),
     ],
 )

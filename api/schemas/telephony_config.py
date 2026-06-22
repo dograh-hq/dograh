@@ -28,6 +28,10 @@ from api.services.telephony.providers.telnyx.config import (
     TelnyxConfigurationRequest,
     TelnyxConfigurationResponse,
 )
+from api.services.telephony.providers.tone.config import (
+    ToneConfigurationRequest,
+    ToneConfigurationResponse,
+)
 from api.services.telephony.providers.twilio.config import (
     TwilioConfigurationRequest,
     TwilioConfigurationResponse,
@@ -50,6 +54,7 @@ TelephonyConfigRequest = Annotated[
         CloudonixConfigurationRequest,
         PlivoConfigurationRequest,
         TelnyxConfigurationRequest,
+        ToneConfigurationRequest,
         TwilioConfigurationRequest,
         VobizConfigurationRequest,
         VonageConfigurationRequest,
@@ -73,6 +78,7 @@ class TelephonyConfigurationResponse(BaseModel):
     cloudonix: Optional[CloudonixConfigurationResponse] = None
     ari: Optional[ARIConfigurationResponse] = None
     telnyx: Optional[TelnyxConfigurationResponse] = None
+    tone: Optional[ToneConfigurationResponse] = None
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +148,8 @@ __all__ = [
     "TelephonyConfigurationResponse",
     "TelnyxConfigurationRequest",
     "TelnyxConfigurationResponse",
+    "ToneConfigurationRequest",
+    "ToneConfigurationResponse",
     "TwilioConfigurationRequest",
     "TwilioConfigurationResponse",
     "VobizConfigurationRequest",

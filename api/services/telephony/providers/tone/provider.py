@@ -12,12 +12,22 @@ Verified Tone API call fields:
   Response: id, status, to, from, callType, webhookUrl, createdAt
 
 WebSocket protocol: Exotel Voicebot Applet (bidirectional)
-  Audio: 8 kHz, 16-bit PCM, base64-encoded
+  Audio: 8 kHz, base64-encoded; framed by pipecat.serializers.exotel
   Events: connected → start → media* → stop
-  The WSS URL is configured statically in Exotel App Bazaar — NOT returned
-  from a webhook. This is different from Twilio/Plivo where TwiML is returned.
+
+Outbound only in this PR. Outbound flow:
+  1. initiate_call() POSTs to Tone /v1/calls with webhookUrl pointing at
+     /api/v1/telephony/tone-webhook?workflow_id=...&user_id=...&workflow_run_id=...&organization_id=...
+  2. When the call connects, Tone hits that URL — handle_tone_webhook
+     stores Exotel's CallSid into the run's gathered_context.
+  3. Exotel then opens a WSS to
+     /api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id}
+     which routes to handle_websocket() with full per-call context.
+
+Inbound is NOT supported here — see configure_inbound() / start_inbound_stream().
 """
 
+import hmac
 import json
 import random
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -34,7 +44,6 @@ from api.services.telephony.base import (
     ProviderSyncResult,
     TelephonyProvider,
 )
-from api.utils.common import get_backend_endpoints
 from api.utils.telephony_address import normalize_telephony_address
 
 if TYPE_CHECKING:
@@ -52,6 +61,7 @@ class ToneProvider(TelephonyProvider):
     def __init__(self, config: Dict[str, Any]):
         self.api_key: str = config.get("api_key", "")
         self.from_numbers: List[str] = config.get("from_numbers", [])
+        self.webhook_secret: Optional[str] = config.get("webhook_secret") or None
 
         if isinstance(self.from_numbers, str):
             self.from_numbers = [self.from_numbers]
@@ -75,6 +85,17 @@ class ToneProvider(TelephonyProvider):
         from_number: Optional[str] = None,
         **kwargs: Any,
     ) -> CallInitiationResult:
+        """Initiate outbound call via Tone API.
+
+        The ``webhook_url`` argument is built by the upstream caller
+        (``api/routes/telephony.py``) and already contains all four query
+        params required by ``handle_tone_webhook``: workflow_id, user_id,
+        workflow_run_id, organization_id. We pass it through unchanged.
+
+        Recognized kwargs:
+            callType (str): TRANSACTIONAL or PROMOTIONAL; defaults to
+                TRANSACTIONAL.
+        """
         if not self.validate_config():
             raise ValueError("Tone provider not properly configured")
 
@@ -87,13 +108,6 @@ class ToneProvider(TelephonyProvider):
             "callType": kwargs.pop("callType", "TRANSACTIONAL"),
             "webhookUrl": webhook_url,
         }
-
-        if workflow_run_id:
-            backend_endpoint, _ = await get_backend_endpoints()
-            payload["webhookUrl"] = (
-                f"{backend_endpoint}/api/v1/telephony/tone-webhook"
-                f"?workflow_run_id={workflow_run_id}"
-            )
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -184,7 +198,25 @@ class ToneProvider(TelephonyProvider):
         headers: Dict[str, str],
         body: str = "",
     ) -> bool:
-        return True
+        # Exotel has no HMAC. Use shared-secret header instead.
+        # If no secret configured → backward-compat allow (warn).
+        if not self.webhook_secret:
+            logger.warning(
+                "[Tone] verify_inbound_signature: no webhook_secret configured — "
+                "callback authentication is DISABLED. Set webhook_secret in provider "
+                "config to enable X-Tone-Webhook-Secret verification."
+            )
+            return True
+
+        # Header lookup is case-insensitive — Starlette gives lowercase keys.
+        provided = (
+            headers.get("X-Tone-Webhook-Secret")
+            or headers.get("x-tone-webhook-secret")
+            or ""
+        )
+        if not provided:
+            return False
+        return hmac.compare_digest(provided, self.webhook_secret)
 
     # ------------------------------------------------------------------
     # Status callback normalization
@@ -228,6 +260,19 @@ class ToneProvider(TelephonyProvider):
         user_id: int,
         workflow_run_id: int,
     ) -> None:
+        """Handle Exotel Voicebot Applet bidirectional WebSocket.
+
+        OUTBOUND ONLY in this PR. This method is reached when an outbound call
+        initiated via ``initiate_call()`` connects: the workflow_run_id is
+        already known at dispatch time and embedded in the WSS URL Exotel
+        connects to ( /api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id} ).
+
+        INBOUND is not supported in this PR. Exotel App Bazaar requires a
+        single static WSS URL per Voicebot Applet, but workflow_run_id is
+        only created when an inbound call arrives. A separate endpoint that
+        creates the workflow_run on WebSocket connect would be needed —
+        out of scope here.
+        """
         from api.services.pipecat.run_pipeline import run_pipeline_telephony
 
         # Exotel sends: {"event":"connected"} then {"event":"start", "start":{...}}
@@ -296,8 +341,18 @@ class ToneProvider(TelephonyProvider):
     def can_handle_webhook(
         cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
     ) -> bool:
-        # Exotel Passthru sends CallSid; no provider-specific signature header
-        return "CallSid" in webhook_data and "call_sid" not in headers
+        # Both Tone/Exotel and Twilio send CallSid, so CallSid alone is
+        # ambiguous. Discriminate against Twilio by:
+        #   - Twilio sends x-twilio-signature header; Exotel does not.
+        #   - Twilio's AccountSid starts with "AC"; Exotel's does not.
+        account_sid = webhook_data.get("AccountSid", "")
+        lower_headers = {k.lower(): v for k, v in headers.items()}
+        has_twilio_sig = "x-twilio-signature" in lower_headers
+        return (
+            "CallSid" in webhook_data
+            and not has_twilio_sig
+            and not account_sid.startswith("AC")
+        )
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
@@ -329,9 +384,12 @@ class ToneProvider(TelephonyProvider):
         normalized_data: NormalizedInboundData,
         backend_endpoint: str,
     ) -> Any:
-        # Tone/Exotel doesn't receive XML/JSON to start a stream.
-        # The Voicebot Applet in App Bazaar points directly at the WSS URL.
-        # Return a plain 200 acknowledgement.
+        # Inbound call support is NOT implemented in this PR.
+        # Exotel App Bazaar requires a static WSS URL per Voicebot Applet,
+        # but workflow_run_id is only known at dispatch time. A separate
+        # endpoint that creates the workflow_run on WebSocket connect would
+        # be needed. Returning 200 here is a no-op so the dispatcher doesn't
+        # error, but the call will not route correctly.
         from fastapi.responses import JSONResponse
         return JSONResponse(content={"status": "ok"})
 
@@ -379,16 +437,20 @@ class ToneProvider(TelephonyProvider):
     async def configure_inbound(
         self, address: str, webhook_url: Optional[str]
     ) -> ProviderSyncResult:
-        # Exotel App Bazaar flows must be configured manually in the Exotel dashboard.
-        # Tone does not expose a REST API to update the Voicebot Applet WSS URL.
+        # Inbound call support is NOT implemented in this PR. Exotel App Bazaar
+        # requires a static WSS URL, but Dograh's WSS endpoint
+        # (/api/v1/telephony/ws/{workflow_id}/{user_id}/{workflow_run_id})
+        # contains a per-call workflow_run_id that doesn't exist until the call
+        # arrives. Inbound support will require a separate endpoint that creates
+        # the workflow_run on WebSocket connect.
         logger.info(
-            f"[Tone] configure_inbound for {address}: Exotel App Bazaar must be "
-            f"configured manually. WSS endpoint: {webhook_url or '(cleared)'}"
+            f"[Tone] configure_inbound called for {address} — no-op. "
+            "Inbound is not supported in this PR version."
         )
         return ProviderSyncResult(
             ok=True,
             message=(
-                "Tone uses Exotel App Bazaar for call routing. "
-                "Update the Voicebot Applet WSS URL manually in your Exotel dashboard."
+                "Inbound calls are not supported by the Tone provider in this "
+                "PR. Outbound calls work via initiate_call()."
             ),
         )

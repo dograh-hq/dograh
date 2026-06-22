@@ -562,10 +562,17 @@ async def _run_pipeline(
     )
 
     user_mute_strategies = [
-        MuteUntilFirstBotCompleteUserMuteStrategy(),
         FunctionCallUserMuteStrategy(),
         CallbackUserMuteStrategy(should_mute_callback=engine.should_mute_user),
     ]
+    # Realtime models (e.g. Gemini Live) own barge-in via server-side VAD, so the
+    # caller must be heard from the first second. MuteUntilFirstBotComplete makes
+    # the bot deaf for its entire (often long) opening greeting — the caller can
+    # speak but is dropped at the mute gate until the greeting ends. Keep that
+    # mute only for cascaded models, whose opener shouldn't be cut off by the
+    # caller's "hello".
+    if not is_realtime:
+        user_mute_strategies.insert(0, MuteUntilFirstBotCompleteUserMuteStrategy())
     user_vad_analyzer = SileroVADAnalyzer(params=VADParams(stop_secs=0.2))
 
     # Configure turn strategies based on STT provider, model, and workflow configuration

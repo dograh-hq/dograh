@@ -18,7 +18,9 @@ Wire protocol:
 
 import base64
 import json
+import os
 
+import numpy as np
 from loguru import logger
 from pydantic import BaseModel
 
@@ -79,6 +81,14 @@ class VoiceLinkFrameSerializer(FrameSerializer):
 
         self._input_resampler = create_stream_resampler()
         self._output_resampler = create_stream_resampler()
+
+        # Inbound (caller) audio often lands much quieter than the bot's output
+        # on Indian carriers, starving Gemini's server-side VAD/ASR so the bot
+        # "can't hear" the caller. Boost the decoded inbound PCM by a tunable
+        # factor (env: VOICELINK_INBOUND_GAIN, default 1.0 = off) and log the
+        # measured level so the right gain can be dialed in without a rebuild.
+        self._inbound_gain = float(os.getenv("VOICELINK_INBOUND_GAIN", "1.0"))
+        self._in_frame_count = 0
 
     async def setup(self, frame: StartFrame):
         """Sets up the serializer with pipeline configuration.
@@ -157,6 +167,38 @@ class VoiceLinkFrameSerializer(FrameSerializer):
             if deserialized_data is None or len(deserialized_data) == 0:
                 # Ignoring in case we don't have audio
                 return None
+
+            # Measure + optionally boost the inbound (caller) level so Gemini's
+            # VAD/ASR can actually hear quiet telephony audio. RMS is logged
+            # ~once/sec (every 50 ~20ms frames) so the gain can be tuned live.
+            samples = np.frombuffer(deserialized_data, dtype=np.int16)
+            rms_in = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2))) if samples.size else 0.0
+            if self._inbound_gain != 1.0 and samples.size:
+                boosted = np.clip(
+                    samples.astype(np.float32) * self._inbound_gain, -32768, 32767
+                ).astype(np.int16)
+                deserialized_data = boosted.tobytes()
+            self._in_frame_count += 1
+            if self._in_frame_count % 50 == 0:
+                rms_out = (
+                    float(
+                        np.sqrt(
+                            np.mean(
+                                np.frombuffer(deserialized_data, dtype=np.int16).astype(
+                                    np.float32
+                                )
+                                ** 2
+                            )
+                        )
+                    )
+                    if samples.size
+                    else 0.0
+                )
+                logger.info(
+                    f"VoiceLink inbound audio: rms_in={rms_in:.0f} "
+                    f"gain={self._inbound_gain} rms_out={rms_out:.0f} "
+                    f"(frame {self._in_frame_count})"
+                )
 
             return InputAudioRawFrame(
                 audio=deserialized_data,

@@ -207,7 +207,9 @@ async def run_pipeline_telephony(
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
     spec = telephony_registry.get(provider_name)
-    audio_config = create_audio_config(provider_name)
+    # Realtime models need 16 kHz input; pass is_realtime so an 8 kHz telephony
+    # wire still runs the pipeline at 16 kHz (the serializer resamples).
+    audio_config = create_audio_config(provider_name, is_realtime=is_realtime)
 
     transport = await spec.transport_factory(
         websocket,

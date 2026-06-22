@@ -80,13 +80,22 @@ class AudioConfig:
         return int(self.pipeline_sample_rate * 2 * self.max_recording_duration_seconds)
 
 
-def create_audio_config(transport_type: str) -> AudioConfig:
+def create_audio_config(
+    transport_type: str, is_realtime: bool = False
+) -> AudioConfig:
     """Create audio configuration for a given transport.
 
     Telephony providers contribute their wire-format sample rate through the
     provider registry (``ProviderSpec.transport_sample_rate``); WebRTC modes
     use 16 kHz (transports handle resampling from/to 24 kHz). The remaining
     AudioConfig fields are derived from the chosen rate.
+
+    Realtime speech-to-speech models (e.g. Gemini Live) require >=16 kHz PCM
+    input — they receive audio at the pipeline rate, so an 8 kHz telephony
+    pipeline feeds them half-rate audio and recognition degrades badly. When
+    ``is_realtime`` is set we run the pipeline at 16 kHz (like the WebRTC
+    path); the provider's serializer keeps the 8 kHz wire format and resamples
+    between the wire and the pipeline.
     """
     # Defer registry import to avoid an import cycle: the registry is imported
     # by every telephony provider package at startup.
@@ -104,6 +113,14 @@ def create_audio_config(transport_type: str) -> AudioConfig:
     else:
         logger.warning(
             f"Unknown transport type: {transport_type}, using default config"
+        )
+        rate = 16000
+
+    # Realtime models need >=16 kHz input; the serializer resamples the wire.
+    if is_realtime and rate < 16000:
+        logger.info(
+            f"Realtime model on {transport_type} ({rate}Hz wire): running the "
+            f"pipeline at 16000Hz so the model receives 16 kHz input."
         )
         rate = 16000
 

@@ -27,6 +27,14 @@ REDIS_URL = os.environ["REDIS_URL"]
 
 DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")
 AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
+
+# Rate limits (requests per 60s). Set any to 0 to disable that limiter.
+# login/signup are IP-keyed (signup also provisions a VoiceLink client, so it's
+# stricter); the public X-API-Key call-trigger surface is keyed per API key and
+# kept generous so legitimate bulk usage isn't throttled.
+RATE_LIMIT_LOGIN_PER_MIN = int(os.getenv("RATE_LIMIT_LOGIN_PER_MIN", "10"))
+RATE_LIMIT_SIGNUP_PER_MIN = int(os.getenv("RATE_LIMIT_SIGNUP_PER_MIN", "5"))
+RATE_LIMIT_PUBLIC_API_PER_MIN = int(os.getenv("RATE_LIMIT_PUBLIC_API_PER_MIN", "300"))
 # Comma-separated list of emails that are promoted to superuser on
 # local-auth signup/login (e.g. "owner@example.com,ops@example.com").
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "")

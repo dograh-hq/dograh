@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
+from api.constants import RATE_LIMIT_LOGIN_PER_MIN, RATE_LIMIT_SIGNUP_PER_MIN
 from api.db import db_client
 from api.db.models import UserModel
 from api.enums import PostHogEvent
@@ -8,6 +9,7 @@ from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResp
 from api.services.auth.admin_emails import promote_if_admin_email
 from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
 from api.services.posthog_client import capture_event
+from api.services.rate_limit import rate_limit_ip
 from api.services.voicelink_clients import provision_voicelink_client_for_signup
 from api.utils.auth import create_jwt_token, hash_password, verify_password
 
@@ -18,7 +20,10 @@ router = APIRouter(
 
 
 @router.post("/signup", response_model=AuthResponse)
-async def signup(request: SignupRequest):
+async def signup(
+    request: SignupRequest,
+    _rl: None = Depends(rate_limit_ip("auth:signup", RATE_LIMIT_SIGNUP_PER_MIN)),
+):
     # Check if email is already taken
     existing_user = await db_client.get_user_by_email(request.email)
     if existing_user:
@@ -93,7 +98,10 @@ async def signup(request: SignupRequest):
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(request: LoginRequest):
+async def login(
+    request: LoginRequest,
+    _rl: None = Depends(rate_limit_ip("auth:login", RATE_LIMIT_LOGIN_PER_MIN)),
+):
     # Look up user by email
     user = await db_client.get_user_by_email(request.email)
     if not user or not user.password_hash:

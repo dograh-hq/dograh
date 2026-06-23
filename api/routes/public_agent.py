@@ -12,13 +12,16 @@ from fastapi import APIRouter, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 
+from api.constants import RATE_LIMIT_PUBLIC_API_PER_MIN
 from api.db import db_client
 from api.enums import TriggerState, WorkflowStatus
 from api.services.quota_service import check_dograh_quota_by_user_id
+from api.services.rate_limit import enforce_rate_limit
 from api.services.telephony.factory import (
     get_default_telephony_provider,
     get_telephony_provider_by_id,
 )
+from api.utils.api_key import hash_api_key
 from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/public/agent")
@@ -67,7 +70,17 @@ def trigger_exists_in_workflow(workflow_definition: dict, trigger_path: str) -> 
 
 
 async def _validate_api_key(x_api_key: str):
-    """Validate the org API key used to invoke a public agent endpoint."""
+    """Validate the org API key used to invoke a public agent endpoint.
+
+    Rate-limited per API key (the single chokepoint for all public trigger routes)
+    so one key can't spam call-triggers; generous by default (see constants).
+    """
+    await enforce_rate_limit(
+        bucket="public_api",
+        identity=hash_api_key(x_api_key or "")[:16],
+        limit=RATE_LIMIT_PUBLIC_API_PER_MIN,
+        window_seconds=60,
+    )
     api_key = await db_client.validate_api_key(x_api_key)
     if not api_key:
         raise HTTPException(status_code=401, detail="Invalid API key")

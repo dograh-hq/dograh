@@ -56,7 +56,8 @@ Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/do
 
 This setup:
 - Downloads the latest docker-compose.yaml
-- Creates `OSS_JWT_SECRET` in `.env` if one does not already exist
+- Creates `OSS_JWT_SECRET`, `REDIS_PASSWORD`, and MinIO credentials in `.env` if they do not already exist
+- Creates `POSTGRES_PASSWORD` for brand-new `.env` files and syncs retained local Postgres volumes to that value before startup
 - Prompts before running Docker Compose
 - Starts all required services including PostgreSQL, Redis, MinIO, API, and UI
 - Pulls the latest images automatically

@@ -138,16 +138,27 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
     const interruptWarningShownRef = useRef(false);
 
     const getWebSocketUrl = useCallback(async () => {
-        let baseUrl = client.getConfig().baseUrl || 'http://127.0.0.1:8000';
+        // An explicitly configured backend URL always wins. When set, honor it
+        // verbatim and skip the localhost autodetect below — the operator has
+        // told us exactly where the API lives. Read the env var directly (not
+        // client.getConfig().baseUrl) so we can distinguish "explicitly set"
+        // from the client's window.location.origin fallback.
+        const configuredBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
 
-        if (isLocalhostUi()) {
-            // Local Docker exposes the API on localhost:8000 while the UI runs
-            // on localhost:3010. WebSocket upgrades cannot pass through the
-            // Next.js route-handler HTTP proxy, so local browser calls should
-            // connect to the API directly when that port is available. A
-            // Next.js rewrite/proxy for the upgrade was considered, but we
-            // keep the WebRTC signaling path direct so signaling and the API's
-            // ICE/WebRTC handling terminate at the same local endpoint.
+        let baseUrl: string;
+
+        if (configuredBackendUrl) {
+            baseUrl = configuredBackendUrl;
+        } else if (isLocalhostUi()) {
+            // No backend URL configured and the UI is on localhost: the client
+            // would otherwise fall back to window.location.origin (the UI port,
+            // e.g. 3010), which is wrong for the API. Local Docker exposes the
+            // API on localhost:8000. WebSocket upgrades cannot pass through the
+            // Next.js route-handler HTTP proxy, so connect to the API directly
+            // when that port is reachable. A Next.js rewrite/proxy for the
+            // upgrade was considered, but we keep the WebRTC signaling path
+            // direct so signaling and the API's ICE/WebRTC handling terminate
+            // at the same local endpoint.
             const localhostApiReachable = await probeLocalhostApi();
 
             if (!localhostApiReachable) {
@@ -155,6 +166,9 @@ export const useWebSocketRTC = ({ workflowId, workflowRunId, accessToken, initia
             }
 
             baseUrl = LOCALHOST_API_BASE_URL;
+        } else {
+            // Same-origin deployment: UI and API share an origin.
+            baseUrl = client.getConfig().baseUrl || 'http://127.0.0.1:8000';
         }
 
         // Convert HTTP to WS protocol

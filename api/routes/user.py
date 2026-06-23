@@ -388,9 +388,18 @@ class VoiceInfo(BaseModel):
     preview_url: Optional[str] = None
 
 
+class VoiceFacets(BaseModel):
+    """Distinct selector values across a provider's full voice catalog."""
+
+    genders: List[str] = []
+    accents: List[str] = []
+    languages: List[str] = []
+
+
 class VoicesResponse(BaseModel):
     provider: str
     voices: List[VoiceInfo]
+    facets: Optional[VoiceFacets] = None
 
 
 @router.get("/configurations/voices/{provider}")
@@ -398,6 +407,9 @@ async def get_voices(
     provider: TTSProvider,
     model: Optional[str] = None,
     language: Optional[str] = None,
+    q: Optional[str] = None,
+    gender: Optional[str] = None,
+    accent: Optional[str] = None,
     user: UserModel = Depends(get_user),
 ) -> VoicesResponse:
     """Get available voices for a TTS provider."""
@@ -406,12 +418,16 @@ async def get_voices(
             provider=provider,
             model=model,
             language=language,
+            q=q,
+            gender=gender,
+            accent=accent,
             organization_id=user.selected_organization_id,
             created_by=user.provider_id,
         )
         return VoicesResponse(
             provider=result.get("provider", provider),
             voices=[VoiceInfo(**voice) for voice in result.get("voices", [])],
+            facets=result.get("facets"),
         )
     except Exception as e:
         logger.error(f"Failed to fetch voices for {provider}: {e}")

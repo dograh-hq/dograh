@@ -244,6 +244,9 @@ if ($UseCoturn) {
 Write-Info "[2/$TotalSteps] Creating environment file..."
 $ossJwtSecret = New-HexSecret 32
 $postgresPassword = New-HexSecret 32
+$redisPassword = New-HexSecret 32
+$minioRootUser = "dograh$((New-HexSecret 6).Substring(0, 12))"
+$minioRootPassword = New-HexSecret 32
 
 $envLines = @(
     '# Container registry for Dograh images'
@@ -256,6 +259,16 @@ $envLines = @(
     "# the API's DATABASE_URL. Do not change after the first start — the password"
     '# is baked into the postgres data volume when it is first created.'
     "POSTGRES_PASSWORD=$postgresPassword"
+    ''
+    "# Redis password. Used by the redis container's --requirepass and the API's"
+    '# REDIS_URL. This can be rotated by updating .env and recreating the redis'
+    '# container.'
+    "REDIS_PASSWORD=$redisPassword"
+    ''
+    '# MinIO root credentials. Used by the MinIO container and the API''s'
+    '# MINIO_ACCESS_KEY / MINIO_SECRET_KEY.'
+    "MINIO_ROOT_USER=$minioRootUser"
+    "MINIO_ROOT_PASSWORD=$minioRootPassword"
     ''
     '# Telemetry (set to false to disable)'
     "ENABLE_TELEMETRY=$EnableTelemetry"

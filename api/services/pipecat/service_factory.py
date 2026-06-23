@@ -11,6 +11,9 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
 )
 from api.services.configuration.registry import ServiceProviders
+from api.services.pipecat.gemini_json_schema_adapter import (
+    DograhGeminiJSONSchemaAdapter,
+)
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
@@ -119,6 +122,11 @@ def _validate_runtime_service_url(url: str, field_name: str) -> None:
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+def _use_dograh_gemini_adapter(service):
+    service._adapter = DograhGeminiJSONSchemaAdapter()
+    return service
 
 
 def create_stt_service(
@@ -776,16 +784,20 @@ def create_llm_service_from_provider(
             **kwargs,
         )
     elif provider == ServiceProviders.GOOGLE.value:
-        return GoogleLLMService(
-            api_key=api_key,
-            settings=GoogleLLMSettings(model=model, temperature=0.1),
+        return _use_dograh_gemini_adapter(
+            GoogleLLMService(
+                api_key=api_key,
+                settings=GoogleLLMSettings(model=model, temperature=0.1),
+            )
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
-        return GoogleVertexLLMService(
-            credentials=credentials,
-            project_id=project_id,
-            location=location or "us-east4",
-            settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
+        return _use_dograh_gemini_adapter(
+            GoogleVertexLLMService(
+                credentials=credentials,
+                project_id=project_id,
+                location=location or "us-east4",
+                settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
+            )
         )
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:

@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { WhatsAppSection } from "@/components/WhatsAppSection";
 import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { BRAND } from "@/lib/brand";
 
@@ -63,6 +64,20 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <TelemetrySection />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>WhatsApp Follow-up</CardTitle>
+            <CardDescription>
+              Automatically send an approved WhatsApp template (with an optional
+              document) to the lead after each call. Connect your own provider
+              account and API key.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <WhatsAppSection />
           </CardContent>
         </Card>
       </div>

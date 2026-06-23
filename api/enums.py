@@ -90,6 +90,9 @@ class OrganizationConfigurationKey(Enum):
     LANGFUSE_CREDENTIALS = (
         "LANGFUSE_CREDENTIALS"  # Org-level Langfuse tracing credentials
     )
+    WHATSAPP_PROVIDERS = (
+        "WHATSAPP_PROVIDERS"  # Org-level WhatsApp post-call messaging config
+    )
 
 
 class WorkflowStatus(Enum):

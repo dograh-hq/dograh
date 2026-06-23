@@ -313,6 +313,22 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 workflow_run_id
             )
 
+        # Step 6b: WhatsApp post-call message (org-configured, opt-in). Runs after
+        # uploads so recording/transcript links resolve. Best-effort — never break
+        # the post-call pipeline.
+        try:
+            from api.services.whatsapp.post_call import send_post_call_whatsapp
+
+            await send_post_call_whatsapp(
+                workflow_run=workflow_run,
+                organization_id=organization_id,
+                public_token=public_token,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"WhatsApp post-call send failed for run {workflow_run_id}: {exc}"
+            )
+
         # Step 7: Execute webhooks
         if not webhook_nodes:
             logger.debug("No webhook nodes in workflow")

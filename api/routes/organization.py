@@ -28,6 +28,11 @@ from api.schemas.telephony_phone_number import (
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
+from api.schemas.whatsapp_config import (
+    WhatsAppConfig,
+    WhatsAppConfigResponse,
+    WhatsAppTestRequest,
+)
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.factory import get_telephony_provider_by_id
@@ -961,3 +966,87 @@ async def get_campaign_defaults(user: UserModel = Depends(get_user)):
         default_retry_config=RetryConfigResponse(**DEFAULT_CAMPAIGN_RETRY_CONFIG),
         last_campaign_settings=last_campaign_settings,
     )
+
+
+# ──────────────────── WhatsApp post-call messaging config ────────────────────
+
+_WA_KEY = OrganizationConfigurationKey.WHATSAPP_PROVIDERS.value
+
+
+@router.get("/whatsapp-config", response_model=WhatsAppConfigResponse)
+async def get_whatsapp_config(user: UserModel = Depends(get_user)):
+    """Return the org's WhatsApp post-call config (api_key masked)."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    raw = await db_client.get_configuration_value(
+        user.selected_organization_id, _WA_KEY, default=None
+    )
+    if not raw:
+        return WhatsAppConfigResponse(config=None)
+    cfg = WhatsAppConfig.model_validate(raw)
+    if cfg.api_key:
+        cfg.api_key = mask_key(cfg.api_key)
+    return WhatsAppConfigResponse(config=cfg)
+
+
+@router.put("/whatsapp-config", response_model=WhatsAppConfigResponse)
+async def save_whatsapp_config(
+    body: WhatsAppConfig, user: UserModel = Depends(get_user)
+):
+    """Upsert the org's WhatsApp config. A resubmitted masked api_key is preserved."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    existing = await db_client.get_configuration_value(
+        user.selected_organization_id, _WA_KEY, default=None
+    )
+    if existing:
+        prev = WhatsAppConfig.model_validate(existing)
+        if body.api_key and prev.api_key and is_mask_of(body.api_key, prev.api_key):
+            body.api_key = prev.api_key  # user didn't change it — keep the real key
+    await db_client.upsert_configuration(
+        user.selected_organization_id, _WA_KEY, body.model_dump()
+    )
+    masked = body.model_copy()
+    if masked.api_key:
+        masked.api_key = mask_key(masked.api_key)
+    return WhatsAppConfigResponse(config=masked)
+
+
+@router.delete("/whatsapp-config")
+async def delete_whatsapp_config(user: UserModel = Depends(get_user)):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    await db_client.delete_configuration(user.selected_organization_id, _WA_KEY)
+    return {"status": "ok"}
+
+
+@router.post("/whatsapp-config/test")
+async def test_whatsapp_config(
+    body: WhatsAppTestRequest, user: UserModel = Depends(get_user)
+):
+    """Send a one-off test of the saved template to a phone number."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    raw = await db_client.get_configuration_value(
+        user.selected_organization_id, _WA_KEY, default=None
+    )
+    if not raw:
+        raise HTTPException(status_code=400, detail="whatsapp_not_configured")
+    cfg = WhatsAppConfig.model_validate(raw)
+    if not (cfg.api_key and cfg.campaign_name):
+        raise HTTPException(status_code=400, detail="whatsapp_config_incomplete")
+
+    from api.services.whatsapp.providers.aisensy import AiSensyProvider
+
+    if cfg.provider != "aisensy":
+        raise HTTPException(status_code=400, detail=f"provider_unsupported:{cfg.provider}")
+    provider = AiSensyProvider(api_key=cfg.api_key)
+    result = await provider.send_template(
+        to=body.destination,
+        campaign_name=cfg.campaign_name,
+        template_params=cfg.template_params,
+        sender_name=cfg.sender_name,
+        media_url=cfg.media_url,
+        media_filename=cfg.media_filename,
+    )
+    return {"ok": result.ok, "detail": result.detail}

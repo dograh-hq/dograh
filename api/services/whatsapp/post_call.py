@@ -18,6 +18,7 @@ from api.schemas.whatsapp_config import WhatsAppConfig
 from api.services.whatsapp.base import WhatsAppProvider
 from api.services.whatsapp.providers.aisensy import AiSensyProvider
 from api.utils.common import get_backend_endpoints
+from api.utils.secret_crypto import decrypt_secret
 
 _TOKEN_RE = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
 
@@ -79,6 +80,7 @@ async def send_post_call_whatsapp(
     except Exception as exc:
         logger.warning(f"WhatsApp config invalid for org {organization_id}: {exc}")
         return
+    cfg.api_key = decrypt_secret(cfg.api_key)  # encrypted at rest
     if not (cfg.enabled and cfg.api_key and cfg.campaign_name):
         return
 

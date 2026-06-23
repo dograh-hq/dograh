@@ -22,6 +22,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship
 
 from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG
+from api.utils.secret_crypto import EncryptedJSON
 
 from ..enums import (
     CallType,
@@ -949,7 +950,8 @@ class ExternalCredentialModel(Base):
     # - bearer_token: {"token": "value"}
     # - basic_auth: {"username": "user", "password": "value"}
     # - custom_header: {"header_name": "X-Custom", "header_value": "value"}
-    credential_data = Column(JSON, nullable=False, default=dict)
+    # Encrypted at rest (EncryptedJSON is DDL-identical to JSON — no migration).
+    credential_data = Column(EncryptedJSON, nullable=False, default=dict)
 
     # Audit fields
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)

@@ -28,6 +28,7 @@ from api.schemas.telephony_phone_number import (
 )
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
+from api.utils.secret_crypto import decrypt_secret, encrypt_secret
 from api.schemas.whatsapp_config import (
     WhatsAppConfig,
     WhatsAppConfigResponse,
@@ -768,7 +769,7 @@ async def get_langfuse_credentials(user: UserModel = Depends(get_user)):
     return LangfuseCredentialsResponse(
         host=config.value.get("host", ""),
         public_key=mask_key(config.value.get("public_key", "")),
-        secret_key=mask_key(config.value.get("secret_key", "")),
+        secret_key=mask_key(decrypt_secret(config.value.get("secret_key", ""))),
         configured=True,
     )
 
@@ -793,12 +794,16 @@ async def save_langfuse_credentials(
         "secret_key": request.secret_key,
     }
 
-    # Preserve masked fields
+    # Preserve masked fields (compare against the decrypted stored secret_key).
     if existing_config and existing_config.value:
         if is_mask_of(request.public_key, existing_config.value.get("public_key", "")):
             config_value["public_key"] = existing_config.value["public_key"]
-        if is_mask_of(request.secret_key, existing_config.value.get("secret_key", "")):
-            config_value["secret_key"] = existing_config.value["secret_key"]
+        prev_secret = decrypt_secret(existing_config.value.get("secret_key", ""))
+        if is_mask_of(request.secret_key, prev_secret):
+            config_value["secret_key"] = prev_secret
+
+    # Encrypt the secret_key at rest (public_key is a public Langfuse identifier).
+    config_value["secret_key"] = encrypt_secret(config_value["secret_key"])
 
     await db_client.upsert_configuration(
         user.selected_organization_id,
@@ -985,7 +990,7 @@ async def get_whatsapp_config(user: UserModel = Depends(get_user)):
         return WhatsAppConfigResponse(config=None)
     cfg = WhatsAppConfig.model_validate(raw)
     if cfg.api_key:
-        cfg.api_key = mask_key(cfg.api_key)
+        cfg.api_key = mask_key(decrypt_secret(cfg.api_key))  # decrypt at rest, then mask
     return WhatsAppConfigResponse(config=cfg)
 
 
@@ -1001,11 +1006,13 @@ async def save_whatsapp_config(
     )
     if existing:
         prev = WhatsAppConfig.model_validate(existing)
-        if body.api_key and prev.api_key and is_mask_of(body.api_key, prev.api_key):
-            body.api_key = prev.api_key  # user didn't change it — keep the real key
-    await db_client.upsert_configuration(
-        user.selected_organization_id, _WA_KEY, body.model_dump()
-    )
+        prev_key = decrypt_secret(prev.api_key)  # stored encrypted — compare in plaintext
+        if body.api_key and prev_key and is_mask_of(body.api_key, prev_key):
+            body.api_key = prev_key  # user didn't change it — keep the real key
+    # body.api_key is now the real plaintext; encrypt only the copy written to the DB.
+    stored = body.model_dump()
+    stored["api_key"] = encrypt_secret(body.api_key)
+    await db_client.upsert_configuration(user.selected_organization_id, _WA_KEY, stored)
     masked = body.model_copy()
     if masked.api_key:
         masked.api_key = mask_key(masked.api_key)
@@ -1033,6 +1040,7 @@ async def test_whatsapp_config(
     if not raw:
         raise HTTPException(status_code=400, detail="whatsapp_not_configured")
     cfg = WhatsAppConfig.model_validate(raw)
+    cfg.api_key = decrypt_secret(cfg.api_key)  # encrypted at rest
     if not (cfg.api_key and cfg.campaign_name):
         raise HTTPException(status_code=400, detail="whatsapp_config_incomplete")
 

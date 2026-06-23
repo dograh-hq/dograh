@@ -83,13 +83,20 @@ app = FastAPI(
 )
 
 
-# Configure CORS
+# Configure CORS. The API authenticates purely via the `Authorization: Bearer`
+# header (set explicitly by clients) and uses NO cookies, so credentialed CORS is
+# unnecessary. The previous `allow_origins=["*"]` WITH `allow_credentials=True` was
+# the actual vulnerability — it let ANY website make credentialed cross-origin
+# requests. Setting allow_credentials=False closes that hole while keeping the public
+# API and the cross-origin embed widget working (a strict origin allow-list would
+# break the widget, whose preflight the middleware intercepts before per-token domain
+# validation in routes/public_embed.py can run).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 api_router = APIRouter()

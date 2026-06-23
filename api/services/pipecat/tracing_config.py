@@ -178,8 +178,13 @@ def ensure_tracing() -> bool:
 def register_org_langfuse_credentials(org_id, host, public_key, secret_key):
     """Register or update org-specific Langfuse credentials for span routing.
 
-    Safe to call multiple times — updates credentials if they changed.
+    Safe to call multiple times — updates credentials if they changed. All three
+    callers feed the secret_key straight from the org config (encrypted at rest),
+    so decrypt here — the single chokepoint — rather than at each call site.
     """
+    from api.utils.secret_crypto import decrypt_secret
+
+    secret_key = decrypt_secret(secret_key)
     if not ensure_tracing():
         return
     if not all([host, public_key, secret_key]):

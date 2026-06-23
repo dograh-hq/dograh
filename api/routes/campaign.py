@@ -19,6 +19,7 @@ from api.services.campaign.runner import campaign_runner_service
 from api.services.campaign.source_sync import CampaignSourceSyncService
 from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import check_dograh_quota
+from api.services.voicelink_kyc.gating import assert_org_kyc_complete
 from api.services.reports import generate_campaign_report_csv
 from api.services.storage import storage_fs
 
@@ -548,6 +549,9 @@ async def start_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
+    # Require KYC before any outbound dialing.
+    await assert_org_kyc_complete(campaign.organization_id)
+
     # Check Dograh quota before starting campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).
     quota_result = await check_dograh_quota(user, workflow_id=campaign.workflow_id)
@@ -873,6 +877,9 @@ async def resume_campaign(
     campaign = await db_client.get_campaign(campaign_id, user.selected_organization_id)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Require KYC before any outbound dialing.
+    await assert_org_kyc_complete(campaign.organization_id)
 
     # Check Dograh quota before resuming campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).

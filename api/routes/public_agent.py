@@ -21,6 +21,7 @@ from api.services.telephony.factory import (
     get_default_telephony_provider,
     get_telephony_provider_by_id,
 )
+from api.services.voicelink_kyc.gating import assert_org_kyc_complete
 from api.utils.api_key import hash_api_key
 from api.utils.common import get_backend_endpoints
 
@@ -336,6 +337,8 @@ async def _initiate_call(
 ) -> TriggerCallResponse:
     """Resolve the requested public target, then execute the common call flow."""
     api_key = await _validate_api_key(x_api_key)
+    # Require KYC before any outbound dialing.
+    await assert_org_kyc_complete(api_key.organization_id)
     target = await target_resolver(
         identifier,
         api_key.organization_id,

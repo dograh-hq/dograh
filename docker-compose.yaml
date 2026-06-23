@@ -164,6 +164,24 @@ services:
       # from this value and nginx load-balances across them with least_conn.
       FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
 
+      # VICIdial call control. When an inbound call is patched in from VICIdial
+      # over the SIP trunk, the customer's real leg lives THERE, not on dograh's
+      # Asterisk — so the AI's hangup/transfer is driven via VICIdial's agent API
+      # (api/services/telephony/upstream_pbx.py). VICIdial runs on a SEPARATE
+      # server: point these at its reachable agent API (the api container reaches
+      # it over normal egress). Leave VICIDIAL_API_URL unset to disable.
+      VICIDIAL_API_URL: "${VICIDIAL_API_URL:-}"
+      VICIDIAL_API_USER: "${VICIDIAL_API_USER:-}"
+      VICIDIAL_API_PASS: "${VICIDIAL_API_PASS:-}"
+      VICIDIAL_API_SOURCE: "${VICIDIAL_API_SOURCE:-dograh}"
+      # VICIdial non-agent API (update_lead, e.g. tagging address3=MEDICAID=Y
+      # before a transfer). Separate endpoint (non_agent_api.php) and creds from
+      # the agent API above. Leave VICIDIAL_NON_AGENT_API_URL unset to disable.
+      VICIDIAL_NON_AGENT_API_URL: "${VICIDIAL_NON_AGENT_API_URL:-}"
+      VICIDIAL_NON_AGENT_API_USER: "${VICIDIAL_NON_AGENT_API_USER:-}"
+      VICIDIAL_NON_AGENT_API_PASS: "${VICIDIAL_NON_AGENT_API_PASS:-}"
+      VICIDIAL_NON_AGENT_API_SOURCE: "${VICIDIAL_NON_AGENT_API_SOURCE:-dograh}"
+
       # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
       # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches
       # uvicorn from a Docker-network IP (not loopback), but uvicorn trusts only
@@ -261,6 +279,45 @@ services:
       - "2000:2000" # Expose metrics endpoint
     networks:
       - app-network
+
+  # dograh-asterisk — SIP/ARI gateway. A remote VICIdial SIP-trunks in here;
+  # calls route to Stasis(dograh) and dograh's ari_manager (in the api container)
+  # takes over: it reaches ARI at http://dograh-asterisk:8088 and Asterisk
+  # streams externalMedia audio back to ws://api:8000/api/v1/telephony/ws/ari —
+  # both over this compose network, so ARI/8088 is deliberately NOT published.
+  asterisk:
+    build:
+      context: ./asterisk
+      dockerfile: Dockerfile
+    image: dograh-asterisk:22
+    container_name: dograh-asterisk
+    restart: unless-stopped
+    # Asterisk is started with `-c` (interactive console). Without a TTY, its
+    # console read-loop hits instant EOF on stdin (/dev/null) and busy-spins,
+    # pinning a CPU core and spewing NUL bytes to stdout (77GB of logs in a day).
+    # Allocating a pty gives the console a blocking stdin, so it idles instead.
+    tty: true
+    stdin_open: true
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # Config is dir-mounted from ./asterisk/etc — edit the .conf files on the host
+    # and apply with `docker exec dograh-asterisk asterisk -rx "module reload
+    # res_pjsip.so"` (or `dialplan reload`), no image rebuild. Host-specific values
+    # (public IP, ARI password, ws URI, RTP ports) are set literally in those
+    # files, so there are no env vars to configure here. Transport/port changes
+    # still need a container restart.
+    volumes:
+      - ./asterisk/etc:/etc/asterisk
+    ports:
+      - "${ASTERISK_SIP_PORT:-5060}:5060/udp" # SIP signalling
+      - "10000-10020:10000-10020/udp" # RTP media (must match rtp.conf rtpstart/rtpend)
+    networks:
+      - app-network
+    depends_on:
+      - api
 
 volumes:
   postgres_data:

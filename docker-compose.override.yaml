@@ -3,9 +3,10 @@
 # instead of pulling them from a registry. Remove this file to revert to
 # pulling prebuilt images.
 #
-# NOTE: also carries the POC pbx-net attachment (see api.networks below). If
-# setup_remote.sh regenerates this file, re-add the api networks block and the
-# external pbx-net declaration, otherwise dograh->VICIdial API calls will time out.
+# NOTE: VICIdial now runs on a SEPARATE server, so there is no shared pbx-net —
+# the api container reaches VICIdial's agent API over normal egress (set
+# VICIDIAL_API_URL in .env). If setup_remote.sh regenerates this file it only
+# restores the build blocks below, which is exactly what we want.
 services:
   api:
     build:
@@ -13,12 +14,6 @@ services:
       dockerfile: api/Dockerfile
     image: dograh-local/dograh-api:local
     pull_policy: never
-    # POC: attach api to the VICIdial PBX LAN so its Python (upstream_pbx.py)
-    # can reach VICIdial's agent API at 10.10.10.15. Without this the
-    # ra_call_control HANGUP/TRANSFER calls time out. Survives recreate.
-    networks:
-      - app-network
-      - pbx-net
 
   ui:
     build:
@@ -26,9 +21,3 @@ services:
       dockerfile: ui/Dockerfile
     image: dograh-local/dograh-ui:local
     pull_policy: never
-
-# pbx-net is created/managed outside this compose project (the LXD/PBX bridge),
-# so reference it as external — compose attaches to it but won't create/destroy it.
-networks:
-  pbx-net:
-    external: true

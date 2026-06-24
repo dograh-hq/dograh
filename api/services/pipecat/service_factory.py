@@ -114,6 +114,14 @@ def stt_uses_flux_turns(user_config) -> bool:
     return False
 
 
+class DograhGoogleLLMService(GoogleLLMService):
+    adapter_class = DograhGeminiJSONSchemaAdapter
+
+
+class DograhGoogleVertexLLMService(GoogleVertexLLMService):
+    adapter_class = DograhGeminiJSONSchemaAdapter
+
+
 def _validate_runtime_service_url(url: str, field_name: str) -> None:
     try:
         validate_user_configured_service_url(
@@ -122,11 +130,6 @@ def _validate_runtime_service_url(url: str, field_name: str) -> None:
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-
-
-def _use_dograh_gemini_adapter(service):
-    service._adapter = DograhGeminiJSONSchemaAdapter()
-    return service
 
 
 def create_stt_service(
@@ -784,20 +787,16 @@ def create_llm_service_from_provider(
             **kwargs,
         )
     elif provider == ServiceProviders.GOOGLE.value:
-        return _use_dograh_gemini_adapter(
-            GoogleLLMService(
-                api_key=api_key,
-                settings=GoogleLLMSettings(model=model, temperature=0.1),
-            )
+        return DograhGoogleLLMService(
+            api_key=api_key,
+            settings=GoogleLLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
-        return _use_dograh_gemini_adapter(
-            GoogleVertexLLMService(
-                credentials=credentials,
-                project_id=project_id,
-                location=location or "us-east4",
-                settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
-            )
+        return DograhGoogleVertexLLMService(
+            credentials=credentials,
+            project_id=project_id,
+            location=location or "us-east4",
+            settings=GoogleVertexLLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.AZURE.value:
         if endpoint:

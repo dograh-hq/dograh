@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from google.genai.types import GenerateContentConfig
@@ -10,7 +9,8 @@ from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
 )
 from api.services.pipecat.service_factory import (
-    _use_dograh_gemini_adapter,
+    DograhGoogleLLMService,
+    DograhGoogleVertexLLMService,
     create_llm_service_from_provider,
 )
 
@@ -60,21 +60,37 @@ def test_gemini_tools_use_json_schema_parameters_for_external_schemas():
     GenerateContentConfig(tools=tools)
 
 
-def test_google_services_use_dograh_gemini_adapter():
-    service = SimpleNamespace(_adapter=object())
+def test_gemini_tools_use_json_schema_parameters_for_no_argument_tools():
+    function_schema = FunctionSchema(
+        name="refresh_context",
+        description="Refresh the current context.",
+        properties={},
+        required=[],
+    )
 
-    result = _use_dograh_gemini_adapter(service)
+    tools = DograhGeminiJSONSchemaAdapter().to_provider_tools_format(
+        ToolsSchema(standard_tools=[function_schema])
+    )
 
-    assert result is service
-    assert isinstance(service._adapter, DograhGeminiJSONSchemaAdapter)
+    declaration = tools[0]["function_declarations"][0]
+    assert "parameters" not in declaration
+    assert declaration["parameters_json_schema"] == {
+        "type": "object",
+        "properties": {},
+        "required": [],
+    }
+
+    GenerateContentConfig(tools=tools)
 
 
-def test_google_llm_service_factory_installs_dograh_gemini_adapter():
-    service = SimpleNamespace(_adapter=object())
+def test_google_service_classes_use_dograh_gemini_adapter_class():
+    assert DograhGoogleLLMService.adapter_class is DograhGeminiJSONSchemaAdapter
+    assert DograhGoogleVertexLLMService.adapter_class is DograhGeminiJSONSchemaAdapter
 
+
+def test_google_llm_service_factory_uses_dograh_service_class():
     with patch(
-        "api.services.pipecat.service_factory.GoogleLLMService",
-        return_value=service,
+        "api.services.pipecat.service_factory.DograhGoogleLLMService",
     ) as mock_service:
         result = create_llm_service_from_provider(
             provider=ServiceProviders.GOOGLE.value,
@@ -82,18 +98,14 @@ def test_google_llm_service_factory_installs_dograh_gemini_adapter():
             api_key="test-api-key",
         )
 
-    assert result is service
-    assert isinstance(service._adapter, DograhGeminiJSONSchemaAdapter)
+    assert result is mock_service.return_value
     assert mock_service.call_args.kwargs["api_key"] == "test-api-key"
     assert mock_service.call_args.kwargs["settings"].model == "gemini-2.5-flash"
 
 
-def test_google_vertex_llm_service_factory_installs_dograh_gemini_adapter():
-    service = SimpleNamespace(_adapter=object())
-
+def test_google_vertex_llm_service_factory_uses_dograh_service_class():
     with patch(
-        "api.services.pipecat.service_factory.GoogleVertexLLMService",
-        return_value=service,
+        "api.services.pipecat.service_factory.DograhGoogleVertexLLMService",
     ) as mock_service:
         result = create_llm_service_from_provider(
             provider=ServiceProviders.GOOGLE_VERTEX.value,
@@ -104,8 +116,7 @@ def test_google_vertex_llm_service_factory_installs_dograh_gemini_adapter():
             credentials='{"type":"service_account"}',
         )
 
-    assert result is service
-    assert isinstance(service._adapter, DograhGeminiJSONSchemaAdapter)
+    assert result is mock_service.return_value
     assert mock_service.call_args.kwargs["project_id"] == "demo-project"
     assert mock_service.call_args.kwargs["location"] == "us-central1"
     assert mock_service.call_args.kwargs["settings"].model == "gemini-2.5-pro"

@@ -25,9 +25,8 @@ class DograhGeminiJSONSchemaAdapter(GeminiLLMAdapter):
             formatted_functions = []
             for func in functions_schema:
                 func_dict = func.to_default_dict()
-                parameters = func_dict.pop("parameters", None)
-                if parameters is not None:
-                    func_dict["parameters_json_schema"] = parameters
+                parameters = func_dict.pop("parameters")
+                func_dict["parameters_json_schema"] = parameters
                 formatted_functions.append(func_dict)
             formatted_standard_tools = [{"function_declarations": formatted_functions}]
         else:

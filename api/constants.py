@@ -59,6 +59,11 @@ CREDIT_PACKS = [
     {"id": "growth", "label": "Growth", "minutes": 2000, "price_inr": 1800},
     {"id": "scale", "label": "Scale", "minutes": 5000, "price_inr": 4000},
 ]
+
+# Telephony marketplace: setup cost (in call-minutes deducted from the credit
+# balance) to claim a phone number. PLACEHOLDER — founder sets the real price.
+# 0 = free to claim. Unmetered (unlimited) orgs are never charged.
+NUMBER_SETUP_MINUTES = int(os.getenv("NUMBER_SETUP_MINUTES", "0"))
 # Comma-separated list of emails that are promoted to superuser on
 # local-auth signup/login (e.g. "owner@example.com,ops@example.com").
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "")

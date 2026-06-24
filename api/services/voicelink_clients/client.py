@@ -66,6 +66,53 @@ class VoiceLinkClientsClient(VoiceLinkKycClient):
         )
         raise VoiceLinkClientError(message, status_code=status)
 
+    async def available_dids(self) -> list[Dict[str, Any]]:
+        """``GET /v1/reseller/client/available-dids`` → DID records.
+
+        Each carries ``did_id``/``did_number``/``type_label``/``country_code`` and
+        ``user_status`` (1=Available 2=Assigned 3=Expired 4=Inactive).
+        """
+        try:
+            status, data = await self._api_request(
+                "GET", "/v1/reseller/client/available-dids"
+            )
+        except VoiceLinkKycError as e:
+            raise VoiceLinkClientError(str(e))
+        if (
+            status in (200, 201)
+            and isinstance(data, dict)
+            and data.get("status", True) is not False
+        ):
+            dids = data.get("data")
+            return dids if isinstance(dids, list) else []
+        message = (
+            data.get("message") if isinstance(data, dict) else None
+        ) or f"HTTP {status}"
+        raise VoiceLinkClientError(message, status_code=status)
+
+    async def map_did(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """``POST /v1/reseller/client/map-did`` → assign a DID to a client.
+
+        payload: client_id, did_id, call_recording 0|1, user_status,
+        user_expiry_date, client_auto_renew. Returns the success envelope.
+        """
+        try:
+            status, data = await self._api_request(
+                "POST", "/v1/reseller/client/map-did", payload=payload
+            )
+        except VoiceLinkKycError as e:
+            raise VoiceLinkClientError(str(e))
+        if (
+            status in (200, 201)
+            and isinstance(data, dict)
+            and data.get("status", True) is not False
+        ):
+            return data
+        message = (
+            data.get("message") if isinstance(data, dict) else None
+        ) or f"HTTP {status}"
+        raise VoiceLinkClientError(message, status_code=status)
+
     async def list_clients(self) -> list[Dict[str, Any]]:
         """``GET /v1/reseller/clients`` → the list of reseller client records.
 

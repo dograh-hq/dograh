@@ -5,6 +5,7 @@ import { ExternalLink } from "lucide-react";
 import { CreditsSection } from "@/components/CreditsSection";
 import { CrmSection } from "@/components/CrmSection";
 import { MCPSection } from "@/components/MCPSection";
+import { PhoneNumbersSection } from "@/components/PhoneNumbersSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
 import {
   Card,
@@ -37,6 +38,19 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <CreditsSection />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Phone Numbers</CardTitle>
+            <CardDescription>
+              Buy a phone number for outbound calls. Requires completed KYC; charged
+              to your call-credit balance.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PhoneNumbersSection />
           </CardContent>
         </Card>
 

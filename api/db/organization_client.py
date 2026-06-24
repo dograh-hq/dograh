@@ -92,6 +92,33 @@ class OrganizationClient(BaseDBClient):
             await session.commit()
         return await self.get_free_call_seconds_remaining(organization_id)
 
+    async def try_charge_call_seconds(
+        self, organization_id: int, seconds: int
+    ) -> bool:
+        """Atomically deduct `seconds` ONLY if the metered balance covers it.
+
+        Returns True iff it charged. Unmetered (NULL) orgs are never charged here
+        (returns False — caller treats that as 'allowed, free'). The conditional
+        UPDATE makes this race-safe (no check-then-act double-charge).
+        """
+        if seconds <= 0:
+            return False
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(OrganizationModel)
+                .where(
+                    OrganizationModel.id == organization_id,
+                    OrganizationModel.free_call_seconds_remaining.isnot(None),
+                    OrganizationModel.free_call_seconds_remaining >= seconds,
+                )
+                .values(
+                    free_call_seconds_remaining=OrganizationModel.free_call_seconds_remaining
+                    - seconds
+                )
+            )
+            await session.commit()
+            return result.rowcount > 0
+
     async def get_or_create_organization_by_provider_id(
         self, org_provider_id: str, user_id: int
     ) -> tuple[OrganizationModel, bool]:

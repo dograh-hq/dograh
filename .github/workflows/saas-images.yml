@@ -46,6 +46,7 @@ jobs:
             build-args: |
               NEXT_PUBLIC_BACKEND_URL=https://api.auto4you.in
               NEXT_PUBLIC_BRAND_NAME=Auto4You Voice
+              NEXT_PUBLIC_BRAND_LOGO=/brand-logo.svg
               NEXT_PUBLIC_CLIENT_MODE=true
     steps:
       # The api image build is large; reclaim runner disk first.

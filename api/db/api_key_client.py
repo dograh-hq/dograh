@@ -1,6 +1,7 @@
+from datetime import datetime, timezone
 from typing import List, Optional
 
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
@@ -10,9 +11,16 @@ from api.utils.api_key import generate_api_key, hash_api_key
 
 class APIKeyClient(BaseDBClient):
     async def create_api_key(
-        self, organization_id: int, name: str, created_by: Optional[int] = None
+        self,
+        organization_id: int,
+        name: str,
+        created_by: Optional[int] = None,
+        expires_at: Optional[datetime] = None,
     ) -> tuple[APIKeyModel, str]:
         """Create a new API key for an organization.
+
+        Args:
+            expires_at: Optional expiry; None = never expires.
 
         Returns:
             Tuple of (APIKeyModel, raw_api_key)
@@ -28,6 +36,7 @@ class APIKeyClient(BaseDBClient):
                 key_prefix=key_prefix,
                 created_by=created_by,
                 is_active=True,
+                expires_at=expires_at,
             )
             session.add(api_key)
             await session.commit()
@@ -51,7 +60,7 @@ class APIKeyClient(BaseDBClient):
             return result.scalars().all()
 
     async def get_api_key_by_hash(self, key_hash: str) -> Optional[APIKeyModel]:
-        """Get an API key by its hash."""
+        """Get an active, non-archived, non-expired API key by its hash."""
         async with self.async_session() as session:
             result = await session.execute(
                 select(APIKeyModel).where(
@@ -59,6 +68,10 @@ class APIKeyClient(BaseDBClient):
                         APIKeyModel.key_hash == key_hash,
                         APIKeyModel.is_active == True,
                         APIKeyModel.archived_at.is_(None),
+                        or_(
+                            APIKeyModel.expires_at.is_(None),
+                            APIKeyModel.expires_at > datetime.now(timezone.utc),
+                        ),
                     )
                 )
             )

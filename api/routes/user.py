@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Literal, Optional, TypedDict, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -200,6 +200,8 @@ class APIKeyResponse(BaseModel):
 
 class CreateAPIKeyRequest(BaseModel):
     name: str
+    # Optional: auto-expire the key after this many days (None = never).
+    expires_in_days: Optional[int] = None
 
 
 class CreateAPIKeyResponse(BaseModel):
@@ -246,10 +248,17 @@ async def create_api_key(
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
 
+    expires_at = None
+    if request.expires_in_days and request.expires_in_days > 0:
+        expires_at = datetime.now(timezone.utc) + timedelta(
+            days=request.expires_in_days
+        )
+
     api_key, raw_key = await db_client.create_api_key(
         organization_id=user.selected_organization_id,
         name=request.name,
         created_by=user.id,
+        expires_at=expires_at,
     )
 
     return CreateAPIKeyResponse(

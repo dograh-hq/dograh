@@ -155,6 +155,8 @@ class APIKeyModel(Base):
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     archived_at = Column(DateTime(timezone=True), nullable=True)
+    # Optional expiry; NULL = never expires. Enforced in get_api_key_by_hash.
+    expires_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     organization = relationship("OrganizationModel", back_populates="api_keys")

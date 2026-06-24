@@ -345,6 +345,21 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 f"Trial-credit decrement failed for run {workflow_run_id}: {exc}"
             )
 
+        # Step 6d: CRM sync (org-configured, opt-in). After uploads so recording/
+        # transcript links resolve. Best-effort — never break the post-call pipeline.
+        try:
+            from api.services.integrations.crm.post_call import send_post_call_crm
+
+            await send_post_call_crm(
+                workflow_run=workflow_run,
+                organization_id=organization_id,
+                public_token=public_token,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"CRM post-call sync failed for run {workflow_run_id}: {exc}"
+            )
+
         # Step 7: Execute webhooks
         if not webhook_nodes:
             logger.debug("No webhook nodes in workflow")

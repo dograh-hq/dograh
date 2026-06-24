@@ -2,6 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 
+import { CrmSection } from "@/components/CrmSection";
 import { MCPSection } from "@/components/MCPSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
 import {
@@ -78,6 +79,20 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <WhatsAppSection />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Connect your CRM</CardTitle>
+            <CardDescription>
+              Automatically push every call to your CRM — upsert the contact and log
+              the outcome, recording, transcript and sentiment. Connect your own CRM
+              account and API token.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CrmSection />
           </CardContent>
         </Card>
       </div>

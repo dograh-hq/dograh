@@ -96,6 +96,9 @@ class OrganizationConfigurationKey(Enum):
     ONBOARDING_PROFILE = (
         "ONBOARDING_PROFILE"  # First-run business/qualification survey answers
     )
+    CRM_PROVIDERS = (
+        "CRM_PROVIDERS"  # Org-level post-call CRM sync config (push contact + call log)
+    )
 
 
 class WorkflowStatus(Enum):

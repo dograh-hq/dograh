@@ -29,6 +29,7 @@ from api.schemas.telephony_phone_number import (
 from api.services.auth.depends import get_user
 from api.services.configuration.masking import is_mask_of, mask_key
 from api.utils.secret_crypto import decrypt_secret, encrypt_secret
+from api.schemas.crm_config import CRMConfig, CRMConfigResponse, CRMTestRequest
 from api.schemas.whatsapp_config import (
     WhatsAppConfig,
     WhatsAppConfigResponse,
@@ -1091,3 +1092,85 @@ async def save_onboarding_profile(body: dict, user: UserModel = Depends(get_user
         user.selected_organization_id, _ONBOARDING_KEY, profile
     )
     return OnboardingProfileResponse(completed=True, profile=profile)
+
+
+_CRM_KEY = OrganizationConfigurationKey.CRM_PROVIDERS.value
+
+
+@router.get("/crm-config", response_model=CRMConfigResponse)
+async def get_crm_config(user: UserModel = Depends(get_user)):
+    """Return the org's CRM sync config (api_key masked)."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    raw = await db_client.get_configuration_value(
+        user.selected_organization_id, _CRM_KEY, default=None
+    )
+    if not raw:
+        return CRMConfigResponse(config=None)
+    cfg = CRMConfig.model_validate(raw)
+    if cfg.api_key:
+        cfg.api_key = mask_key(decrypt_secret(cfg.api_key))
+    return CRMConfigResponse(config=cfg)
+
+
+@router.put("/crm-config", response_model=CRMConfigResponse)
+async def save_crm_config(body: CRMConfig, user: UserModel = Depends(get_user)):
+    """Upsert the org's CRM config. A resubmitted masked api_key is preserved."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    existing = await db_client.get_configuration_value(
+        user.selected_organization_id, _CRM_KEY, default=None
+    )
+    if existing:
+        prev = CRMConfig.model_validate(existing)
+        prev_key = decrypt_secret(prev.api_key)
+        if body.api_key and prev_key and is_mask_of(body.api_key, prev_key):
+            body.api_key = prev_key
+    stored = body.model_dump()
+    stored["api_key"] = encrypt_secret(body.api_key)
+    await db_client.upsert_configuration(user.selected_organization_id, _CRM_KEY, stored)
+    masked = body.model_copy()
+    if masked.api_key:
+        masked.api_key = mask_key(masked.api_key)
+    return CRMConfigResponse(config=masked)
+
+
+@router.delete("/crm-config")
+async def delete_crm_config(user: UserModel = Depends(get_user)):
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    await db_client.delete_configuration(user.selected_organization_id, _CRM_KEY)
+    return {"status": "ok"}
+
+
+@router.post("/crm-config/test")
+async def test_crm_config(body: CRMTestRequest, user: UserModel = Depends(get_user)):
+    """Probe the CRM connection by upserting a test contact + note."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    raw = await db_client.get_configuration_value(
+        user.selected_organization_id, _CRM_KEY, default=None
+    )
+    if not raw:
+        raise HTTPException(status_code=400, detail="crm_not_configured")
+    cfg = CRMConfig.model_validate(raw)
+    cfg.api_key = decrypt_secret(cfg.api_key)
+    if not cfg.api_key:
+        raise HTTPException(status_code=400, detail="crm_config_incomplete")
+
+    from api.services.integrations.crm.base import CallLog
+    from api.services.integrations.crm.post_call import _resolve_provider
+
+    provider = _resolve_provider(cfg)
+    if provider is None:
+        raise HTTPException(status_code=400, detail=f"provider_unsupported:{cfg.provider}")
+    phone = body.phone or "+919999999999"
+    result = await provider.sync_call(
+        CallLog(
+            phone=phone,
+            name="auto4you Test Contact",
+            disposition="TEST",
+            summary="Connection test from auto4you. Safe to delete.",
+        )
+    )
+    return {"ok": result.ok, "detail": result.detail, "contact_id": result.contact_id}

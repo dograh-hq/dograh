@@ -26,7 +26,7 @@ from api.services.voicelink_kyc.gating import assert_org_kyc_complete
 from api.utils.api_key import hash_api_key
 from api.utils.common import get_backend_endpoints
 
-router = APIRouter(prefix="/public/agent")
+router = APIRouter(prefix="/public/agent", tags=["public"])
 
 
 class TriggerCallRequest(BaseModel):

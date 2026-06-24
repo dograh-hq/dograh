@@ -71,13 +71,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Dograh API",
-    description="API for the Dograh app",
+    title="Auto4You Voice API",
+    description=(
+        "REST API for the Auto4You voice-agent platform.\n\n"
+        "**Authentication:** pass your organization API key in the `X-API-Key` "
+        "header (create one in the dashboard under API Keys). Public call-trigger "
+        "endpoints are grouped under the **public** tag.\n\n"
+        "Outbound calling requires completed KYC and available call minutes."
+    ),
     version="1.0.0",
     openapi_url=f"{API_PREFIX}/openapi.json",
     lifespan=lifespan,
     servers=[
-        {"url": "https://app.dograh.com", "description": "Production"},
+        {"url": "https://api.auto4you.in", "description": "Production"},
         {"url": "http://localhost:8000", "description": "Local development"},
     ],
 )

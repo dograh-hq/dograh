@@ -28,6 +28,14 @@ REDIS_URL = os.environ["REDIS_URL"]
 DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")
 AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
 
+# Google OAuth ("Sign in with Google"). Client id is public; the secret is server-
+# side only. Redirect URI must be registered on the Google OAuth client.
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv(
+    "GOOGLE_REDIRECT_URI", "https://api.auto4you.in/api/v1/auth/google/callback"
+)
+
 # Rate limits (requests per 60s). Set any to 0 to disable that limiter.
 # login/signup are IP-keyed (signup also provisions a VoiceLink client, so it's
 # stricter); the public X-API-Key call-trigger surface is keyed per API key and

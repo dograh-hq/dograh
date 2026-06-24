@@ -95,6 +95,32 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 | `ENABLE_AWS_S3` | `false` | Set to `true` to use AWS S3 instead of MinIO |
 | `S3_BUCKET` | `null` | S3 bucket name |
 | `S3_REGION` | `us-east-1` | AWS region |
+| `S3_ENDPOINT_URL` | `null` | Custom S3 endpoint for S3-compatible servers (e.g. `https://s3.example.com`). Leave unset for AWS. |
+| `S3_SIGNATURE_VERSION` | `null` | Signing version. Unset uses botocore's default; set `s3v4` for servers that require SigV4. |
+| `S3_ADDRESSING_STYLE` | `null` | `auto` (default), `path`, or `virtual`. Many S3-compatible servers and TLS setups require `path`. |
+
+Credentials come from the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables.
+
+#### S3-compatible servers (MinIO, rustfs, Ceph, ...)
+
+The S3 backend can target any S3-compatible server, not just AWS. Prefer it over the MinIO backend when you need **presigned URLs against a private bucket**: the MinIO backend returns plain unsigned object URLs and relies on the bucket being anonymously public-readable, whereas the S3 backend issues real presigned URLs so the bucket can stay private.
+
+To use it, set `ENABLE_AWS_S3=true` and point it at your server with the `S3_*` overrides above. For example, against [rustfs](https://github.com/rustfs/rustfs):
+
+```bash
+ENABLE_AWS_S3=true
+S3_BUCKET=voice-audio
+S3_REGION=us-east-1
+S3_ENDPOINT_URL=https://s3.example.com
+S3_SIGNATURE_VERSION=s3v4   # rustfs rejects SigV2 with SignatureDoesNotMatch
+S3_ADDRESSING_STYLE=path    # rustfs and most non-AWS TLS certs require path-style
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+<Note>
+Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from the browser. Because browsers fetch transcripts cross-origin, the bucket also needs a CORS rule allowing your app's origin for `GET`/`HEAD` — configure this on the storage server (e.g. via `PutBucketCors`), not in Dograh.
+</Note>
 
 ---
 

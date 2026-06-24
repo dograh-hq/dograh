@@ -160,14 +160,6 @@ def patch_run_pipeline_externals(
                 NoopFeedbackObserver,
             )
         )
-        # Disposition mapper would otherwise call out to the LLM.
-        stack.enter_context(
-            patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-                new_callable=AsyncMock,
-                return_value="completed",
-            )
-        )
         # Capture the PipelineWorker so the test can drive it from outside.
         stack.enter_context(
             patch(

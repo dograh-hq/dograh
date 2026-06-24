@@ -171,31 +171,26 @@ class TestTransitionFunctionMutesUser:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={"user_intent": "end call"},
             ):
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={"user_intent": "end call"},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def initialize_engine():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                async def initialize_engine():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                    await asyncio.wait_for(
-                        asyncio.gather(run_pipeline(), initialize_engine()),
-                        timeout=10.0,
-                    )
+                await asyncio.wait_for(
+                    asyncio.gather(run_pipeline(), initialize_engine()),
+                    timeout=10.0,
+                )
 
         assert len(captured_states) == 1, (
             f"Expected the transition function to be invoked exactly once, "
@@ -245,31 +240,26 @@ class TestTransitionFunctionMutesUser:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={"user_intent": "end call"},
             ):
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={"user_intent": "end call"},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def initialize_engine():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                async def initialize_engine():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                    await asyncio.wait_for(
-                        asyncio.gather(run_pipeline(), initialize_engine()),
-                        timeout=10.0,
-                    )
+                await asyncio.wait_for(
+                    asyncio.gather(run_pipeline(), initialize_engine()),
+                    timeout=10.0,
+                )
 
         assert function_call_mute_strategy._function_call_in_progress == set(), (
             "FunctionCallUserMuteStrategy should have cleared its in-progress "

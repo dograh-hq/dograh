@@ -19,7 +19,6 @@ from pipecat.utils.enums import EndTaskReason
 from api.db import db_client
 from api.enums import ToolCategory
 from api.services.pipecat.audio_playback import play_audio
-from api.services.workflow.disposition_mapper import apply_disposition_mapping
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
 if TYPE_CHECKING:
@@ -751,38 +750,21 @@ class PipecatEngine:
             CancelFrame(reason=reason) if abort_immediately else EndFrame(reason=reason)
         )
 
-        # Apply disposition mapping - first try call_disposition if it is,
-        # extracted from the call conversation then fall back to reason
-        call_disposition = self._gathered_context.get("call_disposition", "")
-        organization_id = await self._get_organization_id()
+        # Record the call disposition: prefer one extracted from the conversation,
+        # otherwise fall back to the disconnect reason.
+        call_disposition = self._gathered_context.get("call_disposition", "") or reason
+        self._gathered_context["call_disposition"] = call_disposition
+        self._gathered_context["mapped_call_disposition"] = call_disposition
 
         if call_disposition:
-            # If call_disposition exists, map it
-            mapped_disposition = await apply_disposition_mapping(
-                call_disposition, organization_id
-            )
-            # Store the original and mapped values
-            self._gathered_context["extracted_call_disposition"] = call_disposition
-            self._gathered_context["call_disposition"] = call_disposition
-            self._gathered_context["mapped_call_disposition"] = mapped_disposition
-        else:
-            # Otherwise, map the disconnect reason
-            mapped_disposition = await apply_disposition_mapping(
-                reason, organization_id
-            )
-            # Store the mapped disconnect reason
-            self._gathered_context["call_disposition"] = reason
-            self._gathered_context["mapped_call_disposition"] = mapped_disposition
-
-        effective_disposition = self._gathered_context.get("call_disposition", "")
-        if effective_disposition:
             call_tags = self._gathered_context.get("call_tags", [])
-            if effective_disposition not in call_tags:
-                call_tags.append(effective_disposition)
+            if call_disposition not in call_tags:
+                call_tags.append(call_disposition)
             self._gathered_context["call_tags"] = call_tags
 
         logger.debug(
-            f"Finishing run with reason: {reason}, disposition: {mapped_disposition} queueing frame {frame_to_push}"
+            f"Finishing run with reason: {reason}, disposition: {call_disposition} "
+            f"queueing frame {frame_to_push}"
         )
         await self.task.queue_frame(frame_to_push)
 

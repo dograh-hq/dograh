@@ -30,6 +30,7 @@ interface WhatsAppConfig {
   campaign_name: string;
   template_params: string[];
   trigger_dispositions: string[];
+  trigger_sentiments: string[];
   min_call_seconds: number;
   media_url: string | null;
   media_filename: string | null;
@@ -43,6 +44,7 @@ const EMPTY: WhatsAppConfig = {
   campaign_name: "",
   template_params: [],
   trigger_dispositions: [],
+  trigger_sentiments: [],
   min_call_seconds: 0,
   media_url: "",
   media_filename: "",
@@ -342,6 +344,27 @@ export function WhatsAppSection() {
             }
           />
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="wa-sentiments">Only send if sentiment matches</Label>
+        <Input
+          id="wa-sentiments"
+          placeholder="interested, positive (blank = any sentiment)"
+          value={cfg.trigger_sentiments.join(", ")}
+          onChange={(e) =>
+            setField(
+              "trigger_sentiments",
+              e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            )
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          e.g. send the brochure only to leads who sounded interested.
+        </p>
       </div>
 
       <div className="flex gap-2">

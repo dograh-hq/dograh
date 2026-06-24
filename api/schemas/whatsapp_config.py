@@ -23,6 +23,9 @@ class WhatsAppConfig(BaseModel):
     template_params: List[str] = Field(default_factory=list)
     # Empty = send for any disposition; else only these mapped dispositions.
     trigger_dispositions: List[str] = Field(default_factory=list)
+    # Empty = send regardless of sentiment; else only when overall_sentiment matches
+    # one of these (case-insensitive substring), e.g. ["interested", "positive"].
+    trigger_sentiments: List[str] = Field(default_factory=list)
     # Only send if the call lasted at least this many seconds (0 = no gate).
     min_call_seconds: int = 0
     # Optional header media (must resolve to a publicly reachable URL).

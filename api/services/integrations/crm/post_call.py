@@ -113,6 +113,12 @@ async def send_post_call_crm(
     if cfg.trigger_dispositions and disposition not in cfg.trigger_dispositions:
         return
 
+    # Sentiment gate — e.g. only push interested/positive leads to the CRM.
+    if cfg.trigger_sentiments:
+        sentiment = str((workflow_run.annotations or {}).get("overall_sentiment") or "").lower()
+        if not any(t.lower() in sentiment for t in cfg.trigger_sentiments):
+            return
+
     # Minimum-duration gate
     if cfg.min_call_seconds > 0:
         cost = workflow_run.cost_info or {}

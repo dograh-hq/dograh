@@ -29,6 +29,7 @@ interface CRMConfig {
   location_id: string;
   region_host: string;
   trigger_dispositions: string[];
+  trigger_sentiments: string[];
   min_call_seconds: number;
 }
 
@@ -39,6 +40,7 @@ const EMPTY: CRMConfig = {
   location_id: "",
   region_host: "",
   trigger_dispositions: [],
+  trigger_sentiments: [],
   min_call_seconds: 0,
 };
 
@@ -218,6 +220,27 @@ export function CrmSection() {
             onChange={(e) => set("min_call_seconds", Number(e.target.value) || 0)}
           />
         </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="crm-sentiments">Only sync if sentiment matches</Label>
+        <Input
+          id="crm-sentiments"
+          placeholder="interested, positive (blank = any sentiment)"
+          value={cfg.trigger_sentiments.join(", ")}
+          onChange={(e) =>
+            set(
+              "trigger_sentiments",
+              e.target.value
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean),
+            )
+          }
+        />
+        <p className="text-xs text-muted-foreground">
+          e.g. only push leads who sounded interested to your CRM.
+        </p>
       </div>
 
       <div className="flex gap-2">

@@ -61,6 +61,7 @@ from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
 from api.services.configuration.masking import is_mask_of, mask_key, mask_user_config
 from api.services.configuration.registry import (
+    DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
     DOGRAH_STT_LANGUAGES,
     REGISTRY,
     DograhTTSService,
@@ -274,6 +275,7 @@ async def get_model_configuration_v2_defaults(
                 "step": DOGRAH_SPEED_STEP,
             },
             "languages": DOGRAH_STT_LANGUAGES,
+            "multilingual_languages": DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
             "defaults": {
                 "voice": DOGRAH_DEFAULT_VOICE,
                 "speed": 1.0,

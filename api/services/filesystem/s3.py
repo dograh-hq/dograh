@@ -4,12 +4,6 @@ import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from api.constants import (
-    S3_ADDRESSING_STYLE,
-    S3_ENDPOINT_URL,
-    S3_SIGNATURE_VERSION,
-)
-
 from .base import BaseFileSystem
 
 
@@ -30,27 +24,15 @@ class S3FileSystem(BaseFileSystem):
             bucket_name: Name of the S3 bucket
             region_name: AWS region name
             endpoint_url: Optional custom S3 endpoint (e.g. for MinIO/rustfs).
-                Defaults to ``S3_ENDPOINT_URL`` env var; ``None`` uses AWS.
+                ``None`` uses AWS's default endpoint resolution.
             signature_version: Optional botocore signature version (e.g.
-                ``"s3v4"``). Defaults to ``S3_SIGNATURE_VERSION`` env var;
-                ``None`` keeps botocore's default signing behavior.
+                ``"s3v4"``). ``None`` keeps botocore's default signing behavior.
             addressing_style: Optional S3 addressing style (``"path"`` /
-                ``"virtual"`` / ``"auto"``). Defaults to ``S3_ADDRESSING_STYLE``
-                env var; ``None`` keeps botocore's default.
+                ``"virtual"`` / ``"auto"``). ``None`` keeps botocore's default.
         """
         self.bucket_name = bucket_name
         self.region_name = region_name
-        self.endpoint_url = (
-            endpoint_url if endpoint_url is not None else S3_ENDPOINT_URL
-        )
-        signature_version = (
-            signature_version
-            if signature_version is not None
-            else S3_SIGNATURE_VERSION
-        )
-        addressing_style = (
-            addressing_style if addressing_style is not None else S3_ADDRESSING_STYLE
-        )
+        self.endpoint_url = endpoint_url
         self.session = aioboto3.Session()
 
         # Build a botocore Config only when an override is requested so that the
@@ -77,9 +59,7 @@ class S3FileSystem(BaseFileSystem):
 
     async def acreate_file(self, file_path: str, content: BinaryIO) -> bool:
         try:
-            async with self.session.client(
-                "s3", **self._client_kwargs()
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.put_object(
                     Bucket=self.bucket_name, Key=file_path, Body=await content.read()
                 )
@@ -89,9 +69,7 @@ class S3FileSystem(BaseFileSystem):
 
     async def aupload_file(self, local_path: str, destination_path: str) -> bool:
         try:
-            async with self.session.client(
-                "s3", **self._client_kwargs()
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.upload_file(
                     local_path, self.bucket_name, destination_path
                 )
@@ -114,9 +92,7 @@ class S3FileSystem(BaseFileSystem):
         disposition on the response.
         """
         try:
-            async with self.session.client(
-                "s3", **self._client_kwargs()
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 params = {"Bucket": self.bucket_name, "Key": file_path}
 
                 # Make artifacts viewable inline in the browser when requested
@@ -155,9 +131,7 @@ class S3FileSystem(BaseFileSystem):
     async def aget_file_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get S3 object metadata."""
         try:
-            async with self.session.client(
-                "s3", **self._client_kwargs()
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 response = await s3_client.head_object(
                     Bucket=self.bucket_name, Key=file_path
                 )
@@ -181,9 +155,7 @@ class S3FileSystem(BaseFileSystem):
     ) -> Optional[str]:
         """Generate a presigned PUT URL for direct file upload."""
         try:
-            async with self.session.client(
-                "s3", **self._client_kwargs()
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 url = await s3_client.generate_presigned_url(
                     "put_object",
                     Params={
@@ -200,9 +172,7 @@ class S3FileSystem(BaseFileSystem):
     async def adownload_file(self, source_path: str, local_path: str) -> bool:
         """Download a file from S3 to local path."""
         try:
-            async with self.session.client(
-                "s3", **self._client_kwargs()
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.download_file(self.bucket_name, source_path, local_path)
             return True
         except ClientError:
@@ -211,9 +181,7 @@ class S3FileSystem(BaseFileSystem):
     async def acopy_file(self, source_path: str, destination_path: str) -> bool:
         """Copy a file within S3 (server-side copy)."""
         try:
-            async with self.session.client(
-                "s3", **self._client_kwargs()
-            ) as s3_client:
+            async with self.session.client("s3", **self._client_kwargs()) as s3_client:
                 await s3_client.copy_object(
                     Bucket=self.bucket_name,
                     Key=destination_path,

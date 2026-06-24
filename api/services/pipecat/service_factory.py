@@ -11,6 +11,9 @@ from api.services.configuration.options import (
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
 )
 from api.services.configuration.registry import ServiceProviders
+from api.services.pipecat.gemini_json_schema_adapter import (
+    DograhGeminiJSONSchemaAdapter,
+)
 from api.services.pipecat.minimax_tts import MiniMaxOwnedSessionTTSService
 from api.utils.url_security import validate_user_configured_service_url
 from pipecat.services.assemblyai.stt import AssemblyAISTTService, AssemblyAISTTSettings
@@ -109,6 +112,14 @@ def stt_uses_flux_turns(user_config) -> bool:
     if user_config.stt.provider == ServiceProviders.DOGRAH.value:
         return dograh_stt_uses_flux_language(getattr(user_config.stt, "language", None))
     return False
+
+
+class DograhGoogleLLMService(GoogleLLMService):
+    adapter_class = DograhGeminiJSONSchemaAdapter
+
+
+class DograhGoogleVertexLLMService(GoogleVertexLLMService):
+    adapter_class = DograhGeminiJSONSchemaAdapter
 
 
 def _validate_runtime_service_url(url: str, field_name: str) -> None:
@@ -790,12 +801,12 @@ def create_llm_service_from_provider(
         )
     elif provider == ServiceProviders.GOOGLE.value:
         model = _migrate_deprecated_google_model(model)
-        return GoogleLLMService(
+        return DograhGoogleLLMService(
             api_key=api_key,
             settings=GoogleLLMSettings(model=model, temperature=0.1),
         )
     elif provider == ServiceProviders.GOOGLE_VERTEX.value:
-        return GoogleVertexLLMService(
+        return DograhGoogleVertexLLMService(
             credentials=credentials,
             project_id=project_id,
             location=location or "us-east4",

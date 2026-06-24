@@ -35,9 +35,20 @@ from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
 
+from api.services.pipecat.gemini_json_schema_adapter import (
+    DograhGeminiJSONSchemaAdapter,
+)
+
 
 class DograhGeminiLiveLLMService(GeminiLiveLLMService):
     """Gemini Live with Dograh engine integration quirks. See module docstring."""
+
+    # Route tool schemas through Gemini's ``parameters_json_schema`` field so
+    # MCP/imported tools that use JSON Schema keywords (``const``, ``not``,
+    # nested ``anyOf``) rejected by the strict ``Schema`` model are accepted.
+    # Mirrors the non-realtime ``DograhGoogleLLMService`` fix;
+    # ``DograhGeminiLiveVertexLLMService`` inherits this via MRO.
+    adapter_class = DograhGeminiJSONSchemaAdapter
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)

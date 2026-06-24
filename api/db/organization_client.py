@@ -1,10 +1,12 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 
+from sqlalchemy import func, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
+from api.constants import DEFAULT_FREE_CALL_SECONDS
 from api.db.base_client import BaseDBClient
 from api.db.models import (
     APIKeyModel,
@@ -30,6 +32,42 @@ class OrganizationClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def get_free_call_seconds_remaining(
+        self, organization_id: int
+    ) -> Optional[int]:
+        """Remaining trial call seconds, or None when unmetered (unlimited)."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(OrganizationModel.free_call_seconds_remaining).where(
+                    OrganizationModel.id == organization_id
+                )
+            )
+            return result.scalar_one_or_none()
+
+    async def decrement_free_call_seconds(
+        self, organization_id: int, seconds: int
+    ) -> None:
+        """Subtract `seconds` from the org's trial balance (floored at 0).
+
+        No-op for unmetered (NULL) orgs or a non-positive `seconds`.
+        """
+        if seconds <= 0:
+            return
+        async with self.async_session() as session:
+            await session.execute(
+                update(OrganizationModel)
+                .where(
+                    OrganizationModel.id == organization_id,
+                    OrganizationModel.free_call_seconds_remaining.isnot(None),
+                )
+                .values(
+                    free_call_seconds_remaining=func.greatest(
+                        OrganizationModel.free_call_seconds_remaining - seconds, 0
+                    )
+                )
+            )
+            await session.commit()
+
     async def get_or_create_organization_by_provider_id(
         self, org_provider_id: str, user_id: int
     ) -> tuple[OrganizationModel, bool]:
@@ -53,7 +91,12 @@ class OrganizationClient(BaseDBClient):
                 # This is atomic and handles race conditions at the database level
 
                 stmt = insert(OrganizationModel.__table__).values(
-                    provider_id=org_provider_id, created_at=datetime.now(timezone.utc)
+                    provider_id=org_provider_id,
+                    created_at=datetime.now(timezone.utc),
+                    # Trial grant for brand-new orgs (NULL would mean unlimited).
+                    free_call_seconds_remaining=(
+                        DEFAULT_FREE_CALL_SECONDS if DEFAULT_FREE_CALL_SECONDS > 0 else None
+                    ),
                 )
                 # ON CONFLICT DO NOTHING - if another request already inserted, this becomes a no-op
                 stmt = stmt.on_conflict_do_nothing(index_elements=["provider_id"])

@@ -15,6 +15,7 @@ from api.services.campaign.errors import (
     PhoneNumberPoolExhaustedError,
 )
 from api.services.campaign.rate_limiter import rate_limiter
+from api.services.trial_credits import has_free_call_seconds
 from api.utils.common import get_backend_endpoints
 
 if TYPE_CHECKING:
@@ -81,6 +82,16 @@ class CampaignCallDispatcher:
             logger.info(
                 f"Campaign {campaign_id} is not in running state: {campaign.state}"
             )
+            return 0
+
+        # Trial minute gate: pause the campaign once the org runs out of free
+        # call seconds (bounds mid-campaign overrun to at most one batch).
+        if not await has_free_call_seconds(campaign.organization_id):
+            logger.warning(
+                f"Campaign {campaign_id}: org {campaign.organization_id} out of trial "
+                f"call seconds — pausing campaign"
+            )
+            await db_client.update_campaign(campaign_id=campaign_id, state="paused")
             return 0
 
         # Atomically claim queued runs for processing (thread-safe)

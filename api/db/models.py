@@ -108,6 +108,11 @@ class OrganizationModel(Base):
 
     price_per_second_usd = Column(Float, nullable=True)
 
+    # Trial minute ledger: free outbound call seconds remaining. NULL = UNLIMITED
+    # (existing/paid/owner orgs). New orgs are granted DEFAULT_FREE_CALL_SECONDS;
+    # decremented per completed call, gated at start/resume/dispatch/public-trigger.
+    free_call_seconds_remaining = Column(Integer, nullable=True)
+
     # VoiceLink reseller provisioning (best-effort at signup; see
     # services/voicelink_clients). status: "provisioned" | "pending".
     voicelink_client_id = Column(String(64), nullable=True)

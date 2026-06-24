@@ -35,6 +35,10 @@ AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
 RATE_LIMIT_LOGIN_PER_MIN = int(os.getenv("RATE_LIMIT_LOGIN_PER_MIN", "10"))
 RATE_LIMIT_SIGNUP_PER_MIN = int(os.getenv("RATE_LIMIT_SIGNUP_PER_MIN", "5"))
 RATE_LIMIT_PUBLIC_API_PER_MIN = int(os.getenv("RATE_LIMIT_PUBLIC_API_PER_MIN", "300"))
+
+# Free outbound call seconds granted to a NEW org (trial). 1800 = 30 minutes.
+# Existing orgs keep NULL (unlimited). Set 0 to grant nothing to new orgs.
+DEFAULT_FREE_CALL_SECONDS = int(os.getenv("DEFAULT_FREE_CALL_SECONDS", "1800"))
 # Comma-separated list of emails that are promoted to superuser on
 # local-auth signup/login (e.g. "owner@example.com,ops@example.com").
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "")

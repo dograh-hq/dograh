@@ -329,6 +329,22 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 f"WhatsApp post-call send failed for run {workflow_run_id}: {exc}"
             )
 
+        # Step 6c: decrement the org's trial call-minute balance by this call's
+        # duration (no-op for unmetered/unlimited orgs). Best-effort.
+        try:
+            from api.services.trial_credits import consume_free_call_seconds
+
+            usage = workflow_run.usage_info or {}
+            cost = workflow_run.cost_info or {}
+            duration = usage.get("call_duration_seconds") or cost.get(
+                "call_duration_seconds"
+            )
+            await consume_free_call_seconds(organization_id, duration)
+        except Exception as exc:
+            logger.warning(
+                f"Trial-credit decrement failed for run {workflow_run_id}: {exc}"
+            )
+
         # Step 7: Execute webhooks
         if not webhook_nodes:
             logger.debug("No webhook nodes in workflow")

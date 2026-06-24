@@ -56,6 +56,8 @@ def test_trigger_route_executes_as_workflow_owner():
 
     with (
         patch("api.routes.public_agent.db_client") as mock_db,
+        patch("api.routes.public_agent.assert_org_kyc_complete", new=AsyncMock()),
+        patch("api.routes.public_agent.assert_has_free_call_seconds", new=AsyncMock()),
         patch(
             "api.routes.public_agent.check_dograh_quota_by_user_id",
             new=quota_mock,
@@ -123,6 +125,8 @@ def test_workflow_uuid_route_uses_scoped_lookup_and_shared_execution():
 
     with (
         patch("api.routes.public_agent.db_client") as mock_db,
+        patch("api.routes.public_agent.assert_org_kyc_complete", new=AsyncMock()),
+        patch("api.routes.public_agent.assert_has_free_call_seconds", new=AsyncMock()),
         patch(
             "api.routes.public_agent.check_dograh_quota_by_user_id",
             new=quota_mock,
@@ -174,7 +178,11 @@ def test_workflow_uuid_route_rejects_archived_workflows():
     workflow = _active_workflow()
     workflow.status = "archived"
 
-    with patch("api.routes.public_agent.db_client") as mock_db:
+    with (
+        patch("api.routes.public_agent.db_client") as mock_db,
+        patch("api.routes.public_agent.assert_org_kyc_complete", new=AsyncMock()),
+        patch("api.routes.public_agent.assert_has_free_call_seconds", new=AsyncMock()),
+    ):
         mock_db.validate_api_key = AsyncMock(
             return_value=SimpleNamespace(id=9, organization_id=11, created_by=22)
         )

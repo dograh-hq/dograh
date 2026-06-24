@@ -19,7 +19,7 @@ function AppHeader() {
   const { toggleSidebar } = useSidebar();
 
   return (
-    <header className="sticky top-0 z-50 flex items-center justify-between border-b bg-background px-4 py-2">
+    <header className="material sticky top-0 z-50 flex items-center justify-between border-b px-4 py-2.5">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu" className="md:hidden">
           <Menu className="h-5 w-5" />
@@ -92,7 +92,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
 
             {/* Optional sticky tabs */}
             {stickyTabs && (
-              <div className="sticky top-0 z-40 bg-[#2a2e39] border-b border-gray-700">
+              <div className="material sticky top-0 z-40 border-b">
                 <div className="container mx-auto px-4">
                   <div className="flex items-center justify-center py-2">
                     {stickyTabs}

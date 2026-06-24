@@ -21,10 +21,11 @@ import { BRAND } from "@/lib/brand";
 export default function SettingsPage() {
   return (
     <div className="flex justify-center py-12 px-4">
-      <div className="w-full max-w-2xl space-y-6">
+      <div className="stagger w-full max-w-2xl space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">Platform Settings</h1>
-          <p className="text-muted-foreground">
+          <p className="text-eyebrow text-primary">Settings</p>
+          <h1 className="text-h1 mt-1">Platform Settings</h1>
+          <p className="text-body mt-2 text-muted-foreground">
             Manage your platform configuration and integrations.
           </p>
         </div>

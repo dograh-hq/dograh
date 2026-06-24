@@ -388,13 +388,16 @@ class CloudonixProvider(TelephonyProvider):
 
         disposition = data.get("disposition") or ""
         session = data.get("session")
+        billsec = data.get("billsec")
 
         return {
             "call_id": session.get("token") if isinstance(session, dict) else "",
             "status": disposition_map.get(disposition.upper(), disposition.lower()),
             "from_number": data.get("from"),
             "to_number": data.get("to"),
-            "duration": str(data.get("billsec") or data.get("duration") or 0),
+            "duration": str(
+                billsec if billsec is not None else (data.get("duration") or 0)
+            ),
             "extra": data,
         }
 

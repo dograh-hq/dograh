@@ -834,9 +834,7 @@ class TestEndCallRaceConditions:
                         EndTaskReason.USER_HANGUP.value, abort_immediately=True
                     )
 
-                await asyncio.gather(
-                    run_pipeline(), initialize_and_race_disconnect()
-                )
+                await asyncio.gather(run_pipeline(), initialize_and_race_disconnect())
 
         # Verify disconnect was attempted
         assert disconnect_called, "Disconnect should have been called"

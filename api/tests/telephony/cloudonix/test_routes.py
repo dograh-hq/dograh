@@ -118,3 +118,17 @@ def test_parse_cloudonix_cdr_maps_disposition_and_session_token():
     assert req["call_id"] == "abc123"
     assert req["status"] == TelephonyCallStatus.BUSY
     assert req["duration"] == "12"
+
+
+def test_parse_cloudonix_cdr_preserves_zero_billsec():
+    """A zero billed duration must not fall back to total call duration."""
+    req = CloudonixProvider.parse_cdr_status_callback(
+        {
+            "session": {"token": "abc123"},
+            "disposition": "ANSWER",
+            "billsec": 0,
+            "duration": 42,
+        }
+    )
+
+    assert req["duration"] == "0"

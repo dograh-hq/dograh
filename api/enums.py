@@ -93,6 +93,9 @@ class OrganizationConfigurationKey(Enum):
     WHATSAPP_PROVIDERS = (
         "WHATSAPP_PROVIDERS"  # Org-level WhatsApp post-call messaging config
     )
+    ONBOARDING_PROFILE = (
+        "ONBOARDING_PROFILE"  # First-run business/qualification survey answers
+    )
 
 
 class WorkflowStatus(Enum):

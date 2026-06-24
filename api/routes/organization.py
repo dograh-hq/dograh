@@ -1058,3 +1058,36 @@ async def test_whatsapp_config(
         media_filename=cfg.media_filename,
     )
     return {"ok": result.ok, "detail": result.detail}
+
+
+_ONBOARDING_KEY = OrganizationConfigurationKey.ONBOARDING_PROFILE.value
+
+
+class OnboardingProfileResponse(BaseModel):
+    completed: bool
+    profile: Optional[dict] = None
+
+
+@router.get("/onboarding-profile", response_model=OnboardingProfileResponse)
+async def get_onboarding_profile(user: UserModel = Depends(get_user)):
+    """Return the org's onboarding survey answers (+ whether it's completed)."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    raw = await db_client.get_configuration_value(
+        user.selected_organization_id, _ONBOARDING_KEY, default=None
+    )
+    return OnboardingProfileResponse(
+        completed=bool(raw and raw.get("completed")), profile=raw
+    )
+
+
+@router.put("/onboarding-profile", response_model=OnboardingProfileResponse)
+async def save_onboarding_profile(body: dict, user: UserModel = Depends(get_user)):
+    """Save the org's onboarding survey answers and mark onboarding complete."""
+    if not user.selected_organization_id:
+        raise HTTPException(status_code=400, detail="no_organization_selected")
+    profile = {**(body or {}), "completed": True}
+    await db_client.upsert_configuration(
+        user.selected_organization_id, _ONBOARDING_KEY, profile
+    )
+    return OnboardingProfileResponse(completed=True, profile=profile)

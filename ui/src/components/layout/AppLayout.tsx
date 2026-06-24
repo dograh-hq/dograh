@@ -11,6 +11,7 @@ import { SidebarInset, SidebarProvider, useSidebar } from "@/components/ui/sideb
 import { PostHogEvent } from "@/constants/posthog-events";
 import { BRAND } from "@/lib/brand";
 
+import { OnboardingSurvey } from "../onboarding/OnboardingSurvey";
 import { AppSidebar } from "./AppSidebar";
 import { GitHubStarBadge } from "./GitHubStarBadge";
 
@@ -74,6 +75,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
     <SidebarProvider defaultOpen>
       {shouldShowSidebar ? (
         <div className="flex min-h-screen w-full">
+          <OnboardingSurvey />
           <AppSidebar />
           <SidebarInset className="flex-1">
             {!isWorkflowEditor && <AppHeader />}

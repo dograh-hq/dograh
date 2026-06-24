@@ -22,6 +22,9 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.gemini_json_schema_adapter import (
+    DograhGeminiJSONSchemaAdapter,
+)
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     Frame,
@@ -34,10 +37,6 @@ from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
 from pipecat.services.llm_service import FunctionCallFromLLM
 from pipecat.utils.tracing.service_decorators import traced_gemini_live
-
-from api.services.pipecat.gemini_json_schema_adapter import (
-    DograhGeminiJSONSchemaAdapter,
-)
 
 
 class DograhGeminiLiveLLMService(GeminiLiveLLMService):

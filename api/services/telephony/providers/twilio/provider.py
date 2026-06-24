@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from loguru import logger
 from twilio.request_validator import RequestValidator
 
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -230,9 +230,10 @@ class TwilioProvider(TelephonyProvider):
         """
         Parse Twilio status callback data into generic format.
         """
+        call_status = data.get("CallStatus", "")
         return {
             "call_id": data.get("CallSid", ""),
-            "status": data.get("CallStatus", ""),
+            "status": TelephonyCallStatus.from_raw(call_status) or call_status,
             "from_number": data.get("From"),
             "to_number": data.get("To"),
             "direction": data.get("Direction"),

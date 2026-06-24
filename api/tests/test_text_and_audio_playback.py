@@ -241,11 +241,6 @@ async def run_pipeline_and_capture_frames(
             new_callable=AsyncMock,
             return_value=1,
         ),
-        patch(
-            "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-            new_callable=AsyncMock,
-            return_value="completed",
-        ),
     ):
 
         async def run():

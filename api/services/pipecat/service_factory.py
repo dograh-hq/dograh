@@ -719,6 +719,19 @@ def create_tts_service(
         )
 
 
+def _migrate_deprecated_google_model(model: str) -> str:
+    """Google removed the ``gemini-2.0-flash*`` models. Transparently upgrade
+    any stored config that still references them to the 2.5 equivalent so old
+    user configurations keep working instead of failing at runtime."""
+    if model and model.startswith("gemini-2.0-flash"):
+        migrated = model.replace("gemini-2.0-", "gemini-2.5-", 1)
+        logger.warning(
+            f"Google model '{model}' is no longer supported; using '{migrated}' instead"
+        )
+        return migrated
+    return model
+
+
 def create_llm_service_from_provider(
     provider: str,
     model: str,
@@ -776,6 +789,7 @@ def create_llm_service_from_provider(
             **kwargs,
         )
     elif provider == ServiceProviders.GOOGLE.value:
+        model = _migrate_deprecated_google_model(model)
         return GoogleLLMService(
             api_key=api_key,
             settings=GoogleLLMSettings(model=model, temperature=0.1),

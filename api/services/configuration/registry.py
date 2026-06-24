@@ -316,7 +316,6 @@ OPENROUTER_MODELS = [
     "openai/gpt-4.1-mini",
     "anthropic/claude-sonnet-4",
     "google/gemini-2.5-flash",
-    "google/gemini-2.0-flash",
     "meta-llama/llama-3.3-70b-instruct",
     "deepseek/deepseek-chat-v3-0324",
 ]
@@ -351,7 +350,7 @@ class GoogleLLMService(BaseLLMConfiguration):
     model_config = GOOGLE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-2.5-flash",
         description="Gemini model on Google AI Studio (not Vertex).",
         json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
     )

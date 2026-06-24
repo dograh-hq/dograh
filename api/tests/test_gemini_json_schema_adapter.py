@@ -1,12 +1,16 @@
 from unittest.mock import patch
 
-from google.genai.types import GenerateContentConfig
+from google.genai.types import GenerateContentConfig, LiveConnectConfig
 from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.adapters.schemas.tools_schema import ToolsSchema
 
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.gemini_json_schema_adapter import (
     DograhGeminiJSONSchemaAdapter,
+)
+from api.services.pipecat.realtime.gemini_live import DograhGeminiLiveLLMService
+from api.services.pipecat.realtime.gemini_live_vertex import (
+    DograhGeminiLiveVertexLLMService,
 )
 from api.services.pipecat.service_factory import (
     DograhGoogleLLMService,
@@ -120,3 +124,37 @@ def test_google_vertex_llm_service_factory_uses_dograh_service_class():
     assert mock_service.call_args.kwargs["project_id"] == "demo-project"
     assert mock_service.call_args.kwargs["location"] == "us-central1"
     assert mock_service.call_args.kwargs["settings"].model == "gemini-2.5-pro"
+
+
+def test_gemini_live_service_classes_use_dograh_gemini_adapter_class():
+    assert DograhGeminiLiveLLMService.adapter_class is DograhGeminiJSONSchemaAdapter
+    # Vertex Live inherits adapter_class from DograhGeminiLiveLLMService via MRO.
+    assert (
+        DograhGeminiLiveVertexLLMService.adapter_class is DograhGeminiJSONSchemaAdapter
+    )
+
+
+def test_gemini_live_config_accepts_json_schema_tools():
+    function_schema = FunctionSchema(
+        name="customer_lookup",
+        description="Look up a customer by email.",
+        properties={
+            "customerEmail": {
+                "description": "Customer email address",
+                "anyOf": [{"not": {}}, {"const": ""}],
+            },
+        },
+        required=["customerEmail"],
+    )
+
+    tools = DograhGeminiJSONSchemaAdapter().to_provider_tools_format(
+        ToolsSchema(standard_tools=[function_schema])
+    )
+
+    declaration = tools[0]["function_declarations"][0]
+    assert "parameters" not in declaration
+    assert "parameters_json_schema" in declaration
+
+    # Gemini Live validates tools through LiveConnectConfig rather than
+    # GenerateContentConfig; it must also accept the raw JSON Schema payload.
+    LiveConnectConfig(tools=tools)

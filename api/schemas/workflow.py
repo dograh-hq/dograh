@@ -22,3 +22,5 @@ class WorkflowRunResponseSchema(BaseModel):
     call_type: CallType
     logs: Dict[str, Any] | None = None
     annotations: Dict[str, Any] | None = None
+    # Post-call WhatsApp send result: {attempted, ok, detail, to, provider} or None.
+    whatsapp: Dict[str, Any] | None = None

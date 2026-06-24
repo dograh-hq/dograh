@@ -173,6 +173,7 @@ export function WorkflowRunsTable({
                                         </TableHead>
                                         <TableHead className="font-semibold">Disposition</TableHead>
                                         <TableHead className="font-semibold">Sentiment</TableHead>
+                                        <TableHead className="font-semibold">WhatsApp</TableHead>
                                         <TableHead className="font-semibold">Actions</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -218,6 +219,15 @@ export function WorkflowRunsTable({
                                                             ? "bg-red-100 text-red-800 hover:bg-red-100"
                                                             : "bg-zinc-100 text-zinc-700 hover:bg-zinc-100";
                                                     return <Badge className={cls} variant="secondary">{sentiment}</Badge>;
+                                                })()}
+                                            </TableCell>
+                                            <TableCell>
+                                                {(() => {
+                                                    const wa = (run as unknown as { whatsapp?: { ok?: boolean; attempted?: boolean } | null }).whatsapp;
+                                                    if (!wa?.attempted) return <span className="text-sm text-muted-foreground">-</span>;
+                                                    return wa.ok
+                                                        ? <Badge className="bg-emerald-100 text-emerald-800 hover:bg-emerald-100" variant="secondary">Sent</Badge>
+                                                        : <Badge className="bg-red-100 text-red-800 hover:bg-red-100" variant="secondary">Failed</Badge>;
                                                 })()}
                                             </TableCell>
                                             <TableCell>

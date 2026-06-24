@@ -242,6 +242,9 @@ class CampaignClient(BaseDBClient):
                         # QA analysis (sentiment / tags / summary / quality) so the
                         # campaign runs view can show + filter it.
                         "annotations": run.annotations,
+                        # Post-call WhatsApp send result (if configured/attempted):
+                        # {attempted, ok, detail, to, provider} or None.
+                        "whatsapp": (run.logs or {}).get("whatsapp_post_call"),
                     }
                 )
                 for run in result.scalars().all()

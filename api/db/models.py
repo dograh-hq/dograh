@@ -1316,3 +1316,27 @@ class KnowledgeBaseChunkModel(Base):
             postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
+
+
+class PaymentTransactionModel(Base):
+    """A Razorpay top-up: one row per order, credited to the org on payment verify."""
+
+    __tablename__ = "payment_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(
+        Integer, ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    razorpay_order_id = Column(String(64), nullable=False, unique=True, index=True)
+    razorpay_payment_id = Column(String(64), nullable=True)
+    pack_id = Column(String(64), nullable=True)
+    seconds = Column(Integer, nullable=False)  # call seconds to credit
+    amount_paise = Column(Integer, nullable=False)  # INR amount in paise
+    status = Column(String(16), nullable=False, default="created")  # created|paid|failed
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
+    updated_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )

@@ -2,6 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 
+import { CreditsSection } from "@/components/CreditsSection";
 import { CrmSection } from "@/components/CrmSection";
 import { MCPSection } from "@/components/MCPSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
@@ -26,6 +27,18 @@ export default function SettingsPage() {
             Manage your platform configuration and integrations.
           </p>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Credits &amp; Billing</CardTitle>
+            <CardDescription>
+              Your remaining call minutes. Top up anytime with Razorpay.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CreditsSection />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

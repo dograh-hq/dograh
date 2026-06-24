@@ -68,6 +68,30 @@ class OrganizationClient(BaseDBClient):
             )
             await session.commit()
 
+    async def add_call_seconds(
+        self, organization_id: int, seconds: int
+    ) -> Optional[int]:
+        """Top up the org's call-seconds balance; returns the new balance.
+
+        COALESCE(.,0)+seconds so a depleted (0) trial balance tops up. Callers MUST
+        guard unmetered (NULL) orgs — crediting NULL would convert them to metered.
+        """
+        if seconds <= 0:
+            return await self.get_free_call_seconds_remaining(organization_id)
+        async with self.async_session() as session:
+            await session.execute(
+                update(OrganizationModel)
+                .where(OrganizationModel.id == organization_id)
+                .values(
+                    free_call_seconds_remaining=func.coalesce(
+                        OrganizationModel.free_call_seconds_remaining, 0
+                    )
+                    + seconds
+                )
+            )
+            await session.commit()
+        return await self.get_free_call_seconds_remaining(organization_id)
+
     async def get_or_create_organization_by_provider_id(
         self, org_provider_id: str, user_id: int
     ) -> tuple[OrganizationModel, bool]:

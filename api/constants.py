@@ -39,6 +39,18 @@ RATE_LIMIT_PUBLIC_API_PER_MIN = int(os.getenv("RATE_LIMIT_PUBLIC_API_PER_MIN", "
 # Free outbound call seconds granted to a NEW org (trial). 1800 = 30 minutes.
 # Existing orgs keep NULL (unlimited). Set 0 to grant nothing to new orgs.
 DEFAULT_FREE_CALL_SECONDS = int(os.getenv("DEFAULT_FREE_CALL_SECONDS", "1800"))
+
+# Razorpay (the platform billing account that collects top-up payments).
+# Test-mode keys work end-to-end; swap to live keys when ready.
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+# Credit packs sold via Razorpay top-up. PLACEHOLDER PRICES — set the real
+# per-minute price + pack sizes. `minutes` is credited to the call-seconds balance.
+CREDIT_PACKS = [
+    {"id": "starter", "label": "Starter", "minutes": 500, "price_inr": 500},
+    {"id": "growth", "label": "Growth", "minutes": 2000, "price_inr": 1800},
+    {"id": "scale", "label": "Scale", "minutes": 5000, "price_inr": 4000},
+]
 # Comma-separated list of emails that are promoted to superuser on
 # local-auth signup/login (e.g. "owner@example.com,ops@example.com").
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "")

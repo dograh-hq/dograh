@@ -6,6 +6,7 @@ from api.routes.admin_clients import router as admin_clients_router
 from api.routes.agent_builder import router as agent_builder_router
 from api.routes.agent_stream import router as agent_stream_router
 from api.routes.auth import router as auth_router
+from api.routes.billing import router as billing_router
 from api.routes.campaign import router as campaign_router
 from api.routes.credentials import router as credentials_router
 from api.routes.folder import router as folder_router
@@ -43,6 +44,7 @@ router.include_router(workflow_router)
 router.include_router(workflow_text_chat_router)
 router.include_router(user_router)
 router.include_router(campaign_router)
+router.include_router(billing_router)
 router.include_router(credentials_router)
 router.include_router(tool_router)
 router.include_router(organization_router)

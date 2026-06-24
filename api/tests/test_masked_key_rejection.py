@@ -66,7 +66,7 @@ class TestMaskedKeyRejection:
                     "llm": {
                         "provider": "google",
                         "api_key": MASKED_KEY,
-                        "model": "gemini-2.0-flash",
+                        "model": "gemini-2.5-flash",
                     }
                 },
             )
@@ -97,7 +97,7 @@ class TestMaskedKeyRejection:
                     "llm": {
                         "provider": "google",
                         "api_key": ["AIzaSyRealKey123456", MASKED_KEY],
-                        "model": "gemini-2.0-flash",
+                        "model": "gemini-2.5-flash",
                     }
                 },
             )
@@ -115,7 +115,7 @@ class TestMaskedKeyRejection:
             llm=GoogleLLMService(
                 provider="google",
                 api_key=new_key,
-                model="gemini-2.0-flash",
+                model="gemini-2.5-flash",
             )
         )
 
@@ -135,7 +135,7 @@ class TestMaskedKeyRejection:
                     "llm": {
                         "provider": "google",
                         "api_key": new_key,
-                        "model": "gemini-2.0-flash",
+                        "model": "gemini-2.5-flash",
                     }
                 },
             )

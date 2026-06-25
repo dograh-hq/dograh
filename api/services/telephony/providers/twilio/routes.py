@@ -32,13 +32,18 @@ async def _persist_amd_result_if_present(
     if not amd_result:
         return
 
-    logger.info(
-        f"[run {workflow_run_id}] AMD result: AnsweredBy={amd_result.answered_by}"
-    )
-    await db_client.update_workflow_run(
-        run_id=workflow_run_id,
-        gathered_context={"answered_by": amd_result.answered_by},
-    )
+    try:
+        logger.info(
+            f"[run {workflow_run_id}] AMD result: AnsweredBy={amd_result.answered_by}"
+        )
+        await db_client.update_workflow_run(
+            run_id=workflow_run_id,
+            gathered_context={"answered_by": amd_result.answered_by},
+        )
+    except Exception as exc:
+        logger.warning(
+            f"[run {workflow_run_id}] Failed to persist AMD result: {exc}"
+        )
 
 
 @router.post("/twiml", include_in_schema=False)

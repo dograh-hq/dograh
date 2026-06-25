@@ -19,9 +19,8 @@ class TwilioConfigurationRequest(BaseModel):
     amd_enabled: bool = Field(
         default=False,
         description=(
-            "Enable Twilio Answering Machine Detection (AMD) on outbound calls. "
-            "When enabled, Twilio fires a status callback with AnsweredBy=human "
-            "or AnsweredBy=machine before connecting the call."
+            "Detect whether outbound calls are answered by a person or machine. "
+            "Twilio may bill AMD as an additional per-call feature."
         ),
     )
 

@@ -53,9 +53,8 @@ _UI_METADATA = ProviderUIMetadata(
             label="Answering Machine Detection",
             type="boolean",
             description=(
-                "Enable Twilio AMD on outbound calls. Twilio will fire a status "
-                "callback with AnsweredBy=human or AnsweredBy=machine before "
-                "connecting. The result is stored in gathered_context.answered_by."
+                "Detect whether outbound calls are answered by a person or "
+                "machine. Twilio may bill AMD as an additional per-call feature."
             ),
         ),
     ],

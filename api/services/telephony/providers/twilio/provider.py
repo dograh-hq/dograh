@@ -13,6 +13,7 @@ from twilio.request_validator import RequestValidator
 
 from api.enums import WorkflowRunMode
 from api.services.telephony.base import (
+    AnsweringMachineDetectionResult,
     CallInitiationResult,
     NormalizedInboundData,
     ProviderSyncResult,
@@ -97,8 +98,7 @@ class TwilioProvider(TelephonyProvider):
                 }
             )
 
-        if self.amd_enabled:
-            data["MachineDetection"] = "Enable"
+        data = self.apply_answering_machine_detection_call_params(data)
 
         data.update(kwargs)
 
@@ -243,6 +243,31 @@ class TwilioProvider(TelephonyProvider):
             "duration": data.get("CallDuration") or data.get("Duration"),
             "extra": data,  # Include all original data
         }
+
+    def supports_answering_machine_detection(self) -> bool:
+        """Twilio supports AMD through the Voice Calls API."""
+        return True
+
+    def apply_answering_machine_detection_call_params(
+        self,
+        data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if self.amd_enabled:
+            data["MachineDetection"] = "Enable"
+        return data
+
+    def parse_answering_machine_detection_result(
+        self, data: Dict[str, Any]
+    ) -> Optional[AnsweringMachineDetectionResult]:
+        answered_by = data.get("AnsweredBy")
+        if not answered_by:
+            return None
+
+        return AnsweringMachineDetectionResult(
+            call_id=data.get("CallSid", ""),
+            answered_by=answered_by,
+            raw_data=data,
+        )
 
     async def handle_websocket(
         self,

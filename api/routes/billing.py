@@ -17,6 +17,7 @@ from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user
 from api.services.billing import razorpay_client
+from api.services.plans import features_for_plan, get_org_plan
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -46,11 +47,14 @@ async def get_balance(user: UserModel = Depends(get_user)):
     """Current call-seconds balance (None = unlimited) + the credit packs."""
     org = _org(user)
     balance = await db_client.get_free_call_seconds_remaining(org)
+    plan = await get_org_plan(org)
     return {
         "balance_seconds": balance,
         "unlimited": balance is None,
         "configured": razorpay_client.is_configured(),
         "packs": CREDIT_PACKS,
+        "plan": plan,
+        "features": features_for_plan(plan),
     }
 
 

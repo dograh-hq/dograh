@@ -7,17 +7,25 @@ import { client } from "@/client/client.gen";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 
+interface PackFeatures {
+  api: boolean;
+  mcp: boolean;
+}
 interface Pack {
   id: string;
   label: string;
   minutes: number;
   price_inr: number;
+  per_credit_inr?: number;
+  features?: PackFeatures;
 }
 interface Balance {
   balance_seconds: number | null;
   unlimited: boolean;
   configured: boolean;
   packs: Pack[];
+  plan?: string;
+  features?: PackFeatures;
 }
 
 // Razorpay Checkout is injected on demand (no SDK regen needed; calls go through
@@ -110,14 +118,31 @@ export function CreditsSection() {
 
   const minutes =
     data.balance_seconds == null ? null : Math.floor(data.balance_seconds / 60);
+  const planLabel =
+    data.packs.find((p) => p.id === data.plan)?.label ??
+    (data.plan && data.plan !== "trial" ? data.plan : "Trial");
 
   return (
     <div className="space-y-5">
       <div className="rounded-md border p-4">
-        <p className="text-sm text-muted-foreground">Current balance</p>
-        <p className="text-2xl font-bold">
-          {data.unlimited ? "Unlimited" : `${minutes?.toLocaleString()} minutes`}
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">Current balance</p>
+          {!data.unlimited && (
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+              {planLabel} plan
+            </span>
+          )}
+        </div>
+        <p className="text-2xl font-bold tabular">
+          {data.unlimited
+            ? "Unlimited"
+            : `${minutes?.toLocaleString()} credits`}
         </p>
+        {!data.unlimited && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            1 credit = 1 minute of calling.
+          </p>
+        )}
       </div>
 
       {data.unlimited ? (
@@ -131,29 +156,61 @@ export function CreditsSection() {
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-3">
-          {data.packs.map((pack) => (
-            <div
-              key={pack.id}
-              className="flex flex-col justify-between rounded-md border p-4"
-            >
-              <div>
-                <p className="font-semibold">{pack.label}</p>
-                <p className="text-sm text-muted-foreground">
-                  {pack.minutes.toLocaleString()} minutes
-                </p>
-                <p className="mt-2 text-lg font-bold">
-                  ₹{pack.price_inr.toLocaleString()}
-                </p>
-              </div>
-              <Button
-                className="mt-3"
-                disabled={busy === pack.id}
-                onClick={() => buy(pack)}
+          {data.packs.map((pack) => {
+            const isCurrent = pack.id === data.plan;
+            return (
+              <div
+                key={pack.id}
+                className={`relative flex flex-col justify-between rounded-xl border p-4 transition-shadow ${
+                  isCurrent
+                    ? "border-primary/50 shadow-[var(--shadow-card)]"
+                    : "hover:shadow-[var(--shadow-card)]"
+                }`}
               >
-                {busy === pack.id ? "Opening..." : "Buy"}
-              </Button>
-            </div>
-          ))}
+                {isCurrent && (
+                  <span className="absolute -top-2 right-3 rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+                    Current
+                  </span>
+                )}
+                <div>
+                  <p className="font-semibold">{pack.label}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {pack.minutes.toLocaleString()} credits
+                  </p>
+                  <p className="mt-2 text-lg font-bold tabular">
+                    ₹{pack.price_inr.toLocaleString()}
+                  </p>
+                  {pack.per_credit_inr != null && (
+                    <p className="text-xs text-muted-foreground">
+                      ₹{pack.per_credit_inr}/credit
+                    </p>
+                  )}
+                  {pack.features && (
+                    <ul className="mt-3 space-y-1 text-xs">
+                      <li className={pack.features.api ? "text-foreground" : "text-muted-foreground/50"}>
+                        {pack.features.api ? "✓" : "✕"} API access
+                      </li>
+                      <li className={pack.features.mcp ? "text-foreground" : "text-muted-foreground/50"}>
+                        {pack.features.mcp ? "✓" : "✕"} MCP server
+                      </li>
+                    </ul>
+                  )}
+                </div>
+                <Button
+                  className="mt-3"
+                  variant={isCurrent ? "outline" : "brand"}
+                  disabled={busy === pack.id}
+                  onClick={() => buy(pack)}
+                >
+                  {busy === pack.id
+                    ? "Opening..."
+                    : isCurrent
+                      ? "Add more"
+                      : "Choose plan"}
+                </Button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

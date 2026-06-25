@@ -9,6 +9,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
+  Contact,
+  CreditCard,
   Database,
   FileText,
   Home,
@@ -17,7 +19,9 @@ import {
   LogOut,
   type LucideIcon,
   Megaphone,
+  MessageCircle,
   Phone,
+  PhoneCall,
   Settings,
   ShieldCheck,
   TrendingUp,
@@ -74,6 +78,8 @@ type SidebarNavItem = {
   adminOnly?: boolean;
   /** Only visible to superusers (deployment owner; stricter than adminOnly). */
   superuserOnly?: boolean;
+  /** Only visible if the org's plan includes this feature (superuser always). */
+  requiresFeature?: "api" | "mcp";
 };
 
 type SidebarNavSection = {
@@ -100,11 +106,6 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "KYC",
         url: "/kyc",
         icon: ShieldCheck,
-      },
-      {
-        title: "Settings",
-        url: "/settings",
-        icon: Settings,
       },
     ],
   },
@@ -152,6 +153,32 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Developers",
         url: "/api-keys",
         icon: Key,
+        requiresFeature: "api",
+      },
+    ],
+  },
+  {
+    label: "INTEGRATIONS",
+    items: [
+      {
+        title: "WhatsApp",
+        url: "/integrations/whatsapp",
+        icon: MessageCircle,
+      },
+      {
+        title: "CRM",
+        url: "/integrations/crm",
+        icon: Contact,
+      },
+      {
+        title: "Phone Numbers",
+        url: "/phone-numbers",
+        icon: PhoneCall,
+      },
+      {
+        title: "Credits & Billing",
+        url: "/credits",
+        icon: CreditCard,
       },
     ],
   },
@@ -171,8 +198,13 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     ],
   },
   {
-    label: "ADMIN",
+    label: "ACCOUNT",
     items: [
+      {
+        title: "Settings",
+        url: "/settings",
+        icon: Settings,
+      },
       {
         title: "Clients",
         url: "/clients",
@@ -197,7 +229,7 @@ export function AppSidebar() {
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
   const { isAdmin } = useIsAdmin();
-  const { isSuperuser } = useUserConfig();
+  const { isSuperuser, planFeatures } = useUserConfig();
   const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
   const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
@@ -384,7 +416,10 @@ export function AppSidebar() {
           const visibleItems = section.items.filter(
             (item) =>
               (!item.adminOnly || isAdmin) &&
-              (!item.superuserOnly || isSuperuser)
+              (!item.superuserOnly || isSuperuser) &&
+              (!item.requiresFeature ||
+                isSuperuser ||
+                planFeatures[item.requiresFeature])
           );
           if (visibleItems.length === 0) {
             return null;

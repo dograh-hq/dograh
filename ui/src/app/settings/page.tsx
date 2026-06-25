@@ -2,10 +2,7 @@
 
 import { ExternalLink } from "lucide-react";
 
-import { CreditsSection } from "@/components/CreditsSection";
-import { CrmSection } from "@/components/CrmSection";
 import { MCPSection } from "@/components/MCPSection";
-import { PhoneNumbersSection } from "@/components/PhoneNumbersSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
 import {
   Card,
@@ -14,67 +11,49 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { WhatsAppSection } from "@/components/WhatsAppSection";
 import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { useFeature } from "@/hooks/useFeature";
 import { BRAND } from "@/lib/brand";
 
 export default function SettingsPage() {
+  // MCP is a Scale-plan feature (superuser always). Billing, Phone Numbers,
+  // WhatsApp and CRM now live on their own pages in the sidebar.
+  const mcp = useFeature("mcp");
+
   return (
-    <div className="flex justify-center py-12 px-4">
+    <div className="flex justify-center px-4 py-12">
       <div className="stagger w-full max-w-2xl space-y-6">
         <div>
           <p className="text-eyebrow text-primary">Settings</p>
-          <h1 className="text-h1 mt-1">Platform Settings</h1>
+          <h1 className="text-h1 mt-1">Settings</h1>
           <p className="text-body mt-2 text-muted-foreground">
-            Manage your platform configuration and integrations.
+            Platform configuration. Manage Billing, Phone Numbers, WhatsApp and
+            CRM from the Integrations section in the sidebar.
           </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Credits &amp; Billing</CardTitle>
-            <CardDescription>
-              Your remaining call minutes. Top up anytime with Razorpay.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CreditsSection />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Phone Numbers</CardTitle>
-            <CardDescription>
-              Buy a phone number for outbound calls. Requires completed KYC; charged
-              to your call-credit balance.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <PhoneNumbersSection />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>MCP Server</CardTitle>
-            <CardDescription>
-              Let AI agents access your {BRAND.name} workspace and documentation via
-              the Model Context Protocol.{" "}
-              <a
-                href={INTEGRATION_DOCUMENTATION_URLS.mcp}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 underline"
-              >
-                Learn more <ExternalLink className="h-3 w-3" />
-              </a>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <MCPSection />
-          </CardContent>
-        </Card>
+        {mcp.enabled && (
+          <Card>
+            <CardHeader>
+              <CardTitle>MCP Server</CardTitle>
+              <CardDescription>
+                Let AI agents access your {BRAND.name} workspace and documentation
+                via the Model Context Protocol.{" "}
+                <a
+                  href={INTEGRATION_DOCUMENTATION_URLS.mcp}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-0.5 underline"
+                >
+                  Learn more <ExternalLink className="h-3 w-3" />
+                </a>
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <MCPSection />
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -93,34 +72,6 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <TelemetrySection />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>WhatsApp Follow-up</CardTitle>
-            <CardDescription>
-              Automatically send an approved WhatsApp template (with an optional
-              document) to the lead after each call. Connect your own provider
-              account and API key.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <WhatsAppSection />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Connect your CRM</CardTitle>
-            <CardDescription>
-              Automatically push every call to your CRM — upsert the contact and log
-              the outcome, recording, transcript and sentiment. Connect your own CRM
-              account and API token.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CrmSection />
           </CardContent>
         </Card>
       </div>

@@ -26,6 +26,8 @@ router = APIRouter(prefix="/user")
 class AuthUserResponse(TypedDict):
     id: int
     is_superuser: bool
+    plan: str
+    features: dict
 
 
 class DefaultConfigurationsResponse(TypedDict):
@@ -69,9 +71,16 @@ async def get_default_configurations() -> DefaultConfigurationsResponse:
 async def get_auth_user(
     user: UserModel = Depends(get_user),
 ) -> AuthUserResponse:
+    from api.services.plans import TRIAL_PLAN, features_for_plan, get_org_plan
+
+    plan = TRIAL_PLAN
+    if user.selected_organization_id:
+        plan = await get_org_plan(user.selected_organization_id)
     return {
         "id": user.id,
         "is_superuser": bool(user.is_superuser),
+        "plan": plan,
+        "features": features_for_plan(plan),
     }
 
 

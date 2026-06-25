@@ -62,6 +62,17 @@ class PaymentClient(BaseDBClient):
             )
             await session.commit()
 
+    async def get_paid_pack_ids(self, organization_id: int) -> set[str]:
+        """Distinct pack_ids the org has successfully paid for (drives plan tier)."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(PaymentTransactionModel.pack_id).where(
+                    PaymentTransactionModel.organization_id == organization_id,
+                    PaymentTransactionModel.status == "paid",
+                )
+            )
+            return {pid for pid in result.scalars().all() if pid}
+
     async def list_transactions(
         self, organization_id: int, limit: int = 20
     ) -> List[PaymentTransactionModel]:

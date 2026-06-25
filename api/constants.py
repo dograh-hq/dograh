@@ -52,12 +52,38 @@ DEFAULT_FREE_CALL_SECONDS = int(os.getenv("DEFAULT_FREE_CALL_SECONDS", "1800"))
 # Test-mode keys work end-to-end; swap to live keys when ready.
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
-# Credit packs sold via Razorpay top-up. PLACEHOLDER PRICES — set the real
-# per-minute price + pack sizes. `minutes` is credited to the call-seconds balance.
+# Plans / credit packs sold via Razorpay top-up. 1 credit = 1 call-minute, so
+# `minutes` == credits granted, credited to the org's call-seconds balance.
+# `features` gates self-serve surfaces by tier:
+#   - api: REST API keys (Developers) — Growth & Scale only
+#   - mcp: MCP server — Scale only
+# The org's plan tier is derived from the highest pack it has paid for (there is
+# no plan column); see api/services/plans.py. Trial orgs (no purchase) get neither.
 CREDIT_PACKS = [
-    {"id": "starter", "label": "Starter", "minutes": 500, "price_inr": 500},
-    {"id": "growth", "label": "Growth", "minutes": 2000, "price_inr": 1800},
-    {"id": "scale", "label": "Scale", "minutes": 5000, "price_inr": 4000},
+    {
+        "id": "starter",
+        "label": "Starter",
+        "minutes": 300,
+        "price_inr": 2399,
+        "per_credit_inr": 8,
+        "features": {"api": False, "mcp": False},
+    },
+    {
+        "id": "growth",
+        "label": "Growth",
+        "minutes": 650,
+        "price_inr": 4500,
+        "per_credit_inr": 6,
+        "features": {"api": True, "mcp": False},
+    },
+    {
+        "id": "scale",
+        "label": "Scale",
+        "minutes": 2000,
+        "price_inr": 10000,
+        "per_credit_inr": 5,
+        "features": {"api": True, "mcp": True},
+    },
 ]
 
 # Telephony marketplace: setup cost (in call-minutes deducted from the credit

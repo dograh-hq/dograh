@@ -20,6 +20,12 @@ interface OrganizationPricing {
     billing_enabled: boolean;
 }
 
+/** Plan-tier feature flags (see api/services/plans.py). */
+export interface PlanFeatures {
+    api: boolean;
+    mcp: boolean;
+}
+
 interface UserConfigContextType {
     userConfig: UserConfigurationRequestResponseSchema | null;
     saveUserConfig: (userConfig: UserConfigurationRequestResponseSchema) => Promise<void>;
@@ -31,6 +37,12 @@ interface UserConfigContextType {
     /** Platform-level superuser flag (UserModel.is_superuser on the backend). */
     isSuperuser: boolean;
     superuserLoaded: boolean;
+    /** Org plan tier ("trial" | "starter" | "growth" | "scale"). */
+    plan: string;
+    /** Feature flags for the org's plan tier. */
+    planFeatures: PlanFeatures;
+    /** True once the plan/superuser fetch has resolved (same request). */
+    planLoaded: boolean;
     user: AuthUser | null;
     organizationPricing: OrganizationPricing | null;
 }
@@ -46,6 +58,8 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
     const [permissionsLoaded, setPermissionsLoaded] = useState(false);
     const [isSuperuser, setIsSuperuser] = useState(false);
     const [superuserLoaded, setSuperuserLoaded] = useState(false);
+    const [plan, setPlan] = useState<string>('trial');
+    const [planFeatures, setPlanFeatures] = useState<PlanFeatures>({ api: false, mcp: false });
 
     const auth = useAuth();
 
@@ -110,9 +124,18 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
             }
             try {
                 const response = await getAuthUserApiV1UserAuthUserGet();
-                setIsSuperuser(!!response.data?.is_superuser);
+                // `plan`/`features` are served by the same endpoint; the generated
+                // SDK type predates them, so read through a widened shape.
+                const data = response.data as
+                    | { is_superuser?: boolean; plan?: string; features?: Partial<PlanFeatures> }
+                    | undefined;
+                setIsSuperuser(!!data?.is_superuser);
+                setPlan(data?.plan ?? 'trial');
+                setPlanFeatures({ api: !!data?.features?.api, mcp: !!data?.features?.mcp });
             } catch {
                 setIsSuperuser(false);
+                setPlan('trial');
+                setPlanFeatures({ api: false, mcp: false });
             } finally {
                 setSuperuserLoaded(true);
             }
@@ -225,6 +248,9 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
                 permissionsLoaded,
                 isSuperuser,
                 superuserLoaded,
+                plan,
+                planFeatures,
+                planLoaded: superuserLoaded,
                 user: auth.user,
                 organizationPricing,
             }}

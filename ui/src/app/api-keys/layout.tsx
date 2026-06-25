@@ -1,6 +1,9 @@
 import type { ReactNode } from "react";
 
-// Client-accessible: orgs manage their own API keys (for the public API / n8n).
+import { PlanGuard } from "@/components/PlanGuard";
+
+// API keys are a paid feature (Growth & Scale plans; superuser always).
+// Starter / trial orgs are redirected to /settings to upgrade.
 export default function ApiKeysLayout({ children }: { children: ReactNode }) {
-    return <>{children}</>;
+    return <PlanGuard feature="api">{children}</PlanGuard>;
 }

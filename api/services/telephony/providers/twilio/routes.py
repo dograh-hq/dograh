@@ -41,9 +41,7 @@ async def _persist_amd_result_if_present(
             gathered_context={"answered_by": amd_result.answered_by},
         )
     except Exception as exc:
-        logger.warning(
-            f"[run {workflow_run_id}] Failed to persist AMD result: {exc}"
-        )
+        logger.warning(f"[run {workflow_run_id}] Failed to persist AMD result: {exc}")
 
 
 @router.post("/twiml", include_in_schema=False)

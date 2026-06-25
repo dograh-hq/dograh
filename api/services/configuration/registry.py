@@ -1726,7 +1726,7 @@ class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
-DOGRAH_EMBEDDING_MODELS = ["default"]
+DOGRAH_EMBEDDING_MODELS = ["dograh_embedding_v1"]
 
 
 @register_embeddings
@@ -1734,7 +1734,7 @@ class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
-        default="default",
+        default="dograh_embedding_v1",
         description="Dograh-managed embedding model.",
         json_schema_extra={"examples": DOGRAH_EMBEDDING_MODELS},
     )

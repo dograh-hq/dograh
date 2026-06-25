@@ -55,7 +55,7 @@ def test_dograh_v2_compiles_to_effective_managed_pipeline_with_embeddings():
     assert effective.stt.provider == "dograh"
     assert effective.stt.language == "multi"
     assert effective.embeddings.provider == "dograh"
-    assert effective.embeddings.model == "default"
+    assert effective.embeddings.model == "dograh_embedding_v1"
     assert effective.managed_service_version == 2
 
 

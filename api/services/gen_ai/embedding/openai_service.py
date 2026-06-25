@@ -85,6 +85,14 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
         if not self._api_key_configured or self.client is None:
             raise EmbeddingAPIKeyNotConfiguredError()
 
+    def _request_kwargs(self) -> Dict[str, Any]:
+        """Extra kwargs merged into every embeddings.create() call.
+
+        Override hook for subclasses (e.g. DograhEmbeddingService injects the MPS
+        billing protocol here). The base service adds nothing.
+        """
+        return {}
+
     async def embed_texts(self, texts: List[str]) -> List[List[float]]:
         """Embed a batch of texts using OpenAI API.
 
@@ -97,6 +105,7 @@ class OpenAIEmbeddingService(BaseEmbeddingService):
             response = await self.client.embeddings.create(
                 input=texts,
                 model=self.model_id,
+                **self._request_kwargs(),
             )
             return [item.embedding for item in response.data]
         except Exception as e:

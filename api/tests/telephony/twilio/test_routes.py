@@ -76,6 +76,34 @@ def _signature(
     return validator.compute_signature(url, form_data)
 
 
+def test_twilio_provider_applies_answering_machine_detection_params():
+    provider = TwilioProvider(
+        {
+            "account_sid": "AC123",
+            "auth_token": "twilio-auth-token",
+            "from_numbers": ["+15551230002"],
+            "amd_enabled": True,
+        }
+    )
+
+    data = provider.apply_answering_machine_detection_call_params({"To": "+1555"})
+
+    assert provider.supports_answering_machine_detection() is True
+    assert data["MachineDetection"] == "Enable"
+
+
+def test_twilio_provider_parses_answering_machine_detection_result():
+    provider = _provider()
+
+    result = provider.parse_answering_machine_detection_result(
+        {"CallSid": "CA123", "AnsweredBy": "machine_start"}
+    )
+
+    assert result is not None
+    assert result.call_id == "CA123"
+    assert result.answered_by == "machine_start"
+
+
 @pytest.mark.asyncio
 async def test_twiml_route_accepts_valid_signature_with_extra_query_param():
     provider = _provider()
@@ -244,6 +272,109 @@ async def test_twilio_status_callback_accepts_valid_signature():
         db_client.get_workflow_by_id = AsyncMock(
             return_value=SimpleNamespace(organization_id=11)
         )
+
+        result = await handle_twilio_status_callback(
+            workflow_run_id=123, request=request
+        )
+
+    assert result == {"status": "success"}
+    process_status.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_twilio_status_callback_persists_answering_machine_detection_result():
+    provider = _provider()
+    form_data = {
+        "CallSid": "CA123",
+        "CallStatus": "completed",
+        "AnsweredBy": "machine_start",
+    }
+    request = _request(
+        path="/api/v1/telephony/twilio/status-callback/123",
+        query={},
+        form_data=form_data,
+        headers={
+            "x-twilio-signature": _signature(
+                provider,
+                path="/api/v1/telephony/twilio/status-callback/123",
+                query={},
+                form_data=form_data,
+            )
+        },
+    )
+
+    with (
+        patch("api.services.telephony.providers.twilio.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.twilio.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.twilio.routes._process_status_update",
+            new_callable=AsyncMock,
+        ),
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+        db_client.update_workflow_run = AsyncMock()
+
+        result = await handle_twilio_status_callback(
+            workflow_run_id=123, request=request
+        )
+
+    assert result == {"status": "success"}
+    db_client.update_workflow_run.assert_awaited_once_with(
+        run_id=123,
+        gathered_context={"answered_by": "machine_start"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_twilio_status_callback_continues_when_amd_persistence_fails():
+    provider = _provider()
+    form_data = {
+        "CallSid": "CA123",
+        "CallStatus": "completed",
+        "AnsweredBy": "machine_start",
+    }
+    request = _request(
+        path="/api/v1/telephony/twilio/status-callback/123",
+        query={},
+        form_data=form_data,
+        headers={
+            "x-twilio-signature": _signature(
+                provider,
+                path="/api/v1/telephony/twilio/status-callback/123",
+                query={},
+                form_data=form_data,
+            )
+        },
+    )
+
+    with (
+        patch("api.services.telephony.providers.twilio.routes.db_client") as db_client,
+        patch(
+            "api.services.telephony.providers.twilio.routes.get_telephony_provider_for_run",
+            new_callable=AsyncMock,
+            return_value=provider,
+        ),
+        patch(
+            "api.services.telephony.providers.twilio.routes._process_status_update",
+            new_callable=AsyncMock,
+        ) as process_status,
+    ):
+        db_client.get_workflow_run_by_id = AsyncMock(
+            return_value=SimpleNamespace(workflow_id=7)
+        )
+        db_client.get_workflow_by_id = AsyncMock(
+            return_value=SimpleNamespace(organization_id=11)
+        )
+        db_client.update_workflow_run = AsyncMock(side_effect=RuntimeError("db down"))
 
         result = await handle_twilio_status_callback(
             workflow_run_id=123, request=request

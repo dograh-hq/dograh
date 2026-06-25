@@ -41,14 +41,14 @@ export default function LoginPage() {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       {/* Brand panel (desktop) */}
-      <div className="relative hidden flex-col justify-between overflow-hidden bg-[#0a0d1e] p-12 text-white lg:flex">
+      <div className="relative hidden flex-col justify-between overflow-hidden bg-[#191427] p-12 text-white lg:flex">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-24 -left-24 h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle,rgba(255,154,31,0.22),transparent_70%)]"
+          className="pointer-events-none absolute -top-24 -left-24 h-[28rem] w-[28rem] rounded-full bg-[radial-gradient(circle,rgba(141,127,198,0.28),transparent_70%)]"
         />
         <div
           aria-hidden
-          className="pointer-events-none absolute right-0 bottom-0 h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle,rgba(255,210,122,0.10),transparent_70%)]"
+          className="pointer-events-none absolute right-0 bottom-0 h-[22rem] w-[22rem] rounded-full bg-[radial-gradient(circle,rgba(120,150,220,0.12),transparent_70%)]"
         />
         <div className="relative flex items-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}

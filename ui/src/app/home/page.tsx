@@ -4,6 +4,7 @@ import { ArrowUp, CalendarClock, Headphones, Home as HomeIcon, Loader2, Target }
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
+import { HomeMetrics } from '@/components/home/HomeMetrics';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -148,11 +149,23 @@ export default function HomePage() {
     return (
         <div className="min-h-screen bg-background">
             <div className="container mx-auto px-4 py-12 max-w-4xl">
+                {/* Dashboard — at-a-glance metrics */}
+                <div className="mb-12">
+                    <p className="text-eyebrow text-primary">Dashboard</p>
+                    <h1 className="text-h1 mt-1">Welcome back</h1>
+                    <p className="text-body mt-1 text-muted-foreground">
+                        Here&apos;s how your voice agents are performing.
+                    </p>
+                    <div className="mt-6">
+                        <HomeMetrics />
+                    </div>
+                </div>
+
                 {/* Hero — describe your agent */}
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold tracking-tight mb-2">
+                    <h2 className="text-h2 tracking-tight mb-2">
                         What should your voice agent do?
-                    </h1>
+                    </h2>
                     <p className="text-muted-foreground">
                         Describe the agent you want and we&apos;ll build a working voice agent for you.
                     </p>

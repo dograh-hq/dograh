@@ -1,11 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="auto4you">
   <defs>
     <linearGradient id="a4yg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#ffd27a"/>
-      <stop offset="1" stop-color="#ff9a1f"/>
+      <stop offset="0" stop-color="#b9adf0"/>
+      <stop offset="1" stop-color="#7165ad"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="#0a0d1e"/>
+  <rect width="64" height="64" rx="16" fill="#191427"/>
   <g fill="url(#a4yg)">
     <rect x="14" y="26" width="5" height="12" rx="2.5"/>
     <rect x="23" y="18" width="5" height="28" rx="2.5"/>

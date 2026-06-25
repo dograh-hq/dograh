@@ -123,8 +123,10 @@ class PipelineMetricsAggregator(FrameProcessor):
         else:
             call_duration = self._stop_time - self._start_time
 
-        # Lets return a rounded integer
-        return int(round(call_duration))
+        # Floor (truncate) to whole seconds so credit deduction bills only
+        # fully-elapsed seconds and never overcharges a short call. The org
+        # ledger is per-second (1 credit = 60s), so a 6s call costs 0.1 credit.
+        return int(call_duration)
 
     def get_all_usage_metrics_serialized(self) -> Dict[str, Dict[str, any]]:
         """Get all aggregated usage metrics in JSON-serializable format."""

@@ -12,7 +12,7 @@ const buttonVariants = cva(
         default:
           "bg-primary text-primary-foreground shadow-[var(--shadow-card)] hover:brightness-[1.04] active:brightness-95",
         brand:
-          "text-[oklch(0.20_0.02_265)] bg-[linear-gradient(180deg,#ffb24d,#ff9a1f)] shadow-[inset_0_1px_0_rgba(255,255,255,0.25),var(--shadow-card)] hover:brightness-[1.03]",
+          "text-[oklch(0.985_0.004_300)] bg-[linear-gradient(180deg,oklch(0.62_0.12_290),oklch(0.52_0.11_290))] shadow-[inset_0_1px_0_rgba(255,255,255,0.18),var(--shadow-card)] hover:brightness-[1.06]",
         destructive:
           "bg-destructive text-white shadow-[var(--shadow-card)] hover:brightness-105 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/70",
         outline:

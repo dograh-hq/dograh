@@ -104,7 +104,7 @@ export function CreditsSection() {
             toast.error("Payment verification failed — contact support");
           }
         },
-        theme: { color: "#ff9a1f" },
+        theme: { color: "#7165ad" },
       });
       rzp.open();
     } catch {

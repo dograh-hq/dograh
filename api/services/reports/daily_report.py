@@ -166,6 +166,82 @@ class DailyReportService:
 
         return [{"id": workflow.id, "name": workflow.name} for workflow in workflows]
 
+    async def get_agent_leaderboard(
+        self, organization_id: int, days: int = 7
+    ) -> Dict[str, Any]:
+        """Per-agent (workflow) performance over the last N days.
+
+        Aggregates every run in the window by workflow: call count, total &
+        average duration, transfer rate (disposition == "XFER"), and last run.
+        Reuses the optimized JSON-extraction query from the daily report.
+        """
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+
+        days = max(1, min(int(days), 90))
+        end_utc = datetime.now(ZoneInfo("UTC"))
+        start_utc = end_utc - timedelta(days=days)
+
+        runs = await db_client.get_workflow_runs_for_daily_report(
+            organization_id=organization_id,
+            start_utc=start_utc,
+            end_utc=end_utc,
+        )
+
+        agents: Dict[int, Dict[str, Any]] = {}
+        for run in runs:
+            wid = run["workflow_id"]
+            agent = agents.setdefault(
+                wid,
+                {
+                    "workflow_id": wid,
+                    "workflow_name": run.get("workflow_name") or f"Agent {wid}",
+                    "total_runs": 0,
+                    "total_seconds": 0.0,
+                    "transfers": 0,
+                    "last_run_at": None,
+                },
+            )
+            agent["total_runs"] += 1
+            try:
+                agent["total_seconds"] += float(
+                    run["usage_info"]["call_duration_seconds"]
+                )
+            except (TypeError, ValueError, KeyError):
+                pass
+            disposition = (run.get("gathered_context") or {}).get(
+                "mapped_call_disposition"
+            )
+            if disposition == "XFER":
+                agent["transfers"] += 1
+            created = run.get("created_at")
+            if created and (
+                agent["last_run_at"] is None or created > agent["last_run_at"]
+            ):
+                agent["last_run_at"] = created
+
+        leaderboard: List[Dict[str, Any]] = []
+        for agent in agents.values():
+            n = agent["total_runs"] or 1
+            leaderboard.append(
+                {
+                    "workflow_id": agent["workflow_id"],
+                    "workflow_name": agent["workflow_name"],
+                    "total_runs": agent["total_runs"],
+                    "total_minutes": round(agent["total_seconds"] / 60, 1),
+                    "avg_duration_seconds": round(agent["total_seconds"] / n, 1),
+                    "transfer_rate_percent": round(agent["transfers"] / n * 100, 1),
+                    "last_run_at": (
+                        agent["last_run_at"].isoformat()
+                        if agent["last_run_at"]
+                        else None
+                    ),
+                }
+            )
+
+        leaderboard.sort(key=lambda a: a["total_runs"], reverse=True)
+        return {"days": days, "agents": leaderboard}
+
     async def get_daily_runs_detail(
         self,
         organization_id: int,

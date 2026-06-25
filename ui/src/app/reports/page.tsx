@@ -10,6 +10,8 @@ import {
   getWorkflowOptionsApiV1OrganizationsReportsWorkflowsGet
 } from '@/client/sdk.gen';
 import type { WorkflowRunDetail } from '@/client/types.gen';
+import { AgentLeaderboard } from '@/components/reports/AgentLeaderboard';
+import { CallVolumeChart } from '@/components/reports/CallVolumeChart';
 import { Button } from '@/components/ui/button';
 import { Calendar as CalendarPicker } from '@/components/ui/calendar';
 import { Card } from '@/components/ui/card';
@@ -185,9 +187,22 @@ export default function ReportsPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl font-bold">Daily Reports</h1>
+      {/* Analytics overview — org-wide, last 7-14 days */}
+      <div>
+        <p className="text-eyebrow text-primary">Analytics</p>
+        <h1 className="text-h1 mt-1">Reports &amp; Analytics</h1>
+        <p className="text-body mt-1 text-muted-foreground">
+          Track every agent&apos;s performance and your call activity over time.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <AgentLeaderboard />
+        <CallVolumeChart />
+      </div>
+
+      {/* Daily report — date-filtered detail */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pt-2">
+        <h2 className="text-h2">Daily breakdown</h2>
 
         {/* Date Navigation & Workflow Selector */}
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">

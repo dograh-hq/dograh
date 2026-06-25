@@ -436,6 +436,15 @@ async def _execute_webhook_node(
 
     payload = render_template(webhook_data.payload_template or {}, render_context)
 
+    # Always surface the call disposition on the outgoing payload, even when the
+    # template author didn't reference it. Fill only if absent so a template that
+    # sets it explicitly keeps its own value.
+    if isinstance(payload, dict):
+        gathered_context = render_context.get("gathered_context") or {}
+        payload.setdefault(
+            "call_disposition", gathered_context.get("call_disposition", "")
+        )
+
     method = (webhook_data.http_method or "POST").upper()
 
     logger.info(f"Executing webhook '{webhook_name}': {method}")

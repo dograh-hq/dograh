@@ -247,49 +247,44 @@ class TestUserMutingDuringBotSpeech:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={},
             ):
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def run_test():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
+                async def run_test():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
 
-                        # Trigger first LLM completion
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    # Trigger first LLM completion
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                        # Wait for first bot started
-                        await asyncio.wait_for(
-                            observer.first_bot_started.wait(), timeout=5.0
-                        )
-
-                        # Queue user speaking frames so that second generation starts
-                        await queue_user_speaking_and_transcript_frames(task)
-
-                        # Wait for first bot stopped
-                        await asyncio.wait_for(
-                            observer.first_bot_stopped.wait(), timeout=5.0
-                        )
-
-                        await task.cancel()
-
-                    await asyncio.gather(
-                        run_pipeline(),
-                        run_test(),
-                        return_exceptions=True,
+                    # Wait for first bot started
+                    await asyncio.wait_for(
+                        observer.first_bot_started.wait(), timeout=5.0
                     )
+
+                    # Queue user speaking frames so that second generation starts
+                    await queue_user_speaking_and_transcript_frames(task)
+
+                    # Wait for first bot stopped
+                    await asyncio.wait_for(
+                        observer.first_bot_stopped.wait(), timeout=5.0
+                    )
+
+                    await task.cancel()
+
+                await asyncio.gather(
+                    run_pipeline(),
+                    run_test(),
+                    return_exceptions=True,
+                )
 
         # VERIFY: Muted at first BotStartedSpeaking
         assert len(observer.mute_status_on_bot_started) >= 1
@@ -337,54 +332,49 @@ class TestUserMutingDuringBotSpeech:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={},
             ):
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def run_test():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
+                async def run_test():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
 
-                        # Trigger first LLM completion
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    # Trigger first LLM completion
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                        # Wait for first bot stopped (first response complete)
-                        await asyncio.wait_for(
-                            observer.first_bot_stopped.wait(), timeout=5.0
-                        )
-
-                        # Queue user speaking frames for second generation
-                        await queue_user_speaking_and_transcript_frames(task)
-
-                        # Wait for second bot started
-                        await asyncio.wait_for(
-                            observer.second_bot_started.wait(), timeout=5.0
-                        )
-
-                        # Wait for second bot stopped
-                        await asyncio.wait_for(
-                            observer.second_bot_stopped.wait(), timeout=5.0
-                        )
-
-                        await task.cancel()
-
-                    await asyncio.gather(
-                        run_pipeline(),
-                        run_test(),
-                        return_exceptions=True,
+                    # Wait for first bot stopped (first response complete)
+                    await asyncio.wait_for(
+                        observer.first_bot_stopped.wait(), timeout=5.0
                     )
+
+                    # Queue user speaking frames for second generation
+                    await queue_user_speaking_and_transcript_frames(task)
+
+                    # Wait for second bot started
+                    await asyncio.wait_for(
+                        observer.second_bot_started.wait(), timeout=5.0
+                    )
+
+                    # Wait for second bot stopped
+                    await asyncio.wait_for(
+                        observer.second_bot_stopped.wait(), timeout=5.0
+                    )
+
+                    await task.cancel()
+
+                await asyncio.gather(
+                    run_pipeline(),
+                    run_test(),
+                    return_exceptions=True,
+                )
 
         # VERIFY: First bot started - should be muted (MuteUntilFirstBotComplete)
         assert len(observer.mute_status_on_bot_started) >= 2
@@ -432,54 +422,49 @@ class TestUserMutingDuringBotSpeech:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
+            with patch.object(
+                VariableExtractionManager,
+                "_perform_extraction",
                 new_callable=AsyncMock,
-                return_value="completed",
+                return_value={},
             ):
-                with patch.object(
-                    VariableExtractionManager,
-                    "_perform_extraction",
-                    new_callable=AsyncMock,
-                    return_value={},
-                ):
 
-                    async def run_pipeline():
-                        await run_pipeline_worker(task)
+                async def run_pipeline():
+                    await run_pipeline_worker(task)
 
-                    async def run_test():
-                        await asyncio.sleep(0.01)
-                        await engine.initialize()
-                        await engine.set_node(engine.workflow.start_node_id)
+                async def run_test():
+                    await asyncio.sleep(0.01)
+                    await engine.initialize()
+                    await engine.set_node(engine.workflow.start_node_id)
 
-                        # Trigger first LLM completion
-                        await engine.llm.queue_frame(LLMContextFrame(engine.context))
+                    # Trigger first LLM completion
+                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                        # Wait for first bot stopped (first response complete)
-                        await asyncio.wait_for(
-                            observer.first_bot_stopped.wait(), timeout=5.0
-                        )
-
-                        # Queue user speaking frames for second llm generation
-                        await queue_user_speaking_and_transcript_frames(task)
-
-                        # Wait for second bot started
-                        await asyncio.wait_for(
-                            observer.second_bot_started.wait(), timeout=5.0
-                        )
-
-                        # Wait for second bot stopped
-                        await asyncio.wait_for(
-                            observer.second_bot_stopped.wait(), timeout=5.0
-                        )
-
-                        await task.cancel()
-
-                    await asyncio.gather(
-                        run_pipeline(),
-                        run_test(),
-                        return_exceptions=True,
+                    # Wait for first bot stopped (first response complete)
+                    await asyncio.wait_for(
+                        observer.first_bot_stopped.wait(), timeout=5.0
                     )
+
+                    # Queue user speaking frames for second llm generation
+                    await queue_user_speaking_and_transcript_frames(task)
+
+                    # Wait for second bot started
+                    await asyncio.wait_for(
+                        observer.second_bot_started.wait(), timeout=5.0
+                    )
+
+                    # Wait for second bot stopped
+                    await asyncio.wait_for(
+                        observer.second_bot_stopped.wait(), timeout=5.0
+                    )
+
+                    await task.cancel()
+
+                await asyncio.gather(
+                    run_pipeline(),
+                    run_test(),
+                    return_exceptions=True,
+                )
 
         # VERIFY: First bot started - should be muted (MuteUntilFirstBotComplete)
         assert len(observer.mute_status_on_bot_started) >= 2

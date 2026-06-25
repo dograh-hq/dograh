@@ -6,7 +6,6 @@ from loguru import logger
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
-from api.services.configuration.options import DEEPGRAM_FLUX_MODELS
 from api.services.configuration.registry import ServiceProviders
 from api.services.integrations import (
     IntegrationRuntimeContext,
@@ -47,6 +46,7 @@ from api.services.pipecat.service_factory import (
     create_realtime_llm_service,
     create_stt_service,
     create_tts_service,
+    stt_uses_flux_turns,
 )
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
@@ -626,14 +626,10 @@ async def _run_pipeline(
             user_config.realtime.provider
         )
     else:
-        # Deepgram Flux uses external turn detection (VAD + External start/stop)
-        # Other models use configurable turn detection strategy
-        is_deepgram_flux = (
-            user_config.stt.provider == ServiceProviders.DEEPGRAM.value
-            and user_config.stt.model in DEEPGRAM_FLUX_MODELS
-        )
-
-        if is_deepgram_flux:
+        # Deepgram Flux and supported Dograh managed Flux languages emit their
+        # own turn boundaries, so the aggregator follows those external signals.
+        # Other models use configurable turn detection.
+        if stt_uses_flux_turns(user_config):
             user_turn_strategies = UserTurnStrategies(
                 start=[
                     VADUserTurnStartStrategy(),

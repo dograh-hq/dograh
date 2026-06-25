@@ -12,7 +12,7 @@ import jwt
 from fastapi import HTTPException, Response
 from loguru import logger
 
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -291,14 +291,14 @@ class VonageProvider(TelephonyProvider):
         """
         # Map Vonage status to common format
         status_map = {
-            "started": "initiated",
-            "ringing": "ringing",
-            "answered": "answered",
-            "complete": "completed",
-            "failed": "failed",
-            "busy": "busy",
-            "timeout": "no-answer",
-            "rejected": "busy",
+            "started": TelephonyCallStatus.INITIATED,
+            "ringing": TelephonyCallStatus.RINGING,
+            "answered": TelephonyCallStatus.ANSWERED,
+            "complete": TelephonyCallStatus.COMPLETED,
+            "failed": TelephonyCallStatus.FAILED,
+            "busy": TelephonyCallStatus.BUSY,
+            "timeout": TelephonyCallStatus.NO_ANSWER,
+            "rejected": TelephonyCallStatus.BUSY,
         }
 
         return {

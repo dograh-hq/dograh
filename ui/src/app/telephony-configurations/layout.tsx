@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
-import { AdminGuard } from "@/components/AdminGuard";
-
+// Client-accessible: orgs manage their telephony (numbers, caller IDs) here.
 export default function TelephonyConfigurationsLayout({ children }: { children: ReactNode }) {
-    return <AdminGuard>{children}</AdminGuard>;
+    return <>{children}</>;
 }

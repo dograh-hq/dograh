@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import { AdminGuard } from "@/components/AdminGuard";
-
+// Client-accessible: orgs self-serve their integrations (WhatsApp, CRM, Credits,
+// Phone Numbers, etc.) here. Model configuration stays gated on its own page.
 export default function SettingsLayout({ children }: { children: ReactNode }) {
-    return <AdminGuard>{children}</AdminGuard>;
+    return <>{children}</>;
 }

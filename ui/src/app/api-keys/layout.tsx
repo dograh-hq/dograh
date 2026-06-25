@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
-import { AdminGuard } from "@/components/AdminGuard";
-
+// Client-accessible: orgs manage their own API keys (for the public API / n8n).
 export default function ApiKeysLayout({ children }: { children: ReactNode }) {
-    return <AdminGuard>{children}</AdminGuard>;
+    return <>{children}</>;
 }

@@ -101,6 +101,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         url: "/kyc",
         icon: ShieldCheck,
       },
+      {
+        title: "Settings",
+        url: "/settings",
+        icon: Settings,
+      },
     ],
   },
   {
@@ -127,7 +132,6 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         url: "/telephony-configurations",
         icon: Phone,
         showsTelephonyWarning: true,
-        adminOnly: true,
       },
       {
         title: "Tools",
@@ -148,7 +152,6 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Developers",
         url: "/api-keys",
         icon: Key,
-        adminOnly: true,
       },
     ],
   },

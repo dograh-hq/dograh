@@ -5892,6 +5892,12 @@ export type TwilioConfigurationRequest = {
      * List of Twilio phone numbers
      */
     from_numbers?: Array<string>;
+    /**
+     * Amd Enabled
+     *
+     * Detect whether outbound calls are answered by a person or machine. Twilio may bill AMD as an additional per-call feature.
+     */
+    amd_enabled?: boolean;
 };
 
 /**
@@ -5916,6 +5922,10 @@ export type TwilioConfigurationResponse = {
      * From Numbers
      */
     from_numbers: Array<string>;
+    /**
+     * Amd Enabled
+     */
+    amd_enabled?: boolean;
 };
 
 /**
@@ -6295,6 +6305,26 @@ export type VobizConfigurationResponse = {
 };
 
 /**
+ * VoiceFacets
+ *
+ * Distinct selector values across a provider's full voice catalog.
+ */
+export type VoiceFacets = {
+    /**
+     * Genders
+     */
+    genders?: Array<string>;
+    /**
+     * Accents
+     */
+    accents?: Array<string>;
+    /**
+     * Languages
+     */
+    languages?: Array<string>;
+};
+
+/**
  * VoiceInfo
  */
 export type VoiceInfo = {
@@ -6340,6 +6370,7 @@ export type VoicesResponse = {
      * Voices
      */
     voices: Array<VoiceInfo>;
+    facets?: VoiceFacets | null;
 };
 
 /**
@@ -9208,6 +9239,18 @@ export type GetVoicesApiV1UserConfigurationsVoicesProviderGetData = {
          * Language
          */
         language?: string | null;
+        /**
+         * Q
+         */
+        q?: string | null;
+        /**
+         * Gender
+         */
+        gender?: string | null;
+        /**
+         * Accent
+         */
+        accent?: string | null;
     };
     url: '/api/v1/user/configurations/voices/{provider}';
 };

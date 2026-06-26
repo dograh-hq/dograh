@@ -53,6 +53,17 @@ MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 # AWS S3 Configuration
 S3_BUCKET = os.environ.get("S3_BUCKET")
 S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+# Optional overrides for S3-compatible backends (e.g. MinIO, rustfs, Ceph).
+# S3_ENDPOINT_URL: full URL of a custom S3 endpoint (e.g. "https://s3.example.com").
+#   Leave unset to use AWS's default endpoint resolution.
+# S3_SIGNATURE_VERSION: botocore signature version used to sign requests and
+#   presigned URLs. Defaults to None (botocore's default, currently SigV2 for
+#   presigned URLs). Set to "s3v4" for S3-compatible servers that require SigV4.
+# S3_ADDRESSING_STYLE: "auto" (default), "path", or "virtual". Many S3-compatible
+#   servers and TLS setups require "path".
+S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
+S3_SIGNATURE_VERSION = os.environ.get("S3_SIGNATURE_VERSION")
+S3_ADDRESSING_STYLE = os.environ.get("S3_ADDRESSING_STYLE")
 
 # Sentry configuration
 SENTRY_DSN = os.getenv("SENTRY_DSN")

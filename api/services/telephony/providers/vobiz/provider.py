@@ -14,7 +14,7 @@ import aiohttp
 from fastapi import HTTPException
 from loguru import logger
 
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -335,9 +335,10 @@ class VobizProvider(TelephonyProvider):
         - call_uuid (instead of CallSid)
         - status, from, to, duration, etc.
         """
+        call_status = data.get("CallStatus", "")
         return {
             "call_id": data.get("CallUUID", ""),
-            "status": data.get("CallStatus", ""),
+            "status": TelephonyCallStatus.from_raw(call_status) or call_status,
             "from_number": data.get("From"),
             "to_number": data.get("To"),
             "direction": data.get("Direction"),

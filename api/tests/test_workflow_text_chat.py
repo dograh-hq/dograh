@@ -1,10 +1,16 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
 
 from api.db.models import OrganizationModel, UserModel
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.services.workflow.text_chat_runner import (
+    _deserialize_text_chat_checkpoint_messages,
+    _serialize_text_chat_checkpoint_messages,
+)
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
@@ -16,6 +22,49 @@ def _log_texts(logs: dict | None, event_type: str) -> list[str]:
         for event in events
         if event.get("type") == event_type
     ]
+
+
+def test_text_chat_checkpoint_messages_round_trip_google_thought_signature():
+    signature = bytes.fromhex("12340a32010c39d6c7f38fd8b8eb6ab0")
+    messages = [
+        {"role": "assistant", "content": "Hello."},
+        {
+            "role": "user",
+            "content": "Hi",
+        },
+        LLMSpecificMessage(
+            llm="google",
+            message={
+                "type": "thought_signature",
+                "signature": signature,
+                "bookmark": {"text": "Hello."},
+            },
+        ),
+    ]
+
+    encoded = _serialize_text_chat_checkpoint_messages(messages)
+
+    json.dumps(encoded)
+    assert encoded[-1] == {
+        "__specific__": True,
+        "llm": "google",
+        "message": {
+            "type": "thought_signature",
+            "signature": {
+                "__type__": "bytes",
+                "__data__": "EjQKMgEMOdbH84/YuOtqsA==",
+            },
+            "bookmark": {"text": "Hello."},
+        },
+    }
+
+    restored = _deserialize_text_chat_checkpoint_messages(encoded)
+
+    assert restored[:2] == messages[:2]
+    assert isinstance(restored[-1], LLMSpecificMessage)
+    assert restored[-1].llm == "google"
+    assert restored[-1].message["signature"] == signature
+    assert restored[-1].message["bookmark"] == {"text": "Hello."}
 
 
 async def _create_user_and_workflow(

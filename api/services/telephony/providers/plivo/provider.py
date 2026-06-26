@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.db import db_client
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -281,17 +281,17 @@ class PlivoProvider(TelephonyProvider):
 
     def parse_status_callback(self, data: Dict[str, Any]) -> Dict[str, Any]:
         status_map = {
-            "in-progress": "answered",
-            "ringing": "ringing",
-            "ring": "ringing",
-            "completed": "completed",
-            "hangup": "completed",
-            "stopstream": "completed",
-            "busy": "busy",
-            "no-answer": "no-answer",
-            "cancel": "canceled",
-            "cancelled": "canceled",
-            "timeout": "no-answer",
+            "in-progress": TelephonyCallStatus.ANSWERED,
+            "ringing": TelephonyCallStatus.RINGING,
+            "ring": TelephonyCallStatus.RINGING,
+            "completed": TelephonyCallStatus.COMPLETED,
+            "hangup": TelephonyCallStatus.COMPLETED,
+            "stopstream": TelephonyCallStatus.COMPLETED,
+            "busy": TelephonyCallStatus.BUSY,
+            "no-answer": TelephonyCallStatus.NO_ANSWER,
+            "cancel": TelephonyCallStatus.CANCELED,
+            "cancelled": TelephonyCallStatus.CANCELED,
+            "timeout": TelephonyCallStatus.NO_ANSWER,
         }
 
         call_status = (data.get("CallStatus") or data.get("Event") or "").lower()

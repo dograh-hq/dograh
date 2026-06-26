@@ -14,7 +14,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.db import db_client
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -205,12 +205,12 @@ class ARIProvider(TelephonyProvider):
         """
         # Map ARI channel states to common status format
         state_map = {
-            "Up": "answered",
-            "Down": "completed",
-            "Ringing": "ringing",
-            "Ring": "ringing",
-            "Busy": "busy",
-            "Unavailable": "failed",
+            "Up": TelephonyCallStatus.ANSWERED,
+            "Down": TelephonyCallStatus.COMPLETED,
+            "Ringing": TelephonyCallStatus.RINGING,
+            "Ring": TelephonyCallStatus.RINGING,
+            "Busy": TelephonyCallStatus.BUSY,
+            "Unavailable": TelephonyCallStatus.FAILED,
         }
 
         channel_state = data.get("channel", {}).get("state", "")
@@ -218,11 +218,11 @@ class ARIProvider(TelephonyProvider):
 
         # Determine status from event type
         if event_type == "StasisStart":
-            status = "answered"
+            status = TelephonyCallStatus.ANSWERED
         elif event_type == "StasisEnd":
-            status = "completed"
+            status = TelephonyCallStatus.COMPLETED
         elif event_type == "ChannelDestroyed":
-            status = "completed"
+            status = TelephonyCallStatus.COMPLETED
         else:
             status = state_map.get(channel_state, channel_state.lower())
 

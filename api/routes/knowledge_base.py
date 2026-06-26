@@ -373,11 +373,7 @@ async def search_chunks(
             apply_managed_embeddings_base_url,
             get_resolved_ai_model_configuration,
         )
-        from api.services.configuration.registry import ServiceProviders
-        from api.services.gen_ai import (
-            AzureOpenAIEmbeddingService,
-            OpenAIEmbeddingService,
-        )
+        from api.services.gen_ai import build_embedding_service
 
         # Try to get user's embeddings configuration
         resolved_config = await get_resolved_ai_model_configuration(
@@ -405,22 +401,20 @@ async def search_chunks(
                 effective_config.embeddings, "api_version", None
             )
 
-        # Initialize embedding service based on provider
-        if embeddings_provider == ServiceProviders.AZURE.value and embeddings_endpoint:
-            embedding_service = AzureOpenAIEmbeddingService(
-                db_client=db_client,
-                api_key=embeddings_api_key,
-                endpoint=embeddings_endpoint,
-                model_id=embeddings_model or "text-embedding-3-small",
-                api_version=embeddings_api_version or "2024-02-15-preview",
-            )
-        else:
-            embedding_service = OpenAIEmbeddingService(
-                db_client=db_client,
-                api_key=embeddings_api_key,
-                model_id=embeddings_model or "text-embedding-3-small",
-                base_url=embeddings_base_url,
-            )
+        # Manual search runs outside any workflow run, so resolve the MPS
+        # correlation id here (mint only for orgs already on v2; never create one).
+        embedding_service = await build_embedding_service(
+            db_client=db_client,
+            provider=embeddings_provider,
+            api_key=embeddings_api_key,
+            model=embeddings_model,
+            base_url=embeddings_base_url,
+            endpoint=embeddings_endpoint,
+            api_version=embeddings_api_version,
+            organization_id=user.selected_organization_id,
+            created_by=str(user.provider_id),
+            resolve_correlation=True,
+        )
 
         # Perform search
         results = await embedding_service.search_similar_chunks(

@@ -55,7 +55,7 @@ def test_dograh_v2_compiles_to_effective_managed_pipeline_with_embeddings():
     assert effective.stt.provider == "dograh"
     assert effective.stt.language == "multi"
     assert effective.embeddings.provider == "dograh"
-    assert effective.embeddings.model == "default"
+    assert effective.embeddings.model == "dograh_embedding_v1"
     assert effective.managed_service_version == 2
 
 
@@ -132,7 +132,7 @@ async def test_byok_realtime_validator_does_not_require_stt_or_tts():
                     "llm": {
                         "provider": "google",
                         "api_key": "google-llm-key",
-                        "model": "gemini-2.0-flash",
+                        "model": "gemini-2.5-flash",
                     },
                 },
             },
@@ -154,7 +154,7 @@ async def test_pipeline_validator_requires_stt_and_tts_when_not_realtime():
         llm=GoogleLLMService(
             provider="google",
             api_key="google-llm-key",
-            model="gemini-2.0-flash",
+            model="gemini-2.5-flash",
         ),
         realtime=GoogleRealtimeLLMConfiguration(
             provider="google_realtime",

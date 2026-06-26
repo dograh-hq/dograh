@@ -145,8 +145,27 @@ services:
       # Redis configuration (using containerized redis)
       REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
 
-      # Storage configuration - using local MinIO
-      ENABLE_AWS_S3: "false"
+      # Storage configuration - bundled MinIO by default. Set ENABLE_AWS_S3=true
+      # in .env to make the API use AWS S3 or another S3-compatible server.
+      ENABLE_AWS_S3: "${ENABLE_AWS_S3:-false}"
+
+      # S3 backend configuration. Compose's .env file is used for interpolation,
+      # but those values are not automatically injected into containers, so pass
+      # the S3 settings through explicitly.
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+
+      # For a non-AWS S3-compatible server, also set these in Compose's .env
+      # S3_ENDPOINT_URL        e.g. https://s3.example.com
+      # S3_SIGNATURE_VERSION   set "s3v4" if the server requires SigV4 (e.g. rustfs)
+      # S3_ADDRESSING_STYLE    set "path" if the server / TLS cert requires path-style
+      # The S3 backend issues real presigned URLs, so the bucket can stay private.
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-}"
+      S3_SIGNATURE_VERSION: "${S3_SIGNATURE_VERSION:-}"
+      S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-}"
 
       # MinIO
       MINIO_ENDPOINT: "minio:9000"

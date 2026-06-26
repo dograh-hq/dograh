@@ -11,8 +11,9 @@ from fastapi import HTTPException
 from loguru import logger
 from twilio.request_validator import RequestValidator
 
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
+    AnsweringMachineDetectionResult,
     CallInitiationResult,
     NormalizedInboundData,
     ProviderSyncResult,
@@ -47,6 +48,7 @@ class TwilioProvider(TelephonyProvider):
         self.account_sid = config.get("account_sid")
         self.auth_token = config.get("auth_token")
         self.from_numbers = config.get("from_numbers", [])
+        self.amd_enabled: bool = bool(config.get("amd_enabled", False))
 
         # Handle both single number (string) and multiple numbers (list)
         if isinstance(self.from_numbers, str):
@@ -95,6 +97,8 @@ class TwilioProvider(TelephonyProvider):
                     "StatusCallbackMethod": "POST",
                 }
             )
+
+        data = self.apply_answering_machine_detection_call_params(data)
 
         data.update(kwargs)
 
@@ -230,15 +234,41 @@ class TwilioProvider(TelephonyProvider):
         """
         Parse Twilio status callback data into generic format.
         """
+        call_status = data.get("CallStatus", "")
         return {
             "call_id": data.get("CallSid", ""),
-            "status": data.get("CallStatus", ""),
+            "status": TelephonyCallStatus.from_raw(call_status) or call_status,
             "from_number": data.get("From"),
             "to_number": data.get("To"),
             "direction": data.get("Direction"),
             "duration": data.get("CallDuration") or data.get("Duration"),
             "extra": data,  # Include all original data
         }
+
+    def supports_answering_machine_detection(self) -> bool:
+        """Twilio supports AMD through the Voice Calls API."""
+        return True
+
+    def apply_answering_machine_detection_call_params(
+        self,
+        data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if self.amd_enabled:
+            data["MachineDetection"] = "Enable"
+        return data
+
+    def parse_answering_machine_detection_result(
+        self, data: Dict[str, Any]
+    ) -> Optional[AnsweringMachineDetectionResult]:
+        answered_by = data.get("AnsweredBy")
+        if not answered_by:
+            return None
+
+        return AnsweringMachineDetectionResult(
+            call_id=data.get("CallSid", ""),
+            answered_by=answered_by,
+            raw_data=data,
+        )
 
     async def handle_websocket(
         self,

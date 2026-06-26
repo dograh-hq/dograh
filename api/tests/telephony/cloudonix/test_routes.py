@@ -11,8 +11,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from starlette.requests import Request
 
+from api.enums import TelephonyCallStatus
+from api.services.telephony.providers.cloudonix.provider import CloudonixProvider
 from api.services.telephony.providers.cloudonix.routes import handle_cloudonix_cdr
-from api.services.telephony.status_processor import StatusCallbackRequest
 
 
 def _json_request(body: bytes) -> Request:
@@ -79,33 +80,33 @@ async def test_cdr_route_handles_string_session():
     assert result == {"status": "error", "message": "Missing call_id field"}
 
 
-def test_from_cloudonix_cdr_tolerates_missing_session_and_disposition():
-    """``from_cloudonix_cdr`` must not crash on a partial CDR payload."""
+def test_parse_cloudonix_cdr_tolerates_missing_session_and_disposition():
+    """Cloudonix CDR parsing must not crash on a partial payload."""
     # Missing both session and disposition.
-    req = StatusCallbackRequest.from_cloudonix_cdr({"domain": "acme.cloudonix.io"})
-    assert req.call_id == ""
-    assert req.status == ""
+    req = CloudonixProvider.parse_cdr_status_callback({"domain": "acme.cloudonix.io"})
+    assert req["call_id"] == ""
+    assert req["status"] == ""
 
     # Explicit null values.
-    req = StatusCallbackRequest.from_cloudonix_cdr(
+    req = CloudonixProvider.parse_cdr_status_callback(
         {"session": None, "disposition": None}
     )
-    assert req.call_id == ""
-    assert req.status == ""
+    assert req["call_id"] == ""
+    assert req["status"] == ""
 
 
-def test_from_cloudonix_cdr_tolerates_string_session():
-    """``from_cloudonix_cdr`` treats a non-object session as missing call_id."""
-    req = StatusCallbackRequest.from_cloudonix_cdr(
+def test_parse_cloudonix_cdr_tolerates_string_session():
+    """Cloudonix CDR parsing treats a non-object session as missing call_id."""
+    req = CloudonixProvider.parse_cdr_status_callback(
         {"session": "abc", "disposition": "ANSWER"}
     )
-    assert req.call_id == ""
-    assert req.status == "completed"
+    assert req["call_id"] == ""
+    assert req["status"] == TelephonyCallStatus.COMPLETED
 
 
-def test_from_cloudonix_cdr_maps_disposition_and_session_token():
+def test_parse_cloudonix_cdr_maps_disposition_and_session_token():
     """Normal, well-formed CDR payloads still map correctly."""
-    req = StatusCallbackRequest.from_cloudonix_cdr(
+    req = CloudonixProvider.parse_cdr_status_callback(
         {
             "session": {"token": "abc123"},
             "disposition": "BUSY",
@@ -114,6 +115,20 @@ def test_from_cloudonix_cdr_maps_disposition_and_session_token():
             "billsec": 12,
         }
     )
-    assert req.call_id == "abc123"
-    assert req.status == "busy"
-    assert req.duration == "12"
+    assert req["call_id"] == "abc123"
+    assert req["status"] == TelephonyCallStatus.BUSY
+    assert req["duration"] == "12"
+
+
+def test_parse_cloudonix_cdr_preserves_zero_billsec():
+    """A zero billed duration must not fall back to total call duration."""
+    req = CloudonixProvider.parse_cdr_status_callback(
+        {
+            "session": {"token": "abc123"},
+            "disposition": "ANSWER",
+            "billsec": 0,
+            "duration": 42,
+        }
+    )
+
+    assert req["duration"] == "0"

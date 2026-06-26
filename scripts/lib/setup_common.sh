@@ -252,9 +252,11 @@ dograh_sync_remote_env_file() {
     dograh_set_env_key "$env_file" SERVER_IP "$server_ip"
     dograh_set_env_key "$env_file" PUBLIC_HOST "$public_host"
     dograh_set_env_key "$env_file" PUBLIC_BASE_URL "$public_base_url"
-    dograh_set_env_key "$env_file" BACKEND_API_ENDPOINT "$public_base_url"
-    dograh_set_env_key "$env_file" MINIO_PUBLIC_ENDPOINT "$public_base_url"
-    dograh_set_env_key "$env_file" TURN_HOST "$public_host"
+
+    # BACKEND_API_ENDPOINT / MINIO_PUBLIC_ENDPOINT / TURN_HOST are derived in-app
+    # from PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py), so sync neither
+    # writes nor removes them: new installs simply omit them, and any value an
+    # operator set by hand is left untouched as an explicit override.
 }
 
 dograh_validate_remote_runtime_env() {
@@ -262,14 +264,12 @@ dograh_validate_remote_runtime_env() {
     [[ -n "${TURN_SECRET:-}" ]] || dograh_fail "TURN_SECRET is missing"
     [[ -n "${PUBLIC_HOST:-}" ]] || dograh_fail "PUBLIC_HOST is missing"
     [[ -n "${PUBLIC_BASE_URL:-}" ]] || dograh_fail "PUBLIC_BASE_URL is missing"
-    [[ -n "${BACKEND_API_ENDPOINT:-}" ]] || dograh_fail "BACKEND_API_ENDPOINT is missing"
-    [[ -n "${MINIO_PUBLIC_ENDPOINT:-}" ]] || dograh_fail "MINIO_PUBLIC_ENDPOINT is missing"
-    [[ -n "${TURN_HOST:-}" ]] || dograh_fail "TURN_HOST is missing"
     dograh_is_ipv4 "${SERVER_IP:-}" || dograh_fail "SERVER_IP must be a valid IPv4 address"
     [[ "${PUBLIC_BASE_URL}" =~ ^https?:// ]] || dograh_fail "PUBLIC_BASE_URL must include http:// or https://"
-    [[ "${BACKEND_API_ENDPOINT}" == "${PUBLIC_BASE_URL}" ]] || dograh_fail "BACKEND_API_ENDPOINT must match PUBLIC_BASE_URL"
-    [[ "${MINIO_PUBLIC_ENDPOINT}" == "${PUBLIC_BASE_URL}" ]] || dograh_fail "MINIO_PUBLIC_ENDPOINT must match PUBLIC_BASE_URL"
-    [[ "${TURN_HOST}" == "${PUBLIC_HOST}" ]] || dograh_fail "TURN_HOST must match PUBLIC_HOST"
+    # BACKEND_API_ENDPOINT / MINIO_PUBLIC_ENDPOINT / TURN_HOST are derived in-app
+    # from PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py), so they are not
+    # required here. When an operator sets them explicitly (split deployment),
+    # their value is honored as-is — no equality check.
 }
 
 dograh_uses_init_compose_layout() {

@@ -11,6 +11,9 @@ interface AppConfig {
     authProvider: string;
     turnEnabled: boolean;
     forceTurnRelay: boolean;
+    // Public URL when the deployment is reached through a Cloudflare tunnel
+    // (host has no public IP); null for a directly-reachable deployment.
+    tunnelUrl: string | null;
     backendStatus: BackendStatus;
     backendUrl: string;
     backendMessage: string | null;
@@ -29,6 +32,7 @@ const defaultConfig: AppConfig = {
     authProvider: 'local',
     turnEnabled: false,
     forceTurnRelay: false,
+    tunnelUrl: null,
     backendStatus: 'unreachable',
     backendUrl: process.env.NEXT_PUBLIC_BACKEND_URL || 'unknown',
     backendMessage: process.env.NEXT_PUBLIC_BACKEND_URL
@@ -64,6 +68,7 @@ export function AppConfigProvider({ children }: { children: ReactNode }) {
                 authProvider: data.authProvider || 'local',
                 turnEnabled: Boolean(data.turnEnabled),
                 forceTurnRelay: Boolean(data.forceTurnRelay),
+                tunnelUrl: typeof data.tunnelUrl === 'string' ? data.tunnelUrl : null,
                 backendStatus,
                 backendUrl,
                 backendMessage: typeof backend.message === 'string' && backend.message.length > 0

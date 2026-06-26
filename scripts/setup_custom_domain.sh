@@ -109,6 +109,13 @@ dograh_set_env_key .env SERVER_IP "$SERVER_IP"
 dograh_set_env_key .env PUBLIC_HOST "$DOMAIN_NAME"
 dograh_set_env_key .env PUBLIC_BASE_URL "https://$DOMAIN_NAME"
 dograh_delete_env_key .env BACKEND_URL
+# Switching domains is an explicit repoint of the whole deployment. Drop any
+# legacy per-subsystem endpoint keys an older install pinned to the previous host
+# so they re-derive from the new PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py).
+# No-op on current installs, which don't write these keys.
+dograh_delete_env_key .env BACKEND_API_ENDPOINT
+dograh_delete_env_key .env MINIO_PUBLIC_ENDPOINT
+dograh_delete_env_key .env TURN_HOST
 dograh_prepare_remote_install "$(pwd)"
 
 # Bring the stack up (recreating it) so dograh-init re-renders nginx with the

@@ -65,10 +65,20 @@ else
     COMPOSE_CMD=(sudo docker compose)
 fi
 
+# When SERVER_IP (sourced from .env above) is a private/reserved address the host
+# has no public IP, so start the cloudflared service (tunnel profile) to make
+# webhooks reachable. The backend resolves the tunnel's public URL at runtime using
+# the same private-IP classification (api/utils/common.py:is_local_or_private_url),
+# so the two stay in sync. A public-IP install runs nginx only.
+PROFILE_ARGS=(--profile remote)
+if dograh_is_local_ipv4 "${SERVER_IP:-}"; then
+    PROFILE_ARGS+=(--profile tunnel)
+fi
+
 if [[ "$MODE" == "build" ]]; then
-    CMD=("${COMPOSE_CMD[@]}" --profile remote up -d --build --force-recreate)
+    CMD=("${COMPOSE_CMD[@]}" "${PROFILE_ARGS[@]}" up -d --build --force-recreate)
 else
-    CMD=("${COMPOSE_CMD[@]}" --profile remote up -d --pull always --force-recreate)
+    CMD=("${COMPOSE_CMD[@]}" "${PROFILE_ARGS[@]}" up -d --pull always --force-recreate)
 fi
 
 # Bash 3.2 on macOS treats "${empty_array[@]}" as unbound under `set -u`.

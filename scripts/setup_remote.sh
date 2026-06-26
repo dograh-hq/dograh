@@ -324,19 +324,14 @@ ENVIRONMENT=production
 
 # Canonical public host/base URL for this install. SERVER_IP stays the raw IP
 # (coturn external-ip and validation need it); PUBLIC_HOST is the sslip.io
-# hostname when using a trusted cert, otherwise the IP.
+# hostname when using a trusted cert, otherwise the IP. BACKEND_API_ENDPOINT,
+# MINIO_PUBLIC_ENDPOINT and TURN_HOST are derived from these by the API
+# (see api/constants.py) — set them here only to override for a split deployment.
 SERVER_IP=$SERVER_IP
 PUBLIC_HOST=$PUBLIC_HOST_VALUE
 PUBLIC_BASE_URL=https://$PUBLIC_HOST_VALUE
 
-# Backend API endpoint (public URL the backend uses to build webhook/embed links)
-BACKEND_API_ENDPOINT=https://$PUBLIC_HOST_VALUE
-
-# Public URL browsers use to fetch objects from MinIO (proxied by nginx)
-MINIO_PUBLIC_ENDPOINT=https://$PUBLIC_HOST_VALUE
-
 # TURN Server Configuration (time-limited credentials via TURN REST API)
-TURN_HOST=$PUBLIC_HOST_VALUE
 TURN_SECRET=$TURN_SECRET
 # Relay-only ICE candidates for explicit TURN diagnostics
 FORCE_TURN_RELAY=$FORCE_TURN_RELAY

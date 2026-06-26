@@ -606,3 +606,34 @@ class TestRunDefinitionBinding:
         )
 
         assert run.definition_id == draft.id
+
+    async def test_run_initial_context_merges_with_template_context(
+        self, db_session, workflow_with_v1
+    ):
+        """Explicit run context should augment template context, not replace it."""
+        workflow, user = workflow_with_v1
+        await db_session.save_workflow_draft(
+            workflow_id=workflow.id,
+            template_context_variables={
+                "company_name": "Acme",
+                "default_only": "kept",
+            },
+        )
+        await db_session.publish_workflow_draft(workflow.id)
+
+        run = await db_session.create_workflow_run(
+            name="Embed Run",
+            workflow_id=workflow.id,
+            mode="smallwebrtc",
+            user_id=user.id,
+            initial_context={
+                "company_name": "Override Co",
+                "provider": "smallwebrtc",
+            },
+        )
+
+        assert run.initial_context == {
+            "company_name": "Override Co",
+            "default_only": "kept",
+            "provider": "smallwebrtc",
+        }

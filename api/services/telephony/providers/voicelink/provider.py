@@ -469,10 +469,21 @@ class VoiceLinkProvider(TelephonyProvider):
     def can_handle_webhook(
         cls, webhook_data: Dict[str, Any], headers: Dict[str, str]
     ) -> bool:
-        """VoiceLink call events arrive on the dedicated per-run events route
-        (passed as ``webhook_url`` in add_lead), never on the generic inbound
-        dispatcher."""
-        return False
+        """Detect a VoiceLink *inbound* call webhook on the generic dispatcher.
+
+        VoiceLink posts nested JSON ``{"event": ..., "call": {...}}``. We only
+        claim the webhook when it is an inbound-direction call event, so the
+        per-run *outbound* event webhooks (which target
+        ``/voicelink/events/{run_id}``) are never accidentally matched here.
+        """
+        call = webhook_data.get("call")
+        if not isinstance(call, dict):
+            return False
+        if str(call.get("direction", "")).lower() != "inbound":
+            return False
+        # Require the VoiceLink-shaped envelope so we don't shadow other
+        # providers' form posts.
+        return "event" in webhook_data or "id" in call
 
     @staticmethod
     def parse_inbound_webhook(webhook_data: Dict[str, Any]) -> NormalizedInboundData:
@@ -501,7 +512,7 @@ class VoiceLinkProvider(TelephonyProvider):
             ).canonical
             if to_raw
             else "",
-            direction=call.get("direction", ""),
+            direction="inbound",
             call_status=call.get("status", ""),
             account_id=None,
             from_country=country,
@@ -511,8 +522,9 @@ class VoiceLinkProvider(TelephonyProvider):
 
     @staticmethod
     def validate_account_id(config_data: dict, webhook_account_id: str) -> bool:
-        """VoiceLink events carry no account id."""
-        return False
+        """VoiceLink inbound webhooks carry no account id; the DID match is the
+        authorization boundary."""
+        return True
 
     async def verify_inbound_signature(
         self,
@@ -532,10 +544,36 @@ class VoiceLinkProvider(TelephonyProvider):
         normalized_data,
         backend_endpoint: str,
     ):
-        """Inbound calls via VoiceLink are not supported."""
-        raise NotImplementedError(
-            "VoiceLink provider does not support inbound call streaming"
+        """Answer a VoiceLink inbound call by returning the media WebSocket URL.
+
+        VoiceLink has no markup language. For inbound it expects a JSON body
+        telling it where to stream media (mirroring how add_lead carries
+        ``websocket_url`` inline for outbound). We also hand it the per-run
+        events URL so call-lifecycle events land on the same
+        ``/voicelink/events`` route used for outbound.
+
+        NOTE: the exact response keys VoiceLink expects for an inbound answer
+        are unconfirmed upstream — this mirrors add_lead's field names and is
+        the best-available reference. Adjust after capturing a real inbound
+        call (see provider docstring / deploy notes).
+        """
+        from fastapi import Response
+
+        events_url = (
+            f"{backend_endpoint}/api/v1/telephony/voicelink/events/{workflow_run_id}"
         )
+        body = {
+            "status": "ok",
+            "action": "stream",
+            "websocket_url": websocket_url,
+            "webhook_url": events_url,
+            "media_format": {"encoding": "audio/alaw", "sample_rate": 8000},
+        }
+        logger.info(
+            f"[run {workflow_run_id}] VoiceLink inbound answer: "
+            f"websocket_url={websocket_url} webhook_url={events_url}"
+        )
+        return Response(content=json.dumps(body), media_type="application/json")
 
     @staticmethod
     def generate_error_response(error_type: str, message: str) -> tuple:

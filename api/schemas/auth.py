@@ -5,6 +5,9 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str
     name: str | None = None
+    # Cloudflare Turnstile token (cf-turnstile-response). Required only when
+    # TURNSTILE_SECRET_KEY is configured on the server.
+    turnstile_token: str | None = None
 
     @field_validator("password")
     @classmethod
@@ -17,6 +20,7 @@ class SignupRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    turnstile_token: str | None = None
 
 
 class UserResponse(BaseModel):

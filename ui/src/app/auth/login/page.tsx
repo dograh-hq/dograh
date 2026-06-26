@@ -5,7 +5,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { loginApiV1AuthLoginPost } from "@/client/sdk.gen";
+import type { LoginRequest } from "@/client/types.gen";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { Turnstile } from "@/components/Turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,15 +16,27 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await loginApiV1AuthLoginPost({ body: { email, password } });
+      const res = await loginApiV1AuthLoginPost({
+        body: {
+          email,
+          password,
+          turnstile_token: turnstileToken,
+        } as LoginRequest,
+      });
       if (res.error || !res.data) {
         const detail = (res.error as { detail?: string })?.detail;
-        toast.error(detail || "Login failed");
+        if (detail?.includes("captcha")) {
+          toast.error("Please complete the verification and try again.");
+          setTurnstileToken(null);
+        } else {
+          toast.error(detail || "Login failed");
+        }
         return;
       }
       await fetch("/api/auth/session", {
@@ -104,6 +118,7 @@ export default function LoginPage() {
                 required
               />
             </div>
+            <Turnstile onVerify={setTurnstileToken} />
             <Button type="submit" variant="brand" className="w-full" disabled={loading}>
               {loading ? "Signing in..." : "Sign in"}
             </Button>

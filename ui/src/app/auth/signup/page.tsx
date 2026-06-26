@@ -5,7 +5,9 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { signupApiV1AuthSignupPost } from "@/client/sdk.gen";
+import type { SignupRequest } from "@/client/types.gen";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
+import { Turnstile } from "@/components/Turnstile";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +18,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,12 +37,17 @@ export default function SignupPage() {
 
     try {
       const res = await signupApiV1AuthSignupPost({
-        body: { email, password },
+        body: { email, password, turnstile_token: turnstileToken } as SignupRequest,
       });
 
       if (res.error || !res.data) {
         const detail = (res.error as { detail?: string })?.detail;
-        toast.error(detail || "Signup failed");
+        if (detail?.includes("captcha")) {
+          toast.error("Please complete the verification and try again.");
+          setTurnstileToken(null);
+        } else {
+          toast.error(detail || "Signup failed");
+        }
         return;
       }
 
@@ -102,6 +110,7 @@ export default function SignupPage() {
                 minLength={8}
               />
             </div>
+            <Turnstile onVerify={setTurnstileToken} />
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? "Creating account..." : "Create account"}
             </Button>

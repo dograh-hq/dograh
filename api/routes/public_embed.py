@@ -165,7 +165,10 @@ async def initialize_embed_session(request: Request, init_request: InitEmbedRequ
             workflow_id=embed_token.workflow_id,
             mode=WorkflowRunMode.SMALLWEBRTC.value,
             user_id=embed_token.created_by,  # Use token creator as run owner
-            initial_context=init_request.context_variables,
+            initial_context={
+                **(init_request.context_variables or {}),
+                "provider": WorkflowRunMode.SMALLWEBRTC.value,
+            },
         )
     except Exception as e:
         logger.error(f"Failed to create workflow run: {e}")

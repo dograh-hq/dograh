@@ -401,6 +401,59 @@ dograh_preflight_remote_init_render() {
     rm -rf "$tmp_root"
 }
 
+# Reconcile the running Postgres role password with POSTGRES_PASSWORD in .env.
+#
+# POSTGRES_PASSWORD only takes effect when the postgres data volume is first
+# initialized. If the volume was created before .env had a generated password
+# (e.g. an early start used the compose fallback `:-postgres`), or the password
+# was later rotated, the role keeps its old password while the API connects with
+# the .env value over TCP (pg_hba `scram-sha-256`) and dies with "password
+# authentication failed for user postgres". start_docker.sh handles this for the
+# OSS quickstart; the remote path (remote_up.sh) needs the same reconciliation.
+#
+# Bring postgres up on its own, then ALTER the role over the trusted local
+# socket (pg_hba trusts `local`, so this works even when the password is
+# currently mismatched). Idempotent: on a fresh volume it just re-sets the same
+# value. Survives the later `--force-recreate` because the password lives in the
+# data volume, not the container.
+dograh_sync_postgres_password() {
+    local project_dir=$1
+    shift
+    local compose=("$@")
+    local env_file="$project_dir/.env"
+    local password=""
+    local ready=""
+    local i
+
+    [[ ${#compose[@]} -gt 0 ]] || compose=(docker compose)
+
+    if [[ -f "$env_file" ]]; then
+        password="$(awk -F= '/^POSTGRES_PASSWORD=/{sub(/^POSTGRES_PASSWORD=/, ""); print; exit}' "$env_file")"
+    fi
+
+    # No explicit password: the compose fallback (`:-postgres`) governs both the
+    # DB init and the API's DATABASE_URL, so the two already agree — nothing to do.
+    [[ -n "$password" ]] || return 0
+
+    dograh_info "Syncing Postgres password from .env..."
+    ( cd "$project_dir" && "${compose[@]}" up -d postgres ) >/dev/null
+
+    for ((i = 0; i < 30; i++)); do
+        if ( cd "$project_dir" && "${compose[@]}" exec -T postgres pg_isready -U postgres ) >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
+        sleep 1
+    done
+    [[ -n "$ready" ]] || dograh_fail "Postgres did not become ready while syncing POSTGRES_PASSWORD."
+
+    printf '%s\n' "ALTER USER postgres WITH PASSWORD :'pw';" \
+        | ( cd "$project_dir" && "${compose[@]}" exec -T postgres \
+              psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v "pw=$password" ) >/dev/null \
+        || dograh_fail "Failed to sync Postgres password from .env."
+    dograh_success "✓ Postgres password synced with .env"
+}
+
 dograh_prepare_remote_install() {
     local project_dir=${1:-$(dograh_project_dir)}
     local env_file="$project_dir/.env"

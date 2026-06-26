@@ -65,6 +65,11 @@ else
     COMPOSE_CMD=(sudo docker compose)
 fi
 
+# Reconcile the Postgres role password with .env before starting the API.
+# POSTGRES_PASSWORD only applies on first volume init, so an existing volume can
+# hold a stale password the API would fail to authenticate against. Idempotent.
+dograh_sync_postgres_password "$SCRIPT_DIR" "${COMPOSE_CMD[@]}"
+
 # When SERVER_IP (sourced from .env above) is a private/reserved address the host
 # has no public IP, so start the cloudflared service (tunnel profile) to make
 # webhooks reachable. The backend resolves the tunnel's public URL at runtime using

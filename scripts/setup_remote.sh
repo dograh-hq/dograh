@@ -35,9 +35,9 @@ echo "║      Automated HTTPS deployment with TURN server             ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
-# Get the public IP address (skip prompt if SERVER_IP is already set)
+# Get the server IP address (skip prompt if SERVER_IP is already set)
 if [[ -z "${SERVER_IP:-}" ]]; then
-    echo -e "${YELLOW}Enter your server's public IP address:${NC}"
+    echo -e "${YELLOW}Enter your server's IP address:${NC}"
     read -p "> " SERVER_IP
 fi
 
@@ -62,9 +62,9 @@ LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
 if [[ "$CERT_MODE" == "auto" ]]; then
     if dograh_is_local_ipv4 "$SERVER_IP"; then
         CERT_MODE="self-signed"
-        dograh_warn "SERVER_IP $SERVER_IP is a private/reserved address — Let's Encrypt cannot validate it."
-        dograh_warn "Falling back to a self-signed certificate. For a trusted cert deploy on a public IP,"
-        dograh_warn "or use a domain you own (https://docs.dograh.com/deployment/custom-domain)."
+        dograh_warn "$SERVER_IP is a private IP — using a self-signed certificate."
+        dograh_warn "For a trusted cert, deploy on a public IP or a domain you own"
+        dograh_warn "(https://docs.dograh.com/deployment/custom-domain)."
     elif [[ $EUID -ne 0 ]]; then
         CERT_MODE="self-signed"
         dograh_warn "Not running as root — skipping automatic Let's Encrypt setup."

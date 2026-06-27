@@ -200,10 +200,9 @@ fi
 
 echo ""
 echo "Docker registry: $REGISTRY"
-echo "Telemetry enabled: $ENABLE_TELEMETRY"
 echo ""
 echo "This will run:"
-echo "  REGISTRY=$REGISTRY ENABLE_TELEMETRY=$ENABLE_TELEMETRY docker compose up --pull always"
+echo "  REGISTRY=$REGISTRY ENABLE_TELEMETRY=$ENABLE_TELEMETRY docker compose --profile tunnel up --pull always"
 echo ""
 
 if [[ ! -t 0 ]]; then
@@ -222,4 +221,4 @@ esac
 postgres_password="$(dotenv_value POSTGRES_PASSWORD || true)"
 sync_postgres_password "$postgres_password"
 
-REGISTRY="$REGISTRY" ENABLE_TELEMETRY="$ENABLE_TELEMETRY" docker compose up --pull always
+REGISTRY="$REGISTRY" ENABLE_TELEMETRY="$ENABLE_TELEMETRY" docker compose --profile tunnel up --pull always

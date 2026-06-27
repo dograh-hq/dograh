@@ -6,22 +6,41 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { useAppConfig } from "@/context/AppConfigContext";
+import { resolveBrowserBackendUrl } from "@/lib/apiClient";
+
+const MCP_PATH = "/api/v1/mcp/";
 
 export function MCPSection() {
-  const backendUrl =
-    process.env.NEXT_PUBLIC_BACKEND_URL ||
-    (typeof window !== "undefined" ? window.location.origin : "");
-  const endpoint = `${backendUrl}/api/v1/mcp/`;
+  const { config } = useAppConfig();
+  // Backend URL: the address the deployment runs on (a private IP when the backend
+  // sits on one). Tunnel URL, when present: the publicly reachable Cloudflare tunnel
+  // URL externally-hosted assistants should use to reach an otherwise-private host.
+  const backendUrl = resolveBrowserBackendUrl(config?.backendApiEndpoint);
+  const tunnelUrl = config?.tunnelUrl ?? null;
 
-  const [endpointCopied, setEndpointCopied] = useState(false);
+  const endpoints = [
+    ...(tunnelUrl
+      ? [
+          {
+            key: "tunnel",
+            label: "Public URL (Cloudflare tunnel)",
+            url: `${tunnelUrl}${MCP_PATH}`,
+          },
+        ]
+      : []),
+    { key: "backend", label: "Backend URL", url: `${backendUrl}${MCP_PATH}` },
+  ];
 
-  const handleCopy = async (
-    value: string,
-    setter: (v: boolean) => void,
-  ) => {
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  const handleCopy = async (value: string, key: string) => {
     await navigator.clipboard.writeText(value);
-    setter(true);
-    setTimeout(() => setter(false), 2000);
+    setCopiedKey(key);
+    setTimeout(
+      () => setCopiedKey((current) => (current === key ? null : current)),
+      2000,
+    );
   };
 
   return (
@@ -39,23 +58,40 @@ export function MCPSection() {
             Get your API key
           </Link>
         </p>
-        <div className="flex items-center gap-2">
-          <code className="text-xs break-all bg-muted px-2 py-1 rounded flex-1">
-            {endpoint}
-          </code>
-          <Button
-            variant="outline"
-            size="icon"
-            className="shrink-0"
-            onClick={() => handleCopy(endpoint, setEndpointCopied)}
-          >
-            {endpointCopied ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Copy className="h-4 w-4" />
-            )}
-          </Button>
+        <div className="grid gap-3">
+          {endpoints.map(({ key, label, url }) => (
+            <div key={key} className="grid gap-1">
+              {endpoints.length > 1 && (
+                <span className="text-xs font-medium text-muted-foreground">
+                  {label}
+                </span>
+              )}
+              <div className="flex items-center gap-2">
+                <code className="text-xs break-all bg-muted px-2 py-1 rounded flex-1">
+                  {url}
+                </code>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0"
+                  onClick={() => handleCopy(url, key)}
+                >
+                  {copiedKey === key ? (
+                    <Check className="h-4 w-4" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
+        {tunnelUrl && (
+          <p className="text-xs text-muted-foreground">
+            Use the public URL from externally-hosted assistants; the backend URL
+            works from the deployment&apos;s own network.
+          </p>
+        )}
       </div>
 
       <p className="text-xs text-muted-foreground">

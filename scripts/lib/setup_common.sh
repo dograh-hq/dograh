@@ -252,9 +252,11 @@ dograh_sync_remote_env_file() {
     dograh_set_env_key "$env_file" SERVER_IP "$server_ip"
     dograh_set_env_key "$env_file" PUBLIC_HOST "$public_host"
     dograh_set_env_key "$env_file" PUBLIC_BASE_URL "$public_base_url"
-    dograh_set_env_key "$env_file" BACKEND_API_ENDPOINT "$public_base_url"
-    dograh_set_env_key "$env_file" MINIO_PUBLIC_ENDPOINT "$public_base_url"
-    dograh_set_env_key "$env_file" TURN_HOST "$public_host"
+
+    # BACKEND_API_ENDPOINT / MINIO_PUBLIC_ENDPOINT / TURN_HOST are derived in-app
+    # from PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py), so sync neither
+    # writes nor removes them: new installs simply omit them, and any value an
+    # operator set by hand is left untouched as an explicit override.
 }
 
 dograh_validate_remote_runtime_env() {
@@ -262,14 +264,12 @@ dograh_validate_remote_runtime_env() {
     [[ -n "${TURN_SECRET:-}" ]] || dograh_fail "TURN_SECRET is missing"
     [[ -n "${PUBLIC_HOST:-}" ]] || dograh_fail "PUBLIC_HOST is missing"
     [[ -n "${PUBLIC_BASE_URL:-}" ]] || dograh_fail "PUBLIC_BASE_URL is missing"
-    [[ -n "${BACKEND_API_ENDPOINT:-}" ]] || dograh_fail "BACKEND_API_ENDPOINT is missing"
-    [[ -n "${MINIO_PUBLIC_ENDPOINT:-}" ]] || dograh_fail "MINIO_PUBLIC_ENDPOINT is missing"
-    [[ -n "${TURN_HOST:-}" ]] || dograh_fail "TURN_HOST is missing"
     dograh_is_ipv4 "${SERVER_IP:-}" || dograh_fail "SERVER_IP must be a valid IPv4 address"
     [[ "${PUBLIC_BASE_URL}" =~ ^https?:// ]] || dograh_fail "PUBLIC_BASE_URL must include http:// or https://"
-    [[ "${BACKEND_API_ENDPOINT}" == "${PUBLIC_BASE_URL}" ]] || dograh_fail "BACKEND_API_ENDPOINT must match PUBLIC_BASE_URL"
-    [[ "${MINIO_PUBLIC_ENDPOINT}" == "${PUBLIC_BASE_URL}" ]] || dograh_fail "MINIO_PUBLIC_ENDPOINT must match PUBLIC_BASE_URL"
-    [[ "${TURN_HOST}" == "${PUBLIC_HOST}" ]] || dograh_fail "TURN_HOST must match PUBLIC_HOST"
+    # BACKEND_API_ENDPOINT / MINIO_PUBLIC_ENDPOINT / TURN_HOST are derived in-app
+    # from PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py), so they are not
+    # required here. When an operator sets them explicitly (split deployment),
+    # their value is honored as-is — no equality check.
 }
 
 dograh_uses_init_compose_layout() {
@@ -401,6 +401,59 @@ dograh_preflight_remote_init_render() {
     rm -rf "$tmp_root"
 }
 
+# Reconcile the running Postgres role password with POSTGRES_PASSWORD in .env.
+#
+# POSTGRES_PASSWORD only takes effect when the postgres data volume is first
+# initialized. If the volume was created before .env had a generated password
+# (e.g. an early start used the compose fallback `:-postgres`), or the password
+# was later rotated, the role keeps its old password while the API connects with
+# the .env value over TCP (pg_hba `scram-sha-256`) and dies with "password
+# authentication failed for user postgres". start_docker.sh handles this for the
+# OSS quickstart; the remote path (remote_up.sh) needs the same reconciliation.
+#
+# Bring postgres up on its own, then ALTER the role over the trusted local
+# socket (pg_hba trusts `local`, so this works even when the password is
+# currently mismatched). Idempotent: on a fresh volume it just re-sets the same
+# value. Survives the later `--force-recreate` because the password lives in the
+# data volume, not the container.
+dograh_sync_postgres_password() {
+    local project_dir=$1
+    shift
+    local compose=("$@")
+    local env_file="$project_dir/.env"
+    local password=""
+    local ready=""
+    local i
+
+    [[ ${#compose[@]} -gt 0 ]] || compose=(docker compose)
+
+    if [[ -f "$env_file" ]]; then
+        password="$(awk -F= '/^POSTGRES_PASSWORD=/{sub(/^POSTGRES_PASSWORD=/, ""); print; exit}' "$env_file")"
+    fi
+
+    # No explicit password: the compose fallback (`:-postgres`) governs both the
+    # DB init and the API's DATABASE_URL, so the two already agree — nothing to do.
+    [[ -n "$password" ]] || return 0
+
+    dograh_info "Syncing Postgres password from .env..."
+    ( cd "$project_dir" && "${compose[@]}" up -d postgres ) >/dev/null
+
+    for ((i = 0; i < 30; i++)); do
+        if ( cd "$project_dir" && "${compose[@]}" exec -T postgres pg_isready -U postgres ) >/dev/null 2>&1; then
+            ready=1
+            break
+        fi
+        sleep 1
+    done
+    [[ -n "$ready" ]] || dograh_fail "Postgres did not become ready while syncing POSTGRES_PASSWORD."
+
+    printf '%s\n' "ALTER USER postgres WITH PASSWORD :'pw';" \
+        | ( cd "$project_dir" && "${compose[@]}" exec -T postgres \
+              psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v "pw=$password" ) >/dev/null \
+        || dograh_fail "Failed to sync Postgres password from .env."
+    dograh_success "✓ Postgres password synced with .env"
+}
+
 dograh_prepare_remote_install() {
     local project_dir=${1:-$(dograh_project_dir)}
     local env_file="$project_dir/.env"
@@ -408,6 +461,101 @@ dograh_prepare_remote_install() {
     dograh_sync_remote_env_file "$env_file"
     dograh_require_init_compose_layout "$project_dir"
     dograh_preflight_remote_init_render "$project_dir"
+}
+
+# ---------------------------------------------------------------------------
+# TLS certificate helpers (self-signed bootstrap + Let's Encrypt via webroot)
+# ---------------------------------------------------------------------------
+
+# Map an IPv4 address to a public sslip.io / nip.io hostname, e.g.
+# 203.0.113.10 -> 203-0-113-10.sslip.io. The hostname resolves back to the
+# embedded IP from any public resolver, so Let's Encrypt can validate it over
+# the HTTP-01 challenge without the operator owning a domain. Public IPs only:
+# Let's Encrypt refuses to validate private/reserved addresses.
+dograh_sslip_host_from_ip() {
+    local ip=$1
+    local suffix=${2:-sslip.io}
+
+    dograh_is_ipv4 "$ip" || dograh_fail "dograh_sslip_host_from_ip: '$ip' is not an IPv4 address"
+    printf '%s.%s\n' "${ip//./-}" "$suffix"
+}
+
+# Install certbot via the host package manager if it is not already present.
+# Returns non-zero (instead of exiting) when no supported package manager is
+# found or the install fails, so callers can fall back to a self-signed cert.
+dograh_install_certbot() {
+    if command -v certbot >/dev/null 2>&1; then
+        return 0
+    fi
+
+    dograh_info "Installing Certbot..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y -qq certbot
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y -q certbot
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q certbot
+    else
+        dograh_warn "Could not detect a package manager (apt/dnf/yum) to install certbot."
+        return 1
+    fi
+}
+
+# Obtain (or renew) a Let's Encrypt certificate for $host using the webroot
+# challenge served by the running nginx container out of <project>/certs, then
+# copy the issued cert to certs/local.{crt,key} (the files nginx reads). This
+# needs nginx already running and serving /.well-known/acme-challenge/ on :80.
+# Returns non-zero on failure so callers can keep the self-signed cert.
+dograh_issue_letsencrypt_webroot() {
+    local project_dir=$1
+    local host=$2
+    local email=${3:-}
+    local webroot="$project_dir/certs"
+    local live_dir="/etc/letsencrypt/live/$host"
+    local -a email_args
+
+    if [[ -n "$email" ]]; then
+        email_args=(--email "$email")
+    else
+        email_args=(--register-unsafely-without-email)
+    fi
+
+    mkdir -p "$webroot/.well-known/acme-challenge"
+
+    certbot certonly --webroot -w "$webroot" \
+        --non-interactive --agree-tos --keep-until-expiring \
+        "${email_args[@]}" \
+        -d "$host" || return 1
+
+    [[ -f "$live_dir/fullchain.pem" && -f "$live_dir/privkey.pem" ]] || return 1
+
+    cp "$live_dir/fullchain.pem" "$webroot/local.crt"
+    cp "$live_dir/privkey.pem" "$webroot/local.key"
+    chmod 644 "$webroot/local.crt" "$webroot/local.key"
+}
+
+# Install a certbot deploy hook so renewed certificates are copied into
+# <project>/certs and nginx is restarted to load them. Renewal itself is driven
+# by certbot's packaged systemd timer / cron; webroot renewals need no downtime
+# because the running nginx serves the challenge.
+dograh_install_cert_renewal_hook() {
+    local project_dir=$1
+    local host=$2
+    local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
+    local hook_path="$hook_dir/dograh-reload.sh"
+
+    mkdir -p "$hook_dir"
+
+    cat > "$hook_path" << HOOK_EOF
+#!/bin/bash
+cp /etc/letsencrypt/live/$host/fullchain.pem $project_dir/certs/local.crt
+cp /etc/letsencrypt/live/$host/privkey.pem $project_dir/certs/local.key
+chmod 644 $project_dir/certs/local.crt $project_dir/certs/local.key
+
+cd $project_dir
+docker compose --profile remote restart nginx 2>/dev/null || true
+HOOK_EOF
+    chmod +x "$hook_path"
 }
 
 dograh_download_bundle_file_for_ref() {

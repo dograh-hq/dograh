@@ -3,6 +3,7 @@ Common utilities.
 Shared functions used across the application.
 """
 
+import ipaddress
 import re
 
 from loguru import logger
@@ -20,6 +21,43 @@ def get_scheme(url: str) -> str | None:
     if idx == -1:
         return None
     return url[:idx]
+
+
+def is_local_or_private_url(url: str) -> bool:
+    """True when the URL's host is localhost or a private/reserved/loopback IP.
+
+    Such an address is not reachable from the public internet, so external callers
+    (telephony webhooks/callbacks) can't reach it directly — the backend resolves a
+    Cloudflare tunnel URL at runtime instead. A public IP or a hostname/domain
+    returns False (assumed publicly reachable).
+    """
+    host = url
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/", 1)[0]
+    # Strip a :port suffix (skip bare IPv6, which contains multiple colons).
+    if host.count(":") == 1:
+        host = host.rsplit(":", 1)[0]
+
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False  # hostname / domain -> assume publicly reachable
+    if (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_unspecified
+    ):
+        return True
+    # Carrier-grade NAT (RFC 6598) — behind NAT, not publicly reachable. Kept in
+    # sync with scripts/lib/setup_common.sh:dograh_is_local_ipv4.
+    return isinstance(ip, ipaddress.IPv4Address) and ip in ipaddress.ip_network(
+        "100.64.0.0/10"
+    )
 
 
 def _validate_url(url: str) -> None:
@@ -119,10 +157,11 @@ async def get_backend_endpoints() -> tuple[str, str]:
         _validate_url(BACKEND_API_ENDPOINT)
 
     if BACKEND_API_ENDPOINT:
-        # Handle localhost/127.0.0.1 special case - use tunnel URL if available
-        if "localhost" in BACKEND_API_ENDPOINT or "127.0.0.1" in BACKEND_API_ENDPOINT:
+        # Non-public address (localhost or a private/reserved IP) - the host isn't
+        # reachable from the internet, so prefer a running Cloudflare tunnel's URL.
+        if is_local_or_private_url(BACKEND_API_ENDPOINT):
             logger.debug(
-                f"BACKEND_API_ENDPOINT is local ({BACKEND_API_ENDPOINT}), checking tunnel URL"
+                f"BACKEND_API_ENDPOINT is not publicly reachable ({BACKEND_API_ENDPOINT}), checking tunnel URL"
             )
             try:
                 tunnel_urls = await TunnelURLProvider.get_tunnel_urls()

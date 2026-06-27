@@ -125,3 +125,22 @@ async def health() -> HealthResponse:
             STACK_PUBLISHABLE_CLIENT_KEY if is_stack else None
         ),
     )
+
+
+class ActiveCallsResponse(BaseModel):
+    active_calls: int
+
+
+@router.get("/health/active-calls", response_model=ActiveCallsResponse)
+async def active_calls() -> ActiveCallsResponse:
+    """In-flight call count for THIS worker — the drain signal for deploys.
+
+    A deploy orchestrator polls this per worker and waits for zero before
+    sending SIGTERM, because uvicorn force-closes live call WebSockets (close
+    code 1012) on SIGTERM and would cut calls mid-conversation otherwise. The
+    count is per-process: one uvicorn per VM port (scripts/rolling_update.sh)
+    or per Kubernetes pod (preStop hook). See api/services/pipecat/active_calls.py.
+    """
+    from api.services.pipecat.active_calls import active_call_count
+
+    return ActiveCallsResponse(active_calls=active_call_count())

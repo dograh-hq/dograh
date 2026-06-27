@@ -11,6 +11,10 @@ from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
 )
+from api.services.pipecat.active_calls import (
+    register_active_call,
+    unregister_active_call,
+)
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
@@ -870,6 +874,12 @@ async def _run_pipeline(
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
 
+    # Mark this run active so a deploy can drain it before stopping this worker:
+    # the orchestrator polls GET /api/v1/health/active-calls and waits for zero
+    # before sending SIGTERM (uvicorn force-closes live call WebSockets on
+    # SIGTERM, so the wait has to come first). See api/services/pipecat/
+    # active_calls.py and scripts/rolling_update.sh.
+    register_active_call(workflow_run_id)
     try:
         # Run the pipeline
         await run_pipeline_worker(task)
@@ -877,6 +887,7 @@ async def _run_pipeline(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        unregister_active_call(workflow_run_id)
         # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),

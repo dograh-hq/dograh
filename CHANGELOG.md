@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.39.0 (2026-06-27)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(scripts): free trusted HTTPS via sslip.io for public-IP remote i… by @a6kme in https://github.com/dograh-hq/dograh/pull/460
+### Bug Fixes
+* fix: reject misrouted smallwebrtc runs on the telephony websocket by @mvanhorn in https://github.com/dograh-hq/dograh/pull/468
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.38.0...dograh-v1.39.0
+
 ## 1.38.0 (2026-06-25)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

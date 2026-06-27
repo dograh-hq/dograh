@@ -35,6 +35,14 @@ echo "║      Automated HTTPS deployment with TURN server             ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
+# This setup must run as root: it provisions Docker, binds privileged ports
+# 80/443, and (for public IPs) installs a Let's Encrypt certificate plus a
+# system renewal hook under /etc/letsencrypt — all of which require root. Stop
+# early with clear guidance rather than getting halfway and degrading the install.
+if [[ $EUID -ne 0 ]]; then
+    dograh_fail "setup_remote.sh must be run as root.\nRe-run with sudo:\n  sudo ./setup_remote.sh"
+fi
+
 # Get the server IP address (skip prompt if SERVER_IP is already set)
 if [[ -z "${SERVER_IP:-}" ]]; then
     echo -e "${YELLOW}Enter your server's IP address:${NC}"
@@ -65,10 +73,6 @@ if [[ "$CERT_MODE" == "auto" ]]; then
         dograh_warn "$SERVER_IP is a private IP — using a self-signed certificate."
         dograh_warn "For a trusted cert, deploy on a public IP or a domain you own"
         dograh_warn "(https://docs.dograh.com/deployment/custom-domain)."
-    elif [[ $EUID -ne 0 ]]; then
-        CERT_MODE="self-signed"
-        dograh_warn "Not running as root — skipping automatic Let's Encrypt setup."
-        dograh_warn "Re-run with sudo (sudo ./setup_remote.sh) for a free trusted certificate via sslip.io."
     elif ! command -v docker >/dev/null 2>&1; then
         CERT_MODE="self-signed"
         dograh_warn "Docker not found — skipping automatic Let's Encrypt setup and using a self-signed cert."
@@ -83,7 +87,6 @@ case "$CERT_MODE" in
         if dograh_is_local_ipv4 "$SERVER_IP"; then
             dograh_fail "CERT_MODE=sslip needs a public IP; $SERVER_IP is private/reserved."
         fi
-        [[ $EUID -eq 0 ]] || dograh_fail "CERT_MODE=sslip needs root for certbot. Re-run with sudo."
         command -v docker >/dev/null 2>&1 || dograh_fail "CERT_MODE=sslip needs Docker to serve the ACME challenge."
         ;;
     letsencrypt-dns|cloudflare-tunnel|external)

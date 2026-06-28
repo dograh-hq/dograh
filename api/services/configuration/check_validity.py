@@ -378,7 +378,33 @@ class UserConfigurationValidator:
         return True
 
     def _check_xai_api_key(self, model: str, api_key: str) -> bool:
-        return True
+        # xAI exposes an OpenAI-compatible API, so validate the key by listing
+        # models against https://api.x.ai/v1 (mirrors _check_openai_api_key).
+        client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+        try:
+            client.models.list()
+            return True
+        except openai.AuthenticationError:
+            raise ValueError(
+                "Invalid xAI API key. The key was rejected by the xAI API. "
+                "Please check that your API key is correct, active, and has the "
+                "required permissions. You can verify your keys at "
+                "https://console.x.ai."
+            )
+        except openai.APIConnectionError:
+            raise ValueError(
+                "Could not connect to the xAI API. Please check your network "
+                "connection and try again."
+            )
+        except openai.APIError:
+            raise ValueError(
+                "The xAI API returned an error while validating the API key. "
+                "Please try again later."
+            )
+        except Exception:
+            raise ValueError(
+                "Failed to validate the xAI API key. Please try again later."
+            )
 
     def _check_ultravox_realtime_api_key(self, model: str, api_key: str) -> bool:
         return True

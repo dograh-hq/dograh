@@ -1,8 +1,10 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
 from pipecat.transcriptions.language import Language
 
+from api.services.configuration.check_validity import UserConfigurationValidator
 from api.services.configuration.registry import (
     XAI_TTS_VOICES,
     ServiceProviders,
@@ -89,3 +91,30 @@ def test_create_xai_tts_service_falls_back_to_english_for_unknown_language():
 
     kwargs = mock_service.call_args.kwargs
     assert kwargs["settings"].language == Language.EN
+
+
+def test_xai_is_registered_for_key_validation():
+    validator = UserConfigurationValidator()
+    assert ServiceProviders.XAI.value in validator._validator_map
+
+
+def test_xai_key_validation_accepts_valid_key():
+    validator = UserConfigurationValidator()
+    with patch(
+        "api.services.configuration.check_validity.openai.OpenAI"
+    ) as mock_openai:
+        mock_openai.return_value.models.list.return_value = []
+        assert validator._check_xai_api_key("xai", "xai-valid-key") is True
+    mock_openai.assert_called_once_with(
+        api_key="xai-valid-key", base_url="https://api.x.ai/v1"
+    )
+
+
+def test_xai_key_validation_rejects_bad_key():
+    validator = UserConfigurationValidator()
+    with patch(
+        "api.services.configuration.check_validity.openai.OpenAI"
+    ) as mock_openai:
+        mock_openai.return_value.models.list.side_effect = RuntimeError("boom")
+        with pytest.raises(ValueError):
+            validator._check_xai_api_key("xai", "bad-key")

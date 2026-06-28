@@ -1294,7 +1294,7 @@ class XAITTSConfiguration(BaseServiceConfiguration):
     )
     language: str = Field(
         default="en",
-        description="BCP-47 language code (e.g. 'en', 'fr'), or 'auto' to detect.",
+        description="BCP-47 language code for synthesis (e.g. 'en', 'fr', 'de').",
         json_schema_extra={"allow_custom_input": True},
     )
 

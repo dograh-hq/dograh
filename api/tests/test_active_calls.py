@@ -6,12 +6,31 @@ worker. The guarantees that matter for draining: register/unregister are
 idempotent, and the count only reaches zero when every registered run is gone.
 """
 
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+
+from api.routes import main as main_routes
 from api.services.pipecat import active_calls
 
 
 def setup_function():
     # Module-level state — start each test from an empty registry.
     active_calls._active_run_ids.clear()
+
+
+def _make_active_calls_client(
+    monkeypatch,
+    configured_secret: str | None = "test-dograh-devops-secret",
+) -> TestClient:
+    monkeypatch.setattr("api.constants.DOGRAH_DEVOPS_SECRET", configured_secret)
+    app = FastAPI()
+    app.add_api_route(
+        "/api/v1/health/active-calls",
+        main_routes.active_calls,
+        methods=["GET"],
+        response_model=main_routes.ActiveCallsResponse,
+    )
+    return TestClient(app)
 
 
 def test_starts_empty():
@@ -51,3 +70,46 @@ def test_full_lifecycle_drains_to_zero():
     assert active_calls.active_call_count() == 1
     active_calls.unregister_active_call(42)
     assert active_calls.active_call_count() == 0
+
+
+def test_active_calls_route_requires_configured_secret(monkeypatch):
+    client = _make_active_calls_client(monkeypatch, configured_secret=None)
+
+    response = client.get(
+        "/api/v1/health/active-calls",
+        headers={"X-Dograh-Devops-Secret": "test-dograh-devops-secret"},
+    )
+
+    assert response.status_code == 503
+
+
+def test_active_calls_route_rejects_missing_secret_header(monkeypatch):
+    client = _make_active_calls_client(monkeypatch)
+
+    response = client.get("/api/v1/health/active-calls")
+
+    assert response.status_code == 403
+
+
+def test_active_calls_route_rejects_wrong_secret(monkeypatch):
+    client = _make_active_calls_client(monkeypatch)
+
+    response = client.get(
+        "/api/v1/health/active-calls",
+        headers={"X-Dograh-Devops-Secret": "wrong"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_active_calls_route_returns_count_with_secret(monkeypatch):
+    active_calls.register_active_call(42)
+    client = _make_active_calls_client(monkeypatch)
+
+    response = client.get(
+        "/api/v1/health/active-calls",
+        headers={"X-Dograh-Devops-Secret": "test-dograh-devops-secret"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"active_calls": 1}

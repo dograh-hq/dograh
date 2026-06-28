@@ -378,33 +378,34 @@ class UserConfigurationValidator:
         return True
 
     def _check_xai_api_key(self, model: str, api_key: str) -> bool:
-        # xAI exposes an OpenAI-compatible API, so validate the key by listing
-        # models against https://api.x.ai/v1 (mirrors _check_openai_api_key).
-        client = openai.OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
+        # Validate against the TTS voices endpoint — the scope this key actually
+        # needs for TTS — rather than /v1/models. xAI supports endpoint-scoped
+        # keys, so a TTS-only key may lack the models ACL and would otherwise be
+        # rejected here even though it works for synthesis.
         try:
-            client.models.list()
-            return True
-        except openai.AuthenticationError:
-            raise ValueError(
-                "Invalid xAI API key. The key was rejected by the xAI API. "
-                "Please check that your API key is correct, active, and has the "
-                "required permissions. You can verify your keys at "
-                "https://console.x.ai."
+            response = httpx.get(
+                "https://api.x.ai/v1/tts/voices",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10.0,
             )
-        except openai.APIConnectionError:
+        except httpx.RequestError:
             raise ValueError(
                 "Could not connect to the xAI API. Please check your network "
                 "connection and try again."
             )
-        except openai.APIError:
+        if response.status_code == 200:
+            return True
+        if response.status_code in (401, 403):
             raise ValueError(
-                "The xAI API returned an error while validating the API key. "
-                "Please try again later."
+                "Invalid xAI API key. The key was rejected by the xAI API. "
+                "Please check that your API key is correct, active, and has "
+                "access to the Text-to-Speech API. You can verify your keys at "
+                "https://console.x.ai."
             )
-        except Exception:
-            raise ValueError(
-                "Failed to validate the xAI API key. Please try again later."
-            )
+        raise ValueError(
+            "The xAI API returned an error while validating the API key "
+            f"(HTTP {response.status_code}). Please try again later."
+        )
 
     def _check_ultravox_realtime_api_key(self, model: str, api_key: str) -> bool:
         return True

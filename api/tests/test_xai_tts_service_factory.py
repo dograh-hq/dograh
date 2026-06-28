@@ -101,20 +101,24 @@ def test_xai_is_registered_for_key_validation():
 def test_xai_key_validation_accepts_valid_key():
     validator = UserConfigurationValidator()
     with patch(
-        "api.services.configuration.check_validity.openai.OpenAI"
-    ) as mock_openai:
-        mock_openai.return_value.models.list.return_value = []
+        "api.services.configuration.check_validity.httpx.get"
+    ) as mock_get:
+        mock_get.return_value.status_code = 200
         assert validator._check_xai_api_key("xai", "xai-valid-key") is True
-    mock_openai.assert_called_once_with(
-        api_key="xai-valid-key", base_url="https://api.x.ai/v1"
+    # Validates against the TTS-scoped voices endpoint, not /v1/models.
+    called_url = mock_get.call_args.args[0]
+    assert called_url == "https://api.x.ai/v1/tts/voices"
+    assert (
+        mock_get.call_args.kwargs["headers"]["Authorization"]
+        == "Bearer xai-valid-key"
     )
 
 
 def test_xai_key_validation_rejects_bad_key():
     validator = UserConfigurationValidator()
     with patch(
-        "api.services.configuration.check_validity.openai.OpenAI"
-    ) as mock_openai:
-        mock_openai.return_value.models.list.side_effect = RuntimeError("boom")
+        "api.services.configuration.check_validity.httpx.get"
+    ) as mock_get:
+        mock_get.return_value.status_code = 401
         with pytest.raises(ValueError):
             validator._check_xai_api_key("xai", "bad-key")

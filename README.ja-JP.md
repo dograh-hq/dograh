@@ -1,9 +1,5 @@
 # Dograh AI
 
-> 💡 **Notice**: This documentation is community-maintained. If you spot any translation inaccuracies or content that has drifted from the English version, please feel free to open a PR!
->
-> 💡 **お知らせ**: このドキュメントはコミュニティによって保守されています。翻訳の不正確な箇所や英語版との差分に気づいた場合は、ぜひ PR を送ってください。
-
 **オープンソースでセルフホスト可能な Vapi / Retell の代替手段** -- ドラッグ&ドロップのワークフロービルダーで本番向け音声エージェントを構築できます。ゼロから 2 分以内で動作するボットを立ち上げられます。
 
 <p align="center">
@@ -34,6 +30,10 @@
 - **100% オープンソース**でセルフホスト可能 -- Vapi や Retell と違い、ベンダーロックインはありません
 - **完全な制御と透明性** -- すべてのコードが公開され、LLM / TTS / STT の統合も柔軟に差し替えられます
 - **YC 卒業生と事業売却を経験した創業者が保守**し、音声 AI をオープンに保つことに取り組んでいます
+
+<p align="center">
+  <a href="https://trendshift.io/repositories/31007" target="_blank"><img src="https://trendshift.io/api/badge/repositories/31007" alt="dograh-hq%2Fdograh | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+</p>
 
 ## 🎥 メディア掲載
 
@@ -76,13 +76,13 @@
 ##### ローカルマシンに Dograh をダウンロードしてセットアップ
 
 > **注記**
-> 製品改善のため、匿名の利用状況データを収集します。無効にするには、以下のコマンドで `ENABLE_TELEMETRY` を `false` に設定してください。
+> 製品改善のため、匿名の利用状況データを収集します。無効にするには、起動スクリプトを実行する前に `ENABLE_TELEMETRY=false` を設定してください。
 
 > **注記**
 > リモートサーバーでプラットフォームを実行したい場合は、[ドキュメント](https://docs.dograh.com/deployment/docker#option-2:-remote-server-deployment)を参照してください。
 
 ```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
+curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
 
 > **⚡ AI エージェントにセットアップを任せたいですか?**
@@ -147,6 +147,11 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 ## 📚 ドキュメント
 
 完全なドキュメントは [https://docs.dograh.com](https://docs.dograh.com/) を参照してください。
+
+## 📦 SDKs
+
+- **Python SDK** -- [pypi.org/project/dograh-sdk](https://pypi.org/project/dograh-sdk/)
+- **Node SDK** -- [npmjs.com/package/@dograh/sdk](https://www.npmjs.com/package/@dograh/sdk)
 
 ## 🤝 コミュニティとサポート
 

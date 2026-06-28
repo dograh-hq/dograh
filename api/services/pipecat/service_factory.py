@@ -21,12 +21,13 @@ from pipecat.services.aws.llm import AWSBedrockLLMService, AWSBedrockLLMSettings
 from pipecat.services.azure.llm import AzureLLMService, AzureLLMSettings
 from pipecat.services.azure.stt import AzureSTTService, AzureSTTSettings
 from pipecat.services.azure.tts import AzureTTSService, AzureTTSSettings
-from pipecat.services.cartesia.stt import CartesiaSTTService
+from pipecat.services.cartesia.stt import CartesiaSTTService, CartesiaSTTSettings
 from pipecat.services.cartesia.tts import (
     CartesiaTTSService,
     CartesiaTTSSettings,
     GenerationConfig,
 )
+from pipecat.services.cartesia.turns.stt import CartesiaTurnsSTTService
 from pipecat.services.deepgram.flux.stt import (
     DeepgramFluxSTTService,
     DeepgramFluxSTTSettings,
@@ -106,11 +107,13 @@ def dograh_stt_uses_flux_language(language: str | None) -> bool:
     return language in DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS
 
 
-def stt_uses_flux_turns(user_config) -> bool:
+def stt_uses_external_turns(user_config) -> bool:
     if user_config.stt.provider == ServiceProviders.DEEPGRAM.value:
         return user_config.stt.model in DEEPGRAM_FLUX_MODELS
     if user_config.stt.provider == ServiceProviders.DOGRAH.value:
         return dograh_stt_uses_flux_language(getattr(user_config.stt, "language", None))
+    if user_config.stt.provider == ServiceProviders.CARTESIA.value:
+        return user_config.stt.model == "ink-2"
     return False
 
 
@@ -214,8 +217,20 @@ def create_stt_service(
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.CARTESIA.value:
+        if user_config.stt.model == "ink-2":
+            return CartesiaTurnsSTTService(
+                api_key=user_config.stt.api_key,
+                should_interrupt=False,  # Let UserAggregator emit interruption frames.
+                sample_rate=audio_config.transport_in_sample_rate,
+            )
+
+        language = getattr(user_config.stt, "language", None) or "en"
         return CartesiaSTTService(
             api_key=user_config.stt.api_key,
+            settings=CartesiaSTTSettings(
+                model=user_config.stt.model,
+                language=language,
+            ),
             sample_rate=audio_config.transport_in_sample_rate,
         )
     elif user_config.stt.provider == ServiceProviders.DOGRAH.value:

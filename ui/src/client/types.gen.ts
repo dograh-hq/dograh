@@ -1042,6 +1042,12 @@ export type CartesiaSttConfiguration = {
      * Cartesia STT model.
      */
     model?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code. ink-2 currently supports English only.
+     */
+    language?: string;
 };
 
 /**

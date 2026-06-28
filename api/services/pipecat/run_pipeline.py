@@ -46,7 +46,7 @@ from api.services.pipecat.service_factory import (
     create_realtime_llm_service,
     create_stt_service,
     create_tts_service,
-    stt_uses_flux_turns,
+    stt_uses_external_turns,
 )
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
@@ -92,6 +92,19 @@ from pipecat.utils.run_context import set_current_org_id, set_current_run_id
 
 # Setup tracing if enabled
 ensure_tracing()
+
+DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
+EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+
+
+def _resolve_user_turn_stop_timeout(
+    run_configs: dict, *, uses_external_turns: bool
+) -> float:
+    if "user_turn_stop_timeout" in run_configs:
+        return float(run_configs["user_turn_stop_timeout"])
+    if uses_external_turns:
+        return EXTERNAL_TURN_USER_STOP_TIMEOUT
+    return DEFAULT_USER_TURN_STOP_TIMEOUT
 
 
 def _create_realtime_user_turn_config(provider: str):
@@ -620,16 +633,18 @@ async def _run_pipeline(
 
     # Configure turn strategies based on STT provider, model, and workflow configuration
     if is_realtime:
+        uses_external_turns = False
         # Realtime services still need user-turn tracking even when the model
         # itself owns speech generation and interruption behavior.
         user_turn_strategies, user_vad_analyzer = _create_realtime_user_turn_config(
             user_config.realtime.provider
         )
     else:
-        # Deepgram Flux and supported Dograh managed Flux languages emit their
-        # own turn boundaries, so the aggregator follows those external signals.
-        # Other models use configurable turn detection.
-        if stt_uses_flux_turns(user_config):
+        # Some STT services emit their own turn boundaries, so the aggregator
+        # follows those external signals. Other models use configurable turn
+        # detection.
+        uses_external_turns = stt_uses_external_turns(user_config)
+        if uses_external_turns:
             user_turn_strategies = UserTurnStrategies(
                 start=[
                     VADUserTurnStartStrategy(),
@@ -661,9 +676,15 @@ async def _run_pipeline(
                 stop=[SpeechTimeoutUserTurnStopStrategy()],
             )
 
+    user_turn_stop_timeout = _resolve_user_turn_stop_timeout(
+        run_configs,
+        uses_external_turns=uses_external_turns,
+    )
+
     user_params = LLMUserAggregatorParams(
         user_turn_strategies=user_turn_strategies,
         user_mute_strategies=user_mute_strategies,
+        user_turn_stop_timeout=user_turn_stop_timeout,
         user_idle_timeout=max_user_idle_timeout,
         vad_analyzer=user_vad_analyzer,
     )

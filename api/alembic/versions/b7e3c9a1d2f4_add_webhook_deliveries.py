@@ -44,6 +44,7 @@ def upgrade() -> None:
         ),
         sa.Column("custom_headers", sa.JSON(), nullable=True),
         sa.Column("credential_uuid", sa.String(length=36), nullable=True),
+        sa.Column("webhook_node_id", sa.String(), nullable=True),
         sa.Column(
             "status",
             sa.Enum(
@@ -79,6 +80,11 @@ def upgrade() -> None:
             ["organization_id"], ["organizations.id"], ondelete="CASCADE"
         ),
         sa.PrimaryKeyConstraint("id"),
+        sa.UniqueConstraint(
+            "workflow_run_id",
+            "webhook_node_id",
+            name="uq_webhook_deliveries_run_node",
+        ),
     )
     op.create_index(
         "ix_webhook_deliveries_delivery_uuid",

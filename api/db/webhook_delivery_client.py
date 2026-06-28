@@ -7,10 +7,11 @@ pattern -- the row is the source of truth, ``scheduled_for`` gates due work.
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from loguru import logger
 from sqlalchemy import or_, select, update
+from sqlalchemy.exc import IntegrityError
 
 from api.db.base_client import BaseDBClient
 from api.db.models import WebhookDeliveryModel
@@ -30,14 +31,22 @@ class WebhookDeliveryClient(BaseDBClient):
         webhook_name: Optional[str] = None,
         custom_headers: Optional[list] = None,
         credential_uuid: Optional[str] = None,
+        webhook_node_id: Optional[str] = None,
         scheduled_for: Optional[datetime] = None,
-    ) -> WebhookDeliveryModel:
-        """Create a ``pending`` delivery row, due immediately by default."""
+    ) -> Tuple[WebhookDeliveryModel, bool]:
+        """Get-or-create the ``pending`` delivery for this run + webhook node.
+
+        Idempotent on ``(workflow_run_id, webhook_node_id)``: a retried
+        ``run_integrations`` returns the existing row instead of creating (and
+        sending) a duplicate. Returns ``(delivery, created)`` so the caller only
+        enqueues a send for a freshly-created row.
+        """
         async with self.async_session() as session:
             delivery = WebhookDeliveryModel(
                 workflow_run_id=workflow_run_id,
                 organization_id=organization_id,
                 webhook_name=webhook_name,
+                webhook_node_id=webhook_node_id,
                 endpoint_url=endpoint_url,
                 http_method=http_method,
                 payload=payload,
@@ -49,9 +58,23 @@ class WebhookDeliveryClient(BaseDBClient):
                 scheduled_for=scheduled_for or datetime.now(UTC),
             )
             session.add(delivery)
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                await session.rollback()
+                existing = await session.execute(
+                    select(WebhookDeliveryModel).where(
+                        WebhookDeliveryModel.workflow_run_id == workflow_run_id,
+                        WebhookDeliveryModel.webhook_node_id == webhook_node_id,
+                    )
+                )
+                row = existing.scalar_one_or_none()
+                if row is not None:
+                    return row, False
+                # The violation was not the run+node uniqueness -- re-raise.
+                raise
             await session.refresh(delivery)
-            return delivery
+            return delivery, True
 
     async def get_webhook_delivery(
         self, delivery_id: int

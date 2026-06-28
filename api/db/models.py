@@ -1070,6 +1070,11 @@ class WebhookDeliveryModel(Base):
     custom_headers = Column(JSON, nullable=True)
     credential_uuid = Column(String(36), nullable=True)
 
+    # Workflow node that produced this delivery. Combined with workflow_run_id it
+    # is the per-run/per-node idempotency key, so a retried run_integrations does
+    # not create (and send) a duplicate delivery for the same node.
+    webhook_node_id = Column(String, nullable=True)
+
     status = Column(
         Enum(
             "pending",
@@ -1108,6 +1113,12 @@ class WebhookDeliveryModel(Base):
             postgresql_where=text("status = 'pending'"),
         ),
         Index("idx_webhook_deliveries_run", "workflow_run_id"),
+        # Per-run/per-node idempotency: one delivery per webhook node per run.
+        UniqueConstraint(
+            "workflow_run_id",
+            "webhook_node_id",
+            name="uq_webhook_deliveries_run_node",
+        ),
     )
 
 

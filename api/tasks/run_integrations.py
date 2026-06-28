@@ -319,6 +319,7 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                     render_context=render_context,
                     organization_id=organization_id,
                     workflow_run_id=workflow_run_id,
+                    webhook_node_id=str(node_id),
                 )
             except Exception as e:
                 logger.warning(f"Failed to enqueue webhook '{webhook_data.name}': {e}")
@@ -407,11 +408,55 @@ def _build_webhook_payload(
     return payload
 
 
+# Header names that commonly carry secrets. Their values are NOT persisted on
+# the delivery row (which would store them in plaintext); secrets belong in the
+# credential store, which is re-resolved at send time. A custom header with one
+# of these names is dropped with a warning.
+_SENSITIVE_HEADER_KEYS = frozenset(
+    {
+        "authorization",
+        "proxy-authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "api-key",
+        "x-auth-token",
+        "x-secret-key",
+        "x-secret",
+        "x-access-token",
+    }
+)
+
+
+def _safe_custom_headers(
+    webhook_data: WebhookNodeData, webhook_name: str
+) -> list[dict]:
+    """Custom headers to persist, with secret-looking ones dropped.
+
+    Persisting arbitrary header values would store credentials (Authorization,
+    X-API-Key, ...) in plaintext on the delivery row. Drop those and tell the
+    operator to use a credential instead.
+    """
+    safe = []
+    for h in webhook_data.custom_headers or []:
+        if not (h.key and h.value):
+            continue
+        if h.key.strip().lower() in _SENSITIVE_HEADER_KEYS:
+            logger.warning(
+                f"Webhook '{webhook_name}' custom header '{h.key}' looks like a "
+                f"secret; it will not be stored or sent. Use a credential instead."
+            )
+            continue
+        safe.append({"key": h.key, "value": h.value})
+    return safe
+
+
 async def _enqueue_webhook_delivery(
     webhook_data: WebhookNodeData,
     render_context: Dict[str, Any],
     organization_id: int,
     workflow_run_id: int,
+    webhook_node_id: str,
 ) -> None:
     """Persist a durable delivery record and enqueue its first send attempt.
 
@@ -419,6 +464,9 @@ async def _enqueue_webhook_delivery(
     retries transient failures with backoff and dead-letters exhausted/permanent
     ones. This replaces the previous one-shot, best-effort inline POST that lost
     the webhook entirely on a single network error.
+
+    Idempotent on ``(workflow_run_id, webhook_node_id)``: a retried run reuses the
+    existing delivery row and does not enqueue a second send.
     """
     webhook_name = webhook_data.name
 
@@ -435,14 +483,10 @@ async def _enqueue_webhook_delivery(
 
     # Persist non-secret request definition. The credential is stored by reference
     # (uuid) and re-resolved at send time so secrets never land in this row.
-    custom_headers = [
-        {"key": h.key, "value": h.value}
-        for h in (webhook_data.custom_headers or [])
-        if h.key and h.value
-    ]
+    custom_headers = _safe_custom_headers(webhook_data, webhook_name)
     method = (webhook_data.http_method or "POST").upper()
 
-    delivery = await db_client.create_webhook_delivery(
+    delivery, created = await db_client.create_webhook_delivery(
         workflow_run_id=workflow_run_id,
         organization_id=organization_id,
         endpoint_url=url,
@@ -452,7 +496,15 @@ async def _enqueue_webhook_delivery(
         webhook_name=webhook_name,
         custom_headers=custom_headers or None,
         credential_uuid=webhook_data.credential_uuid,
+        webhook_node_id=webhook_node_id,
     )
+
+    if not created:
+        logger.info(
+            f"Webhook '{webhook_name}' delivery already exists for run "
+            f"{workflow_run_id} node {webhook_node_id}; not re-enqueuing"
+        )
+        return
 
     # Lazy import avoids a circular import (arq imports this module at load time).
     from api.tasks.arq import enqueue_job

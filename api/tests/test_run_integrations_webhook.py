@@ -70,7 +70,7 @@ def test_build_webhook_payload_empty_disposition_when_context_missing():
 async def test_enqueue_webhook_delivery_persists_and_enqueues():
     created = SimpleNamespace(id=42, delivery_uuid="uuid-42")
     db = MagicMock()
-    db.create_webhook_delivery = AsyncMock(return_value=created)
+    db.create_webhook_delivery = AsyncMock(return_value=(created, True))
     enqueue = AsyncMock()
 
     webhook = WebhookNodeData(
@@ -90,6 +90,7 @@ async def test_enqueue_webhook_delivery_persists_and_enqueues():
             render_context={"gathered_context": {"call_disposition": "user_hangup"}},
             organization_id=7,
             workflow_run_id=9,
+            webhook_node_id="node-1",
         )
 
     db.create_webhook_delivery.assert_awaited_once()
@@ -98,10 +99,77 @@ async def test_enqueue_webhook_delivery_persists_and_enqueues():
     assert kwargs["organization_id"] == 7
     assert kwargs["endpoint_url"] == "https://example.com/hook"
     assert kwargs["payload"]["call_disposition"] == "user_hangup"
+    assert kwargs["webhook_node_id"] == "node-1"
 
     enqueue.assert_awaited_once()
     # Deterministic job id for the first attempt (dedup-safe).
     assert enqueue.call_args.kwargs["_job_id"] == "webhook-delivery-42-0"
+
+
+@pytest.mark.asyncio
+async def test_enqueue_webhook_delivery_idempotent_does_not_reenqueue():
+    # A retried run gets the existing row back (created=False) -> no second send.
+    existing = SimpleNamespace(id=42, delivery_uuid="uuid-42")
+    db = MagicMock()
+    db.create_webhook_delivery = AsyncMock(return_value=(existing, False))
+    enqueue = AsyncMock()
+
+    webhook = WebhookNodeData(
+        name="Final Webhook",
+        enabled=True,
+        endpoint_url="https://example.com/hook",
+        payload_template={"event": "call_done"},
+    )
+
+    with (
+        patch("api.tasks.run_integrations.db_client", db),
+        patch("api.tasks.arq.enqueue_job", enqueue),
+    ):
+        await _enqueue_webhook_delivery(
+            webhook_data=webhook,
+            render_context={},
+            organization_id=7,
+            workflow_run_id=9,
+            webhook_node_id="node-1",
+        )
+
+    db.create_webhook_delivery.assert_awaited_once()
+    enqueue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_webhook_delivery_drops_secret_custom_headers():
+    created = SimpleNamespace(id=1, delivery_uuid="u")
+    db = MagicMock()
+    db.create_webhook_delivery = AsyncMock(return_value=(created, True))
+
+    webhook = WebhookNodeData(
+        name="Final Webhook",
+        enabled=True,
+        endpoint_url="https://example.com/hook",
+        payload_template={},
+        custom_headers=[
+            {"key": "Authorization", "value": "Bearer secret-token"},
+            {"key": "X-Source", "value": "dograh"},
+        ],
+    )
+
+    with (
+        patch("api.tasks.run_integrations.db_client", db),
+        patch("api.tasks.arq.enqueue_job", AsyncMock()),
+    ):
+        await _enqueue_webhook_delivery(
+            webhook_data=webhook,
+            render_context={},
+            organization_id=1,
+            workflow_run_id=1,
+            webhook_node_id="n",
+        )
+
+    persisted = db.create_webhook_delivery.call_args.kwargs["custom_headers"]
+    keys = {h["key"] for h in persisted}
+    assert "Authorization" not in keys  # secret dropped, not stored in plaintext
+    assert "X-Source" in keys  # non-secret header kept
 
 
 @pytest.mark.asyncio
@@ -122,6 +190,7 @@ async def test_enqueue_webhook_delivery_skips_disabled():
             render_context={},
             organization_id=1,
             workflow_run_id=1,
+            webhook_node_id="n",
         )
 
     db.create_webhook_delivery.assert_not_called()

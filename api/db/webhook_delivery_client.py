@@ -6,11 +6,11 @@ schedule the next retry, and park as dead-letter. Mirrors the campaign retry
 pattern -- the row is the source of truth, ``scheduled_for`` gates due work.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import List, Optional
 
 from loguru import logger
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 
 from api.db.base_client import BaseDBClient
 from api.db.models import WebhookDeliveryModel
@@ -63,6 +63,46 @@ class WebhookDeliveryClient(BaseDBClient):
                 )
             )
             return result.scalar_one_or_none()
+
+    async def claim_webhook_delivery(
+        self, delivery_id: int, lease_seconds: int
+    ) -> Optional[WebhookDeliveryModel]:
+        """Atomically claim a pending, due delivery for one worker to process.
+
+        A conditional UPDATE pushes ``scheduled_for`` out by a short lease. Only
+        one concurrent worker can win -- the others re-evaluate the WHERE after
+        the first commits, see the future ``scheduled_for``, match nothing, and
+        get ``None``. This prevents the non-atomic ``status == 'pending'`` read
+        from letting two workers double-send the same delivery. If the winning
+        worker crashes mid-send, the lease expires and the sweeper re-enqueues it.
+
+        Returns the claimed row, or ``None`` if it was not claimable (already
+        claimed, not pending, or not yet due).
+        """
+        now = datetime.now(UTC)
+        lease_until = now + timedelta(seconds=lease_seconds)
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(WebhookDeliveryModel)
+                .where(
+                    WebhookDeliveryModel.id == delivery_id,
+                    WebhookDeliveryModel.status == "pending",
+                    or_(
+                        WebhookDeliveryModel.scheduled_for.is_(None),
+                        WebhookDeliveryModel.scheduled_for <= now,
+                    ),
+                )
+                .values(scheduled_for=lease_until, updated_at=now)
+            )
+            await session.commit()
+            if result.rowcount == 0:
+                return None
+            fetched = await session.execute(
+                select(WebhookDeliveryModel).where(
+                    WebhookDeliveryModel.id == delivery_id
+                )
+            )
+            return fetched.scalar_one_or_none()
 
     async def mark_webhook_delivery_succeeded(
         self, delivery_id: int, attempt_count: int, status_code: Optional[int]
@@ -134,13 +174,16 @@ class WebhookDeliveryClient(BaseDBClient):
             )
 
     async def get_due_webhook_deliveries(
-        self, now: Optional[datetime] = None, limit: int = 100
+        self, now: Optional[datetime] = None, limit: int = 100, after_id: int = 0
     ) -> List[WebhookDeliveryModel]:
-        """Pending deliveries whose next attempt is due.
+        """One page of pending deliveries whose next attempt is due.
 
         Used by the periodic sweeper to re-enqueue deliveries whose ARQ job was
         lost (worker restart, Redis flush). The delivery task is idempotent, so a
-        spurious re-enqueue is harmless.
+        spurious re-enqueue is harmless. Ordered by ``id`` and gated on
+        ``after_id`` for keyset pagination -- re-enqueuing does not change a row's
+        due state, so the sweeper pages by id to drain the whole backlog instead
+        of re-reading the same first page forever.
         """
         cutoff = now or datetime.now(UTC)
         async with self.async_session() as session:
@@ -150,8 +193,9 @@ class WebhookDeliveryClient(BaseDBClient):
                     WebhookDeliveryModel.status == "pending",
                     WebhookDeliveryModel.scheduled_for.isnot(None),
                     WebhookDeliveryModel.scheduled_for <= cutoff,
+                    WebhookDeliveryModel.id > after_id,
                 )
-                .order_by(WebhookDeliveryModel.scheduled_for)
+                .order_by(WebhookDeliveryModel.id)
                 .limit(limit)
             )
             return list(result.scalars().all())

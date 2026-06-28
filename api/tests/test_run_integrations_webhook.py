@@ -177,6 +177,9 @@ def _mock_httpx(*, raise_request_error=None, status_error=None, status_code=200)
 
 def _delivery_db(delivery):
     db = MagicMock()
+    # The task claims the delivery atomically before sending; a successful claim
+    # returns the row.
+    db.claim_webhook_delivery = AsyncMock(return_value=delivery)
     db.get_webhook_delivery = AsyncMock(return_value=delivery)
     db.get_credential_by_uuid = AsyncMock(return_value=None)
     db.mark_webhook_delivery_succeeded = AsyncMock()
@@ -289,9 +292,12 @@ async def test_deliver_webhook_exhausted_attempts_dead_letters():
 
 
 @pytest.mark.asyncio
-async def test_deliver_webhook_idempotent_when_not_pending():
+async def test_deliver_webhook_no_op_when_claim_fails():
+    # The atomic claim returns None when the delivery is not pending/due or was
+    # already claimed by a concurrent worker -> no send, no double-fire.
     delivery = _fake_delivery(status="succeeded")
     db = _delivery_db(delivery)
+    db.claim_webhook_delivery = AsyncMock(return_value=None)
     httpx_mock = _mock_httpx()
 
     with (
@@ -302,3 +308,26 @@ async def test_deliver_webhook_idempotent_when_not_pending():
 
     httpx_mock.assert_not_called()
     db.mark_webhook_delivery_succeeded.assert_not_called()
+    db.mark_webhook_delivery_dead_letter.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_deliver_webhook_delivered_but_record_failure_does_not_dead_letter():
+    # If the HTTP POST is accepted (2xx) but recording success fails (DB blip),
+    # the row must NOT be dead-lettered -- it stays pending for the sweeper to
+    # reconcile (the receiver dedups the re-send via X-Dograh-Delivery-Id).
+    delivery = _fake_delivery()
+    db = _delivery_db(delivery)
+    db.mark_webhook_delivery_succeeded = AsyncMock(
+        side_effect=RuntimeError("db connection blip")
+    )
+
+    with (
+        patch("api.tasks.webhook_delivery.db_client", db),
+        patch("api.tasks.webhook_delivery.httpx.AsyncClient", _mock_httpx()),
+    ):
+        await deliver_webhook(None, delivery.id)
+
+    db.mark_webhook_delivery_succeeded.assert_awaited_once()
+    db.mark_webhook_delivery_dead_letter.assert_not_called()
+    db.schedule_webhook_delivery_retry.assert_not_called()

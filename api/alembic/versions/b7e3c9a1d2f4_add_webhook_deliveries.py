@@ -112,4 +112,4 @@ def downgrade() -> None:
         "ix_webhook_deliveries_delivery_uuid", table_name="webhook_deliveries"
     )
     op.drop_table("webhook_deliveries")
-    sa.Enum(name="webhook_delivery_status").drop(op.get_bind(), checkfirst=True)
+    op.execute("DROP TYPE IF EXISTS webhook_delivery_status")

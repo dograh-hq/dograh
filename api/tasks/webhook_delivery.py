@@ -118,18 +118,20 @@ async def _handle_transient_failure(
 async def deliver_webhook(_ctx, delivery_id: int) -> None:
     """Send one webhook delivery attempt and record the outcome.
 
-    Idempotent: a delivery that is no longer ``pending`` (already succeeded or
-    dead-lettered) is a no-op, so a duplicate enqueue or sweeper re-injection
-    cannot double-send.
+    Concurrency-safe: the delivery is atomically *claimed* before the HTTP
+    request (a conditional update only one worker can win), so a duplicate
+    enqueue or sweeper re-injection cannot double-send. A claim that returns
+    nothing means another worker owns it, or it is no longer pending/due -- a
+    no-op.
     """
-    delivery = await db_client.get_webhook_delivery(delivery_id)
+    # Lease long enough to outlast a full attempt so the sweeper does not reclaim
+    # a delivery that is still in flight.
+    lease_seconds = DEFAULT_WEBHOOK_DELIVERY_CONFIG["timeout_seconds"] + 60
+    delivery = await db_client.claim_webhook_delivery(delivery_id, lease_seconds)
     if delivery is None:
-        logger.warning(f"Webhook delivery {delivery_id} not found")
-        return
-
-    if delivery.status != "pending":
         logger.debug(
-            f"Webhook delivery {delivery_id} is '{delivery.status}', skipping"
+            f"Webhook delivery {delivery_id} not claimable "
+            f"(already claimed, not pending, or not yet due); skipping"
         )
         return
 
@@ -159,14 +161,6 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
                 )
 
         response.raise_for_status()
-        await db_client.mark_webhook_delivery_succeeded(
-            delivery.id, attempt, response.status_code
-        )
-        logger.info(
-            f"Webhook '{delivery.webhook_name}' delivery {delivery.id} succeeded: "
-            f"{response.status_code} (attempt {attempt})"
-        )
-
     except httpx.HTTPStatusError as e:
         status_code = e.response.status_code
         error = f"HTTP {status_code}: {e.response.text[:200]}"
@@ -177,10 +171,12 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
             await db_client.mark_webhook_delivery_dead_letter(
                 delivery.id, attempt, error, status_code
             )
+        return
     except httpx.RequestError as e:
         # Connect/read timeouts, DNS, connection resets -- the transient class that
         # previously lost the webhook entirely. str(e) is often empty, so use repr.
         await _handle_transient_failure(delivery, attempt, repr(e), None)
+        return
     except Exception as e:
         # Unexpected (e.g. a bug): don't loop on it, surface as dead-letter.
         logger.error(
@@ -189,6 +185,26 @@ async def deliver_webhook(_ctx, delivery_id: int) -> None:
         )
         await db_client.mark_webhook_delivery_dead_letter(
             delivery.id, attempt, repr(e), None
+        )
+        return
+
+    # The receiver accepted the payload (2xx). Recording success must NOT be able
+    # to dead-letter an already-delivered webhook: if this DB write fails, log and
+    # leave the row claimed-but-pending so the sweeper reconciles it once the
+    # lease expires (the receiver dedups the re-send via X-Dograh-Delivery-Id).
+    try:
+        await db_client.mark_webhook_delivery_succeeded(
+            delivery.id, attempt, response.status_code
+        )
+        logger.info(
+            f"Webhook '{delivery.webhook_name}' delivery {delivery.id} succeeded: "
+            f"{response.status_code} (attempt {attempt})"
+        )
+    except Exception as e:
+        logger.error(
+            f"Webhook '{delivery.webhook_name}' delivery {delivery.id} was "
+            f"delivered ({response.status_code}) but recording success failed; "
+            f"leaving it for the sweeper to reconcile after the lease expires: {e!r}"
         )
 
 
@@ -199,10 +215,26 @@ async def sweep_webhook_deliveries(_ctx) -> None:
     same deterministic job id, so if the original deferred job still exists this is a
     no-op; it only re-injects genuinely lost work. ``deliver_webhook`` is idempotent.
     """
-    due = await db_client.get_due_webhook_deliveries(now=datetime.now(UTC))
-    if not due:
-        return
+    page_size = 100
+    after_id = 0
+    total = 0
+    while True:
+        # Re-enqueuing does not change a row's due state, so we cannot page by
+        # re-querying the first rows (we'd loop on the same page). Page by id
+        # instead to drain the whole backlog -- e.g. after a prolonged outage.
+        due = await db_client.get_due_webhook_deliveries(
+            now=datetime.now(UTC), limit=page_size, after_id=after_id
+        )
+        if not due:
+            break
+        for delivery in due:
+            await _enqueue_delivery(delivery.id, attempt_count=delivery.attempt_count)
+        total += len(due)
+        after_id = due[-1].id
+        if len(due) < page_size:
+            break
 
-    logger.info(f"Webhook delivery sweep: re-enqueuing {len(due)} due deliveries")
-    for delivery in due:
-        await _enqueue_delivery(delivery.id, attempt_count=delivery.attempt_count)
+    if total:
+        logger.info(
+            f"Webhook delivery sweep: re-enqueued {total} due deliveries"
+        )

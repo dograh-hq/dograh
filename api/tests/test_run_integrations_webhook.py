@@ -150,6 +150,8 @@ async def test_enqueue_webhook_delivery_drops_secret_custom_headers():
         payload_template={},
         custom_headers=[
             {"key": "Authorization", "value": "Bearer secret-token"},
+            {"key": "X-Custom-Auth-Token", "value": "abc"},  # variant -> dropped
+            {"key": "X-Idempotency-Key", "value": "idem-1"},  # benign -> kept
             {"key": "X-Source", "value": "dograh"},
         ],
     )
@@ -169,6 +171,8 @@ async def test_enqueue_webhook_delivery_drops_secret_custom_headers():
     persisted = db.create_webhook_delivery.call_args.kwargs["custom_headers"]
     keys = {h["key"] for h in persisted}
     assert "Authorization" not in keys  # secret dropped, not stored in plaintext
+    assert "X-Custom-Auth-Token" not in keys  # variant secret also dropped
+    assert "X-Idempotency-Key" in keys  # benign 'key' header NOT a false positive
     assert "X-Source" in keys  # non-secret header kept
 
 

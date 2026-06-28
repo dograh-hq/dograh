@@ -44,14 +44,31 @@ def _backoff_seconds(attempt: int) -> int:
     return min(base * (2 ** (attempt - 1)), cap)
 
 
-async def _enqueue_delivery(delivery_id: int, attempt_count: int, defer_by: int = 0):
-    """Enqueue a delivery attempt with a deterministic, dedup-safe job id."""
+async def _enqueue_delivery(
+    delivery_id: int,
+    attempt_count: int,
+    defer_by: int = 0,
+    reclaim_token: Optional[int] = None,
+):
+    """Enqueue a delivery attempt with a dedup-safe job id.
+
+    The normal (task self-retry) path uses a deterministic id so a retry and a
+    sweeper pass for the *same* attempt collapse to one job. The sweeper passes a
+    ``reclaim_token`` (the lease timestamp) to get a distinct id, so reconciling a
+    delivered-but-unrecorded row is not deduped against the original attempt's
+    already-completed job. The atomic claim still guarantees at most one send.
+    """
     from api.tasks.arq import enqueue_job  # lazy import avoids circular import
+
+    if reclaim_token is not None:
+        job_id = f"webhook-delivery-reclaim-{delivery_id}-{reclaim_token}"
+    else:
+        job_id = _delivery_job_id(delivery_id, attempt_count)
 
     await enqueue_job(
         FunctionNames.DELIVER_WEBHOOK,
         delivery_id,
-        _job_id=_delivery_job_id(delivery_id, attempt_count),
+        _job_id=job_id,
         _defer_by=defer_by,
     )
 
@@ -228,7 +245,20 @@ async def sweep_webhook_deliveries(_ctx) -> None:
         if not due:
             break
         for delivery in due:
-            await _enqueue_delivery(delivery.id, attempt_count=delivery.attempt_count)
+            # A reclaim token (the current lease timestamp) gives this a fresh job
+            # id so it is not deduped against the original attempt's completed job
+            # -- otherwise a delivered-but-unrecorded row could sit until ARQ's
+            # result retention clears.
+            reclaim_token = (
+                int(delivery.scheduled_for.timestamp())
+                if delivery.scheduled_for
+                else 0
+            )
+            await _enqueue_delivery(
+                delivery.id,
+                attempt_count=delivery.attempt_count,
+                reclaim_token=reclaim_token,
+            )
         total += len(due)
         after_id = due[-1].id
         if len(due) < page_size:

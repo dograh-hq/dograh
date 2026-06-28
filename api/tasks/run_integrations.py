@@ -408,24 +408,31 @@ def _build_webhook_payload(
     return payload
 
 
-# Header names that commonly carry secrets. Their values are NOT persisted on
-# the delivery row (which would store them in plaintext); secrets belong in the
-# credential store, which is re-resolved at send time. A custom header with one
-# of these names is dropped with a warning.
-_SENSITIVE_HEADER_KEYS = frozenset(
-    {
-        "authorization",
-        "proxy-authorization",
-        "cookie",
-        "set-cookie",
-        "x-api-key",
-        "api-key",
-        "x-auth-token",
-        "x-secret-key",
-        "x-secret",
-        "x-access-token",
-    }
+# Substrings that mark a header as likely carrying a secret. Matched against the
+# normalized key so variants are caught too (e.g. ``X-Custom-Auth-Token``,
+# ``My-Api-Key``), not just exact names. Their values are NOT persisted on the
+# delivery row (which would store them in plaintext); secrets belong in the
+# credential store, re-resolved at send time. Bare "key" is intentionally absent
+# to avoid dropping benign headers like ``X-Idempotency-Key``.
+_SECRET_HEADER_MARKERS = (
+    "authorization",
+    "auth",
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "cookie",
+    "credential",
+    "api-key",
+    "apikey",
+    "api_key",
+    "access-key",
 )
+
+
+def _looks_like_secret_header(key: str) -> bool:
+    normalized = key.strip().lower()
+    return any(marker in normalized for marker in _SECRET_HEADER_MARKERS)
 
 
 def _safe_custom_headers(
@@ -441,7 +448,7 @@ def _safe_custom_headers(
     for h in webhook_data.custom_headers or []:
         if not (h.key and h.value):
             continue
-        if h.key.strip().lower() in _SENSITIVE_HEADER_KEYS:
+        if _looks_like_secret_header(h.key):
             logger.warning(
                 f"Webhook '{webhook_name}' custom header '{h.key}' looks like a "
                 f"secret; it will not be stored or sent. Use a credential instead."

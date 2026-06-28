@@ -1072,8 +1072,9 @@ class WebhookDeliveryModel(Base):
 
     # Workflow node that produced this delivery. Combined with workflow_run_id it
     # is the per-run/per-node idempotency key, so a retried run_integrations does
-    # not create (and send) a duplicate delivery for the same node.
-    webhook_node_id = Column(String, nullable=True)
+    # not create (and send) a duplicate delivery for the same node. Non-nullable:
+    # a NULL would be distinct under the unique constraint and defeat the dedupe.
+    webhook_node_id = Column(String, nullable=False)
 
     status = Column(
         Enum(

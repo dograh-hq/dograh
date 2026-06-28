@@ -44,7 +44,7 @@ def upgrade() -> None:
         ),
         sa.Column("custom_headers", sa.JSON(), nullable=True),
         sa.Column("credential_uuid", sa.String(length=36), nullable=True),
-        sa.Column("webhook_node_id", sa.String(), nullable=True),
+        sa.Column("webhook_node_id", sa.String(), nullable=False),
         sa.Column(
             "status",
             sa.Enum(

@@ -45,6 +45,9 @@ async def test_report_workflow_run_platform_usage_reports_hosted_completion(
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
+        workflow_run_billing_mod, "MANAGED_MODEL_SERVICES_ENABLED", True
+    )
+    monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "get_billing_account_status",
         get_status,
@@ -81,6 +84,9 @@ async def test_report_workflow_run_platform_usage_reports_duration_without_corre
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
+        workflow_run_billing_mod, "MANAGED_MODEL_SERVICES_ENABLED", True
+    )
+    monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "get_billing_account_status",
         get_status,
@@ -114,6 +120,9 @@ async def test_report_workflow_run_platform_usage_skips_non_v2_account(monkeypat
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
+        workflow_run_billing_mod, "MANAGED_MODEL_SERVICES_ENABLED", True
+    )
+    monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "get_billing_account_status",
         get_status,
@@ -141,6 +150,9 @@ async def test_report_workflow_run_platform_usage_skips_missing_duration_without
     report_usage = AsyncMock()
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(
+        workflow_run_billing_mod, "MANAGED_MODEL_SERVICES_ENABLED", True
+    )
     monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "get_billing_account_status",
@@ -183,6 +195,9 @@ async def test_report_workflow_run_platform_usage_skips_incomplete(monkeypatch):
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
     monkeypatch.setattr(
+        workflow_run_billing_mod, "MANAGED_MODEL_SERVICES_ENABLED", True
+    )
+    monkeypatch.setattr(
         workflow_run_billing_mod.mps_service_key_client,
         "report_platform_usage",
         report_usage,
@@ -201,6 +216,9 @@ async def test_report_completed_workflow_run_platform_usage_loads_run(monkeypatc
     report_usage = AsyncMock(return_value={"metered": True})
 
     monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "saas")
+    monkeypatch.setattr(
+        workflow_run_billing_mod, "MANAGED_MODEL_SERVICES_ENABLED", True
+    )
     monkeypatch.setattr(
         workflow_run_billing_mod.db_client,
         "get_workflow_run_by_id",
@@ -221,3 +239,23 @@ async def test_report_completed_workflow_run_platform_usage_loads_run(monkeypatc
 
     get_run.assert_awaited_once_with(workflow_run.id)
     report_usage.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_report_noop_when_mps_disabled_even_if_hosted(monkeypatch):
+    run = SimpleNamespace(id=1, is_completed=True)
+    report = AsyncMock()
+
+    monkeypatch.setattr(workflow_run_billing_mod, "DEPLOYMENT_MODE", "hosted")
+    monkeypatch.setattr(
+        workflow_run_billing_mod, "MANAGED_MODEL_SERVICES_ENABLED", False
+    )
+    monkeypatch.setattr(
+        workflow_run_billing_mod.mps_service_key_client,
+        "report_platform_usage",
+        report,
+    )
+
+    await report_workflow_run_platform_usage(run)
+
+    report.assert_not_awaited()

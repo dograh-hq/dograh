@@ -12,13 +12,16 @@ Conductor gives every workspace a block of **10 ports** starting at
 
 | Port            | Service            | Script                  |
 | --------------- | ------------------ | ----------------------- |
-| `CONDUCTOR_PORT`     | Backend (uvicorn)  | `run-backend.sh` |
-| `CONDUCTOR_PORT + 1` | UI (Next.js)       | `run-ui.sh`      |
+| `CONDUCTOR_PORT`     | UI (Next.js)       | `run-ui.sh`      |
+| `CONDUCTOR_PORT + 1` | Backend (uvicorn)  | `run-backend.sh` |
 | `+2 .. +9`           | reserved           | —                       |
 
-The UI is wired to its own workspace's backend (`NEXT_PUBLIC_BACKEND_URL`,
-`BACKEND_URL`) and the backend's CORS / `UI_APP_URL` point back at its own UI —
-all derived from `$CONDUCTOR_PORT`, so no two workspaces interfere.
+The UI sits on the base port so Conductor's **Open** button (`preview_urls`)
+lands on it directly — preview templates only substitute `$CONDUCTOR_PORT`, with
+no `+1` arithmetic. The UI is wired to its own workspace's backend
+(`NEXT_PUBLIC_BACKEND_URL`, `BACKEND_URL`) and the backend's CORS / `UI_APP_URL`
+point back at its own UI — all derived from `$CONDUCTOR_PORT`, so no two
+workspaces interfere.
 
 ### Shared, NOT per-workspace
 
@@ -32,21 +35,28 @@ for everyone.
 
 ## The Run menu
 
-Conductor shows three buttons (`run_mode = "concurrent"`, so they coexist):
+> **Important:** a Conductor workspace runs **one run script at a time**.
+> `run_mode = "concurrent"` lets *different workspaces* run simultaneously — it
+> does **not** let you click two run buttons in the *same* workspace. That's why
+> **dev** starts the UI and backend together instead of relying on two buttons.
 
-- **backend** (default) — FastAPI/uvicorn with `--reload` on `$CONDUCTOR_PORT`
-- **ui** — Next.js dev server on `$CONDUCTOR_PORT + 1`
-- **worker** — Arq worker; start in just one workspace
+The Run dropdown offers:
 
-Start **backend** and **ui** in each workspace you want to use. Start **worker**
-once (e.g. in your primary workspace) when you need background jobs — the same
-way you used to run a single arq worker in VS Code.
+- **dev** (default) — UI (`$CONDUCTOR_PORT`) **and** backend (`$CONDUCTOR_PORT+1`)
+  together, via `concurrently`. **Use this day to day.**
+- **ui** — Next.js only, for debugging the frontend alone.
+- **backend** — uvicorn only, for debugging the API alone.
+- **worker** — Arq worker; start in just one workspace.
+
+Hit **dev** and both servers come up; click Conductor's **Open** button to launch
+the UI. Start **worker** once (e.g. in your primary workspace) when you need
+background jobs — the same way you used to run a single arq worker in VS Code.
 
 ## Proving you're in the right worktree
 
 `run-ui.sh` exports `NEXT_PUBLIC_WORKSPACE_NAME=$CONDUCTOR_WORKSPACE_NAME`, which
 `ui/src/components/WorkspaceBadge.tsx` renders as a small color-coded pill in the
-bottom-left corner (e.g. `⬡ pattaya :8201`). The color is derived from the
+bottom-left corner (e.g. `⬡ pattaya :8200`). The color is derived from the
 workspace name, so two worktrees are instantly distinguishable. The badge is
 invisible in production and in a plain `npm run dev` (no env var set).
 
@@ -69,10 +79,11 @@ The first setup is slow (deps); afterwards the Run buttons are instant.
 
 | File                  | Purpose                                            |
 | --------------------- | -------------------------------------------------- |
-| `settings.toml`       | Conductor config: setup + run scripts, run_mode    |
+| `settings.toml`       | Conductor config: setup + run scripts, preview_urls |
 | `setup.sh`            | One-time workspace bootstrap                        |
-| `run-backend.sh`      | Foreground uvicorn on `$CONDUCTOR_PORT`             |
-| `run-ui.sh`           | Foreground Next.js on `$CONDUCTOR_PORT + 1`         |
+| `run-dev.sh`          | Default run: UI + backend together (`concurrently`) |
+| `run-ui.sh`           | Foreground Next.js on `$CONDUCTOR_PORT`             |
+| `run-backend.sh`      | Foreground uvicorn on `$CONDUCTOR_PORT + 1`         |
 | `run-worker.sh`       | Foreground Arq worker (run in one workspace only)   |
 | `../.worktreeinclude` | Gitignored env files Conductor copies per workspace |
 

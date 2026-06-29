@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Conductor run script — UI (Next.js) for THIS workspace.
 #
-# Binds $CONDUCTOR_PORT + 1, talks to this workspace's backend on $CONDUCTOR_PORT,
-# and tags the build with the workspace identity (NEXT_PUBLIC_WORKSPACE_NAME) so
-# the in-app WorkspaceBadge shows which worktree you're looking at.
-# Runs in the FOREGROUND with exec (no &) so Conductor can stop it cleanly.
+# Binds $CONDUCTOR_PORT (so Conductor's Open button / preview_urls land here),
+# talks to this workspace's backend on $CONDUCTOR_PORT + 1, and tags the build
+# with the workspace identity (NEXT_PUBLIC_WORKSPACE_NAME) so the in-app
+# WorkspaceBadge shows which worktree you're looking at. Foreground exec (no &)
+# so Conductor can stop it cleanly.
 set -euo pipefail
 cd "${CONDUCTOR_WORKSPACE_PATH:-$PWD}"
 
-PORT="${CONDUCTOR_PORT:-8000}"
-UI_PORT="$((PORT + 1))"
-BACKEND="http://localhost:${PORT}"
+UI_PORT="${CONDUCTOR_PORT:-8000}"
+BACKEND_PORT="$((UI_PORT + 1))"
+BACKEND="http://localhost:${BACKEND_PORT}"
 
 # Ensure node is on PATH (load nvm + honor .nvmrc if needed).
 if ! command -v node >/dev/null 2>&1; then

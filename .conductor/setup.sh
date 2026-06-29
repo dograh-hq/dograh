@@ -2,9 +2,8 @@
 # Conductor setup script — runs ONCE when a workspace (git worktree) is created.
 #
 # A fresh worktree only has git-tracked files, so this recreates the rest: the
-# pipecat submodule checkout, a Python venv, ui/node_modules, the shared local
-# Docker stack, and the DB schema. (Gitignored env files are copied separately
-# by .worktreeinclude, BEFORE this script runs.)
+# gitignored env files, the pipecat submodule checkout, a Python venv,
+# ui/node_modules, the shared local Docker stack, and the DB schema.
 #
 # Conductor injects: CONDUCTOR_ROOT_PATH (main checkout), CONDUCTOR_WORKSPACE_PATH,
 # CONDUCTOR_WORKSPACE_NAME, CONDUCTOR_PORT (first of 10), CONDUCTOR_IS_LOCAL.
@@ -16,16 +15,17 @@ cd "$WS"
 
 log() { printf '\n\033[1;36m[conductor-setup]\033[0m %s\n' "$*"; }
 
-# 1) Env files — normally copied by .worktreeinclude BEFORE this runs (the
-# Conductor-native file-copy mechanism). This block is only a FALLBACK so that
-# `bash .conductor/setup.sh` also works when run by hand outside Conductor: it
-# copies just the files that are still missing, and is a no-op under Conductor.
+# 1) Copy the gitignored env files from the main checkout. These hold real
+# secrets, so they're never committed — a fresh worktree won't have them. We copy
+# only what's missing (idempotent), so re-running setup won't clobber local edits.
+# (See README "Environment files" for the canonical list.)
 if [[ -n "$ROOT" && "$ROOT" != "$WS" ]]; then
+  log "Copying gitignored env files from $ROOT"
   for f in api/.env api/.env.test ui/.env ui/.env.local ui/.env.sentry-build-plugin; do
     if [[ ! -f "$f" && -f "$ROOT/$f" ]]; then
       mkdir -p "$(dirname "$f")"
       cp "$ROOT/$f" "$f"
-      log "fallback-copied $f (not present from .worktreeinclude)"
+      echo "  copied $f"
     fi
   done
 fi

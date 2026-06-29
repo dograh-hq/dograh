@@ -52,28 +52,38 @@ Hit **dev** and both servers come up; click Conductor's **Open** button to launc
 the UI. Start **worker** once (e.g. in your primary workspace) when you need
 background jobs — the same way you used to run a single arq worker in VS Code.
 
-## Proving you're in the right worktree
-
-`run-ui.sh` exports `NEXT_PUBLIC_WORKSPACE_NAME=$CONDUCTOR_WORKSPACE_NAME`, which
-`ui/src/components/WorkspaceBadge.tsx` renders as a small color-coded pill in the
-bottom-left corner (e.g. `⬡ pattaya :8200`). The color is derived from the
-workspace name, so two worktrees are instantly distinguishable. The badge is
-invisible in production and in a plain `npm run dev` (no env var set).
-
 ## Creating a new workspace
 
-In Conductor: **New Workspace** → pick a branch. Conductor first copies the
-gitignored env files listed in `../.worktreeinclude` (`api/.env`, `ui/.env`,
-`ui/.env.local`, …) from your main checkout, then `setup.sh` runs automatically
-and:
+In Conductor: **New Workspace** → pick a branch. `setup.sh` then runs
+automatically and:
 
-1. checks out the `pipecat` submodule,
-2. builds `venv` (Python 3.13) + installs backend/pipecat deps,
-3. `npm install` for the UI,
-4. ensures the shared Docker stack is up,
-5. runs `alembic upgrade head`.
+1. copies the gitignored env files from your main checkout (see
+   [Environment files](#environment-files)),
+2. checks out the `pipecat` submodule,
+3. builds `venv` (Python 3.13) + installs backend/pipecat deps,
+4. `npm install` for the UI,
+5. ensures the shared Docker stack is up,
+6. runs `alembic upgrade head`.
 
 The first setup is slow (deps); afterwards the Run buttons are instant.
+
+## Environment files
+
+The app's env files hold real secrets, so they're **gitignored** and never
+committed — a fresh worktree won't have them. `setup.sh` copies them from your
+main checkout (`$CONDUCTOR_ROOT_PATH`) into each new workspace:
+
+| File                          | Used by                          |
+| ----------------------------- | -------------------------------- |
+| `api/.env`                    | backend (DB/Redis URLs, secrets) |
+| `api/.env.test`               | backend test runs                |
+| `ui/.env`                     | UI (backend URL, public config)  |
+| `ui/.env.local`               | UI secrets (Stack/PostHog/etc.)  |
+| `ui/.env.sentry-build-plugin` | UI Sentry source-map upload      |
+
+The copy is idempotent (only fills in what's missing), so re-running setup won't
+clobber a workspace-local edit. **Add a new env file?** List it in the loop near
+the top of `setup.sh`.
 
 ## Files
 
@@ -85,7 +95,6 @@ The first setup is slow (deps); afterwards the Run buttons are instant.
 | `run-ui.sh`           | Foreground Next.js on `$CONDUCTOR_PORT`             |
 | `run-backend.sh`      | Foreground uvicorn on `$CONDUCTOR_PORT + 1`         |
 | `run-worker.sh`       | Foreground Arq worker (run in one workspace only)   |
-| `../.worktreeinclude` | Gitignored env files Conductor copies per workspace |
 
 > Need machine-local tweaks (e.g. a different port base or skipping the worker)?
 > Put them in `.conductor/settings.local.toml`, which is personal and not

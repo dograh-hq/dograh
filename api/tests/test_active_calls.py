@@ -6,11 +6,15 @@ worker. The guarantees that matter for draining: register/unregister are
 idempotent, and the count only reaches zero when every registered run is gone.
 """
 
+import asyncio
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import main as main_routes
 from api.services.pipecat import active_calls
+from api.services.pipecat import run_pipeline as run_pipeline_module
 
 
 def setup_function():
@@ -69,6 +73,107 @@ def test_full_lifecycle_drains_to_zero():
     active_calls.register_active_call(42)
     assert active_calls.active_call_count() == 1
     active_calls.unregister_active_call(42)
+    assert active_calls.active_call_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_counts_call_during_setup(monkeypatch):
+    entered_setup = asyncio.Event()
+    release_setup = asyncio.Event()
+
+    async def fake_get_workflow_run(*args, **kwargs):
+        entered_setup.set()
+        await release_setup.wait()
+        raise RuntimeError("setup failed")
+
+    monkeypatch.setattr(
+        run_pipeline_module.db_client,
+        "get_workflow_run",
+        fake_get_workflow_run,
+    )
+
+    task = asyncio.create_task(
+        run_pipeline_module._run_pipeline(
+            transport=object(),
+            workflow_id=1,
+            workflow_run_id=42,
+            user_id=7,
+        )
+    )
+
+    await asyncio.wait_for(entered_setup.wait(), timeout=1.0)
+    assert active_calls.active_call_count() == 1
+
+    release_setup.set()
+    with pytest.raises(RuntimeError, match="setup failed"):
+        await asyncio.wait_for(task, timeout=1.0)
+    assert active_calls.active_call_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_webrtc_entrypoint_counts_call_during_setup(monkeypatch):
+    entered_setup = asyncio.Event()
+    release_setup = asyncio.Event()
+
+    async def fake_get_workflow(*args, **kwargs):
+        entered_setup.set()
+        await release_setup.wait()
+        raise RuntimeError("setup failed")
+
+    monkeypatch.setattr(
+        run_pipeline_module.db_client, "get_workflow", fake_get_workflow
+    )
+
+    task = asyncio.create_task(
+        run_pipeline_module.run_pipeline_smallwebrtc(
+            webrtc_connection=object(),
+            workflow_id=1,
+            workflow_run_id=43,
+            user_id=7,
+        )
+    )
+
+    await asyncio.wait_for(entered_setup.wait(), timeout=1.0)
+    assert active_calls.active_call_count() == 1
+
+    release_setup.set()
+    with pytest.raises(RuntimeError, match="setup failed"):
+        await asyncio.wait_for(task, timeout=1.0)
+    assert active_calls.active_call_count() == 0
+
+
+@pytest.mark.asyncio
+async def test_telephony_entrypoint_counts_call_during_setup(monkeypatch):
+    entered_setup = asyncio.Event()
+    release_setup = asyncio.Event()
+
+    async def fake_get_workflow(*args, **kwargs):
+        entered_setup.set()
+        await release_setup.wait()
+        raise RuntimeError("setup failed")
+
+    monkeypatch.setattr(
+        run_pipeline_module.db_client, "get_workflow", fake_get_workflow
+    )
+
+    task = asyncio.create_task(
+        run_pipeline_module.run_pipeline_telephony(
+            websocket=object(),
+            provider_name="twilio",
+            workflow_id=1,
+            workflow_run_id=44,
+            user_id=7,
+            call_id="call-1",
+            transport_kwargs={},
+        )
+    )
+
+    await asyncio.wait_for(entered_setup.wait(), timeout=1.0)
+    assert active_calls.active_call_count() == 1
+
+    release_setup.set()
+    with pytest.raises(RuntimeError, match="setup failed"):
+        await asyncio.wait_for(task, timeout=1.0)
     assert active_calls.active_call_count() == 0
 
 

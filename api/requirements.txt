@@ -21,3 +21,4 @@ fastmcp==3.2.4
 tuner-pipecat-sdk==0.2.0
 PyNaCl==1.6.2
 cryptography==48.0.1
+anthropic>=0.69.0

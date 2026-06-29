@@ -22,6 +22,7 @@ import {
   PhoneCall,
   Settings,
   ShieldCheck,
+  Sparkles,
   UserRound,
   Users,
   Workflow,
@@ -103,6 +104,11 @@ const NAV_SECTIONS: SidebarNavSection[] = [
   {
     label: "BUILD",
     items: [
+      {
+        title: "Build with AI",
+        url: "/agent-builder",
+        icon: Sparkles,
+      },
       {
         title: "Voice Agents",
         url: "/workflow",

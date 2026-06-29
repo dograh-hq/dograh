@@ -6,6 +6,8 @@ from pydantic import BaseModel
 
 from api.db.models import UserModel
 from api.enums import PostHogEvent
+from api.schemas.agent_builder import AgentBuildRequest, AgentBuildResponse
+from api.services.agent_builder import generator
 from api.services.agent_builder.service import (
     AgentBuilderError,
     BusinessInfo,
@@ -84,3 +86,44 @@ async def create_agent(
     )
 
     return CreateAgentResponse(workflow_id=workflow.id, name=workflow.name)
+
+
+@router.post("/generate")
+async def generate_agent(
+    request: AgentBuildRequest,
+    user: UserModel = Depends(get_user),
+) -> AgentBuildResponse:
+    """Generate a draft workflow (+ tools) from a business prompt via Claude.
+
+    Calls the Anthropic Claude API to design a Dograh workflow_definition,
+    creates the http_api tools it needs, and saves the result as a draft
+    workflow owned by the caller's organization.
+    """
+    try:
+        result = await generator.generate_agent(request, user)
+    except generator.AgentBuilderConfigError as e:
+        # Missing ANTHROPIC_API_KEY (or anthropic package) -> not configured.
+        raise HTTPException(status_code=503, detail=str(e))
+    except generator.AgentBuilderClaudeError as e:
+        # Claude request or JSON-parse failure.
+        raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001 - never leak a raw 500
+        logger.error(f"Agent builder generate failed: {e}")
+        raise HTTPException(
+            status_code=502, detail=f"Agent generation failed: {e}"
+        )
+
+    capture_event(
+        distinct_id=str(user.provider_id),
+        event=PostHogEvent.WORKFLOW_CREATED,
+        properties={
+            "workflow_id": result["workflow_id"],
+            "workflow_name": result["name"],
+            "source": "agent_builder_generate",
+            "organization_id": user.selected_organization_id,
+        },
+    )
+
+    return AgentBuildResponse(**result)

@@ -14,6 +14,10 @@ from api.services.configuration.options import (
     AZURE_SPEECH_STT_LANGUAGES,
     AZURE_SPEECH_TTS_LANGUAGES,
     AZURE_SPEECH_TTS_VOICES,
+    CARTESIA_INK_2_STT_LANGUAGES,
+    CARTESIA_INK_WHISPER_STT_LANGUAGES,
+    CARTESIA_STT_LANGUAGES,
+    CARTESIA_STT_MODELS,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
     DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
@@ -1323,9 +1327,6 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
 
 
-CARTESIA_STT_MODELS = ["ink-whisper"]
-
-
 @register_stt
 class CartesiaSTTConfiguration(BaseSTTConfiguration):
     model_config = CARTESIA_PROVIDER_MODEL_CONFIG
@@ -1334,6 +1335,17 @@ class CartesiaSTTConfiguration(BaseSTTConfiguration):
         default="ink-whisper",
         description="Cartesia STT model.",
         json_schema_extra={"examples": CARTESIA_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code. ink-2 currently supports English only.",
+        json_schema_extra={
+            "examples": CARTESIA_STT_LANGUAGES,
+            "model_options": {
+                "ink-2": CARTESIA_INK_2_STT_LANGUAGES,
+                "ink-whisper": CARTESIA_INK_WHISPER_STT_LANGUAGES,
+            },
+        },
     )
 
 
@@ -1726,7 +1738,7 @@ class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
-DOGRAH_EMBEDDING_MODELS = ["default"]
+DOGRAH_EMBEDDING_MODELS = ["dograh_embedding_v1"]
 
 
 @register_embeddings
@@ -1734,7 +1746,7 @@ class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     model_config = DOGRAH_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
     model: str = Field(
-        default="default",
+        default="dograh_embedding_v1",
         description="Dograh-managed embedding model.",
         json_schema_extra={"examples": DOGRAH_EMBEDDING_MODELS},
     )

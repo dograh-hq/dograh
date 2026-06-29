@@ -167,8 +167,13 @@ export function AppSidebar() {
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
   const { openHireExpert } = useLeadForms();
-  const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
-  const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
+  const {
+    telnyxMissingWebhookPublicKeyCount,
+    vonageMissingSignatureSecretCount,
+  } = useTelephonyConfigWarnings();
+  const hasTelephonyWarning =
+    telnyxMissingWebhookPublicKeyCount > 0 ||
+    vonageMissingSignatureSecretCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
 
   // Get selected team for Stack auth (cast to Team type from Stack)

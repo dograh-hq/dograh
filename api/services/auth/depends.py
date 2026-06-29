@@ -457,6 +457,11 @@ async def create_user_configuration_with_mps_key(
                         "api_key": [service_key],
                         "model": "default",
                     },
+                    "embeddings": {
+                        "provider": ServiceProviders.DOGRAH.value,
+                        "api_key": [service_key],
+                        "model": "dograh_embedding_v1",
+                    },
                 }
                 effective_config = EffectiveAIModelConfiguration(**configuration)
                 return effective_config

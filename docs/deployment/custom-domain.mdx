@@ -5,6 +5,10 @@ description: "Deploy Dograh AI with custom domain names and SSL certificates"
 
 Deploy Dograh AI with your own custom domain name for a professional production setup. By now, you should be able to create and test a voice agent by following the previous guide to setup the platform on a remote server using [Docker](docker#option-2%3A-remote-server-deployment)
 
+<Tip>
+**You don't need to own a domain just to remove the browser warning.** If your server has a public IP, the [remote setup](docker#option-2%3A-remote-server-deployment) already issues a free, auto-renewing Let's Encrypt certificate via [sslip.io](https://sslip.io) (e.g. `https://203-0-113-10.sslip.io`) — no DNS configuration required. Follow this Custom Domain guide only when you want your **own** domain name (e.g. `voice.yourcompany.com`).
+</Tip>
+
 ## What is Custom Domain Deployment?
 
 Custom domain deployment allows you to run Dograh AI with a personalized domain name (like `voice.yourcompany.com`) instead of using IP addresses. This setup includes:
@@ -109,65 +113,50 @@ sudo apt install certbot -y
 sudo yum install certbot -y
 ```
 
-### Stop Dograh Services
+### Point `.env` at your domain
 
-Before generating certificates, stop the running Dograh services to free up port 80:
+Update `.env` so the canonical remote settings use your domain — `dograh-init` reads these to render nginx's `server_name`. Replace `voice.yourcompany.com` with your actual domain throughout:
 
 ```bash
 cd dograh
-sudo docker compose --profile remote down
+sed -i "s/^PUBLIC_HOST=.*/PUBLIC_HOST=voice.yourcompany.com/" .env
+sed -i "s|^PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=https://voice.yourcompany.com|" .env
 ```
 
-### Generate SSL Certificates
+### Start services so nginx can answer the ACME challenge
 
-Run Certbot to obtain SSL certificates for your domain:
+Bring the stack up (or recreate it) through the validated wrapper. nginx serves the Let's Encrypt HTTP-01 challenge from `certs/.well-known/acme-challenge/` on port 80, so the stack must be **running** during issuance — there's no need to stop it:
 
 ```bash
-sudo certbot certonly --standalone -d voice.yourcompany.com
+./remote_up.sh
 ```
 
-Replace `voice.yourcompany.com` with your actual domain name.
+### Generate the SSL certificate (webroot)
+
+Issue the certificate using the webroot challenge served by the running nginx:
+
+```bash
+sudo certbot certonly --webroot -w "$(pwd)/certs" -d voice.yourcompany.com
+```
 
 Certbot will:
-1. Verify that you control the domain
-2. Generate SSL certificates
-3. Store them in `/etc/letsencrypt/live/voice.yourcompany.com/`
+1. Write a challenge file under `certs/.well-known/acme-challenge/`
+2. Have Let's Encrypt fetch it over HTTP (port 80) to verify you control the domain
+3. Store the certificate in `/etc/letsencrypt/live/voice.yourcompany.com/`
 
 <Note>
-You'll be prompted to enter an email address for renewal notifications and agree to the terms of service.
+You'll be prompted for an email address (for renewal notices) and to agree to the terms of service. Because nginx keeps serving traffic throughout, issuance and renewal happen with **no downtime** — unlike the older `--standalone` flow, which had to stop the stack to free port 80.
 </Note>
 
-### Copy Certificates to Dograh Directory
+### Copy the certificate and load it
 
-Copy the generated certificates to the dograh certs directory:
+Copy the issued certificate into the `certs/` directory nginx reads, then restart nginx to load it:
 
 ```bash
-cd dograh
 sudo cp /etc/letsencrypt/live/voice.yourcompany.com/fullchain.pem certs/local.crt
 sudo cp /etc/letsencrypt/live/voice.yourcompany.com/privkey.pem certs/local.key
 sudo chmod 644 certs/local.crt certs/local.key
-```
-
-### Update Canonical Public URL Settings
-
-Update `.env` so the canonical remote settings point at your domain:
-
-```bash
-nano dograh/.env
-```
-
-```bash
-PUBLIC_HOST=voice.yourcompany.com
-PUBLIC_BASE_URL=https://voice.yourcompany.com
-```
-
-### Start Dograh Services
-
-Start Dograh through the validated startup wrapper so `dograh-init` regenerates nginx and coturn runtime config before Docker starts:
-
-```bash
-cd dograh
-./remote_up.sh
+sudo docker compose --profile remote restart nginx
 ```
 
 ### Access Your Application
@@ -222,7 +211,7 @@ sudo certbot renew --dry-run
 
 If Certbot fails to generate certificates:
 
-1. **Port 80 blocked**: Ensure port 80 is open in your firewall and no service is using it
+1. **Port 80 blocked**: Ensure port 80 is open in your firewall and reachable from the internet. With the webroot flow nginx must be **running** and serving the challenge on port 80 (don't stop the stack)
 2. **DNS not propagated**: Wait for DNS changes to propagate and verify with `nslookup`
 3. **Rate limits**: Let's Encrypt has rate limits. If you've exceeded them, wait before retrying
 

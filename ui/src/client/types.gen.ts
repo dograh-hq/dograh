@@ -177,6 +177,16 @@ export type AwsBedrockLlmConfiguration = {
 };
 
 /**
+ * ActiveCallsResponse
+ */
+export type ActiveCallsResponse = {
+    /**
+     * Active Calls
+     */
+    active_calls: number;
+};
+
+/**
  * AmbientNoiseUploadRequest
  */
 export type AmbientNoiseUploadRequest = {
@@ -1042,6 +1052,12 @@ export type CartesiaSttConfiguration = {
      * Cartesia STT model.
      */
     model?: string;
+    /**
+     * Language
+     *
+     * ISO 639-1 language code. ink-2 currently supports English only.
+     */
+    language?: string;
 };
 
 /**
@@ -2830,6 +2846,10 @@ export type HealthResponse = {
      * Backend Api Endpoint
      */
     backend_api_endpoint: string;
+    /**
+     * Tunnel Url
+     */
+    tunnel_url?: string | null;
     /**
      * Deployment Mode
      */
@@ -5303,6 +5323,10 @@ export type TelephonyConfigWarningsResponse = {
      * Telnyx Missing Webhook Public Key Count
      */
     telnyx_missing_webhook_public_key_count: number;
+    /**
+     * Vonage Missing Signature Secret Count
+     */
+    vonage_missing_signature_secret_count: number;
 };
 
 /**
@@ -5892,6 +5916,12 @@ export type TwilioConfigurationRequest = {
      * List of Twilio phone numbers
      */
     from_numbers?: Array<string>;
+    /**
+     * Amd Enabled
+     *
+     * Detect whether outbound calls are answered by a person or machine. Twilio may bill AMD as an additional per-call feature.
+     */
+    amd_enabled?: boolean;
 };
 
 /**
@@ -5916,6 +5946,10 @@ export type TwilioConfigurationResponse = {
      * From Numbers
      */
     from_numbers: Array<string>;
+    /**
+     * Amd Enabled
+     */
+    amd_enabled?: boolean;
 };
 
 /**
@@ -6398,6 +6432,12 @@ export type VonageConfigurationRequest = {
      */
     private_key: string;
     /**
+     * Signature Secret
+     *
+     * Vonage signature secret used to verify signed webhooks
+     */
+    signature_secret?: string | null;
+    /**
      * From Numbers
      *
      * List of Vonage phone numbers (without + prefix)
@@ -6431,6 +6471,10 @@ export type VonageConfigurationResponse = {
      * Private Key
      */
     private_key: string;
+    /**
+     * Signature Secret
+     */
+    signature_secret?: string | null;
     /**
      * From Numbers
      */
@@ -7517,6 +7561,27 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/vonage/events';
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostResponses = {
     /**
      * Successful Response
      */
@@ -13824,3 +13889,38 @@ export type HealthApiV1HealthGetResponses = {
 };
 
 export type HealthApiV1HealthGetResponse = HealthApiV1HealthGetResponses[keyof HealthApiV1HealthGetResponses];
+
+export type ActiveCallsApiV1HealthActiveCallsGetData = {
+    body?: never;
+    headers?: {
+        /**
+         * X-Dograh-Devops-Secret
+         */
+        'X-Dograh-Devops-Secret'?: string | null;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/health/active-calls';
+};
+
+export type ActiveCallsApiV1HealthActiveCallsGetErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ActiveCallsApiV1HealthActiveCallsGetError = ActiveCallsApiV1HealthActiveCallsGetErrors[keyof ActiveCallsApiV1HealthActiveCallsGetErrors];
+
+export type ActiveCallsApiV1HealthActiveCallsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ActiveCallsResponse;
+};
+
+export type ActiveCallsApiV1HealthActiveCallsGetResponse = ActiveCallsApiV1HealthActiveCallsGetResponses[keyof ActiveCallsApiV1HealthActiveCallsGetResponses];

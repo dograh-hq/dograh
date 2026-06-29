@@ -93,12 +93,17 @@ class WorkflowRunClient(BaseDBClient):
                 else workflow.template_context_variables
             )
 
+            merged_initial_context = {
+                **(default_context or {}),
+                **(initial_context or {}),
+            }
+
             new_run = WorkflowRunModel(
                 name=name,
                 workflow=workflow,
                 mode=mode,
                 definition_id=target_def.id if target_def else None,
-                initial_context=initial_context or default_context,
+                initial_context=merged_initial_context,
                 gathered_context=gathered_context or {},
                 logs=logs or {},
                 campaign_id=campaign_id,

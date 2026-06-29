@@ -65,7 +65,9 @@ Set these when `AUTH_PROVIDER=stack` to delegate sign-in to [Stack Auth](https:/
 
 | Variable | Default | Description |
 |---|---|---|
-| `BACKEND_API_ENDPOINT` | `http://localhost:8000` | Internal URL of the backend API |
+| `PUBLIC_BASE_URL` | `null` | Canonical public origin for the deployment (scheme + host, e.g. `https://203-0-113-10.sslip.io`). For a standard single-host install this is the only endpoint value you set — `BACKEND_API_ENDPOINT` and `MINIO_PUBLIC_ENDPOINT` derive from it |
+| `PUBLIC_HOST` | `null` | Public host without scheme (e.g. `203-0-113-10.sslip.io`); `TURN_HOST` derives from it |
+| `BACKEND_API_ENDPOINT` | `PUBLIC_BASE_URL`, else `http://localhost:8000` | Public URL the backend builds webhook / callback / embed links from. Set explicitly only to override the value derived from `PUBLIC_BASE_URL` |
 | `UI_APP_URL` | `http://localhost:3010` | URL of the frontend application |
 | `MPS_API_URL` | `https://services.dograh.com` | Dograh Managed Platform Services URL |
 | `DOGRAH_MPS_SECRET_KEY` | `null` | **Required for non-OSS deployments.** Secret key for authenticating with MPS |
@@ -82,7 +84,7 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 | Variable | Default | Description |
 |---|---|---|
 | `MINIO_ENDPOINT` | `localhost:9000` | MinIO server host and port |
-| `MINIO_PUBLIC_ENDPOINT` | `null` | Publicly accessible MinIO URL (for download links) |
+| `MINIO_PUBLIC_ENDPOINT` | `PUBLIC_BASE_URL`, else `http://localhost:9000` | Publicly accessible MinIO URL for download links. Derives from `PUBLIC_BASE_URL`; set explicitly only for a separate object-storage origin |
 | `MINIO_ACCESS_KEY` | N/A | **Required for OSS deployments.** MinIO access key. Must be set to a secure value in production |
 | `MINIO_SECRET_KEY` | N/A | **Required for OSS deployments.** MinIO secret key. Must be set to a secure value in production |
 | `MINIO_BUCKET` | `voice-audio` | Bucket name for audio files |
@@ -128,7 +130,7 @@ Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from t
 
 | Variable | Default | Description |
 |---|---|---|
-| `TURN_HOST` | `localhost` | TURN server hostname for WebRTC NAT traversal |
+| `TURN_HOST` | `PUBLIC_HOST`, else `localhost` | TURN server hostname for WebRTC NAT traversal. Derives from `PUBLIC_HOST`; set explicitly only when TURN runs on a separate host |
 | `TURN_PORT` | `3478` | TURN server port |
 | `TURN_TLS_PORT` | `5349` | TURN server TLS port |
 | `TURN_SECRET` | `null` | **Required for WebRTC.** Shared secret for TURN credential generation |

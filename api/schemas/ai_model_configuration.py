@@ -176,7 +176,7 @@ def _compile_dograh_configuration(
         embeddings=DograhEmbeddingsConfiguration(
             provider=ServiceProviders.DOGRAH,
             api_key=configuration.api_key,
-            model="default",
+            model="dograh_embedding_v1",
         ),
         is_realtime=False,
         managed_service_version=2,

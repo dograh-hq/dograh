@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.39.0 (2026-06-27)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(scripts): free trusted HTTPS via sslip.io for public-IP remote i… by @a6kme in https://github.com/dograh-hq/dograh/pull/460
+### Bug Fixes
+* fix: reject misrouted smallwebrtc runs on the telephony websocket by @mvanhorn in https://github.com/dograh-hq/dograh/pull/468
+
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.38.0...dograh-v1.39.0
+
+## 1.38.0 (2026-06-25)
+
+<!-- Release notes generated using configuration in .github/release.yml at main -->
+
+## What's Changed
+### Features
+* feat(scripts): generate REDIS_PASSWORD on setup, plumb through compose by @tecnomanu in https://github.com/dograh-hq/dograh/pull/458
+* feat(storage): support custom S3 endpoint, signature version, and addressing style by @skymoore in https://github.com/dograh-hq/dograh/pull/461
+* feat(twilio): add Answering Machine Detection (AMD) support via telephony config by @nuthalapativarun in https://github.com/dograh-hq/dograh/pull/443
+### Bug Fixes
+* fix: support Gemini JSON schema tools by @snvtac in https://github.com/dograh-hq/dograh/pull/463
+### Documentation
+* docs: update Tuner integration to use Dograh provider by @mohamedsalem-bot in https://github.com/dograh-hq/dograh/pull/457
+### Other Changes
+* style(docs): add custom green scrollbar by @Gurkirat-Singh-bit in https://github.com/dograh-hq/dograh/pull/434
+* Add Hostinger (managed-Traefik) deployment files by @a6kme in https://github.com/dograh-hq/dograh/pull/459
+
+## New Contributors
+* @Gurkirat-Singh-bit made their first contribution in https://github.com/dograh-hq/dograh/pull/434
+* @tecnomanu made their first contribution in https://github.com/dograh-hq/dograh/pull/458
+* @skymoore made their first contribution in https://github.com/dograh-hq/dograh/pull/461
+* @snvtac made their first contribution in https://github.com/dograh-hq/dograh/pull/463
+
+**Full Changelog**: https://github.com/dograh-hq/dograh/compare/dograh-v1.37.0...dograh-v1.38.0
+
 ## 1.37.0 (2026-06-19)
 
 <!-- Release notes generated using configuration in .github/release.yml at main -->

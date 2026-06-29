@@ -316,6 +316,7 @@ def convert_legacy_ai_model_configuration_to_v2(
 
 
 def dograh_embeddings_base_url() -> str:
+    # AsyncOpenAI appends "/embeddings"; MPS exposes that under /api/v1/llm.
     return f"{MPS_API_URL}/api/v1/llm"
 
 

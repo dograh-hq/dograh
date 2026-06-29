@@ -1,0 +1,54 @@
+# Conductor project config — shared, committed so every contributor (and every
+# new workspace) gets the same per-worktree dev workflow.
+#
+# Each Conductor workspace is its own git worktree and gets its own 10-port range
+# starting at $CONDUCTOR_PORT. We use:
+#     $CONDUCTOR_PORT       -> ui      (Next.js)   <- Conductor's Open button lands here
+#     $CONDUCTOR_PORT + 1   -> backend (FastAPI/uvicorn)
+#     +2 .. +9              -> reserved for future per-workspace services
+#
+# Postgres/Redis/MinIO are a single SHARED Docker stack (project name "dograh"),
+# not per-workspace — see .conductor/setup.sh and .conductor/README.md.
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# Conductor's Open button. The UI runs on $CONDUCTOR_PORT, so this opens it.
+# (Preview URL templates only substitute $CONDUCTOR_PORT — no "+1" arithmetic —
+# which is why the UI, the thing you actually open, sits on the base port.)
+[[preview_urls]]
+name = "UI"
+url = "http://localhost:$CONDUCTOR_PORT"
+
+[scripts]
+# Runs once when a workspace is created: copies gitignored env files, inits the
+# pipecat submodule, builds the venv + node_modules, ensures the shared Docker
+# stack, and runs migrations.
+setup = "bash .conductor/setup.sh"
+
+# concurrent => multiple WORKSPACES can run their dev servers at the same time
+# (each on its own CONDUCTOR_PORT range). NOTE: within a single workspace,
+# Conductor runs ONE run script at a time — that's why the default "dev" script
+# below starts the UI and backend together rather than relying on two buttons.
+run_mode = "concurrent"
+
+# Full dev stack: UI ($CONDUCTOR_PORT) + backend ($CONDUCTOR_PORT+1) together.
+# Default Run button — this is the one to use day to day.
+[scripts.run.dev]
+command = "bash .conductor/run-dev.sh"
+icon = "play"
+default = true
+
+# UI only (Next.js) on $CONDUCTOR_PORT — handy for debugging the frontend alone.
+[scripts.run.ui]
+command = "bash .conductor/run-ui.sh"
+icon = "play"
+
+# Backend only (FastAPI/uvicorn) on $CONDUCTOR_PORT + 1 — debugging the API alone.
+[scripts.run.backend]
+command = "bash .conductor/run-backend.sh"
+icon = "server"
+
+# Arq background worker. Start in ONE workspace only — all workspaces share the
+# same Redis/Postgres, so a single worker drains the queue for everyone.
+[scripts.run.worker]
+command = "bash .conductor/run-worker.sh"
+icon = "server"

@@ -330,20 +330,16 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                 f"WhatsApp post-call send failed for run {workflow_run_id}: {exc}"
             )
 
-        # Step 6c: decrement the org's trial call-minute balance by this call's
-        # duration (no-op for unmetered/unlimited orgs). Best-effort.
+        # Step 6c: settle the org's call-minute ledger for this run — release the
+        # reservation hold (if any) and charge the true duration. Single charge;
+        # no-op for unmetered orgs. Best-effort.
         try:
-            from api.services.trial_credits import consume_free_call_seconds
+            from api.services.credits.reservation import settle_workflow_run_credits
 
-            usage = workflow_run.usage_info or {}
-            cost = workflow_run.cost_info or {}
-            duration = usage.get("call_duration_seconds") or cost.get(
-                "call_duration_seconds"
-            )
-            await consume_free_call_seconds(organization_id, duration)
+            await settle_workflow_run_credits(organization_id, workflow_run)
         except Exception as exc:
             logger.warning(
-                f"Trial-credit decrement failed for run {workflow_run_id}: {exc}"
+                f"Credit settle failed for run {workflow_run_id}: {exc}"
             )
 
         # Step 6d: CRM sync (org-configured, opt-in). After uploads so recording/

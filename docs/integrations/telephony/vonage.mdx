@@ -61,7 +61,7 @@ Before setting up Vonage integration, you'll need:
 
 Vonage routes inbound Voice API calls through a Voice application. The application owns the Answer URL and Event URL, and the phone number must be linked to that application. Dograh routes the call to the right agent based on the called number's inbound workflow assignment inside Dograh.
 
-When you save an inbound workflow on a phone number, Dograh updates the configured Vonage application's Voice webhooks and enables signed callbacks, provided the API Key, API Secret, Application ID, and Signature Secret are correct.
+When you save an inbound workflow on a phone number, Dograh updates the configured Vonage application's Voice webhooks and enables signed callbacks, provided the API Key, API Secret, and Application ID are correct and a Signature Secret is configured.
 
 <Warning>
   Linking the phone number to the Voice application is required. If the number

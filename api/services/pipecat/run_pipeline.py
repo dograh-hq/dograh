@@ -113,49 +113,53 @@ def _resolve_user_turn_stop_timeout(
 
 def _create_realtime_user_turn_config(provider: str):
     """Return user turn strategies and optional local VAD for realtime providers."""
+
+    def external_provider_turn_config():
+        return (
+            UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[ExternalUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            None,
+        )
+
+    def local_vad_turn_config(*, enable_interruptions: bool):
+        return (
+            UserTurnStrategies(
+                start=[
+                    VADUserTurnStartStrategy(enable_interruptions=enable_interruptions)
+                ],
+                stop=[SpeechTimeoutUserTurnStopStrategy(wait_for_transcript=False)],
+            ),
+            SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+        )
+
     if provider in {
         ServiceProviders.GOOGLE_REALTIME.value,
         ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
     }:
         # Let Gemini Live own barge-in via its server-side VAD, but keep local
         # Silero VAD for early user-turn start and speaking-state tracking.
-        return (
-            UserTurnStrategies(
-                start=[VADUserTurnStartStrategy(enable_interruptions=False)],
-                stop=[SpeechTimeoutUserTurnStopStrategy()],
-            ),
-            SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-        )
+        return local_vad_turn_config(enable_interruptions=False)
 
-    if provider == ServiceProviders.OPENAI_REALTIME.value:
-        # OpenAI Realtime already emits speaking-state frames and interruption
-        # events from the provider, so the aggregator should follow those
-        # external signals rather than run its own local VAD.
-        return (
-            UserTurnStrategies(
-                start=[ExternalUserTurnStartStrategy()],
-                stop=[ExternalUserTurnStopStrategy()],
-            ),
-            None,
-        )
+    if provider in {
+        ServiceProviders.OPENAI_REALTIME.value,
+        ServiceProviders.AZURE_REALTIME.value,
+    }:
+        # OpenAI-compatible Realtime services already emit speaking-state frames
+        # and interruption events from the provider, so the aggregator should
+        # follow those external signals rather than run its own local VAD.
+        return external_provider_turn_config()
     if provider == ServiceProviders.GROK_REALTIME.value:
         # Grok Voice Agent emits server-side speech-start/stop and
         # interruption signals, so local VAD should stay out of the way.
-        return (
-            UserTurnStrategies(
-                start=[ExternalUserTurnStartStrategy()],
-                stop=[ExternalUserTurnStopStrategy()],
-            ),
-            None,
-        )
+        return external_provider_turn_config()
+    if provider == ServiceProviders.ULTRAVOX_REALTIME.value:
+        # Ultravox does not emit user-turn frames, so local VAD supplies
+        # lifecycle signals for Dograh observers/controllers.
+        return local_vad_turn_config(enable_interruptions=True)
 
-    return (
-        UserTurnStrategies(
-            start=[VADUserTurnStartStrategy()],
-            stop=[SpeechTimeoutUserTurnStopStrategy()],
-        ),
-        SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
-    )
+    return local_vad_turn_config(enable_interruptions=True)
 
 
 async def run_pipeline_telephony(
@@ -775,7 +779,10 @@ async def _run_pipeline_impl(
         vad_analyzer=user_vad_analyzer,
     )
     context_aggregator = LLMContextAggregatorPair(
-        context, assistant_params=assistant_params, user_params=user_params
+        context,
+        assistant_params=assistant_params,
+        user_params=user_params,
+        realtime_service_mode=is_realtime,
     )
 
     # Create usage metrics aggregator with engine's callback

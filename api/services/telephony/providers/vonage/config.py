@@ -13,8 +13,8 @@ class VonageConfigurationRequest(BaseModel):
     api_secret: str = Field(..., description="Vonage API Secret")
     application_id: str = Field(..., description="Vonage Application ID")
     private_key: str = Field(..., description="Private key for JWT generation")
-    signature_secret: str = Field(
-        ...,
+    signature_secret: Optional[str] = Field(
+        None,
         description="Vonage signature secret used to verify signed webhooks",
     )
     from_numbers: List[str] = Field(

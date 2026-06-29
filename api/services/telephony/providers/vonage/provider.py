@@ -442,7 +442,7 @@ class VonageProvider(TelephonyProvider):
             account_id=claims.get("api_key") or webhook_data.get("account_id"),
             from_country=None,
             to_country=None,
-            raw_data={**webhook_data, "signed_claims": claims},
+            raw_data=webhook_data,
         )
 
     @staticmethod
@@ -630,13 +630,14 @@ class VonageProvider(TelephonyProvider):
         capabilities = app_data.get("capabilities") or {}
         voice = capabilities.get("voice") or {}
         webhooks = voice.get("webhooks") or {}
+        backend_endpoint, _ = await get_backend_endpoints()
 
         webhooks["answer_url"] = {
             "address": webhook_url,
             "http_method": "POST",
         }
         webhooks["event_url"] = {
-            "address": f"{webhook_url.rsplit('/inbound/run', 1)[0]}/vonage/events",
+            "address": f"{backend_endpoint}/api/v1/telephony/vonage/events",
             "http_method": "POST",
         }
         voice["webhooks"] = webhooks

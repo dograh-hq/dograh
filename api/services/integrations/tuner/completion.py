@@ -76,7 +76,7 @@ async def run_completion(
                 **delivery,
                 "workspace_id": tuner_data.tuner_workspace_id,
                 "agent_id": tuner_data.tuner_agent_id,
-                "call_cost": call_cost,
+                **({"call_cost": call_cost} if call_cost is not None else {}),
                 "exported_at": datetime.now(UTC).isoformat(),
             }
         except Exception as exc:

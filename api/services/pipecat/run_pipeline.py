@@ -80,7 +80,7 @@ from pipecat.turns.user_mute import (
 )
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
-    TranscriptionUserTurnStartStrategy,
+    ProvisionalVADUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
     VADUserTurnStartStrategy,
@@ -646,8 +646,7 @@ async def _run_pipeline(
             smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
             user_turn_strategies = UserTurnStrategies(
                 start=[
-                    VADUserTurnStartStrategy(),
-                    TranscriptionUserTurnStartStrategy(),
+                    ProvisionalVADUserTurnStartStrategy(),
                 ],
                 stop=[
                     TurnAnalyzerUserTurnStopStrategy(
@@ -659,8 +658,7 @@ async def _run_pipeline(
             # Transcription-based (default): best for short 1-2 word responses
             user_turn_strategies = UserTurnStrategies(
                 start=[
-                    VADUserTurnStartStrategy(),
-                    TranscriptionUserTurnStartStrategy(),
+                    ProvisionalVADUserTurnStartStrategy(),
                 ],
                 stop=[SpeechTimeoutUserTurnStopStrategy()],
             )

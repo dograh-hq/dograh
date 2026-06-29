@@ -10,6 +10,7 @@ import PostHogIdentify from "@/components/PostHogIdentify";
 import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";
 import SpinLoader from "@/components/SpinLoader";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import WorkspaceBadge from "@/components/WorkspaceBadge";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/context/AppConfigContext";
 import { OnboardingProvider } from "@/context/OnboardingContext";
@@ -87,6 +88,7 @@ export default function RootLayout({
             </AuthProvider>
           </SentryErrorBoundary>
         </ThemeProvider>
+        <WorkspaceBadge />
       </body>
     </html>
   );

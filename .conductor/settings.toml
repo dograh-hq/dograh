@@ -1,0 +1,40 @@
+# Conductor project config — shared, committed so every contributor (and every
+# new workspace) gets the same per-worktree dev workflow.
+#
+# Model: each Conductor workspace is its own git worktree and gets its own
+# 10-port range starting at $CONDUCTOR_PORT. We use:
+#     $CONDUCTOR_PORT       -> backend (FastAPI/uvicorn)
+#     $CONDUCTOR_PORT + 1   -> ui      (Next.js)
+#     +2 .. +9              -> reserved for future per-workspace services
+#
+# Postgres/Redis/MinIO are a single SHARED Docker stack (project name "dograh"),
+# not per-workspace — see .conductor/setup.sh and .conductor/README.md.
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+# Runs once when a workspace is created: copies gitignored env files, inits the
+# pipecat submodule, builds the venv + node_modules, ensures the shared Docker
+# stack, and runs migrations.
+setup = "bash .conductor/setup.sh"
+
+# concurrent => multiple workspaces can run their dev servers at the same time
+# (each on its own CONDUCTOR_PORT range), and within a workspace the backend +
+# ui + worker run buttons don't kill each other.
+run_mode = "concurrent"
+
+# Backend (FastAPI/uvicorn) on $CONDUCTOR_PORT. Default Run button.
+[scripts.run.backend]
+command = "bash .conductor/run-backend.sh"
+icon = "server"
+default = true
+
+# UI (Next.js) on $CONDUCTOR_PORT + 1, wired to this workspace's backend.
+[scripts.run.ui]
+command = "bash .conductor/run-ui.sh"
+icon = "play"
+
+# Arq background worker. Start in ONE workspace only — all workspaces share the
+# same Redis/Postgres, so a single worker drains the queue for everyone.
+[scripts.run.worker]
+command = "bash .conductor/run-worker.sh"
+icon = "server"

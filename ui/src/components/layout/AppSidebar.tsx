@@ -3,7 +3,6 @@
 import type { Team } from "@stackframe/stack";
 import {
   AlertTriangle,
-  ArrowUpCircle,
   AudioLines,
   BarChart3,
   Brain,
@@ -57,13 +56,10 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { INTEGRATION_DOCUMENTATION_URLS } from "@/constants/documentation";
-import { useAppConfig } from "@/context/AppConfigContext";
 import { useLeadForms } from "@/context/LeadFormsContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useUserConfig } from "@/context/UserConfigContext";
 import { useIsAdmin } from "@/hooks/useIsAdmin";
-import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
 import { useAuth } from "@/lib/auth";
 import { BRAND } from "@/lib/brand";
@@ -222,7 +218,6 @@ export function AppSidebar() {
   const router = useRouter();
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { provider, getSelectedTeam, logout, user } = useAuth();
-  const { config } = useAppConfig();
   const { isAdmin } = useIsAdmin();
   const { isSuperuser, planFeatures } = useUserConfig();
   const { openHireExpert } = useLeadForms();
@@ -239,16 +234,6 @@ export function AppSidebar() {
     selectedTeamRef.current = rawSelectedTeam;
   }
   const selectedTeam = selectedTeamRef.current;
-
-  // Version info from app config context
-  const versionInfo = config ? { ui: config.uiVersion, api: config.apiVersion } : null;
-
-  // Check for updates only on self-hosted (OSS) deployments — cloud is managed
-  // for the user. Updating is an ops/admin concern, so skip the lookup for clients.
-  const { latest: latestRelease, isBehind, isLatest } = useLatestReleaseVersion(
-    versionInfo?.ui,
-    { enabled: config?.deploymentMode === "oss" && isAdmin },
-  );
 
   const isActive = (path: string) => pathname.startsWith(path);
 
@@ -403,46 +388,7 @@ export function AppSidebar() {
                 <img src={BRAND.logoUrl} alt={BRAND.name} className="h-6 w-auto" />
               )}
               {BRAND.name}
-              {versionInfo && (
-                <span
-                  className="notranslate text-xs font-normal text-muted-foreground"
-                  translate="no"
-                >
-                  v{versionInfo.ui}
-                </span>
-              )}
             </Link>
-            {/* Update affordance is an ops concern — only admins/superusers see it */}
-            {isAdmin && isBehind && latestRelease && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <a
-                    href={INTEGRATION_DOCUMENTATION_URLS.deploymentUpdate}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-md border bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-amber-900 transition-opacity hover:opacity-80 dark:bg-amber-950 dark:text-amber-200"
-                  >
-                    <ArrowUpCircle className="h-3 w-3" />
-                    Update
-                  </a>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Latest: {latestRelease} - click to see the update guide</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {isAdmin && isLatest && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="inline-flex items-center rounded-md border bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium leading-none text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
-                    Latest
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>You&apos;re running the latest release</p>
-                </TooltipContent>
-              </Tooltip>
-            )}
           </div>
 
           <SidebarTrigger className={cn("hover:bg-sidebar-accent", isCollapsed && "mx-auto")}>

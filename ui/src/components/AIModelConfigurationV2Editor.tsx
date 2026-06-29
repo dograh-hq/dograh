@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { VoiceSelectorModal } from "@/components/VoiceSelectorModal";
 import { LANGUAGE_DISPLAY_NAMES } from "@/constants/languages";
+import { BRAND } from "@/lib/brand";
 
 type ModelMode = "realtime" | "dograh" | "byok";
 
@@ -313,7 +314,7 @@ export function AIModelConfigurationV2Editor({
                 || dograh.speed > dograhSpeedRange.max
             ) {
                 throw new Error(
-                    `Dograh speed must be between ${dograhSpeedRange.min} and ${dograhSpeedRange.max}.`,
+                    `${BRAND.name} speed must be between ${dograhSpeedRange.min} and ${dograhSpeedRange.max}.`,
                 );
             }
             await onSave({
@@ -375,7 +376,7 @@ export function AIModelConfigurationV2Editor({
             <Tabs value={mode} onValueChange={(value) => setMode(value as ModelMode)} className="space-y-6">
                 <TabsList className="grid w-full grid-cols-3">
                     <TabsTrigger value="realtime">Speech to Speech</TabsTrigger>
-                    <TabsTrigger value="dograh">Dograh</TabsTrigger>
+                    <TabsTrigger value="dograh">{BRAND.name}</TabsTrigger>
                     <TabsTrigger value="byok">BYOK</TabsTrigger>
                 </TabsList>
 

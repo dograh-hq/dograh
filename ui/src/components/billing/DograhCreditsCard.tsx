@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { PostHogEvent } from "@/constants/posthog-events";
 import { useLeadForms } from "@/context/LeadFormsContext";
 import { useAuth } from "@/lib/auth";
+import { BRAND } from "@/lib/brand";
 
 export function DograhCreditsCard() {
   const auth = useAuth();
@@ -47,9 +48,9 @@ export function DograhCreditsCard() {
   return (
     <Card className="mb-6">
       <CardHeader>
-        <CardTitle>Dograh Model Credits</CardTitle>
+        <CardTitle>{BRAND.name} Model Credits</CardTitle>
         <CardDescription>
-          These track usage of Dograh models using Dograh Service Keys.
+          These track usage of {BRAND.name} models using {BRAND.name} Service Keys.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -83,7 +84,7 @@ export function DograhCreditsCard() {
           </div>
         ) : (
           <p className="text-muted-foreground">
-            No Dograh service keys configured. Set up a service key in your model configuration to see usage.
+            No {BRAND.name} service keys configured. Set up a service key in your model configuration to see usage.
           </p>
         )}
 

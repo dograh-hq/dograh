@@ -1,11 +1,12 @@
+import { BRAND } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 
-// Reusable Dograh wordmark. Theme-aware by default: the dark logo shows on light
-// surfaces and the light/cream logo shows on dark. Pass `inverse` to force the
-// light logo on an always-dark surface (e.g. the auth brand panel). Pass `mark`
-// to render the square logo mark instead of the full wordmark (e.g. the app
-// sidebar header). Height is controlled by the caller via className (e.g.
-// "h-7"); width stays auto so each lockup keeps its aspect ratio.
+// Reusable brand wordmark. When BRAND.logoUrl is set, renders that image for
+// every variant. Otherwise falls back to a neutral text wordmark of BRAND.name
+// so no upstream logo is hardcoded. Pass `inverse` to force light-on-dark text
+// on an always-dark surface (e.g. the auth brand panel). Pass `mark` to render
+// a compact square mark (e.g. the app sidebar header). Height is controlled by
+// the caller via className (e.g. "h-7").
 export function BrandLogo({
   className,
   inverse = false,
@@ -15,24 +16,37 @@ export function BrandLogo({
   inverse?: boolean;
   mark?: boolean;
 }) {
+  if (BRAND.logoUrl) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={BRAND.logoUrl} alt={BRAND.name} className={cn("w-auto select-none", className)} />
+    );
+  }
+
+  // No logo configured — render a neutral text wordmark of the brand name.
   if (mark) {
     return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src="/dograh-mark.png" alt="Dograh" className={cn("w-auto select-none", className)} />
+      <span
+        className={cn(
+          "inline-flex select-none items-center font-semibold uppercase",
+          inverse ? "text-zinc-50" : "text-foreground",
+          className,
+        )}
+      >
+        {BRAND.name.charAt(0)}
+      </span>
     );
   }
-  if (inverse) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img src="/dograh-logo-inverse.png" alt="Dograh" className={cn("w-auto select-none", className)} />
-    );
-  }
+
   return (
-    <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/dograh-logo.png" alt="Dograh" className={cn("block w-auto select-none dark:hidden", className)} />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/dograh-logo-inverse.png" alt="Dograh" className={cn("hidden w-auto select-none dark:block", className)} />
-    </>
+    <span
+      className={cn(
+        "inline-flex select-none items-center font-semibold tracking-tight",
+        inverse ? "text-zinc-50" : "text-foreground",
+        className,
+      )}
+    >
+      {BRAND.name}
+    </span>
   );
 }

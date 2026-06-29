@@ -118,24 +118,24 @@
 }
 
 .dark {
-  --background: oklch(0.20 0.012 60); /* warm espresso-charcoal */
+  --background: oklch(0.26 0.014 62); /* warm elevated charcoal */
   --foreground: oklch(0.94 0.01 85); /* warm cream */
-  --card: oklch(0.24 0.014 60);
+  --card: oklch(0.30 0.016 62);
   --card-foreground: oklch(0.94 0.01 85);
-  --popover: oklch(0.25 0.014 60);
+  --popover: oklch(0.32 0.016 62);
   --popover-foreground: oklch(0.94 0.01 85);
-  --primary: oklch(0.72 0.085 70); /* lifted caramel for dark */
-  --primary-foreground: oklch(0.20 0.012 60);
-  --secondary: oklch(0.30 0.014 60);
+  --primary: oklch(0.74 0.088 70); /* lifted caramel for dark */
+  --primary-foreground: oklch(0.22 0.014 62);
+  --secondary: oklch(0.36 0.016 62);
   --secondary-foreground: oklch(0.94 0.01 85);
-  --muted: oklch(0.29 0.012 60);
-  --muted-foreground: oklch(0.74 0.016 72);
-  --accent: oklch(0.34 0.03 68);
-  --accent-foreground: oklch(0.92 0.02 80);
+  --muted: oklch(0.35 0.015 62);
+  --muted-foreground: oklch(0.76 0.018 72);
+  --accent: oklch(0.40 0.032 68);
+  --accent-foreground: oklch(0.93 0.02 80);
   --destructive: oklch(0.70 0.18 25);
-  --border: oklch(0.30 0.012 60);
-  --input: oklch(0.34 0.014 60);
-  --ring: oklch(0.72 0.085 70);
+  --border: oklch(0.40 0.014 62);
+  --input: oklch(0.40 0.015 62);
+  --ring: oklch(0.74 0.088 70);
   --success: oklch(0.72 0.11 152);
   --warning: oklch(0.83 0.12 80);
   --info: oklch(0.72 0.08 235);
@@ -144,14 +144,14 @@
   --chart-3: oklch(0.74 0.08 22);
   --chart-4: oklch(0.76 0.066 235);
   --chart-5: oklch(0.83 0.088 90);
-  --sidebar: oklch(0.18 0.012 60);
+  --sidebar: oklch(0.24 0.013 62);
   --sidebar-foreground: oklch(0.88 0.012 84);
-  --sidebar-primary: oklch(0.72 0.085 70);
-  --sidebar-primary-foreground: oklch(0.20 0.012 60);
-  --sidebar-accent: oklch(0.72 0.085 70 / 0.16);
+  --sidebar-primary: oklch(0.74 0.088 70);
+  --sidebar-primary-foreground: oklch(0.22 0.014 62);
+  --sidebar-accent: oklch(0.74 0.088 70 / 0.16);
   --sidebar-accent-foreground: oklch(0.94 0.01 85);
-  --sidebar-border: oklch(0.30 0.012 60);
-  --sidebar-ring: oklch(0.72 0.085 70);
+  --sidebar-border: oklch(0.40 0.013 62);
+  --sidebar-ring: oklch(0.74 0.088 70);
 
   /* Warm amber accent, slightly brighter against the espresso surfaces. */
   --cta: oklch(0.80 0.14 72);

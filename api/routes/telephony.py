@@ -684,7 +684,7 @@ async def handle_inbound_run(request: Request):
             logger.error("Unable to detect provider for /inbound/run webhook")
             return generic_hangup_response()
 
-        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+        normalized_data = normalize_webhook_data(provider_class, webhook_data, headers)
         logger.info(
             f"/inbound/run normalized data — provider={normalized_data.provider} "
             f"to={normalized_data.to_number} from={normalized_data.from_number}"
@@ -871,7 +871,7 @@ async def handle_inbound_telephony(
             logger.error("Unable to detect provider for webhook")
             return generic_hangup_response()
 
-        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+        normalized_data = normalize_webhook_data(provider_class, webhook_data, headers)
 
         logger.info(f"Inbound call - Provider: {normalized_data.provider}")
         logger.info(f"Normalized data: {normalized_data}")

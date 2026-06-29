@@ -518,9 +518,7 @@ class VonageProvider(TelephonyProvider):
             and claim_application_id
             and claim_application_id != self.application_id
         ):
-            logger.warning(
-                "Vonage signed webhook application_id does not match config"
-            )
+            logger.warning("Vonage signed webhook application_id does not match config")
             return None
 
         payload_hash = claims.get("payload_hash")

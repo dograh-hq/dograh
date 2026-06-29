@@ -13,7 +13,6 @@ from starlette.requests import Request
 from api.services.telephony.providers.vonage.provider import VonageProvider
 from api.services.telephony.providers.vonage.routes import handle_vonage_events
 
-
 SIGNATURE_SECRET = "vonage-signature-secret"
 
 
@@ -163,9 +162,7 @@ def test_parse_inbound_webhook_uses_signed_api_key_claim_for_account_id():
 def test_can_handle_webhook_detects_signed_vonage_answer_payload():
     body = _body()
 
-    assert VonageProvider.can_handle_webhook(
-        json.loads(body), _signed_headers(body)
-    )
+    assert VonageProvider.can_handle_webhook(json.loads(body), _signed_headers(body))
 
 
 @pytest.mark.asyncio
@@ -187,9 +184,7 @@ async def test_start_inbound_stream_returns_websocket_ncco():
     assert ncco == [
         {
             "action": "connect",
-            "eventUrl": [
-                "https://example.test/api/v1/telephony/vonage/events/123"
-            ],
+            "eventUrl": ["https://example.test/api/v1/telephony/vonage/events/123"],
             "endpoint": [
                 {
                     "type": "websocket",

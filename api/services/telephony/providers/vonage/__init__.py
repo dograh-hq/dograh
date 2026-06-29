@@ -21,6 +21,7 @@ def _config_loader(value: Dict[str, Any]) -> Dict[str, Any]:
         "private_key": value.get("private_key"),
         "api_key": value.get("api_key"),
         "api_secret": value.get("api_secret"),
+        "signature_secret": value.get("signature_secret"),
         "from_numbers": value.get("from_numbers", []),
     }
 
@@ -48,6 +49,13 @@ _UI_METADATA = ProviderUIMetadata(
             label="API Secret",
             type="password",
             sensitive=True,
+        ),
+        ProviderUIField(
+            name="signature_secret",
+            label="Signature Secret",
+            type="password",
+            sensitive=True,
+            description="Vonage signature secret for signed webhook verification",
         ),
         ProviderUIField(
             name="from_numbers",

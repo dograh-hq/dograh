@@ -53,6 +53,7 @@ export default function TelephonyConfigurationsPage() {
   const { user, getAccessToken, loading: authLoading } = useAuth();
   const {
     telnyxMissingWebhookPublicKeyCount,
+    vonageMissingSignatureSecretCount,
     refresh: refreshWarnings,
   } = useTelephonyConfigWarnings();
   const [items, setItems] = useState<TelephonyConfigurationListItem[]>([]);
@@ -82,9 +83,9 @@ export default function TelephonyConfigurationsPage() {
     }
   }, [authLoading, user, getAccessToken]);
 
-  // After a save (create/update), the backing config may have flipped between
-  // missing/present webhook_public_key — refresh the cached warning state so
-  // the page banner and nav badge update without a manual reload.
+  // After a save (create/update), webhook-verification warning state may have
+  // changed — refresh the cached warning state so the page banner and nav badge
+  // update without a manual reload.
   const onSaved = useCallback(async () => {
     await fetchItems();
     await refreshWarnings();
@@ -188,6 +189,26 @@ export default function TelephonyConfigurationsPage() {
                     Mission Control Portal → Keys &amp; Credentials → Public Key
                   </span>{" "}
                   and paste it into the affected Telnyx configuration below.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {vonageMissingSignatureSecretCount > 0 && (
+          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
+              <div className="space-y-1 text-sm">
+                <p className="font-medium">Signature secret not configured</p>
+                <p>
+                  {vonageMissingSignatureSecretCount === 1
+                    ? "1 Vonage configuration is"
+                    : `${vonageMissingSignatureSecretCount} Vonage configurations are`}{" "}
+                  missing a signature secret. Without it, Vonage signed webhooks
+                  are rejected, so inbound calls and call status updates will not
+                  work. Copy the signature secret from your Vonage account and
+                  paste it into the affected Vonage configuration below.
                 </p>
               </div>
             </div>

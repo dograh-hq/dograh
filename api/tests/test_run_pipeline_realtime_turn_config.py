@@ -1,6 +1,8 @@
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
+    MinWordsUserTurnStartStrategy,
+    ProvisionalVADUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
     VADUserTurnStartStrategy,
@@ -12,8 +14,10 @@ from pipecat.turns.user_stop import (
 
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.run_pipeline import (
+    DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_USER_TURN_STOP_TIMEOUT,
     EXTERNAL_TURN_USER_STOP_TIMEOUT,
+    _create_non_realtime_user_turn_start_strategies,
     _create_realtime_user_turn_config,
     _resolve_user_turn_stop_timeout,
 )
@@ -113,6 +117,70 @@ def test_unknown_realtime_providers_keep_local_vad():
     assert len(strategies.stop) == 1
     assert isinstance(strategies.stop[0], SpeechTimeoutUserTurnStopStrategy)
     assert strategies.stop[0].wait_for_transcript is False
+
+
+def test_non_realtime_default_uses_external_start_for_external_turn_stt():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {},
+        uses_external_turns=True,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], ExternalUserTurnStartStrategy)
+    assert strategies[0]._enable_interruptions is True
+
+
+def test_non_realtime_default_uses_vad_start_for_standard_stt():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], VADUserTurnStartStrategy)
+
+
+def test_non_realtime_can_use_min_words_start_strategy():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "min_words", "turn_start_min_words": 4},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], MinWordsUserTurnStartStrategy)
+    assert strategies[0]._min_words == 4
+
+
+def test_non_realtime_explicit_min_words_overrides_external_turn_default():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "min_words", "turn_start_min_words": 4},
+        uses_external_turns=True,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], MinWordsUserTurnStartStrategy)
+    assert strategies[0]._min_words == 4
+
+
+def test_non_realtime_min_words_start_strategy_has_default_threshold():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "min_words"},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], MinWordsUserTurnStartStrategy)
+    assert strategies[0]._min_words == DEFAULT_TURN_START_MIN_WORDS
+
+
+def test_non_realtime_can_use_provisional_vad_start_strategy():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "provisional_vad"},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], ProvisionalVADUserTurnStartStrategy)
 
 
 def test_external_turn_stt_uses_longer_stop_timeout():

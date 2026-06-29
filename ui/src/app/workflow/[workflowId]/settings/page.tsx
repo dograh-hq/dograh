@@ -45,8 +45,11 @@ import { useAuth } from "@/lib/auth";
 import logger from "@/lib/logger";
 import {
     type AmbientNoiseConfiguration,
+    DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
     DEFAULT_WORKFLOW_CONFIGURATIONS,
+    TURN_START_STRATEGY_OPTIONS,
+    type TurnStartStrategy,
     type TurnStopStrategy,
     type VoicemailDetectionConfiguration,
     type WorkflowConfigurations,
@@ -280,6 +283,12 @@ function GeneralSection({
     const [maxCallDuration, setMaxCallDuration] = useState(workflowConfigurations.max_call_duration || 600);
     const [maxUserIdleTimeout, setMaxUserIdleTimeout] = useState(workflowConfigurations.max_user_idle_timeout || 10);
     const [smartTurnStopSecs, setSmartTurnStopSecs] = useState(workflowConfigurations.smart_turn_stop_secs || 2);
+    const [turnStartStrategy, setTurnStartStrategy] = useState<TurnStartStrategy>(
+        workflowConfigurations.turn_start_strategy || "default",
+    );
+    const [turnStartMinWords, setTurnStartMinWords] = useState(
+        workflowConfigurations.turn_start_min_words || DEFAULT_TURN_START_MIN_WORDS,
+    );
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
         workflowConfigurations.turn_stop_strategy || "transcription",
     );
@@ -291,6 +300,9 @@ function GeneralSection({
     const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
     const ambientFileInputRef = useRef<HTMLInputElement>(null);
     const { playingId, toggle: togglePlayback } = useAudioPlayback();
+    const selectedTurnStartStrategy = TURN_START_STRATEGY_OPTIONS.find(
+        (option) => option.value === turnStartStrategy,
+    );
 
     const isDirty = useMemo(() => {
         const initAmbient = workflowConfigurations.ambient_noise_configuration || DEFAULT_AMBIENT_NOISE_CONFIG;
@@ -300,10 +312,12 @@ function GeneralSection({
             maxCallDuration !== (workflowConfigurations.max_call_duration || 600) ||
             maxUserIdleTimeout !== (workflowConfigurations.max_user_idle_timeout || 10) ||
             smartTurnStopSecs !== (workflowConfigurations.smart_turn_stop_secs || 2) ||
+            turnStartStrategy !== (workflowConfigurations.turn_start_strategy || "default") ||
+            turnStartMinWords !== (workflowConfigurations.turn_start_min_words || DEFAULT_TURN_START_MIN_WORDS) ||
             turnStopStrategy !== (workflowConfigurations.turn_stop_strategy || "transcription") ||
             contextCompactionEnabled !== (workflowConfigurations.context_compaction_enabled ?? false)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -375,6 +389,8 @@ function GeneralSection({
                     max_call_duration: maxCallDuration,
                     max_user_idle_timeout: maxUserIdleTimeout,
                     smart_turn_stop_secs: smartTurnStopSecs,
+                    turn_start_strategy: turnStartStrategy,
+                    turn_start_min_words: turnStartMinWords,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
                 },
@@ -586,6 +602,49 @@ function GeneralSection({
                             />
                             <p className="text-xs text-muted-foreground">
                                 Max silence duration before ending an incomplete turn. Default: 2 seconds
+                            </p>
+                        </div>
+                    )}
+                    <div className="space-y-2">
+                        <Label htmlFor="turn_start_strategy" className="text-xs">Interruption Strategy</Label>
+                        <Select
+                            value={turnStartStrategy}
+                            onValueChange={(value: TurnStartStrategy) => setTurnStartStrategy(value)}
+                        >
+                            <SelectTrigger id="turn_start_strategy">
+                                <SelectValue placeholder="Select strategy" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {TURN_START_STRATEGY_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                        {option.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                            {selectedTurnStartStrategy?.description}
+                        </p>
+                    </div>
+                    {turnStartStrategy === "min_words" && (
+                        <div className="space-y-2">
+                            <Label htmlFor="turn_start_min_words" className="text-xs">
+                                Minimum Words Before Interruption
+                            </Label>
+                            <Input
+                                id="turn_start_min_words"
+                                type="number"
+                                step="1"
+                                min="1"
+                                max="10"
+                                value={turnStartMinWords}
+                                onChange={(e) => {
+                                    const value = parseInt(e.target.value);
+                                    if (!isNaN(value) && value >= 1) setTurnStartMinWords(value);
+                                }}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Number of transcribed words needed to interrupt while the bot is speaking. Default: {DEFAULT_TURN_START_MIN_WORDS}
                             </p>
                         </div>
                     )}

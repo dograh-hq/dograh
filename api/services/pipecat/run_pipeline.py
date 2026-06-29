@@ -80,6 +80,7 @@ from pipecat.turns.user_mute import (
 )
 from pipecat.turns.user_start import (
     ExternalUserTurnStartStrategy,
+    MinWordsUserTurnStartStrategy,
     ProvisionalVADUserTurnStartStrategy,
 )
 from pipecat.turns.user_start.vad_user_turn_start_strategy import (
@@ -99,6 +100,8 @@ ensure_tracing()
 
 DEFAULT_USER_TURN_STOP_TIMEOUT = 5.0
 EXTERNAL_TURN_USER_STOP_TIMEOUT = 30.0
+DEFAULT_TURN_START_STRATEGY = "default"
+DEFAULT_TURN_START_MIN_WORDS = 3
 
 
 def _resolve_user_turn_stop_timeout(
@@ -109,6 +112,42 @@ def _resolve_user_turn_stop_timeout(
     if uses_external_turns:
         return EXTERNAL_TURN_USER_STOP_TIMEOUT
     return DEFAULT_USER_TURN_STOP_TIMEOUT
+
+
+def _resolve_turn_start_min_words(run_configs: dict) -> int:
+    return max(
+        1,
+        int(run_configs.get("turn_start_min_words", DEFAULT_TURN_START_MIN_WORDS)),
+    )
+
+
+def _create_non_realtime_user_turn_start_strategies(
+    run_configs: dict, *, uses_external_turns: bool
+):
+    """Return user turn start strategies for non-realtime pipelines."""
+
+    turn_start_strategy = run_configs.get(
+        "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
+    )
+
+    if turn_start_strategy == "min_words":
+        return [
+            MinWordsUserTurnStartStrategy(
+                min_words=_resolve_turn_start_min_words(run_configs)
+            )
+        ]
+
+    if turn_start_strategy == "provisional_vad":
+        return [ProvisionalVADUserTurnStartStrategy()]
+
+    if uses_external_turns:
+        # The STT emits its own turn boundaries and owns interruptions. Local
+        # VAD is deliberately kept out of the default start strategies: it would
+        # win the race on raw voice activity and start the turn before the STT
+        # confirms a real turn.
+        return [ExternalUserTurnStartStrategy(enable_interruptions=True)]
+
+    return [VADUserTurnStartStrategy()]
 
 
 def _create_realtime_user_turn_config(provider: str):
@@ -734,21 +773,38 @@ async def _run_pipeline_impl(
         # follows those external signals. Other models use configurable turn
         # detection.
         uses_external_turns = stt_uses_external_turns(user_config)
+        user_turn_start_strategies = _create_non_realtime_user_turn_start_strategies(
+            run_configs,
+            uses_external_turns=uses_external_turns,
+        )
+        turn_start_strategy = run_configs.get(
+            "turn_start_strategy", DEFAULT_TURN_START_STRATEGY
+        )
+        turn_start_strategy_names = [
+            strategy.__class__.__name__ for strategy in user_turn_start_strategies
+        ]
+        turn_start_min_words = (
+            _resolve_turn_start_min_words(run_configs)
+            if turn_start_strategy == "min_words"
+            else None
+        )
+        logger.info(
+            f"[run {workflow_run_id}] Non-realtime interrupt strategy "
+            f"requested={turn_start_strategy} "
+            f"effective={turn_start_strategy_names} "
+            f"min_words={turn_start_min_words} "
+            f"uses_external_turns={uses_external_turns}"
+        )
         if uses_external_turns:
             user_turn_strategies = UserTurnStrategies(
-                start=[
-                    VADUserTurnStartStrategy(),
-                    ExternalUserTurnStartStrategy(enable_interruptions=True),
-                ],
+                start=user_turn_start_strategies,
                 stop=[ExternalUserTurnStopStrategy()],
             )
         elif turn_stop_strategy == "turn_analyzer":
             # Smart Turn Analyzer: best for longer responses with natural pauses
             smart_turn_params = SmartTurnParams(stop_secs=smart_turn_stop_secs)
             user_turn_strategies = UserTurnStrategies(
-                start=[
-                    ProvisionalVADUserTurnStartStrategy(),
-                ],
+                start=user_turn_start_strategies,
                 stop=[
                     TurnAnalyzerUserTurnStopStrategy(
                         turn_analyzer=LocalSmartTurnAnalyzerV3(params=smart_turn_params)
@@ -758,9 +814,7 @@ async def _run_pipeline_impl(
         else:
             # Transcription-based (default): best for short 1-2 word responses
             user_turn_strategies = UserTurnStrategies(
-                start=[
-                    ProvisionalVADUserTurnStartStrategy(),
-                ],
+                start=user_turn_start_strategies,
                 stop=[SpeechTimeoutUserTurnStopStrategy()],
             )
 
@@ -982,12 +1036,6 @@ async def _run_pipeline_impl(
 
     register_audio_data_handler(audio_buffer, workflow_run_id, in_memory_audio_buffer)
 
-    # Mark this run active so a deploy can drain it before stopping this worker:
-    # the orchestrator polls GET /api/v1/health/active-calls and waits for zero
-    # before sending SIGTERM (uvicorn force-closes live call WebSockets on
-    # SIGTERM, so the wait has to come first). See api/services/pipecat/
-    # active_calls.py and scripts/rolling_update.sh.
-    register_active_call(workflow_run_id)
     try:
         # Run the pipeline
         await run_pipeline_worker(task)
@@ -995,7 +1043,6 @@ async def _run_pipeline_impl(
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
-        unregister_active_call(workflow_run_id)
         # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
         # scopes opened by MCPClient.start() in engine.initialize() are
         # task-affine; this finally runs in the same task as initialize(),

@@ -7,12 +7,14 @@ import { useAuth } from '@/lib/auth';
 
 interface TelephonyConfigWarningsContextType {
     telnyxMissingWebhookPublicKeyCount: number;
+    vonageMissingSignatureSecretCount: number;
     refresh: () => Promise<void>;
     loading: boolean;
 }
 
 const TelephonyConfigWarningsContext = createContext<TelephonyConfigWarningsContextType>({
     telnyxMissingWebhookPublicKeyCount: 0,
+    vonageMissingSignatureSecretCount: 0,
     refresh: async () => { },
     loading: false,
 });
@@ -23,7 +25,8 @@ const TelephonyConfigWarningsContext = createContext<TelephonyConfigWarningsCont
 // change. Page-level callers invalidate via refresh() after a save.
 export function TelephonyConfigWarningsProvider({ children }: { children: ReactNode }) {
     const auth = useAuth();
-    const [count, setCount] = useState(0);
+    const [telnyxCount, setTelnyxCount] = useState(0);
+    const [vonageCount, setVonageCount] = useState(0);
     const [loading, setLoading] = useState(false);
     const hasFetched = useRef(false);
 
@@ -31,9 +34,11 @@ export function TelephonyConfigWarningsProvider({ children }: { children: ReactN
         setLoading(true);
         try {
             const res = await getTelephonyConfigWarningsApiV1OrganizationsTelephonyConfigWarningsGet();
-            setCount(res.data?.telnyx_missing_webhook_public_key_count ?? 0);
+            setTelnyxCount(res.data?.telnyx_missing_webhook_public_key_count ?? 0);
+            setVonageCount(res.data?.vonage_missing_signature_secret_count ?? 0);
         } catch {
-            setCount(0);
+            setTelnyxCount(0);
+            setVonageCount(0);
         } finally {
             setLoading(false);
         }
@@ -53,7 +58,8 @@ export function TelephonyConfigWarningsProvider({ children }: { children: ReactN
     return (
         <TelephonyConfigWarningsContext.Provider
             value={{
-                telnyxMissingWebhookPublicKeyCount: count,
+                telnyxMissingWebhookPublicKeyCount: telnyxCount,
+                vonageMissingSignatureSecretCount: vonageCount,
                 refresh,
                 loading,
             }}

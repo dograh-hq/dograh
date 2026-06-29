@@ -72,7 +72,7 @@ class RealtimeFeedbackObserver(BaseObserver):
     - TTFB metrics (LLM generation time only)
 
     Logs buffer persistence (only final data for post-call analysis):
-    - Complete user transcripts per turn (via on_user_turn_stopped)
+    - Complete user transcripts per turn (via on_user_turn_message_added)
     - Complete assistant transcripts per turn (via on_assistant_turn_stopped)
     - Function calls and TTFB metrics
 
@@ -300,13 +300,13 @@ def register_turn_log_handlers(
 ):
     """Register event handlers on aggregators to persist final turn transcripts.
 
-    Hooks into on_user_turn_stopped and on_assistant_turn_stopped to store
+    Hooks into on_user_turn_message_added and on_assistant_turn_stopped to store
     complete turn text in the logs buffer. Works for both WebRTC and telephony
     calls — independent of WebSocket availability.
     """
 
-    @user_aggregator.event_handler("on_user_turn_stopped")
-    async def on_user_turn_stopped(aggregator, strategy, message):
+    @user_aggregator.event_handler("on_user_turn_message_added")
+    async def on_user_turn_message_added(aggregator, message):
         logs_buffer.increment_turn()
         try:
             await logs_buffer.append(

@@ -5323,6 +5323,10 @@ export type TelephonyConfigWarningsResponse = {
      * Telnyx Missing Webhook Public Key Count
      */
     telnyx_missing_webhook_public_key_count: number;
+    /**
+     * Vonage Missing Signature Secret Count
+     */
+    vonage_missing_signature_secret_count: number;
 };
 
 /**
@@ -6428,6 +6432,12 @@ export type VonageConfigurationRequest = {
      */
     private_key: string;
     /**
+     * Signature Secret
+     *
+     * Vonage signature secret used to verify signed webhooks
+     */
+    signature_secret?: string | null;
+    /**
      * From Numbers
      *
      * List of Vonage phone numbers (without + prefix)
@@ -6461,6 +6471,10 @@ export type VonageConfigurationResponse = {
      * Private Key
      */
     private_key: string;
+    /**
+     * Signature Secret
+     */
+    signature_secret?: string | null;
     /**
      * From Numbers
      */
@@ -7547,6 +7561,27 @@ export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostError = HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors[keyof HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostErrors];
 
 export type HandleVonageEventsApiV1TelephonyVonageEventsWorkflowRunIdPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/telephony/vonage/events';
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostErrors = {
+    /**
+     * Not found
+     */
+    404: unknown;
+};
+
+export type HandleVonageEventsWithoutRunApiV1TelephonyVonageEventsPostResponses = {
     /**
      * Successful Response
      */

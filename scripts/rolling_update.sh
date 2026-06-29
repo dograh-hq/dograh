@@ -29,6 +29,7 @@ NGINX_UPSTREAM_CONF="/etc/nginx/conf.d/dograh_upstream.conf"
 
 HEALTH_CHECK_ENDPOINT="/api/v1/health"
 ACTIVE_CALLS_ENDPOINT="/api/v1/health/active-calls"
+DOGRAH_DEVOPS_SECRET_HEADER="X-Dograh-Devops-Secret"
 
 # Load environment
 if [[ -f "$ENV_FILE" ]]; then
@@ -56,6 +57,15 @@ cd "$BASE_DIR"
 log_info()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] INFO:  $*"; }
 log_warn()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN:  $*"; }
 log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: $*" >&2; }
+
+if [[ -z "${DOGRAH_DEVOPS_SECRET:-}" ]]; then
+  log_error "DOGRAH_DEVOPS_SECRET is not set. Add it to $ENV_FILE before running rolling_update.sh."
+  exit 1
+fi
+if [[ "$DOGRAH_DEVOPS_SECRET" == "change-me-dograh-devops-secret" ]]; then
+  log_error "DOGRAH_DEVOPS_SECRET still has the example placeholder value. Replace it in $ENV_FILE."
+  exit 1
+fi
 
 # Band port calculation: band A = base, band B = base + 100
 band_base_port() {
@@ -100,17 +110,38 @@ kill_process_tree() {
 }
 
 # Active in-progress call count for a single worker, via its health endpoint.
-# A worker that is unreachable (already exited) or returns no/garbage body
-# reports 0, so it never blocks the drain.
+# A worker that is unreachable (already exited) reports 0, so it never blocks the
+# drain. Non-200 responses or malformed bodies are hard failures: otherwise an
+# auth/configuration error could be mistaken for a fully drained worker.
 count_active_calls_on_port() {
   local port=$1
-  local body n
-  body=$(curl -s --max-time 3 \
+  local response http_code body n
+  response=$(curl -sS --max-time 3 \
+    -H "${DOGRAH_DEVOPS_SECRET_HEADER}: ${DOGRAH_DEVOPS_SECRET}" \
+    -w $'\n%{http_code}' \
     "http://127.0.0.1:${port}${ACTIVE_CALLS_ENDPOINT}" 2>/dev/null || true)
+  http_code="${response##*$'\n'}"
+  body="${response%$'\n'*}"
+
+  if [[ "$http_code" == "000" ]]; then
+    printf '0'
+    return 0
+  fi
+
+  if [[ "$http_code" != "200" ]]; then
+    log_error "uvicorn_${port} active-calls endpoint returned HTTP ${http_code}. Check DOGRAH_DEVOPS_SECRET in $ENV_FILE."
+    return 1
+  fi
+
   n=$(printf '%s' "$body" \
     | grep -o '"active_calls"[[:space:]]*:[[:space:]]*[0-9]\+' \
     | grep -o '[0-9]\+$' || true)
-  printf '%s' "${n:-0}"
+  if [[ -z "$n" ]]; then
+    log_error "uvicorn_${port} active-calls endpoint returned an invalid response body."
+    return 1
+  fi
+
+  printf '%s' "$n"
 }
 
 ###############################################################################
@@ -399,7 +430,10 @@ while true; do
     # Only poll workers still alive; an exited worker holds no calls.
     pidfile="$RUN_DIR/uvicorn_${port}.pid"
     if [[ -f "$pidfile" ]] && kill -0 "$(<"$pidfile")" 2>/dev/null; then
-      active=$((active + $(count_active_calls_on_port "$port")))
+      if ! call_count=$(count_active_calls_on_port "$port"); then
+        exit 1
+      fi
+      active=$((active + call_count))
     fi
   done
 

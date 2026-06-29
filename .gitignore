@@ -4,6 +4,9 @@ __pycache__
 .env.prod
 .env.test
 
+# Conductor personal/per-machine overrides (settings.toml IS committed)
+.conductor/settings.local.toml
+
 # logs and run directory on production
 /logs/
 /run/

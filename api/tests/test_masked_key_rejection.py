@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from api.routes.user import router
 from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.auth.depends import get_user
-from api.services.configuration.masking import mask_key
+from api.services.configuration.masking import contains_masked_key, mask_key
 from api.services.configuration.registry import (
     GoogleLLMService,
     GoogleVertexLLMConfiguration,
@@ -43,6 +43,26 @@ def _existing_openai_config():
 
 
 class TestMaskedKeyRejection:
+    def test_detects_short_masked_api_keys(self):
+        """Short masked API keys should be rejected even without the legacy marker."""
+        assert contains_masked_key(mask_key("EMPTY"))
+        assert contains_masked_key(mask_key("X"))
+        assert contains_masked_key(mask_key("mykey"))
+
+    def test_detects_masked_api_key_with_mask_char_in_visible_suffix(self):
+        """The visible suffix can contain MASK_CHAR and still be masked."""
+        masked = mask_key("vsk*v")
+
+        assert masked == "*sk*v"
+        assert contains_masked_key(masked)
+
+    def test_allows_unmasked_short_api_keys(self):
+        """Unmasked short keys should not be rejected as masked placeholders."""
+        assert not contains_masked_key("EMPTY")
+        assert not contains_masked_key("X")
+        assert not contains_masked_key("mykey")
+        assert not contains_masked_key("vsk*v")
+
     def test_rejects_masked_api_key_on_provider_change(self):
         """Changing provider with a masked API key should return 400."""
         app = _make_test_app()

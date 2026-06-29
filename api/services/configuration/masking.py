@@ -28,7 +28,19 @@ def contains_masked_key(value: str | list[str] | None) -> bool:
     if value is None:
         return False
     keys = value if isinstance(value, list) else [value]
-    return any(MASK_MARKER in k for k in keys)
+    return any(MASK_MARKER in k or _matches_mask_shape(k) for k in keys)
+
+
+def _matches_mask_shape(key: str) -> bool:
+    """Return True when *key* has the exact shape produced by mask_key()."""
+    if not key:
+        return False
+
+    if len(key) <= VISIBLE_CHARS:
+        return key == MASK_CHAR * len(key)
+
+    masked_prefix_length = len(key) - VISIBLE_CHARS
+    return key[:masked_prefix_length] == MASK_CHAR * masked_prefix_length
 
 
 def check_for_masked_keys(config: "EffectiveAIModelConfiguration") -> None:

@@ -1,4 +1,7 @@
-from fastapi import APIRouter
+import secrets
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, status
 from loguru import logger
 from pydantic import BaseModel
 
@@ -125,3 +128,51 @@ async def health() -> HealthResponse:
             STACK_PUBLISHABLE_CLIENT_KEY if is_stack else None
         ),
     )
+
+
+class ActiveCallsResponse(BaseModel):
+    active_calls: int
+
+
+DOGRAH_DEVOPS_SECRET_HEADER = "X-Dograh-Devops-Secret"
+
+
+def _verify_devops_secret(
+    configured_secret: str | None,
+    provided_secret: str | None,
+) -> None:
+    if not configured_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Devops secret is not configured",
+        )
+    if not provided_secret or not secrets.compare_digest(
+        provided_secret,
+        configured_secret,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        )
+
+
+@router.get("/health/active-calls", response_model=ActiveCallsResponse)
+async def active_calls(
+    x_dograh_devops_secret: Annotated[
+        str | None,
+        Header(alias=DOGRAH_DEVOPS_SECRET_HEADER),
+    ] = None,
+) -> ActiveCallsResponse:
+    """In-flight call count for THIS worker — the drain signal for deploys.
+
+    A deploy orchestrator polls this per worker and waits for zero before
+    sending SIGTERM, because uvicorn force-closes live call WebSockets (close
+    code 1012) on SIGTERM and would cut calls mid-conversation otherwise. The
+    count is per-process: one uvicorn per VM port (scripts/rolling_update.sh)
+    or per Kubernetes pod (preStop hook). See api/services/pipecat/active_calls.py.
+    """
+    from api.constants import DOGRAH_DEVOPS_SECRET
+    from api.services.pipecat.active_calls import active_call_count
+
+    _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
+    return ActiveCallsResponse(active_calls=active_call_count())

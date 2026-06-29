@@ -11,6 +11,10 @@ from api.services.integrations import (
     IntegrationRuntimeContext,
     create_runtime_sessions,
 )
+from api.services.pipecat.active_calls import (
+    register_active_call,
+    unregister_active_call,
+)
 from api.services.pipecat.audio_config import AudioConfig, create_audio_config
 from api.services.pipecat.event_handlers import (
     register_audio_data_handler,
@@ -164,6 +168,34 @@ async def run_pipeline_telephony(
     call_id: str,
     transport_kwargs: dict,
 ) -> None:
+    """Run a pipeline for any telephony provider."""
+    # Register before any async setup so deploy drains see calls that are still
+    # resolving DB/config/transport state.
+    register_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_telephony_impl(
+            websocket,
+            provider_name=provider_name,
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            user_id=user_id,
+            call_id=call_id,
+            transport_kwargs=transport_kwargs,
+        )
+    finally:
+        unregister_active_call(workflow_run_id)
+
+
+async def _run_pipeline_telephony_impl(
+    websocket,
+    *,
+    provider_name: str,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_id: str,
+    transport_kwargs: dict,
+) -> None:
     """Run a pipeline for any telephony provider.
 
     Replaces the previous per-provider run_pipeline_<x> functions. The
@@ -236,7 +268,7 @@ async def run_pipeline_telephony(
     )
 
     try:
-        await _run_pipeline(
+        await _run_pipeline_impl(
             transport,
             workflow_id,
             workflow_run_id,
@@ -254,6 +286,31 @@ async def run_pipeline_telephony(
 
 
 async def run_pipeline_smallwebrtc(
+    webrtc_connection: SmallWebRTCConnection,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_context_vars: dict = {},
+    user_provider_id: str | None = None,
+) -> None:
+    """Run pipeline for WebRTC connections."""
+    # Register before any async setup so deploy drains see calls that are still
+    # resolving DB/config/transport state.
+    register_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_smallwebrtc_impl(
+            webrtc_connection,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            call_context_vars=call_context_vars,
+            user_provider_id=user_provider_id,
+        )
+    finally:
+        unregister_active_call(workflow_run_id)
+
+
+async def _run_pipeline_smallwebrtc_impl(
     webrtc_connection: SmallWebRTCConnection,
     workflow_id: int,
     workflow_run_id: int,
@@ -309,7 +366,7 @@ async def run_pipeline_smallwebrtc(
         ambient_noise_config,
         is_realtime=is_realtime,
     )
-    await _run_pipeline(
+    await _run_pipeline_impl(
         transport,
         workflow_id,
         workflow_run_id,
@@ -323,6 +380,35 @@ async def run_pipeline_smallwebrtc(
 
 
 async def _run_pipeline(
+    transport,
+    workflow_id: int,
+    workflow_run_id: int,
+    user_id: int,
+    call_context_vars: dict = {},
+    audio_config: AudioConfig = None,
+    user_provider_id: str | None = None,
+    workflow_run=None,
+    resolved_user_config=None,
+) -> None:
+    """Run the pipeline with active-call drain accounting."""
+    register_active_call(workflow_run_id)
+    try:
+        await _run_pipeline_impl(
+            transport,
+            workflow_id,
+            workflow_run_id,
+            user_id,
+            call_context_vars=call_context_vars,
+            audio_config=audio_config,
+            user_provider_id=user_provider_id,
+            workflow_run=workflow_run,
+            resolved_user_config=resolved_user_config,
+        )
+    finally:
+        unregister_active_call(workflow_run_id)
+
+
+async def _run_pipeline_impl(
     transport,
     workflow_id: int,
     workflow_run_id: int,

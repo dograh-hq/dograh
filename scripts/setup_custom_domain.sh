@@ -43,7 +43,7 @@ if [[ ! -d "dograh" ]]; then
     echo -e "${RED}Error: 'dograh' directory not found.${NC}"
     echo -e "${YELLOW}Please run this script from the directory containing your Dograh installation.${NC}"
     echo -e "${YELLOW}If you haven't set up Dograh yet, run the remote setup first:${NC}"
-    echo -e "${BLUE}  curl -o setup_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_remote.sh && chmod +x setup_remote.sh && ./setup_remote.sh${NC}"
+    echo -e "${BLUE}  curl -o setup_remote.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_remote.sh && chmod +x setup_remote.sh && sudo ./setup_remote.sh${NC}"
     exit 1
 fi
 
@@ -65,7 +65,7 @@ echo -e "  Domain:  ${BLUE}$DOMAIN_NAME${NC}"
 echo -e "  Email:   ${BLUE}$EMAIL_ADDRESS${NC}"
 echo ""
 
-echo -e "${BLUE}[1/7] Verifying DNS configuration...${NC}"
+echo -e "${BLUE}[1/6] Verifying DNS configuration...${NC}"
 SERVER_IP="$(curl -s ifconfig.me || curl -s icanhazip.com || echo "")"
 RESOLVED_IP="$(dig +short "$DOMAIN_NAME" | tail -1)"
 
@@ -84,22 +84,14 @@ else
     echo -e "${GREEN}✓ DNS is correctly configured (${RESOLVED_IP})${NC}"
 fi
 
-echo -e "${BLUE}[2/7] Installing Certbot...${NC}"
-if command -v apt-get &> /dev/null; then
-    apt-get update -qq
-    apt-get install -y -qq certbot
-elif command -v yum &> /dev/null; then
-    yum install -y -q certbot
-elif command -v dnf &> /dev/null; then
-    dnf install -y -q certbot
-else
-    dograh_fail "Could not detect package manager. Please install certbot manually."
-fi
+echo -e "${BLUE}[2/6] Installing Certbot...${NC}"
+dograh_install_certbot || dograh_fail "Could not install certbot. Please install it manually and re-run."
 echo -e "${GREEN}✓ Certbot installed${NC}"
 
-echo -e "${BLUE}[3/7] Stopping Dograh services...${NC}"
+echo -e "${BLUE}[3/6] Pointing .env at $DOMAIN_NAME and starting services...${NC}"
 cd dograh
 DOGRAH_DEPLOY_PROJECT_DIR="$(pwd)"
+DOGRAH_PATH="$(pwd)"
 
 if [[ ! -f remote_up.sh || ! -f scripts/lib/setup_common.sh ]]; then
     dograh_download_remote_support_bundle "$(pwd)" "main"
@@ -107,112 +99,73 @@ fi
 
 dograh_require_init_compose_layout "$(pwd)"
 
-if docker compose --profile remote ps --quiet 2>/dev/null | grep -q .; then
-    docker compose --profile remote down
-    echo -e "${GREEN}✓ Dograh services stopped${NC}"
-else
-    echo -e "${YELLOW}⚠ No running services found${NC}"
-fi
-
-echo -e "${BLUE}[4/7] Generating Let's Encrypt SSL certificate...${NC}"
-CERTBOT_OUTPUT=$(certbot certonly --standalone \
-    --non-interactive \
-    --agree-tos \
-    --email "$EMAIL_ADDRESS" \
-    -d "$DOMAIN_NAME" 2>&1) || {
-    echo -e "${RED}✗ Certificate generation failed${NC}"
-    echo ""
-
-    if echo "$CERTBOT_OUTPUT" | grep -qi "timeout\|firewall\|connection"; then
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo -e "${YELLOW}  Port 80 appears to be blocked by a firewall.${NC}"
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo ""
-        echo -e "Let's Encrypt needs to connect to port 80 to verify domain ownership."
-        echo ""
-    elif echo "$CERTBOT_OUTPUT" | grep -qi "too many\|rate.limit"; then
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo -e "${YELLOW}  Let's Encrypt rate limit reached.${NC}"
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo ""
-        echo "You've requested too many certificates recently."
-        echo "Please wait before trying again (usually 1 hour)."
-        echo ""
-    elif echo "$CERTBOT_OUTPUT" | grep -qi "dns\|resolve\|NXDOMAIN"; then
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo -e "${YELLOW}  DNS resolution failed.${NC}"
-        echo -e "${YELLOW}═══════════════════════════════════════════════════════════════${NC}"
-        echo ""
-        echo "The domain '$DOMAIN_NAME' does not resolve to this server."
-        echo "Please verify your DNS A record is correctly configured."
-        echo ""
-    else
-        echo -e "${YELLOW}Certbot output:${NC}"
-        echo "$CERTBOT_OUTPUT"
-        echo ""
-    fi
-
-    echo -e "After fixing the issue, re-run this script:"
-    echo -e "  ${BLUE}sudo ./setup_custom_domain.sh${NC}"
-    echo ""
-    exit 1
-}
-echo -e "${GREEN}✓ SSL certificate generated${NC}"
-
-CERT_PATH="/etc/letsencrypt/live/$DOMAIN_NAME"
-echo ""
-echo -e "${BLUE}Certificate location:${NC}"
-echo -e "  ${CERT_PATH}/"
-[[ -f "$CERT_PATH/fullchain.pem" ]] && echo -e "  ${GREEN}✓${NC} fullchain.pem exists" || echo -e "  ${RED}✗${NC} fullchain.pem NOT FOUND"
-[[ -f "$CERT_PATH/privkey.pem" ]] && echo -e "  ${GREEN}✓${NC} privkey.pem exists" || echo -e "  ${RED}✗${NC} privkey.pem NOT FOUND"
-echo ""
-
-mkdir -p certs
-cp "$CERT_PATH/fullchain.pem" certs/local.crt
-cp "$CERT_PATH/privkey.pem" certs/local.key
-chmod 644 certs/local.crt certs/local.key
-echo -e "${GREEN}✓${NC} Certificates copied to certs/ directory"
-echo ""
-
-echo -e "${BLUE}[5/7] Updating canonical remote settings and validating init-based config...${NC}"
 dograh_load_env_file .env
-
 if [[ -z "${SERVER_IP:-}" ]]; then
     SERVER_IP="$(dograh_infer_server_ip "$(pwd)" || true)"
 fi
-
 [[ -n "${SERVER_IP:-}" ]] || dograh_fail "Could not determine SERVER_IP from the existing install"
 
 dograh_set_env_key .env SERVER_IP "$SERVER_IP"
 dograh_set_env_key .env PUBLIC_HOST "$DOMAIN_NAME"
 dograh_set_env_key .env PUBLIC_BASE_URL "https://$DOMAIN_NAME"
 dograh_delete_env_key .env BACKEND_URL
+# Switching domains is an explicit repoint of the whole deployment. Drop any
+# legacy per-subsystem endpoint keys an older install pinned to the previous host
+# so they re-derive from the new PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py).
+# No-op on current installs, which don't write these keys.
+dograh_delete_env_key .env BACKEND_API_ENDPOINT
+dograh_delete_env_key .env MINIO_PUBLIC_ENDPOINT
+dograh_delete_env_key .env TURN_HOST
 dograh_prepare_remote_install "$(pwd)"
-echo -e "${GREEN}✓ .env synchronized and init-based config validated${NC}"
 
-echo -e "${BLUE}[6/7] Setting up automatic certificate renewal...${NC}"
-DOGRAH_PATH="$(pwd)"
+# Bring the stack up (recreating it) so dograh-init re-renders nginx with the
+# domain server_name and the ACME challenge location, served with the existing
+# certificate. certbot --webroot then validates against the running nginx:
+# no downtime, and (unlike --standalone) renewal keeps working later while
+# nginx holds port 80.
+./remote_up.sh
 
-cat > /etc/letsencrypt/renewal-hooks/deploy/dograh-reload.sh << HOOK_EOF
-#!/bin/bash
-cp /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem $DOGRAH_PATH/certs/local.crt
-cp /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem $DOGRAH_PATH/certs/local.key
-chmod 644 $DOGRAH_PATH/certs/local.crt $DOGRAH_PATH/certs/local.key
+echo -e "${BLUE}Waiting for nginx to answer on port 80...${NC}"
+nginx_ready=0
+for ((i=1; i<=60; i++)); do
+    if curl -s -o /dev/null --max-time 3 "http://127.0.0.1/"; then
+        nginx_ready=1
+        break
+    fi
+    sleep 2
+done
+[[ "$nginx_ready" == "1" ]] || dograh_fail "nginx did not come up on port 80; cannot run the ACME challenge."
+echo -e "${GREEN}✓ Services running and serving the ACME challenge${NC}"
 
-cd $DOGRAH_PATH
-docker compose --profile remote restart nginx 2>/dev/null || true
-HOOK_EOF
-chmod +x /etc/letsencrypt/renewal-hooks/deploy/dograh-reload.sh
+echo -e "${BLUE}[4/6] Obtaining Let's Encrypt certificate for $DOMAIN_NAME...${NC}"
+if ! dograh_issue_letsencrypt_webroot "$(pwd)" "$DOMAIN_NAME" "$EMAIL_ADDRESS"; then
+    echo -e "${RED}✗ Certificate issuance failed${NC}"
+    echo ""
+    echo -e "${YELLOW}Common causes:${NC}"
+    echo "  - Port 80 not reachable from the internet (open it in your firewall)"
+    echo "  - DNS A record for $DOMAIN_NAME does not point to this server yet"
+    echo "  - Let's Encrypt rate limit reached (wait, then retry)"
+    echo "  - Upgrading an older install: run ./update_remote.sh first to refresh the"
+    echo "    nginx template so it serves the ACME challenge, then re-run this script"
+    echo ""
+    echo -e "The stack is still running with the previous certificate."
+    echo -e "After fixing the issue, re-run: ${BLUE}sudo ./setup_custom_domain.sh${NC}"
+    echo ""
+    exit 1
+fi
+echo -e "${GREEN}✓ Certificate issued and copied to certs/${NC}"
 
+echo -e "${BLUE}[5/6] Loading the new certificate (restarting nginx)...${NC}"
+docker compose --profile remote restart nginx >/dev/null 2>&1 || true
+echo -e "${GREEN}✓ nginx restarted${NC}"
+
+echo -e "${BLUE}[6/6] Configuring automatic certificate renewal...${NC}"
+dograh_install_cert_renewal_hook "$(pwd)" "$DOMAIN_NAME"
 if certbot renew --dry-run --quiet; then
     echo -e "${GREEN}✓ Auto-renewal configured and tested${NC}"
 else
-    echo -e "${YELLOW}⚠ Auto-renewal test had issues, but certificates are installed${NC}"
+    echo -e "${YELLOW}⚠ Auto-renewal dry-run had issues, but the certificate is installed${NC}"
 fi
-
-echo ""
-echo -e "${BLUE}[7/7] Starting Dograh services through validated startup wrapper...${NC}"
-./remote_up.sh
 
 echo ""
 echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"

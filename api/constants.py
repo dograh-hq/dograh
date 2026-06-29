@@ -19,7 +19,23 @@ LANGFUSE_PUBLIC_KEY = os.getenv("LANGFUSE_PUBLIC_KEY")
 LANGFUSE_SECRET_KEY = os.getenv("LANGFUSE_SECRET_KEY")
 
 # URLs for deployment
-BACKEND_API_ENDPOINT = os.getenv("BACKEND_API_ENDPOINT", "http://localhost:8000")
+#
+# PUBLIC_BASE_URL is the single canonical origin a deployment is reached at
+# (scheme + host, e.g. https://203-0-113-10.sslip.io). For a standard single-host
+# install it is the only endpoint value an operator sets — the per-subsystem URLs
+# below derive from it (and from PUBLIC_HOST for the TURN/ICE host). Each derived
+# var can still be set explicitly to override it for a split deployment.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL") or None
+PUBLIC_HOST = os.getenv("PUBLIC_HOST") or None
+
+# Public URL the backend builds webhook/callback/embed links from. Derives from
+# PUBLIC_BASE_URL (public IP / domain), falling back to localhost for local dev.
+# When this is a non-public address (localhost or a private/reserved IP) the host
+# isn't reachable from the internet, so get_backend_endpoints() resolves a running
+# Cloudflare tunnel's URL at runtime instead (see api/utils/common.py).
+BACKEND_API_ENDPOINT = (
+    os.getenv("BACKEND_API_ENDPOINT") or PUBLIC_BASE_URL or "http://localhost:8000"
+)
 UI_APP_URL = os.getenv("UI_APP_URL", "http://localhost:3010")
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -111,7 +127,12 @@ ENABLE_AWS_S3 = os.getenv("ENABLE_AWS_S3", "false").lower() == "true"
 
 # MinIO Configuration
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
-MINIO_PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT")
+# Full URL (scheme + host) browsers use to reach object storage. Derives from
+# PUBLIC_BASE_URL (remote nginx proxies /voice-audio/ to MinIO); set explicitly
+# only to point object storage at a separate origin.
+MINIO_PUBLIC_ENDPOINT = (
+    os.getenv("MINIO_PUBLIC_ENDPOINT") or PUBLIC_BASE_URL or "http://localhost:9000"
+)
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "voice-audio")
@@ -151,7 +172,7 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "DEBUG").upper()
 LOG_ROTATION_SIZE = os.getenv("LOG_ROTATION_SIZE", "100 MB")
 LOG_RETENTION = os.getenv("LOG_RETENTION", "7 days")
 LOG_COMPRESSION = os.getenv("LOG_COMPRESSION", "gz")
-ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "false").lower() == "true"
+ENABLE_TELEMETRY = os.getenv("ENABLE_TELEMETRY", "true").lower() == "true"
 
 
 def _get_version() -> str:
@@ -216,7 +237,9 @@ DEFAULT_CIRCUIT_BREAKER_CONFIG = {
 
 
 TURN_SECRET = os.getenv("TURN_SECRET")
-TURN_HOST = os.getenv("TURN_HOST", "localhost")
+# Host browsers dial for TURN/ICE. Derives from PUBLIC_HOST; set explicitly only
+# when the TURN server runs on a separate host from the app.
+TURN_HOST = os.getenv("TURN_HOST") or PUBLIC_HOST or "localhost"
 TURN_PORT = int(os.getenv("TURN_PORT", "3478"))
 TURN_TLS_PORT = int(os.getenv("TURN_TLS_PORT", "5349"))
 TURN_CREDENTIAL_TTL = int(os.getenv("TURN_CREDENTIAL_TTL", "86400"))

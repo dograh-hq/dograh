@@ -2831,6 +2831,10 @@ export type HealthResponse = {
      */
     backend_api_endpoint: string;
     /**
+     * Tunnel Url
+     */
+    tunnel_url?: string | null;
+    /**
      * Deployment Mode
      */
     deployment_mode: string;

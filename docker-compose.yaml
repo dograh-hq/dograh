@@ -1,3 +1,17 @@
+# Dograh deployment stack — driven by the helper scripts, not by a bare
+# `docker compose up`.
+#
+# This stack needs a generated .env (secrets, public host/URL) and, for the
+# remote/TURN profiles, runtime nginx/coturn config rendered by the dograh-init
+# service. The setup scripts create those for you — start with them:
+#
+#   Local:          ./start_docker.sh        (Windows: .\start_docker.ps1)
+#   Remote server:  sudo ./setup_remote.sh   then ./remote_up.sh
+#
+# Running `docker compose up` against a fresh checkout will fail or come up
+# misconfigured (e.g. OSS_JWT_SECRET is required). Full guide:
+# https://docs.dograh.com/deployment/docker
+
 services:
   postgres:
     image: pgvector/pgvector:pg17
@@ -135,9 +149,18 @@ services:
       ENVIRONMENT: "${ENVIRONMENT:-local}"
       LOG_LEVEL: "INFO"
 
-      # Replace this environment variable if you are using a custom
-      # domain to host the stack
-      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
+      # Public origin for this deployment. The API derives BACKEND_API_ENDPOINT,
+      # MINIO_PUBLIC_ENDPOINT and TURN_HOST from PUBLIC_BASE_URL / PUBLIC_HOST when
+      # they are not set explicitly (see api/constants.py), so a standard remote
+      # install only needs PUBLIC_BASE_URL + PUBLIC_HOST in .env.
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-}"
+      PUBLIC_HOST: "${PUBLIC_HOST:-}"
+
+      # Optional explicit override of the public URL the backend builds webhook /
+      # embed links from. Defaults to PUBLIC_BASE_URL. When the value is non-public
+      # (localhost or a private/reserved IP), the API resolves a running Cloudflare
+      # tunnel's URL at runtime instead (see api/utils/common.py).
+      BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-}"
 
       # Database configuration (using containerized postgres)
       DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres"
@@ -169,10 +192,10 @@ services:
 
       # MinIO
       MINIO_ENDPOINT: "minio:9000"
-      # Full URL (with scheme) browsers use to reach MinIO. For remote
-      # deployments behind HTTPS, set MINIO_PUBLIC_ENDPOINT in .env to
-      # e.g. https://your-server.example.com (nginx proxies /voice-audio/).
-      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
+      # Full URL (with scheme) browsers use to reach MinIO. Defaults to
+      # PUBLIC_BASE_URL for remote deployments (nginx proxies /voice-audio/) and to
+      # http://localhost:9000 for local; override only for a separate object store.
+      MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-}"
       MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minioadmin}"
       MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_BUCKET: "voice-audio"
@@ -223,8 +246,6 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
-      cloudflared:
-        condition: service_started
     healthcheck:
       test:
         [
@@ -272,12 +293,35 @@ services:
     networks:
       - app-network
 
+  # Cloudflare tunnel for inbound webhook / WSS reachability when the host has no
+  # usable public IP (behind NAT or a firewall). Gated behind the "tunnel" profile
+  # so public-IP installs (served directly by nginx) never start it, and the api
+  # service no longer hard-depends on it. Two modes, chosen by the token:
+  #   - CLOUDFLARE_TUNNEL_TOKEN set  -> named tunnel with a stable hostname. Point
+  #     its ingress at http://api:8000 in the Cloudflare dashboard and set
+  #     BACKEND_API_ENDPOINT in .env to that hostname.
+  #   - token unset                  -> quick tunnel with an ephemeral
+  #     *.trycloudflare.com URL the API discovers from the metrics endpoint
+  #     (api/utils/tunnel.py). Convenient for local dev.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared-tunnel
-    command: tunnel --no-autoupdate --url http://api:8000 --metrics 0.0.0.0:2000
+    profiles: ["tunnel"]
+    restart: unless-stopped
+    environment:
+      # cloudflared automatically picks up the token from TUNNEL_TOKEN when
+      # running `tunnel run`. Leave empty to fall back to a quick tunnel.
+      TUNNEL_TOKEN: "${CLOUDFLARE_TUNNEL_TOKEN:-}"
+    # The cloudflared image is distroless (no `sh`), so a `sh -c` conditional
+    # entrypoint can't run. The image's own entrypoint is already
+    # `cloudflared --no-autoupdate`; pick the mode via a single command instead:
+    #   - token set   -> set CLOUDFLARED_COMMAND="tunnel run" in .env for a named
+    #     tunnel (cloudflared reads TUNNEL_TOKEN from the env above).
+    #   - token unset -> the default below runs a quick tunnel with an ephemeral
+    #     *.trycloudflare.com URL the API discovers from the metrics endpoint.
+    command: ${CLOUDFLARED_COMMAND:-tunnel --url http://api:8000 --metrics 0.0.0.0:2000}
     ports:
-      - "2000:2000" # Expose metrics endpoint
+      - "2000:2000" # metrics endpoint (quick-tunnel URL discovery)
     networks:
       - app-network
 

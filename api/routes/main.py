@@ -80,6 +80,10 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     backend_api_endpoint: str
+    # Public URL the deployment is reachable at when it sits behind a Cloudflare
+    # tunnel (the host has no public IP). null for a directly-reachable deployment.
+    # The UI shows this so operators know the URL telephony providers should call.
+    tunnel_url: str | None = None
     deployment_mode: str
     auth_provider: str
     turn_enabled: bool
@@ -96,21 +100,34 @@ async def health() -> HealthResponse:
     from api.constants import (
         APP_VERSION,
         AUTH_PROVIDER,
+        BACKEND_API_ENDPOINT,
         DEPLOYMENT_MODE,
         FORCE_TURN_RELAY,
         STACK_AUTH_PROJECT_ID,
         STACK_PUBLISHABLE_CLIENT_KEY,
         TURN_SECRET,
     )
-    from api.utils.common import get_backend_endpoints
+    from api.utils.common import get_backend_endpoints, is_local_or_private_url
 
     logger.debug("Health endpoint called")
     backend_endpoint, _ = await get_backend_endpoints()
+    # tunnel_url is set only when a Cloudflare tunnel was actually resolved: the
+    # configured address isn't publicly reachable, but get_backend_endpoints found
+    # a public tunnel URL for it. This is the URL the UI shows for inbound webhooks.
+    # It stays null for a directly-reachable (public IP / domain) deployment, where
+    # backend_api_endpoint itself is the public URL.
+    tunnel_url = (
+        backend_endpoint
+        if is_local_or_private_url(BACKEND_API_ENDPOINT)
+        and not is_local_or_private_url(backend_endpoint)
+        else None
+    )
     is_stack = AUTH_PROVIDER == "stack"
     return HealthResponse(
         status="ok",
         version=APP_VERSION,
-        backend_api_endpoint=backend_endpoint,
+        backend_api_endpoint=BACKEND_API_ENDPOINT,
+        tunnel_url=tunnel_url,
         deployment_mode=DEPLOYMENT_MODE,
         auth_provider=AUTH_PROVIDER,
         turn_enabled=bool(TURN_SECRET),

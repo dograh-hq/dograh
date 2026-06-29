@@ -21,7 +21,6 @@ from api.services.campaign.source_sync_factory import get_sync_service
 from api.services.quota_service import (
     authorize_workflow_run_start,
 )
-from api.services.trial_credits import assert_has_free_call_seconds
 from api.services.voicelink_kyc.gating import assert_org_kyc_complete
 from api.services.reports import generate_campaign_report_csv
 from api.services.storage import storage_fs
@@ -552,9 +551,9 @@ async def start_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    # Require KYC + remaining trial minutes before any outbound dialing.
+    # Require KYC before any outbound dialing. The credit balance is enforced by
+    # authorize_workflow_run_start below (single local ledger).
     await assert_org_kyc_complete(campaign.organization_id)
-    await assert_has_free_call_seconds(campaign.organization_id)
 
     # Check Dograh quota before starting campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).
@@ -885,9 +884,9 @@ async def resume_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    # Require KYC + remaining trial minutes before any outbound dialing.
+    # Require KYC before any outbound dialing. The credit balance is enforced by
+    # authorize_workflow_run_start below (single local ledger).
     await assert_org_kyc_complete(campaign.organization_id)
-    await assert_has_free_call_seconds(campaign.organization_id)
 
     # Check Dograh quota before resuming campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).

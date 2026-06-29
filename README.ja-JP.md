@@ -1,5 +1,9 @@
 # Dograh AI
 
+> 💡 **Notice**: This documentation is community-maintained. If you spot any translation inaccuracies or content that has drifted from the English version, please feel free to open a PR!
+>
+> 💡 **注記**: このドキュメントはコミュニティによって保守されています。翻訳の不正確さや英語版からの内容のずれを見つけた場合は、ぜひ PR を作成してください。
+
 **オープンソースでセルフホスト可能な Vapi / Retell の代替手段** -- ドラッグ&ドロップのワークフロービルダーで本番向け音声エージェントを構築できます。ゼロから 2 分以内で動作するボットを立ち上げられます。
 
 <p align="center">

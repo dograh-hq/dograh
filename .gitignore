@@ -22,3 +22,8 @@ node_modules/
 
 # Claude Code agent worktrees (never commit)
 .claude/worktrees/
+
+# Superpowers brainstorm mockups (local only)
+.superpowers/
+docs/superpowers/
+.gstack/

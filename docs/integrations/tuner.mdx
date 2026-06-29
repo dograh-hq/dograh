@@ -6,7 +6,7 @@ description: "Connect Dograh to Tuner — the observability, simulation, and tes
 <iframe
   width="100%"
   height="400"
-  src="https://www.youtube.com/embed/Zxse1yLorbk"
+  src="https://www.youtube.com/embed/mFfMIsK-qPM"
   title="Tuner Integration Walkthrough"
   frameBorder="0"
   allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -26,11 +26,11 @@ The Tuner integration node automatically sends your completed call data (transcr
 
 ### 1. Create an agent in Tuner
 
-Log in to [Tuner](https://app.usetuner.ai) and create a new agent. When configuring the agent, set the **Provider** to **Custom API** — this is required for the Dograh integration.
+Log in to [Tuner](https://app.usetuner.ai) and create a new agent. When configuring the agent, set the **Provider** to **Dograh**. Enter your **Agent Name** and choose the **Call Direction** (Inbound or Outbound) for your setup. The **Agent Remote ID** is auto-generated after you create the agent.
 
 <img
   src="/images/tuner-create-agent.png"
-  alt="Create a New Agent modal in Tuner — set Provider to Custom API"
+  alt="Create a New Agent modal in Tuner — set Provider to Dograh"
 />
 
 
@@ -40,7 +40,7 @@ You'll need three values from your Tuner account:
 
 | Credential | Where to find it |
 |---|---|
-| **Agent ID** | Agent Settings → Agent Remote ID |
+| **Agent ID** | Agent Settings → Agent Connection → Agent Remote ID |
 | **Workspace ID** | Workspace Settings → General Settings → Workspace ID |
 | **API Key** | Workspace Settings → Tuner API Key |
 
@@ -117,7 +117,7 @@ To temporarily stop exporting calls to Tuner, open the Tuner node configuration 
 | Calls not appearing in Tuner | Verify all three credentials are correct with no extra whitespace |
 | Node shows "Not configured" | Open the node and fill in Agent ID, Workspace ID, and API Key |
 | Workflow not sending data | Make sure the workflow is published, not just saved as a draft |
-| Wrong agent in Tuner | Confirm the Tuner agent's Provider is set to **Custom API** |
+| Wrong agent in Tuner | Confirm the Tuner agent's Provider is set to **Dograh** |
 
 ## Learn more
 

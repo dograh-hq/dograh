@@ -63,4 +63,38 @@ SARVAM_LANGUAGES = (
     "te-IN",
     "as-IN",
 )
-SARVAM_STT_MODELS = ("saarika:v2.5", "saaras:v2")
+SARVAM_STT_MODELS = ("saarika:v2.5", "saaras:v3")
+# saarika:v2.5 language codes (unknown = auto-detect)
+SARVAM_STT_LANGUAGES_V25 = (
+    "unknown",
+    "hi-IN",
+    "bn-IN",
+    "gu-IN",
+    "kn-IN",
+    "ml-IN",
+    "mr-IN",
+    "od-IN",
+    "pa-IN",
+    "ta-IN",
+    "te-IN",
+    "en-IN",
+)
+# saaras:v3 adds these regional languages on top of the v2.5 set. Full list: https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe
+SARVAM_STT_LANGUAGES_V3 = SARVAM_STT_LANGUAGES_V25 + (
+    "as-IN",
+    "ur-IN",
+    "ne-IN",
+    "kok-IN",
+    "ks-IN",
+    "sd-IN",
+    "sa-IN",
+    "sat-IN",
+    "mni-IN",
+    "brx-IN",
+    "mai-IN",
+    "doi-IN",
+)
+SARVAM_LLM_MODELS = (
+    "sarvam-30b",
+    "sarvam-105b",
+)

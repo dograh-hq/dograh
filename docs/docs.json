@@ -157,6 +157,7 @@
             "pages": [
               "deployment/introduction",
               "deployment/docker",
+              "deployment/authentication",
               "deployment/custom-domain",
               "deployment/scaling",
               "deployment/update",
@@ -205,15 +206,15 @@
                 ]
               },
               {
-                "group": "Calls",
+                "group": "Runs",
                 "pages": [
-                  "api-reference/calls",
-                  "api-reference/calls/trigger",
-                  "api-reference/calls/trigger-workflow",
-                  "api-reference/calls/get-run",
-                  "api-reference/calls/list-runs",
-                  "api-reference/calls/download",
-                  "api-reference/calls/inbound"
+                  "api-reference/runs",
+                  "api-reference/runs/trigger",
+                  "api-reference/runs/trigger-workflow",
+                  "api-reference/runs/get-run",
+                  "api-reference/runs/list-runs",
+                  "api-reference/runs/download",
+                  "api-reference/runs/inbound"
                 ]
               },
               {

@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build
 # Stage 1: Dependencies
 FROM node:20-alpine AS deps
@@ -11,8 +12,7 @@ RUN apk add --no-cache python3 make g++ libc6-compat
 COPY ui/package*.json ./
 
 # Clean install with proper handling of native modules
-RUN rm -rf node_modules && \
-    npm ci || npm install
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 # Stage 2: Builder
 FROM node:20-alpine AS builder

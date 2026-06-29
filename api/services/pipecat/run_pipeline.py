@@ -46,11 +46,13 @@ from api.services.pipecat.service_factory import (
     create_realtime_llm_service,
     create_stt_service,
     create_tts_service,
+    stt_uses_flux_turns,
 )
 from api.services.pipecat.tracing_config import (
     ensure_tracing,
 )
 from api.services.pipecat.transport_setup import create_webrtc_transport
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.pipecat.ws_sender_registry import get_ws_sender
 from api.services.telephony import registry as telephony_registry
 from api.services.workflow.dto import ReactFlowDTO
@@ -61,7 +63,6 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
-from pipecat.pipeline.base_task import PipelineTaskParams
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -162,14 +163,12 @@ async def run_pipeline_telephony(
         workflow_id: Workflow being executed.
         workflow_run_id: Workflow run row.
         user_id: Owner of the workflow.
-        call_id: Provider call identifier (stored in cost_info for billing).
+        call_id: Provider call identifier.
         transport_kwargs: Provider-specific kwargs forwarded to the transport
             factory (e.g. stream_sid + call_sid for Twilio).
     """
     logger.debug(f"Running {provider_name} pipeline for workflow_run {workflow_run_id}")
     set_current_run_id(workflow_run_id)
-
-    await db_client.update_workflow_run(workflow_run_id, cost_info={"call_id": call_id})
 
     workflow = await db_client.get_workflow(workflow_id, user_id)
     if workflow:
@@ -195,14 +194,17 @@ async def run_pipeline_telephony(
     # Resolve effective user config here so the transport can tune its
     # bot-stopped-speaking fallback based on is_realtime; pass the resolved
     # values into _run_pipeline so it doesn't fetch them again.
-    from api.services.configuration.resolve import resolve_effective_config
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
 
-    user_config = await db_client.get_user_configurations(user_id)
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = resolve_effective_config(
-        user_config, run_configs.get("model_overrides")
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=user_id,
+        organization_id=workflow.organization_id if workflow else None,
+        workflow_configurations=run_configs,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -274,15 +276,18 @@ async def run_pipeline_smallwebrtc(
     # Resolve workflow_run + effective user_config here so the transport can
     # tune its bot-stopped-speaking fallback based on is_realtime. _run_pipeline
     # reuses these via kwargs so we don't fetch twice.
-    from api.services.configuration.resolve import resolve_effective_config
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
 
     workflow_run = await db_client.get_workflow_run(workflow_run_id, user_id)
-    user_config = await db_client.get_user_configurations(user_id)
     run_configs = (
         (workflow_run.definition.workflow_configurations or {}) if workflow_run else {}
     )
-    user_config = resolve_effective_config(
-        user_config, run_configs.get("model_overrides")
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=user_id,
+        organization_id=workflow.organization_id if workflow else None,
+        workflow_configurations=run_configs,
     )
     is_realtime = bool(user_config.is_realtime and user_config.realtime is not None)
 
@@ -336,7 +341,7 @@ async def _run_pipeline(
     if workflow_run.is_completed:
         raise HTTPException(status_code=400, detail="Workflow run already completed")
 
-    merged_call_context_vars = workflow_run.initial_context
+    merged_call_context_vars = dict(workflow_run.initial_context or {})
     # If there is some extra call_context_vars, fold them in. Persistence
     # happens once below, after runtime_configuration is also resolved.
     if call_context_vars:
@@ -382,14 +387,30 @@ async def _run_pipeline(
     # Resolve model overrides from the version onto global user config (skip
     # when the caller already resolved it).
     if resolved_user_config is None:
-        from api.services.configuration.resolve import resolve_effective_config
+        from api.services.configuration.ai_model_configuration import (
+            get_effective_ai_model_configuration_for_workflow,
+        )
 
-        user_config = await db_client.get_user_configurations(user_id)
-        user_config = resolve_effective_config(
-            user_config, run_configs.get("model_overrides")
+        user_config = await get_effective_ai_model_configuration_for_workflow(
+            user_id=user_id,
+            organization_id=workflow.organization_id,
+            workflow_configurations=run_configs,
         )
     else:
         user_config = resolved_user_config
+
+    from api.services.managed_model_services import (
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        ensure_mps_correlation_id,
+    )
+
+    mps_correlation_id = await ensure_mps_correlation_id(
+        ai_model_config=user_config,
+        workflow_run_id=workflow_run_id,
+        initial_context=merged_call_context_vars,
+    )
+    if mps_correlation_id:
+        merged_call_context_vars[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
 
     # Detect realtime mode (speech-to-speech services like OpenAI Realtime, Gemini Live)
     is_realtime = user_config.is_realtime and user_config.realtime is not None
@@ -402,11 +423,23 @@ async def _run_pipeline(
         # Realtime services don't implement run_inference, so create a
         # separate text LLM for variable extraction and other out-of-band
         # inference calls.
-        inference_llm = create_llm_service(user_config)
+        inference_llm = create_llm_service(
+            user_config,
+            correlation_id=mps_correlation_id,
+        )
     else:
-        stt = create_stt_service(user_config, audio_config, keyterms=keyterms)
-        tts = create_tts_service(user_config, audio_config)
-        llm = create_llm_service(user_config)
+        stt = create_stt_service(
+            user_config,
+            audio_config,
+            keyterms=keyterms,
+            correlation_id=mps_correlation_id,
+        )
+        tts = create_tts_service(
+            user_config,
+            audio_config,
+            correlation_id=mps_correlation_id,
+        )
+        llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
         inference_llm = None
 
     # Stamp the providers/models actually resolved for this run onto
@@ -439,7 +472,10 @@ async def _run_pipeline(
         workflow_run_id, initial_context=merged_call_context_vars
     )
 
-    workflow_graph = WorkflowGraph(ReactFlowDTO.model_validate(run_workflow_json))
+    workflow_graph = WorkflowGraph(
+        ReactFlowDTO.model_validate(run_workflow_json),
+        skip_instance_constraints_for={"trigger"},
+    )
 
     # Pre-call fetch: fire early so it runs concurrently with remaining setup
     pre_call_fetch_task = None
@@ -506,10 +542,23 @@ async def _run_pipeline(
     embeddings_api_key = None
     embeddings_model = None
     embeddings_base_url = None
+    embeddings_provider = None
+    embeddings_endpoint = None
+    embeddings_api_version = None
     if user_config and user_config.embeddings:
+        from api.services.configuration.ai_model_configuration import (
+            apply_managed_embeddings_base_url,
+        )
+
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
-        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+        embeddings_provider = getattr(user_config.embeddings, "provider", None)
+        embeddings_base_url = apply_managed_embeddings_base_url(
+            provider=embeddings_provider,
+            base_url=getattr(user_config.embeddings, "base_url", None),
+        )
+        embeddings_endpoint = getattr(user_config.embeddings, "endpoint", None)
+        embeddings_api_version = getattr(user_config.embeddings, "api_version", None)
 
     # Check if the workflow has any active recordings so the engine can
     # include recording response mode instructions in all node prompts.
@@ -534,6 +583,9 @@ async def _run_pipeline(
         embeddings_api_key=embeddings_api_key,
         embeddings_model=embeddings_model,
         embeddings_base_url=embeddings_base_url,
+        embeddings_provider=embeddings_provider,
+        embeddings_endpoint=embeddings_endpoint,
+        embeddings_api_version=embeddings_api_version,
         has_recordings=has_recordings,
         context_compaction_enabled=context_compaction_enabled,
     )
@@ -583,14 +635,10 @@ async def _run_pipeline(
             user_config.realtime.provider
         )
     else:
-        # Deepgram Flux uses external turn detection (VAD + External start/stop)
-        # Other models use configurable turn detection strategy
-        is_deepgram_flux = (
-            user_config.stt.provider == ServiceProviders.DEEPGRAM.value
-            and user_config.stt.model == "flux-general-en"
-        )
-
-        if is_deepgram_flux:
+        # Deepgram Flux and supported Dograh managed Flux languages emit their
+        # own turn boundaries, so the aggregator follows those external signals.
+        # Other models use configurable turn detection.
+        if stt_uses_flux_turns(user_config):
             user_turn_strategies = UserTurnStrategies(
                 start=[
                     VADUserTurnStartStrategy(),
@@ -679,7 +727,10 @@ async def _run_pipeline(
         # Create a separate LLM instance for the voicemail sub-pipeline
         # (can't share with main pipeline as it would mess up frame linking)
         if voicemail_config.get("use_workflow_llm", True):
-            voicemail_llm = create_llm_service(user_config)
+            voicemail_llm = create_llm_service(
+                user_config,
+                correlation_id=mps_correlation_id,
+            )
         else:
             voicemail_llm = create_llm_service_from_provider(
                 provider=voicemail_config.get("provider", "openai"),
@@ -830,12 +881,15 @@ async def _run_pipeline(
 
     try:
         # Run the pipeline
-        loop = asyncio.get_running_loop()
-        params = PipelineTaskParams(loop=loop)
-        await task.run(params)
+        await run_pipeline_worker(task)
         logger.info(f"Task completed for run {workflow_run_id}")
     except asyncio.CancelledError:
         logger.warning("Received CancelledError in _run_pipeline")
     finally:
+        # Close MCP sessions here, not in engine.cleanup(). The anyio cancel
+        # scopes opened by MCPClient.start() in engine.initialize() are
+        # task-affine; this finally runs in the same task as initialize(),
+        # whereas engine.cleanup() runs in a pipecat event-handler task.
+        await engine.close_mcp_sessions()
         await feedback_observer.cleanup()
         logger.debug(f"Cleaned up context providers for workflow run {workflow_run_id}")

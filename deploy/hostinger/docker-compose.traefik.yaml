@@ -1,0 +1,58 @@
+# Standalone Traefik + Let's Encrypt — STANDS IN FOR Hostinger's managed Traefik.
+# =================================================================
+# On Hostinger's VPS Docker Manager you do NOT deploy this — their platform
+# already runs Traefik. Use this file to reproduce that environment on a
+# generic VPS (e.g. a plain EC2 box) so you can test docker-compose.yaml
+# end to end: TLS issuance, HTTP->HTTPS redirect, WebSocket upgrade, routing.
+#
+# It also documents exactly what we need Hostinger's Traefik to provide:
+#   - an HTTPS entrypoint (here: websecure / :443)
+#   - a Let's Encrypt certresolver (here: letsencrypt)
+#   - the Docker provider watching a shared network (here: traefik)
+#   - a long idleTimeout so long-lived signaling WebSockets aren't cut
+#
+# Bring up BEFORE the app stack, on the same external network:
+#   docker network create traefik-proxy
+#   docker compose -f docker-compose.traefik.yaml --env-file .env up -d
+#   docker compose --env-file .env up -d
+# =================================================================
+
+services:
+  traefik:
+    image: traefik:v3.1
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      # Global HTTP->HTTPS redirect (the ACME HTTP-01 challenge is still served
+      # on :80 — Traefik handles the challenge ahead of this redirect).
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      # Keep long-lived WebSockets (signaling) from being cut while idle.
+      - --entrypoints.websecure.transport.respondingTimeouts.idleTimeout=3600s
+      # Let's Encrypt via HTTP-01. Must match TRAEFIK_CERTRESOLVER in the app .env.
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge=true
+      - --certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web
+      - --certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:?set ACME_EMAIL in .env}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      # For repeated test runs, point at LE staging to avoid prod rate limits:
+      # - --certificatesresolvers.letsencrypt.acme.caserver=https://acme-staging-v02.api.letsencrypt.org/directory
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-acme:/letsencrypt
+    networks:
+      - traefik
+
+volumes:
+  traefik-acme:
+
+networks:
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik-proxy}

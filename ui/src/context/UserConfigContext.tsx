@@ -1,24 +1,28 @@
 'use client';
 
-import { createContext, ReactNode, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 
-import { client } from '@/client/client.gen';
-import { getAuthUserApiV1UserAuthUserGet, getUserConfigurationsApiV1UserConfigurationsUserGet, updateUserConfigurationsApiV1UserConfigurationsUserPut } from '@/client/sdk.gen';
-import type { UserConfigurationRequestResponseSchema } from '@/client/types.gen';
-import { setupAuthInterceptor } from '@/lib/apiClient';
-import type { AuthUser } from '@/lib/auth';
+import { getAuthUserApiV1UserAuthUserGet } from '@/client/sdk.gen';
 import { useAuth } from '@/lib/auth';
 
+import { OrgConfigProvider, useOrgConfig } from './OrgConfigContext';
 
-interface TeamPermission {
-    id: string;
-}
+// Upstream (dograh-v1.38.0) refactored the old inline UserConfigContext into
+// `OrgConfigContext`, which now owns the org-context + user-config + pricing +
+// permissions state, and turned this module into a thin re-export. The SaaS
+// fork layers additional state on top — the platform superuser flag and the
+// org's plan tier / feature flags — that the upstream OrgConfig context does
+// not carry.
+//
+// Reconciliation: we keep upstream's OrgConfig provider as the single source
+// for the shared org/user state (it is the provider mounted in the app tree),
+// and re-export it under the legacy `UserConfigProvider` name. The SaaS-only
+// fields are sourced from a small shared store (fetched once via the same
+// `/user/auth/user` endpoint the fork has always used) and merged into the
+// `useUserConfig()` return value, so every consumer keeps seeing the full
+// union shape: OrgConfig's fields PLUS plan/superuser/feature flags.
 
-interface OrganizationPricing {
-    price_per_second_usd: number | null;
-    currency: string;
-    billing_enabled: boolean;
-}
+export { OrgConfigProvider as UserConfigProvider } from './OrgConfigContext';
 
 /** Plan-tier feature flags (see api/services/plans.py). */
 export interface PlanFeatures {
@@ -26,14 +30,8 @@ export interface PlanFeatures {
     mcp: boolean;
 }
 
-interface UserConfigContextType {
-    userConfig: UserConfigurationRequestResponseSchema | null;
-    saveUserConfig: (userConfig: UserConfigurationRequestResponseSchema) => Promise<void>;
-    loading: boolean;
-    error: Error | null;
-    refreshConfig: () => Promise<void>;
-    permissions: TeamPermission[];
-    permissionsLoaded: boolean;
+// SaaS-only state layered on top of upstream's OrgConfig context.
+interface SaasUserState {
     /** Platform-level superuser flag (UserModel.is_superuser on the backend). */
     isSuperuser: boolean;
     superuserLoaded: boolean;
@@ -43,83 +41,64 @@ interface UserConfigContextType {
     planFeatures: PlanFeatures;
     /** True once the plan/superuser fetch has resolved (same request). */
     planLoaded: boolean;
-    user: AuthUser | null;
-    organizationPricing: OrganizationPricing | null;
+    /**
+     * True once role information is available. Kept for the legacy
+     * `useUserConfig()` shape (useIsAdmin gates on it). It resolves together
+     * with the superuser/plan fetch, which becomes ready on the same auth tick
+     * as OrgConfig's permission fetch.
+     */
+    permissionsLoaded: boolean;
 }
 
-const UserConfigContext = createContext<UserConfigContextType | null>(null);
+const INITIAL_SAAS_STATE: SaasUserState = {
+    isSuperuser: false,
+    superuserLoaded: false,
+    plan: 'trial',
+    planFeatures: { api: false, mcp: false },
+    planLoaded: false,
+    permissionsLoaded: false,
+};
 
-export function UserConfigProvider({ children }: { children: ReactNode }) {
-    const [userConfig, setUserConfig] = useState<UserConfigurationRequestResponseSchema | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<Error | null>(null);
-    const [organizationPricing, setOrganizationPricing] = useState<OrganizationPricing | null>(null);
-    const [permissions, setPermissions] = useState<TeamPermission[]>([]);
-    const [permissionsLoaded, setPermissionsLoaded] = useState(false);
-    const [isSuperuser, setIsSuperuser] = useState(false);
-    const [superuserLoaded, setSuperuserLoaded] = useState(false);
-    const [plan, setPlan] = useState<string>('trial');
-    const [planFeatures, setPlanFeatures] = useState<PlanFeatures>({ api: false, mcp: false });
+// Module-level shared store so the SaaS fields are fetched once and shared
+// across every `useUserConfig()` consumer, independent of which provider the
+// app tree mounts (upstream mounts `OrgConfigProvider`, which has no place for
+// these fields).
+let saasState: SaasUserState = INITIAL_SAAS_STATE;
+let saasFetchStarted = false;
+const saasListeners = new Set<() => void>();
 
+function setSaasState(next: Partial<SaasUserState>) {
+    saasState = { ...saasState, ...next };
+    saasListeners.forEach((listener) => listener());
+}
+
+function subscribeSaasState(listener: () => void) {
+    saasListeners.add(listener);
+    return () => {
+        saasListeners.delete(listener);
+    };
+}
+
+function getSaasSnapshot() {
+    return saasState;
+}
+
+function useSaasUserState(): SaasUserState {
     const auth = useAuth();
+    const state = useSyncExternalStore(subscribeSaasState, getSaasSnapshot, getSaasSnapshot);
 
-    // Store auth functions in refs to avoid dependency issues
-    const authRef = useRef(auth);
-    authRef.current = auth;
-
-    // Track initialization
-    const hasFetchedConfig = useRef(false);
-    const hasFetchedPermissions = useRef(false);
-    const hasFetchedSuperuser = useRef(false);
-
-    // Register the auth interceptor synchronously during render (not in useEffect)
-    // so it's in place before any child effects fire API calls.
-    // setupAuthInterceptor is idempotent — safe for strict mode double-renders.
-    if (!auth.loading && auth.isAuthenticated) {
-        setupAuthInterceptor(client, auth.getAccessToken);
-    }
-
-    // Fetch permissions once when auth is ready
     useEffect(() => {
-        if (auth.loading || hasFetchedPermissions.current) {
+        // Fetch the platform superuser flag + plan/features once, after auth is
+        // ready. Mirrors the fork's original behaviour (single fetch guarded by
+        // a ref) using a module-level guard so it stays a single request.
+        if (auth.loading || saasFetchStarted) {
             return;
         }
-        hasFetchedPermissions.current = true;
+        saasFetchStarted = true;
 
-        const fetchPermissions = async () => {
-            const currentAuth = authRef.current;
-            if (currentAuth.provider === 'stack' && currentAuth.getSelectedTeam && currentAuth.listPermissions) {
-                const selectedTeam = currentAuth.getSelectedTeam();
-                if (selectedTeam) {
-                    try {
-                        const perms = await currentAuth.listPermissions(selectedTeam);
-                        setPermissions(Array.isArray(perms) ? perms : []);
-                    } catch {
-                        setPermissions([]);
-                    }
-                } else {
-                    setPermissions([]);
-                }
-            } else {
-                setPermissions([{ id: 'admin' }]);
-            }
-            setPermissionsLoaded(true);
-        };
-
-        fetchPermissions();
-    }, [auth.loading, auth.provider]);
-
-    // Fetch the platform-level superuser flag once when auth is ready.
-    // Works for both auth providers via the backend's /user/auth/user endpoint.
-    useEffect(() => {
-        if (auth.loading || hasFetchedSuperuser.current) {
-            return;
-        }
-        hasFetchedSuperuser.current = true;
-
-        const fetchSuperuser = async () => {
-            if (!authRef.current.isAuthenticated) {
-                setSuperuserLoaded(true);
+        const fetchSaasState = async () => {
+            if (!auth.isAuthenticated) {
+                setSaasState({ superuserLoaded: true, planLoaded: true, permissionsLoaded: true });
                 return;
             }
             try {
@@ -129,141 +108,47 @@ export function UserConfigProvider({ children }: { children: ReactNode }) {
                 const data = response.data as
                     | { is_superuser?: boolean; plan?: string; features?: Partial<PlanFeatures> }
                     | undefined;
-                setIsSuperuser(!!data?.is_superuser);
-                setPlan(data?.plan ?? 'trial');
-                setPlanFeatures({ api: !!data?.features?.api, mcp: !!data?.features?.mcp });
+                setSaasState({
+                    isSuperuser: !!data?.is_superuser,
+                    plan: data?.plan ?? 'trial',
+                    planFeatures: { api: !!data?.features?.api, mcp: !!data?.features?.mcp },
+                    superuserLoaded: true,
+                    planLoaded: true,
+                    permissionsLoaded: true,
+                });
             } catch {
-                setIsSuperuser(false);
-                setPlan('trial');
-                setPlanFeatures({ api: false, mcp: false });
-            } finally {
-                setSuperuserLoaded(true);
+                setSaasState({
+                    isSuperuser: false,
+                    plan: 'trial',
+                    planFeatures: { api: false, mcp: false },
+                    superuserLoaded: true,
+                    planLoaded: true,
+                    permissionsLoaded: true,
+                });
             }
         };
 
-        fetchSuperuser();
+        fetchSaasState();
     }, [auth.loading, auth.isAuthenticated]);
 
-    // Fetch user config once when auth is ready
-    useEffect(() => {
-        if (auth.loading || !auth.isAuthenticated || hasFetchedConfig.current) {
-            return;
-        }
-        hasFetchedConfig.current = true;
-
-        const fetchUserConfig = async () => {
-            setLoading(true);
-            try {
-                const response = await getUserConfigurationsApiV1UserConfigurationsUserGet();
-
-                if (response.data) {
-                    setUserConfig(response.data);
-                    if (response.data.organization_pricing) {
-                        setOrganizationPricing({
-                            price_per_second_usd: response.data.organization_pricing.price_per_second_usd as number | null,
-                            currency: response.data.organization_pricing.currency as string || 'USD',
-                            billing_enabled: response.data.organization_pricing.billing_enabled as boolean || false
-                        });
-                    } else {
-                        setOrganizationPricing(null);
-                    }
-                }
-                setError(null);
-            } catch (err) {
-                setError(err instanceof Error ? err : new Error('Failed to fetch user configuration'));
-            } finally {
-                setLoading(false);
-            }
-        };
-
-        fetchUserConfig();
-    }, [auth.loading, auth.isAuthenticated]);
-
-    const saveUserConfig = useCallback(async (userConfigRequest: UserConfigurationRequestResponseSchema) => {
-        if (!authRef.current.isAuthenticated) throw new Error('No authentication available');
-        const response = await updateUserConfigurationsApiV1UserConfigurationsUserPut({
-            body: {
-                ...userConfig,
-                ...userConfigRequest
-            } as UserConfigurationRequestResponseSchema,
-        });
-        if (response.error) {
-            let msg = 'Failed to save user configuration';
-            const detail = (response.error as unknown as { detail?: string | { errors: { model: string; message: string }[] } }).detail;
-            if (typeof detail === 'string') {
-                msg = detail;
-            } else if (Array.isArray(detail)) {
-                msg = detail
-                    .map((e: { model: string; message: string }) => `${e.model}: ${e.message}`)
-                    .join('\n');
-            }
-            throw new Error(msg);
-        }
-        setUserConfig(response.data!);
-
-        if (response.data?.organization_pricing) {
-            setOrganizationPricing({
-                price_per_second_usd: response.data.organization_pricing.price_per_second_usd as number | null,
-                currency: response.data.organization_pricing.currency as string || 'USD',
-                billing_enabled: response.data.organization_pricing.billing_enabled as boolean || false
-            });
-        }
-    }, [userConfig]);
-
-    const refreshConfig = useCallback(async () => {
-        const currentAuth = authRef.current;
-        if (!currentAuth.isAuthenticated) return;
-
-        setLoading(true);
-        try {
-            const response = await getUserConfigurationsApiV1UserConfigurationsUserGet();
-
-            if (response.data) {
-                setUserConfig(response.data);
-                if (response.data.organization_pricing) {
-                    setOrganizationPricing({
-                        price_per_second_usd: response.data.organization_pricing.price_per_second_usd as number | null,
-                        currency: response.data.organization_pricing.currency as string || 'USD',
-                        billing_enabled: response.data.organization_pricing.billing_enabled as boolean || false
-                    });
-                }
-            }
-            setError(null);
-        } catch (err) {
-            setError(err instanceof Error ? err : new Error('Failed to fetch user configuration'));
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    return (
-        <UserConfigContext.Provider
-            value={{
-                userConfig,
-                saveUserConfig,
-                loading,
-                error,
-                refreshConfig,
-                permissions,
-                permissionsLoaded,
-                isSuperuser,
-                superuserLoaded,
-                plan,
-                planFeatures,
-                planLoaded: superuserLoaded,
-                user: auth.user,
-                organizationPricing,
-            }}
-        >
-            {children}
-        </UserConfigContext.Provider>
-    );
+    return state;
 }
 
+/**
+ * Legacy SaaS hook. Returns the full union shape: every field exposed by
+ * upstream's `useOrgConfig()` (orgContext, userConfig, saveUserConfig, loading,
+ * error, refreshConfig, permissions, user, organizationPricing) PLUS the
+ * SaaS-only plan/superuser/feature fields.
+ */
 export function useUserConfig() {
-    const context = useContext(UserConfigContext);
-    if (!context) {
-        throw new Error('useUserConfig must be used within a UserConfigProvider');
-    }
-    return context;
+    const orgConfig = useOrgConfig();
+    const saasState = useSaasUserState();
+
+    return {
+        ...orgConfig,
+        ...saasState,
+    };
 }
+
+// Re-export so existing imports of the upstream hook keep resolving.
+export { useOrgConfig } from './OrgConfigContext';

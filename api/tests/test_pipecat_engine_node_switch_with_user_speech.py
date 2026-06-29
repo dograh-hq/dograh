@@ -24,8 +24,7 @@ from pipecat.frames.frames import (
     UserStoppedSpeakingFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -48,6 +47,7 @@ from pipecat.turns.user_stop import (
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.utils.time import time_now_iso8601
 
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
 from pipecat.tests import MockLLMService, MockTTSService
@@ -119,7 +119,7 @@ async def create_test_pipeline(
     workflow: WorkflowGraph,
     mock_llm: MockLLMService,
     user_speech_initial_delay: float = 0.01,
-) -> tuple[PipecatEngine, MockTransport, PipelineTask]:
+) -> tuple[PipecatEngine, MockTransport, PipelineWorker]:
     """Create a PipecatEngine with full pipeline for testing node switch scenarios.
 
     The pipeline includes a UserSpeechInjector processor that injects
@@ -208,7 +208,7 @@ async def create_test_pipeline(
     )
 
     # Create pipeline task
-    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+    task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
 
     engine.set_task(task)
 
@@ -281,25 +281,19 @@ class TestNodeSwitchWithUserSpeech:
             new_callable=AsyncMock,
             return_value=1,
         ):
-            with patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-                new_callable=AsyncMock,
-                return_value="completed",
-            ):
-                runner = PipelineRunner()
 
-                async def run_pipeline():
-                    await runner.run(task)
+            async def run_pipeline():
+                await run_pipeline_worker(task)
 
-                async def initialize_engine():
-                    await asyncio.sleep(0.01)
-                    await engine.initialize()
-                    await engine.set_node(engine.workflow.start_node_id)
-                    # Start the LLM generation - user speech will be injected
-                    # automatically when FunctionCallResultFrame #1 is seen
-                    await engine.llm.queue_frame(LLMContextFrame(engine.context))
+            async def initialize_engine():
+                await asyncio.sleep(0.01)
+                await engine.initialize()
+                await engine.set_node(engine.workflow.start_node_id)
+                # Start the LLM generation - user speech will be injected
+                # automatically when FunctionCallResultFrame #1 is seen
+                await engine.llm.queue_frame(LLMContextFrame(engine.context))
 
-                await asyncio.gather(run_pipeline(), initialize_engine())
+            await asyncio.gather(run_pipeline(), initialize_engine())
 
         # Total 4 generations out of which 1 was cancelled due to interruption
         assert llm.get_current_step() == 4

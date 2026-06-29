@@ -4,11 +4,14 @@ from loguru import logger
 from api.constants import RATE_LIMIT_LOGIN_PER_MIN, RATE_LIMIT_SIGNUP_PER_MIN
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import PostHogEvent
+from api.enums import OrganizationConfigurationKey, PostHogEvent
 from api.schemas.auth import AuthResponse, LoginRequest, SignupRequest, UserResponse
 from api.services.auth.admin_emails import promote_if_admin_email
 from api.services.auth.depends import create_user_configuration_with_mps_key, get_user
 from api.services.auth.turnstile import verify_turnstile
+from api.services.configuration.ai_model_configuration import (
+    convert_legacy_ai_model_configuration_to_v2,
+)
 from api.services.posthog_client import capture_event
 from api.services.rate_limit import client_ip, rate_limit_ip
 from api.services.voicelink_clients import provision_voicelink_client_for_signup
@@ -63,6 +66,12 @@ async def signup(
         )
         if mps_config:
             await db_client.update_user_configuration(user.id, mps_config)
+            model_config_v2 = convert_legacy_ai_model_configuration_to_v2(mps_config)
+            await db_client.upsert_configuration(
+                organization.id,
+                OrganizationConfigurationKey.MODEL_CONFIGURATION_V2.value,
+                model_config_v2.model_dump(mode="json", exclude_none=True),
+            )
     except Exception:
         logger.warning(
             "Failed to create default configuration for OSS user", exc_info=True

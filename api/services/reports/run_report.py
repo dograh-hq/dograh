@@ -10,14 +10,8 @@ import io
 from datetime import UTC, datetime
 from typing import Any, List, Optional
 
-from api.constants import BACKEND_API_ENDPOINT
 from api.db import db_client
-
-
-def _artifact_url(token: str | None, artifact: str) -> str:
-    if not token:
-        return ""
-    return f"{BACKEND_API_ENDPOINT}/api/v1/public/download/workflow/{token}/{artifact}"
+from api.utils.artifacts import artifact_url
 
 
 def _collect_extracted_variable_keys(runs: List[Any]) -> list[str]:
@@ -59,7 +53,7 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
     for run in runs:
         initial = run.initial_context or {}
         gathered = run.gathered_context or {}
-        cost = run.cost_info or {}
+        usage = run.usage_info or {}
 
         call_tags = gathered.get("call_tags", [])
         if isinstance(call_tags, list):
@@ -73,7 +67,7 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
             run.created_at.isoformat() if run.created_at else "",
             initial.get("phone_number", ""),
             gathered.get("mapped_call_disposition", ""),
-            cost.get("call_duration_seconds", ""),
+            usage.get("call_duration_seconds", ""),
         ]
 
         extracted = gathered.get("extracted_variables", {})
@@ -83,8 +77,8 @@ def build_run_report_csv(runs: List[Any]) -> io.StringIO:
 
         post_values = [
             call_tags,
-            _artifact_url(run.public_access_token, "transcript"),
-            _artifact_url(run.public_access_token, "recording"),
+            artifact_url(run.public_access_token, "transcript") or "",
+            artifact_url(run.public_access_token, "recording") or "",
         ]
 
         writer.writerow(pre_values + extracted_values + post_values)

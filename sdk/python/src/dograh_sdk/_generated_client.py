@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from dograh_sdk._generated_models import (
+    CreateToolRequest,
     CreateWorkflowRequest,
     CredentialResponse,
     DocumentListResponseSchema,
@@ -28,6 +29,11 @@ from dograh_sdk._generated_models import (
 
 class _GeneratedClient:
     # `DograhClient.__init__` installs `self._request` (see client.py).
+
+    def create_tool(self, *, body: CreateToolRequest) -> ToolResponse:
+        """Create a reusable tool for the authenticated organization."""
+        data = self._request("POST", "/tools/", json=body.model_dump(mode="json", exclude_none=True))
+        return ToolResponse.model_validate(data)
 
     def create_workflow(self, *, body: CreateWorkflowRequest) -> WorkflowResponse:
         """Create a new workflow from a workflow definition."""

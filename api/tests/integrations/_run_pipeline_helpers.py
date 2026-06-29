@@ -15,7 +15,7 @@ Provided here:
 - ``NoopFeedbackObserver``: a ``RealtimeFeedbackObserver`` stand-in with
   no WebSocket / clock-task side effects.
 - ``patch_run_pipeline_externals``: ``contextmanager`` that applies the
-  full patch set and captures the constructed ``PipelineTask`` for the
+  full patch set and captures the constructed ``PipelineWorker`` for the
   caller. Optional ``llm`` / ``tts`` arguments inject preconfigured
   mocks; otherwise blank ``MockLLMService`` / ``MockTTSService``
   instances are constructed per-call.
@@ -84,10 +84,10 @@ def patch_run_pipeline_externals(
     tts: MockTTSService | None = None,
 ):
     """Patch the externally-talking pieces of ``_run_pipeline`` and capture
-    the constructed ``PipelineTask`` so tests can drive it from outside.
+    the constructed ``PipelineWorker`` so tests can drive it from outside.
 
     Args:
-        captured_task: A list the constructed ``PipelineTask`` is appended
+        captured_task: A list the constructed ``PipelineWorker`` is appended
             to. Tests read ``captured_task[0]`` to get a handle on the task
             (to wait on its start event, queue frames, cancel it, etc.).
         llm: Optional pre-built ``MockLLMService``. When given, every call
@@ -160,15 +160,7 @@ def patch_run_pipeline_externals(
                 NoopFeedbackObserver,
             )
         )
-        # Disposition mapper would otherwise call out to the LLM.
-        stack.enter_context(
-            patch(
-                "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-                new_callable=AsyncMock,
-                return_value="completed",
-            )
-        )
-        # Capture the PipelineTask so the test can drive it from outside.
+        # Capture the PipelineWorker so the test can drive it from outside.
         stack.enter_context(
             patch(
                 "api.services.pipecat.run_pipeline.create_pipeline_task",
@@ -203,7 +195,7 @@ async def create_workflow_run_rows(
     Returns:
         Tuple of (workflow_run, user, workflow).
     """
-    from api.schemas.user_configuration import UserConfiguration
+    from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 
     org = OrganizationModel(provider_id=f"test-org-{provider_id_suffix}")
     async_session.add(org)
@@ -218,7 +210,7 @@ async def create_workflow_run_rows(
 
     await db_session.update_user_configuration(
         user_id=user.id,
-        configuration=UserConfiguration.model_validate(USER_CONFIGURATION),
+        configuration=EffectiveAIModelConfiguration.model_validate(USER_CONFIGURATION),
     )
 
     workflow = await db_session.create_workflow(

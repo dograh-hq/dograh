@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { loginApiV1AuthLoginPost } from "@/client/sdk.gen";
 import type { LoginRequest } from "@/client/types.gen";
+import { AuthEnterpriseCTA } from "@/components/auth/AuthEnterpriseCTA";
 import { GoogleSignInButton } from "@/components/GoogleSignInButton";
 import { Turnstile } from "@/components/Turnstile";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,15 @@ export default function LoginPage() {
             Natural Hindi &amp; Hinglish calls at scale — qualify leads, follow up,
             and book meetings, 24/7.
           </p>
+        </div>
+        <div className="relative mb-8 max-w-xs space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-5">
+          <h2 className="text-sm font-semibold text-white/90">
+            Need on-prem, data residency &amp; a data perimeter?
+          </h2>
+          <p className="text-sm text-white/50">
+            We deploy inside your environment for regulated and high-scale teams.
+          </p>
+          <AuthEnterpriseCTA />
         </div>
         <p className="text-small relative text-white/40">© auto4you</p>
       </div>

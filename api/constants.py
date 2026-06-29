@@ -26,6 +26,9 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 REDIS_URL = os.environ["REDIS_URL"]
 
 DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "oss")
+CORS_ALLOWED_ORIGINS = [
+    o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
 AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local")
 
 # Google OAuth ("Sign in with Google"). Client id is public; the secret is server-
@@ -93,6 +96,13 @@ NUMBER_SETUP_MINUTES = int(os.getenv("NUMBER_SETUP_MINUTES", "0"))
 # Comma-separated list of emails that are promoted to superuser on
 # local-auth signup/login (e.g. "owner@example.com,ops@example.com").
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "")
+
+# Stack Auth public client config. These are safe to expose to the browser (the
+# publishable client key is public by design, and the project id is non-sensitive),
+# and are served to the UI at runtime via /api/v1/health so the frontend no longer
+# needs them baked into the bundle at build time.
+STACK_AUTH_PROJECT_ID = os.getenv("STACK_AUTH_PROJECT_ID")
+STACK_PUBLISHABLE_CLIENT_KEY = os.getenv("STACK_PUBLISHABLE_CLIENT_KEY")
 DOGRAH_MPS_SECRET_KEY = os.getenv("DOGRAH_MPS_SECRET_KEY", None)
 MPS_API_URL = os.getenv("MPS_API_URL", "https://services.dograh.com")
 
@@ -110,6 +120,17 @@ MINIO_SECURE = os.getenv("MINIO_SECURE", "false").lower() == "true"
 # AWS S3 Configuration
 S3_BUCKET = os.environ.get("S3_BUCKET")
 S3_REGION = os.environ.get("S3_REGION", "us-east-1")
+# Optional overrides for S3-compatible backends (e.g. MinIO, rustfs, Ceph).
+# S3_ENDPOINT_URL: full URL of a custom S3 endpoint (e.g. "https://s3.example.com").
+#   Leave unset to use AWS's default endpoint resolution.
+# S3_SIGNATURE_VERSION: botocore signature version used to sign requests and
+#   presigned URLs. Defaults to None (botocore's default, currently SigV2 for
+#   presigned URLs). Set to "s3v4" for S3-compatible servers that require SigV4.
+# S3_ADDRESSING_STYLE: "auto" (default), "path", or "virtual". Many S3-compatible
+#   servers and TLS setups require "path".
+S3_ENDPOINT_URL = os.environ.get("S3_ENDPOINT_URL")
+S3_SIGNATURE_VERSION = os.environ.get("S3_SIGNATURE_VERSION")
+S3_ADDRESSING_STYLE = os.environ.get("S3_ADDRESSING_STYLE")
 
 # Sentry configuration
 SENTRY_DSN = os.getenv("SENTRY_DSN")

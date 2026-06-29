@@ -2,7 +2,6 @@ import { isNextRouterError } from "next/dist/client/components/is-next-router-er
 import { redirect } from "next/navigation";
 
 import { getWorkflowCountApiV1WorkflowCountGet } from "@/client/sdk.gen";
-import SignInClient from "@/components/SignInClient";
 import { getServerAccessToken,getServerAuthProvider,getServerUser } from "@/lib/auth/server";
 import logger from '@/lib/logger';
 import { getRedirectUrl } from "@/lib/utils";
@@ -92,16 +91,6 @@ export default async function Home() {
     }
   }
 
-  return (
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "center",
-        height: "100vh",
-      }}
-    >
-      <SignInClient />
-    </div>
-  );
+  logger.debug('[HomePage] Redirecting unauthenticated Stack user to /handler/sign-in');
+  redirect('/handler/sign-in');
 }

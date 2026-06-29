@@ -5,6 +5,17 @@ from typing import Annotated, Dict, Literal, Type, TypeVar, Union
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from api.services.configuration.options import (
+    AZURE_EMBEDDING_MODELS,
+    AZURE_MODELS,
+    AZURE_REALTIME_API_VERSIONS,
+    AZURE_REALTIME_MODELS,
+    AZURE_REALTIME_VOICES,
+    AZURE_SPEECH_REGIONS,
+    AZURE_SPEECH_STT_LANGUAGES,
+    AZURE_SPEECH_TTS_LANGUAGES,
+    AZURE_SPEECH_TTS_VOICES,
+    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
+    DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES,
     DEEPGRAM_LANGUAGES,
     DEEPGRAM_STT_MODELS,
     GLADIA_STT_LANGUAGES,
@@ -22,10 +33,17 @@ from api.services.configuration.options import (
     GOOGLE_VERTEX_REALTIME_MODELS,
     GOOGLE_VERTEX_REALTIME_VOICES,
     SARVAM_LANGUAGES,
+    SARVAM_LLM_MODELS,
+    SARVAM_STT_LANGUAGES_V3,
+    SARVAM_STT_LANGUAGES_V25,
     SARVAM_STT_MODELS,
     SARVAM_TTS_MODELS,
     SARVAM_V2_VOICES,
     SARVAM_V3_VOICES,
+    SMALLEST_TTS_LANGUAGES,
+    SMALLEST_TTS_MODELS,
+    SMALLEST_TTS_PRO_VOICES,
+    SMALLEST_TTS_VOICES,
     SPEECHMATICS_STT_LANGUAGES,
 )
 from api.services.configuration.options.google import GOOGLE_VERTEX_MODELS
@@ -44,17 +62,20 @@ class ServiceProviders(str, Enum):
     DEEPGRAM = "deepgram"
     GROQ = "groq"
     OPENROUTER = "openrouter"
+    INWORLD = "inworld"
     CARTESIA = "cartesia"
     # NEUPHONIC = "neuphonic"
     ELEVENLABS = "elevenlabs"
     GOOGLE = "google"
     AZURE = "azure"
+    AZURE_SPEECH = "azure_speech"
     DOGRAH = "dograh"
     SARVAM = "sarvam"
     SPEECHMATICS = "speechmatics"
     CAMB = "camb"
     AWS_BEDROCK = "aws_bedrock"
     SPEACHES = "speaches"
+    HUGGINGFACE = "huggingface"
     ASSEMBLYAI = "assemblyai"
     GLADIA = "gladia"
     RIME = "rime"
@@ -65,6 +86,8 @@ class ServiceProviders(str, Enum):
     ULTRAVOX_REALTIME = "ultravox_realtime"
     GOOGLE_REALTIME = "google_realtime"
     GOOGLE_VERTEX_REALTIME = "google_vertex_realtime"
+    AZURE_REALTIME = "azure_realtime"
+    SMALLEST = "smallest"
 
 
 class BaseServiceConfiguration(BaseModel):
@@ -73,12 +96,15 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.DEEPGRAM,
         ServiceProviders.GROQ,
         ServiceProviders.OPENROUTER,
+        ServiceProviders.INWORLD,
         ServiceProviders.ELEVENLABS,
         ServiceProviders.GOOGLE,
         ServiceProviders.AZURE,
+        ServiceProviders.AZURE_SPEECH,
         ServiceProviders.DOGRAH,
         ServiceProviders.AWS_BEDROCK,
         ServiceProviders.SPEACHES,
+        ServiceProviders.HUGGINGFACE,
         ServiceProviders.ASSEMBLYAI,
         ServiceProviders.GLADIA,
         ServiceProviders.RIME,
@@ -89,7 +115,9 @@ class BaseServiceConfiguration(BaseModel):
         ServiceProviders.ULTRAVOX_REALTIME,
         ServiceProviders.GOOGLE_REALTIME,
         ServiceProviders.GOOGLE_VERTEX_REALTIME,
-        # ServiceProviders.SARVAM,
+        ServiceProviders.AZURE_REALTIME,
+        ServiceProviders.SARVAM,
+        ServiceProviders.SMALLEST,
     ]
     api_key: str | list[str]
 
@@ -224,6 +252,14 @@ GOOGLE_VERTEX_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
 DEEPGRAM_PROVIDER_MODEL_CONFIG = provider_model_config("Deepgram")
 ELEVENLABS_PROVIDER_MODEL_CONFIG = provider_model_config("ElevenLabs")
 CARTESIA_PROVIDER_MODEL_CONFIG = provider_model_config("Cartesia")
+INWORLD_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Inworld",
+    description=(
+        "Inworld AI streaming text-to-speech with built-in and cloned voices. "
+        "Defaults to the Ashley system voice on inworld-tts-2."
+    ),
+    provider_docs_url="https://docs.inworld.ai/tts/tts",
+)
 SARVAM_PROVIDER_MODEL_CONFIG = provider_model_config("Sarvam")
 CAMB_PROVIDER_MODEL_CONFIG = provider_model_config("Camb.ai")
 RIME_PROVIDER_MODEL_CONFIG = provider_model_config("Rime")
@@ -238,6 +274,21 @@ SPEACHES_PROVIDER_MODEL_CONFIG = provider_model_config(
         "for setup and supported backends."
     ),
     provider_docs_url="https://github.com/speaches-ai/speaches",
+)
+HUGGINGFACE_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Hugging Face",
+    description="Hosted Hugging Face Inference Providers API for usage-based inference.",
+    provider_docs_url="https://huggingface.co/docs/inference-providers/en/index",
+)
+AZURE_SPEECH_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Azure Speech Services",
+    description="Azure Cognitive Services Speech — TTS and STT via the Azure Speech SDK.",
+    provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/speech-service/",
+)
+AZURE_REALTIME_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Azure OpenAI Realtime",
+    description="Azure OpenAI Realtime API — low-latency speech-to-speech conversations.",
+    provider_docs_url="https://learn.microsoft.com/en-us/azure/ai-services/openai/how-to/realtime-audio-quickstart",
 )
 
 OPENAI_MODELS = [
@@ -265,11 +316,9 @@ OPENROUTER_MODELS = [
     "openai/gpt-4.1-mini",
     "anthropic/claude-sonnet-4",
     "google/gemini-2.5-flash",
-    "google/gemini-2.0-flash",
     "meta-llama/llama-3.3-70b-instruct",
     "deepseek/deepseek-chat-v3-0324",
 ]
-AZURE_MODELS = ["gpt-4.1-mini"]
 DOGRAH_LLM_MODELS = ["default", "accurate", "fast", "lite", "zen"]
 AWS_BEDROCK_MODELS = [
     "us.amazon.nova-pro-v1:0",
@@ -290,6 +339,10 @@ class OpenAILLMService(BaseLLMConfiguration):
         description="OpenAI chat model to use.",
         json_schema_extra={"examples": OPENAI_MODELS, "allow_custom_input": True},
     )
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Override only if using an OpenAI-compatible API (e.g. local LLM, proxy).",
+    )
 
 
 @register_llm
@@ -297,7 +350,7 @@ class GoogleLLMService(BaseLLMConfiguration):
     model_config = GOOGLE_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.GOOGLE] = ServiceProviders.GOOGLE
     model: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-2.5-flash",
         description="Gemini model on Google AI Studio (not Vertex).",
         json_schema_extra={"examples": GOOGLE_MODELS, "allow_custom_input": True},
     )
@@ -442,6 +495,35 @@ class SpeachesLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+HUGGINGFACE_LLM_MODELS = [
+    "openai/gpt-oss-120b:cerebras",
+    "deepseek-ai/DeepSeek-R1:fastest",
+    "Qwen/Qwen3-Coder-480B-A35B-Instruct:fastest",
+]
+
+
+@register_llm
+class HuggingFaceLLMConfiguration(BaseLLMConfiguration):
+    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
+    model: str = Field(
+        default="openai/gpt-oss-120b:cerebras",
+        description="Hugging Face chat-completion model identifier, optionally with provider suffix.",
+        json_schema_extra={
+            "examples": HUGGINGFACE_LLM_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://router.huggingface.co/v1",
+        description="Hugging Face OpenAI-compatible chat-completions router base URL.",
+    )
+    bill_to: str | None = Field(
+        default=None,
+        description="Optional Hugging Face organization or user to bill using X-HF-Bill-To.",
+    )
+
+
 MINIMAX_MODELS = [
     "MiniMax-M2.7",
     "MiniMax-M2.7-highspeed",
@@ -465,6 +547,29 @@ class MiniMaxLLMConfiguration(BaseLLMConfiguration):
         gt=0.0,
         le=2.0,
         description="Sampling temperature. MiniMax requires > 0.",
+    )
+
+
+@register_llm
+class SarvamLLMConfiguration(BaseLLMConfiguration):
+    model_config = SARVAM_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
+    model: str = Field(
+        default="sarvam-30b",
+        description=(
+            "Sarvam chat model. Use sarvam-30b for low-latency voice agents; "
+            "sarvam-105b for complex multi-step reasoning."
+        ),
+        json_schema_extra={"examples": SARVAM_LLM_MODELS, "allow_custom_input": True},
+    )
+    temperature: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=2.0,
+        description=(
+            "Sampling temperature. Sarvam recommends 0.5 for balanced "
+            "conversational responses."
+        ),
     )
 
 
@@ -636,12 +741,45 @@ class GoogleVertexRealtimeLLMConfiguration(BaseLLMConfiguration):
     )
 
 
+@register_service(ServiceType.REALTIME)
+class AzureRealtimeLLMConfiguration(BaseLLMConfiguration):
+    model_config = AZURE_REALTIME_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE_REALTIME] = ServiceProviders.AZURE_REALTIME
+    model: str = Field(
+        default="gpt-4o-realtime-preview",
+        description="Azure OpenAI realtime deployment name.",
+        json_schema_extra={
+            "examples": AZURE_REALTIME_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    endpoint: str = Field(
+        description="Azure OpenAI resource endpoint (e.g. https://<resource>.openai.azure.com).",
+    )
+    voice: str = Field(
+        default="alloy",
+        description="Voice the model speaks in.",
+        json_schema_extra={
+            "examples": AZURE_REALTIME_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    api_version: str = Field(
+        default="2025-04-01-preview",
+        description="Azure OpenAI API version.",
+        json_schema_extra={
+            "examples": AZURE_REALTIME_API_VERSIONS,
+        },
+    )
+
+
 REALTIME_PROVIDERS = {
     ServiceProviders.OPENAI_REALTIME.value,
     ServiceProviders.GROK_REALTIME.value,
     ServiceProviders.ULTRAVOX_REALTIME.value,
     ServiceProviders.GOOGLE_REALTIME.value,
     ServiceProviders.GOOGLE_VERTEX_REALTIME.value,
+    ServiceProviders.AZURE_REALTIME.value,
 }
 
 
@@ -656,7 +794,9 @@ LLMConfig = Annotated[
         DograhLLMService,
         AWSBedrockLLMConfiguration,
         SpeachesLLMConfiguration,
+        HuggingFaceLLMConfiguration,
         MiniMaxLLMConfiguration,
+        SarvamLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -668,6 +808,7 @@ RealtimeConfig = Annotated[
         UltravoxRealtimeLLMConfiguration,
         GoogleRealtimeLLMConfiguration,
         GoogleVertexRealtimeLLMConfiguration,
+        AzureRealtimeLLMConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -799,6 +940,10 @@ class OpenAITTSService(BaseTTSConfiguration):
         default="alloy",
         description="OpenAI TTS voice name.",
     )
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Override only if using an OpenAI-compatible API (e.g. local TTS, proxy).",
+    )
 
 
 DOGRAH_TTS_MODELS = ["default"]
@@ -816,11 +961,15 @@ class DograhTTSService(BaseTTSConfiguration):
     voice: str = Field(
         default="default",
         description="Voice preset.",
+        json_schema_extra={"allow_custom_input": True},
     )
     speed: float = Field(default=1.0, ge=0.5, le=2.0, description="Speed of the voice.")
 
 
-CARTESIA_TTS_MODELS = ["sonic-3"]
+CARTESIA_TTS_MODELS = ["sonic-3.5", "sonic-3"]
+INWORLD_TTS_MODELS = ["inworld-tts-2"]
+INWORLD_TTS_VOICES = ["Ashley"]
+INWORLD_TTS_LANGUAGES = ["en-US"]
 
 
 @register_tts
@@ -828,7 +977,7 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
     model_config = CARTESIA_PROVIDER_MODEL_CONFIG
     provider: Literal[ServiceProviders.CARTESIA] = ServiceProviders.CARTESIA
     model: str = Field(
-        default="sonic-3",
+        default="sonic-3.5",
         description="Cartesia TTS model.",
         json_schema_extra={"examples": CARTESIA_TTS_MODELS},
     )
@@ -843,6 +992,51 @@ class CartesiaTTSConfiguration(BaseTTSConfiguration):
         le=2.0,
         description="Volume multiplier for generated speech.",
     )
+    language: str = Field(
+        default="en",
+        description="Cartesia language code for TTS synthesis (e.g. 'en', 'tr', 'fr', 'de').",
+        json_schema_extra={"allow_custom_input": True},
+    )
+
+
+@register_tts
+class InworldTTSConfiguration(BaseTTSConfiguration):
+    model_config = INWORLD_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.INWORLD] = ServiceProviders.INWORLD
+    model: str = Field(
+        default="inworld-tts-2",
+        description="Inworld TTS model.",
+        json_schema_extra={"examples": INWORLD_TTS_MODELS, "allow_custom_input": True},
+    )
+    voice: str = Field(
+        default="Ashley",
+        description=(
+            "Inworld voice ID. Use Ashley for the default warm English voice, "
+            "or a workspace voice ID for a cloned/custom voice."
+        ),
+        json_schema_extra={"examples": INWORLD_TTS_VOICES, "allow_custom_input": True},
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for synthesis.",
+        json_schema_extra={
+            "examples": INWORLD_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.25,
+        le=4.0,
+        description="Speech speed multiplier.",
+    )
+    delivery_mode: Literal["STABLE", "BALANCED", "CREATIVE"] = Field(
+        default="BALANCED",
+        description=(
+            "Controls stability versus expressiveness for inworld-tts-2 "
+            "(STABLE, BALANCED, or CREATIVE)."
+        ),
+    )
 
 
 @register_tts
@@ -856,9 +1050,10 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
     )
     voice: str = Field(
         default="anushka",
-        description="Sarvam voice name; must match the selected model's voice list.",
+        description="Sarvam voice name or custom voice ID.",
         json_schema_extra={
             "examples": SARVAM_V2_VOICES,
+            "allow_custom_input": True,
             "model_options": {
                 "bulbul:v2": SARVAM_V2_VOICES,
                 "bulbul:v3": SARVAM_V3_VOICES,
@@ -869,6 +1064,12 @@ class SarvamTTSConfiguration(BaseTTSConfiguration):
         default="hi-IN",
         description="BCP-47 Indian-language code (e.g. hi-IN, en-IN).",
         json_schema_extra={"examples": SARVAM_LANGUAGES},
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier.",
     )
 
 
@@ -989,6 +1190,90 @@ class MiniMaxTTSConfiguration(BaseTTSConfiguration):
     )
 
 
+@register_tts
+class AzureSpeechTTSConfiguration(BaseTTSConfiguration):
+    model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE_SPEECH] = ServiceProviders.AZURE_SPEECH
+    model: str = Field(
+        default="neural",
+        description="Azure Speech synthesis engine (neural voices only).",
+        json_schema_extra={"examples": ["neural"]},
+    )
+    region: str = Field(
+        default="eastus",
+        description="Azure region for Speech Services (e.g. 'eastus', 'westeurope').",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_REGIONS,
+        },
+    )
+    voice: str = Field(
+        default="en-US-AriaNeural",
+        description="Azure Neural voice name (e.g. 'en-US-AriaNeural').",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_TTS_VOICES,
+            "allow_custom_input": True,
+        },
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for synthesis.",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0).",
+    )
+
+
+SMALLEST_PROVIDER_MODEL_CONFIG = provider_model_config(
+    "Smallest AI",
+    description="Smallest AI ultralow-latency TTS (Waves) and STT (Pulse) APIs.",
+    provider_docs_url="https://smallest.ai/docs",
+)
+
+
+@register_tts
+class SmallestAITTSConfiguration(BaseTTSConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="lightning_v3.1",
+        description="Smallest AI TTS model. lightning_v3.1_pro is the premium pool (American, British, Indian accents); lightning_v3.1 is the standard pool with 217 voices across 12 languages.",
+        json_schema_extra={"examples": SMALLEST_TTS_MODELS},
+    )
+    voice: str = Field(
+        default="sophia",
+        description="Smallest AI voice ID. Available voices differ by model: lightning_v3.1 has a broad multilingual pool; lightning_v3.1_pro has premium American, British, and Indian accent voices (English + Hindi only).",
+        json_schema_extra={
+            "examples": list(SMALLEST_TTS_VOICES),
+            "allow_custom_input": True,
+            "model_options": {
+                "lightning_v3.1": list(SMALLEST_TTS_VOICES),
+                "lightning_v3.1_pro": list(SMALLEST_TTS_PRO_VOICES),
+            },
+        },
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for synthesis.",
+        json_schema_extra={
+            "examples": SMALLEST_TTS_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.5,
+        le=2.0,
+        description="Speech speed multiplier (0.5 to 2.0).",
+    )
+
+
 TTSConfig = Annotated[
     Union[
         DeepgramTTSConfiguration,
@@ -996,12 +1281,15 @@ TTSConfig = Annotated[
         OpenAITTSService,
         ElevenlabsTTSConfiguration,
         CartesiaTTSConfiguration,
+        InworldTTSConfiguration,
         DograhTTSService,
         SarvamTTSConfiguration,
         CambTTSConfiguration,
         RimeTTSConfiguration,
         SpeachesTTSConfiguration,
         MiniMaxTTSConfiguration,
+        AzureSpeechTTSConfiguration,
+        SmallestAITTSConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1020,12 +1308,16 @@ class DeepgramSTTConfiguration(BaseSTTConfiguration):
     )
     language: str = Field(
         default="multi",
-        description="Language code; 'multi' enables auto-detect (Nova-3 only).",
+        description=(
+            "Language code. 'multi' enables Nova-3 auto-detect and omits "
+            "language hints for Flux multilingual auto-detect."
+        ),
         json_schema_extra={
             "examples": DEEPGRAM_LANGUAGES,
             "model_options": {
                 "nova-3-general": DEEPGRAM_LANGUAGES,
                 "flux-general-en": ("en",),
+                "flux-general-multi": DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGE_OPTIONS,
             },
         },
     )
@@ -1056,6 +1348,10 @@ class OpenAISTTConfiguration(BaseSTTConfiguration):
         default="gpt-4o-transcribe",
         description="OpenAI transcription model.",
         json_schema_extra={"examples": OPENAI_STT_MODELS},
+    )
+    base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Override only if using an OpenAI-compatible API (e.g. local STT, proxy).",
     )
 
 
@@ -1101,6 +1397,10 @@ class GoogleSTTConfiguration(BaseSTTConfiguration):
 # Dograh STT Service
 DOGRAH_STT_MODELS = ["default"]
 DOGRAH_STT_LANGUAGES = DEEPGRAM_LANGUAGES
+# Languages auto-detected when the Dograh STT language is "multi". Dograh STT runs
+# Deepgram Flux multilingual under the hood, which only auto-detects this subset —
+# not the full DOGRAH_STT_LANGUAGES list offered for explicit single-language selection.
+DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES = DEEPGRAM_FLUX_MULTILINGUAL_LANGUAGES
 
 
 @register_stt
@@ -1125,13 +1425,24 @@ class SarvamSTTConfiguration(BaseSTTConfiguration):
     provider: Literal[ServiceProviders.SARVAM] = ServiceProviders.SARVAM
     model: str = Field(
         default="saarika:v2.5",
-        description="Sarvam STT model.",
+        description=(
+            "Sarvam STT model. saarika:v2.5 transcribes in the spoken language; "
+            "saaras:v3 is the recommended model with flexible output modes."
+        ),
         json_schema_extra={"examples": SARVAM_STT_MODELS},
     )
     language: str = Field(
-        default="hi-IN",
-        description="BCP-47 Indian-language code.",
-        json_schema_extra={"examples": SARVAM_LANGUAGES},
+        default="unknown",
+        description=(
+            "BCP-47 language code. Use unknown for automatic language detection."
+        ),
+        json_schema_extra={
+            "examples": SARVAM_STT_LANGUAGES_V25,
+            "model_options": {
+                "saarika:v2.5": SARVAM_STT_LANGUAGES_V25,
+                "saaras:v3": SARVAM_STT_LANGUAGES_V3,
+            },
+        },
     )
 
 
@@ -1187,6 +1498,38 @@ class SpeachesSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+HUGGINGFACE_STT_MODELS = [
+    "openai/whisper-large-v3-turbo",
+    "openai/whisper-large-v3",
+]
+
+
+@register_stt
+class HuggingFaceSTTConfiguration(BaseSTTConfiguration):
+    model_config = HUGGINGFACE_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.HUGGINGFACE] = ServiceProviders.HUGGINGFACE
+    model: str = Field(
+        default="openai/whisper-large-v3-turbo",
+        description="Hugging Face ASR model identifier served through Inference Providers.",
+        json_schema_extra={
+            "examples": HUGGINGFACE_STT_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    base_url: str = Field(
+        default="https://router.huggingface.co/hf-inference",
+        description="Hugging Face Inference Providers router base URL.",
+    )
+    bill_to: str | None = Field(
+        default=None,
+        description="Optional Hugging Face organization or user to bill using X-HF-Bill-To.",
+    )
+    return_timestamps: bool = Field(
+        default=False,
+        description="Request timestamp chunks when supported by the selected provider/model.",
+    )
+
+
 ASSEMBLYAI_STT_MODELS = ["u3-rt-pro"]
 ASSEMBLYAI_STT_LANGUAGES = ["en", "es", "de", "fr", "pt", "it"]
 
@@ -1223,6 +1566,88 @@ class GladiaSTTConfiguration(BaseSTTConfiguration):
     )
 
 
+@register_stt
+class AzureSpeechSTTConfiguration(BaseSTTConfiguration):
+    model_config = AZURE_SPEECH_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE_SPEECH] = ServiceProviders.AZURE_SPEECH
+    model: str = Field(
+        default="latest_long",
+        description="Azure Speech recognition model (use 'latest_long' for continuous recognition).",
+        json_schema_extra={"examples": ["latest_long", "latest_short"]},
+    )
+    region: str = Field(
+        default="eastus",
+        description="Azure region for Speech Services (e.g. 'eastus', 'westeurope').",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_REGIONS,
+        },
+    )
+    language: str = Field(
+        default="en-US",
+        description="BCP-47 language code for recognition.",
+        json_schema_extra={
+            "examples": AZURE_SPEECH_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+
+
+SMALLEST_STT_MODELS = ["pulse"]
+SMALLEST_STT_LANGUAGES = [
+    "en",
+    "hi",
+    "fr",
+    "de",
+    "es",
+    "it",
+    "nl",
+    "pl",
+    "ru",
+    "pt",
+    "bn",
+    "gu",
+    "kn",
+    "ml",
+    "mr",
+    "ta",
+    "te",
+    "pa",
+    "or",
+    "bg",
+    "cs",
+    "da",
+    "et",
+    "fi",
+    "hu",
+    "lt",
+    "lv",
+    "mt",
+    "ro",
+    "sk",
+    "sv",
+    "uk",
+]
+
+
+@register_stt
+class SmallestAISTTConfiguration(BaseSTTConfiguration):
+    model_config = SMALLEST_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.SMALLEST] = ServiceProviders.SMALLEST
+    model: str = Field(
+        default="pulse",
+        description="Smallest AI STT model. Supports 38 languages with real-time streaming.",
+        json_schema_extra={"examples": SMALLEST_STT_MODELS},
+    )
+    language: str = Field(
+        default="en",
+        description="ISO 639-1 language code for transcription.",
+        json_schema_extra={
+            "examples": SMALLEST_STT_LANGUAGES,
+            "allow_custom_input": True,
+        },
+    )
+
+
 STTConfig = Annotated[
     Union[
         DeepgramSTTConfiguration,
@@ -1233,8 +1658,11 @@ STTConfig = Annotated[
         SpeechmaticsSTTConfiguration,
         SarvamSTTConfiguration,
         SpeachesSTTConfiguration,
+        HuggingFaceSTTConfiguration,
         AssemblyAISTTConfiguration,
         GladiaSTTConfiguration,
+        AzureSpeechSTTConfiguration,
+        SmallestAISTTConfiguration,
     ],
     Field(discriminator="provider"),
 ]
@@ -1274,8 +1702,51 @@ class OpenRouterEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
     )
 
 
+@register_embeddings
+class AzureOpenAIEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    model_config = AZURE_OPENAI_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.AZURE] = ServiceProviders.AZURE
+    model: str = Field(
+        default="text-embedding-3-small",
+        description=(
+            "Azure OpenAI embedding deployment name. The deployment must return "
+            "1536-dimensional embeddings."
+        ),
+        json_schema_extra={
+            "examples": AZURE_EMBEDDING_MODELS,
+            "allow_custom_input": True,
+        },
+    )
+    endpoint: str = Field(
+        description="Azure OpenAI resource endpoint (e.g. https://<resource>.openai.azure.com).",
+    )
+    api_version: str = Field(
+        default="2024-02-15-preview",
+        description="Azure OpenAI API version for embeddings.",
+    )
+
+
+DOGRAH_EMBEDDING_MODELS = ["dograh_embedding_v1"]
+
+
+@register_embeddings
+class DograhEmbeddingsConfiguration(BaseEmbeddingsConfiguration):
+    model_config = DOGRAH_PROVIDER_MODEL_CONFIG
+    provider: Literal[ServiceProviders.DOGRAH] = ServiceProviders.DOGRAH
+    model: str = Field(
+        default="dograh_embedding_v1",
+        description="Dograh-managed embedding model.",
+        json_schema_extra={"examples": DOGRAH_EMBEDDING_MODELS},
+    )
+
+
 EmbeddingsConfig = Annotated[
-    Union[OpenAIEmbeddingsConfiguration, OpenRouterEmbeddingsConfiguration],
+    Union[
+        OpenAIEmbeddingsConfiguration,
+        OpenRouterEmbeddingsConfiguration,
+        AzureOpenAIEmbeddingsConfiguration,
+        DograhEmbeddingsConfiguration,
+    ],
     Field(discriminator="provider"),
 ]
 

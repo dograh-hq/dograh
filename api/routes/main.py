@@ -84,6 +84,11 @@ class HealthResponse(BaseModel):
     auth_provider: str
     turn_enabled: bool
     force_turn_relay: bool
+    # Public Stack Auth client config — only populated when auth_provider == "stack".
+    # The UI reads these at runtime to initialize Stack, so they no longer need to
+    # be baked into the browser bundle at build time. Both are public values.
+    stack_project_id: str | None = None
+    stack_publishable_client_key: str | None = None
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -93,12 +98,15 @@ async def health() -> HealthResponse:
         AUTH_PROVIDER,
         DEPLOYMENT_MODE,
         FORCE_TURN_RELAY,
+        STACK_AUTH_PROJECT_ID,
+        STACK_PUBLISHABLE_CLIENT_KEY,
         TURN_SECRET,
     )
     from api.utils.common import get_backend_endpoints
 
     logger.debug("Health endpoint called")
     backend_endpoint, _ = await get_backend_endpoints()
+    is_stack = AUTH_PROVIDER == "stack"
     return HealthResponse(
         status="ok",
         version=APP_VERSION,
@@ -107,4 +115,8 @@ async def health() -> HealthResponse:
         auth_provider=AUTH_PROVIDER,
         turn_enabled=bool(TURN_SECRET),
         force_turn_relay=FORCE_TURN_RELAY,
+        stack_project_id=STACK_AUTH_PROJECT_ID if is_stack else None,
+        stack_publishable_client_key=(
+            STACK_PUBLISHABLE_CLIENT_KEY if is_stack else None
+        ),
     )

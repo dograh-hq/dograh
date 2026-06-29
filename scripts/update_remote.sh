@@ -31,6 +31,26 @@ trap cleanup EXIT
 REPO="dograh-hq/dograh"
 TIMESTAMP=$(date +%Y%m%d-%H%M%S)
 
+generate_secret() {
+    if command -v python3 >/dev/null 2>&1 && python3 -c 'import secrets; print(secrets.token_hex(32))'; then
+        return
+    fi
+
+    if command -v openssl >/dev/null 2>&1 && openssl rand -hex 32; then
+        return
+    fi
+
+    if [[ -r /dev/urandom ]] && command -v od >/dev/null 2>&1 && command -v tr >/dev/null 2>&1 && od -An -N32 -tx1 /dev/urandom | tr -d ' \n'; then
+        return
+    fi
+
+    dograh_fail "Could not generate a secret. Install python3 or openssl, or set missing secrets manually in .env."
+}
+
+generate_minio_root_user() {
+    printf 'dograh%s\n' "$(generate_secret | cut -c1-12)"
+}
+
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                  Dograh Remote Update                        ║"
@@ -71,10 +91,10 @@ if [[ -z "${FASTAPI_WORKERS:-}" ]]; then
     if [[ -t 0 ]]; then
         echo ""
         echo -e "${YELLOW}FASTAPI_WORKERS not set in .env. Number of uvicorn workers nginx will load-balance:${NC}"
-        read -p "[4]: " FASTAPI_WORKERS
-        FASTAPI_WORKERS="${FASTAPI_WORKERS:-4}"
+        read -p "[2]: " FASTAPI_WORKERS
+        FASTAPI_WORKERS="${FASTAPI_WORKERS:-2}"
     else
-        FASTAPI_WORKERS="4"
+        FASTAPI_WORKERS="2"
     fi
 fi
 
@@ -96,7 +116,7 @@ if [[ -z "$TARGET_VERSION" ]]; then
     if [[ -t 0 ]]; then
         echo ""
         echo -e "${YELLOW}Target version. Accepted forms: bare semver (1.28.0), v-prefixed (v1.28.0),${NC}"
-        echo -e "${YELLOW}full git tag (dograh-v1.28.0), or 'main' for bleeding edge.${NC}"
+        echo -e "${YELLOW}full git tag (dograh-v1.28.0), or 'main' for the latest deployment files.${NC}"
         read -p "[$LATEST_TAG]: " TARGET_VERSION
         TARGET_VERSION="${TARGET_VERSION:-$LATEST_TAG}"
     else
@@ -219,6 +239,28 @@ fi
 
 echo -e "${BLUE}[3/3] Synchronizing environment and validating init-based remote config...${NC}"
 dograh_set_env_key .env FASTAPI_WORKERS "$FASTAPI_WORKERS"
+if [[ -z "${REDIS_PASSWORD:-}" ]]; then
+    dograh_set_env_key .env REDIS_PASSWORD "$(generate_secret)"
+    dograh_success "✓ REDIS_PASSWORD created in .env"
+fi
+if [[ -z "${MINIO_ROOT_USER:-}" ]]; then
+    if [[ -n "${MINIO_ACCESS_KEY:-}" ]]; then
+        dograh_set_env_key .env MINIO_ROOT_USER "$MINIO_ACCESS_KEY"
+        dograh_success "✓ MINIO_ROOT_USER created in .env from existing MINIO_ACCESS_KEY"
+    else
+        dograh_set_env_key .env MINIO_ROOT_USER "$(generate_minio_root_user)"
+        dograh_success "✓ MINIO_ROOT_USER created in .env"
+    fi
+fi
+if [[ -z "${MINIO_ROOT_PASSWORD:-}" ]]; then
+    if [[ -n "${MINIO_SECRET_KEY:-}" ]]; then
+        dograh_set_env_key .env MINIO_ROOT_PASSWORD "$MINIO_SECRET_KEY"
+        dograh_success "✓ MINIO_ROOT_PASSWORD created in .env from existing MINIO_SECRET_KEY"
+    else
+        dograh_set_env_key .env MINIO_ROOT_PASSWORD "$(generate_secret)"
+        dograh_success "✓ MINIO_ROOT_PASSWORD created in .env"
+    fi
+fi
 dograh_prepare_remote_install "$(pwd)"
 docker compose config -q
 dograh_success "✓ Remote init configuration validated"

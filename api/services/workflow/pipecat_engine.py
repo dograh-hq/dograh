@@ -10,7 +10,7 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     TTSSpeakFrame,
 )
-from pipecat.pipeline.task import PipelineTask
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.settings import LLMSettings
@@ -19,7 +19,6 @@ from pipecat.utils.enums import EndTaskReason
 from api.db import db_client
 from api.enums import ToolCategory
 from api.services.pipecat.audio_playback import play_audio
-from api.services.workflow.disposition_mapper import apply_disposition_mapping
 from api.services.workflow.workflow_graph import Node, WorkflowGraph
 
 if TYPE_CHECKING:
@@ -35,6 +34,7 @@ import asyncio
 
 from loguru import logger
 
+from api.services.managed_model_services import MPS_CORRELATION_ID_CONTEXT_KEY
 from api.services.workflow import pipecat_engine_callbacks as engine_callbacks
 from api.services.workflow.mcp_tool_session import McpToolSession
 from api.services.workflow.pipecat_engine_context_composer import (
@@ -60,7 +60,7 @@ class PipecatEngine:
     def __init__(
         self,
         *,
-        task: Optional[PipelineTask] = None,
+        task: Optional[PipelineWorker] = None,
         llm: Optional["LLMService"] = None,
         inference_llm: Optional["LLMService"] = None,
         context: Optional[LLMContext] = None,
@@ -73,6 +73,9 @@ class PipecatEngine:
         embeddings_api_key: Optional[str] = None,
         embeddings_model: Optional[str] = None,
         embeddings_base_url: Optional[str] = None,
+        embeddings_provider: Optional[str] = None,
+        embeddings_endpoint: Optional[str] = None,
+        embeddings_api_version: Optional[str] = None,
         has_recordings: bool = False,
         context_compaction_enabled: bool = False,
     ):
@@ -126,6 +129,9 @@ class PipecatEngine:
         self._embeddings_api_key: Optional[str] = embeddings_api_key
         self._embeddings_model: Optional[str] = embeddings_model
         self._embeddings_base_url: Optional[str] = embeddings_base_url
+        self._embeddings_provider: Optional[str] = embeddings_provider
+        self._embeddings_endpoint: Optional[str] = embeddings_endpoint
+        self._embeddings_api_version: Optional[str] = embeddings_api_version
 
         # Audio configuration (set via set_audio_config from _run_pipeline)
         self._audio_config = None
@@ -373,6 +379,12 @@ class PipecatEngine:
                     embeddings_api_key=self._embeddings_api_key,
                     embeddings_model=self._embeddings_model,
                     embeddings_base_url=self._embeddings_base_url,
+                    embeddings_provider=self._embeddings_provider,
+                    embeddings_endpoint=self._embeddings_endpoint,
+                    embeddings_api_version=self._embeddings_api_version,
+                    correlation_id=self._call_context_vars.get(
+                        MPS_CORRELATION_ID_CONTEXT_KEY
+                    ),
                     tracing_context=self._get_otel_context(),
                 )
 
@@ -738,38 +750,21 @@ class PipecatEngine:
             CancelFrame(reason=reason) if abort_immediately else EndFrame(reason=reason)
         )
 
-        # Apply disposition mapping - first try call_disposition if it is,
-        # extracted from the call conversation then fall back to reason
-        call_disposition = self._gathered_context.get("call_disposition", "")
-        organization_id = await self._get_organization_id()
+        # Record the call disposition: prefer one extracted from the conversation,
+        # otherwise fall back to the disconnect reason.
+        call_disposition = self._gathered_context.get("call_disposition", "") or reason
+        self._gathered_context["call_disposition"] = call_disposition
+        self._gathered_context["mapped_call_disposition"] = call_disposition
 
         if call_disposition:
-            # If call_disposition exists, map it
-            mapped_disposition = await apply_disposition_mapping(
-                call_disposition, organization_id
-            )
-            # Store the original and mapped values
-            self._gathered_context["extracted_call_disposition"] = call_disposition
-            self._gathered_context["call_disposition"] = call_disposition
-            self._gathered_context["mapped_call_disposition"] = mapped_disposition
-        else:
-            # Otherwise, map the disconnect reason
-            mapped_disposition = await apply_disposition_mapping(
-                reason, organization_id
-            )
-            # Store the mapped disconnect reason
-            self._gathered_context["call_disposition"] = reason
-            self._gathered_context["mapped_call_disposition"] = mapped_disposition
-
-        effective_disposition = self._gathered_context.get("call_disposition", "")
-        if effective_disposition:
             call_tags = self._gathered_context.get("call_tags", [])
-            if effective_disposition not in call_tags:
-                call_tags.append(effective_disposition)
+            if call_disposition not in call_tags:
+                call_tags.append(call_disposition)
             self._gathered_context["call_tags"] = call_tags
 
         logger.debug(
-            f"Finishing run with reason: {reason}, disposition: {mapped_disposition} queueing frame {frame_to_push}"
+            f"Finishing run with reason: {reason}, disposition: {call_disposition} "
+            f"queueing frame {frame_to_push}"
         )
         await self.task.queue_frame(frame_to_push)
 
@@ -842,7 +837,7 @@ class PipecatEngine:
         """
         self.context = context
 
-    def set_task(self, task: PipelineTask) -> None:
+    def set_task(self, task: PipelineWorker) -> None:
         """Set the pipeline task.
 
         This allows setting the task after the engine has been created,
@@ -955,7 +950,15 @@ class PipecatEngine:
                 exc_info=True,
             )
 
-    async def _close_mcp_sessions(self) -> None:
+    async def close_mcp_sessions(self) -> None:
+        """Close all open MCP tool sessions.
+
+        Must run in the same task that ran initialize() (which opened the
+        sessions via _open_mcp_sessions). The MCP client's underlying anyio
+        cancel scopes are task-affine — they must be exited from the task that
+        entered them — so this is invoked from _run_pipeline's finally, not
+        from cleanup() (which runs in a pipecat event-handler task).
+        """
         for tool_uuid, session in list(self._mcp_sessions.items()):
             try:
                 await session.close()
@@ -964,7 +967,14 @@ class PipecatEngine:
         self._mcp_sessions = {}
 
     async def cleanup(self):
-        """Clean up engine resources on disconnect."""
+        """Clean up engine resources on disconnect.
+
+        MCP tool sessions are intentionally NOT closed here — see
+        close_mcp_sessions(). This method runs in a pipecat event-handler task
+        (on_pipeline_finished), a different task than the one that opened the
+        MCP sessions; closing them here raises "Attempted to exit cancel scope
+        in a different task than it was entered in".
+        """
         # Cancel any pending timeout tasks
         if (
             self._user_response_timeout_task
@@ -973,11 +983,5 @@ class PipecatEngine:
             self._user_response_timeout_task.cancel()
 
         # Cancel any in-flight background summarization.
-        # MCP sessions are closed in a finally block so they are guaranteed to
-        # run even if the summarization cleanup raises an exception.
-        try:
-            if self._context_summarization_manager:
-                await self._context_summarization_manager.cleanup()
-        finally:
-            # Close any open MCP tool sessions
-            await self._close_mcp_sessions()
+        if self._context_summarization_manager:
+            await self._context_summarization_manager.cleanup()

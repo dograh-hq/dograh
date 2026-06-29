@@ -280,7 +280,7 @@ export function ToolSelector({
                                             )}
                                             {fns.length === 0 && !err && (
                                                 <p className="text-xs text-muted-foreground">
-                                                    No tools discovered — Refresh.
+                                                    No tools discovered - Refresh.
                                                 </p>
                                             )}
                                             {fns.map((fn) => {

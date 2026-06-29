@@ -1,6 +1,6 @@
 {
   "name": "@dograh/sdk",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "description": "Typed builder for Dograh voice-AI workflows",
   "license": "BSD-2-Clause",
   "author": "Zansat Technologies Private Limited",

@@ -6,8 +6,8 @@ import { useCallback, useEffect, useId, useState } from 'react';
 import TimezoneSelect, { type ITimezoneOption } from 'react-timezone-select';
 import { toast } from 'sonner';
 
-import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getUsageHistoryApiV1OrganizationsUsageRunsGet } from '@/client/sdk.gen';
-import type { DailyUsageBreakdownResponse, MpsCreditsResponse, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
+import { downloadUsageRunsReportApiV1OrganizationsUsageRunsReportGet, getDailyUsageBreakdownApiV1OrganizationsUsageDailyBreakdownGet, getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet, getPreferencesApiV1OrganizationsPreferencesGet, getUsageHistoryApiV1OrganizationsUsageRunsGet, savePreferencesApiV1OrganizationsPreferencesPut } from '@/client/sdk.gen';
+import type { DailyUsageBreakdownResponse, MpsCreditsResponse, OrganizationPreferences, UsageHistoryResponse, WorkflowRunUsageResponse } from '@/client/types.gen';
 import { CallTypeCell } from '@/components/CallTypeCell';
 import { DailyUsageTable } from '@/components/DailyUsageTable';
 import { FilterBuilder } from '@/components/filters/FilterBuilder';
@@ -37,7 +37,7 @@ const getLocalTimezone = () => Intl.DateTimeFormat().resolvedOptions().timeZone;
 export default function UsagePage() {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const { userConfig, saveUserConfig, loading: userConfigLoading, organizationPricing } = useUserConfig();
+    const { organizationPricing } = useUserConfig();
     const auth = useAuth();
 
     // MPS credits state
@@ -75,22 +75,9 @@ export default function UsagePage() {
     const localTimezone = getLocalTimezone();
     const [selectedTimezone, setSelectedTimezone] = useState<ITimezoneOption | string>('');
     const [savingTimezone, setSavingTimezone] = useState(false);
+    const [preferences, setPreferences] = useState<OrganizationPreferences>({});
+    const [preferencesLoading, setPreferencesLoading] = useState(true);
     const timezoneSelectId = useId(); // Stable ID for react-select to prevent hydration mismatch
-
-    // Fetch MPS credits
-    const fetchMpsCredits = useCallback(async () => {
-        if (!auth.isAuthenticated) return;
-        try {
-            const response = await getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet();
-            if (response.data) {
-                setMpsCredits(response.data);
-            }
-        } catch (error) {
-            console.error('Failed to fetch MPS credits:', error);
-        } finally {
-            setIsLoadingCredits(false);
-        }
-    }, [auth.isAuthenticated]);
 
     // Translate the FilterBuilder state into the query-param shape the
     // backend expects. Shared between the listing fetch and the CSV export
@@ -169,6 +156,23 @@ export default function UsagePage() {
         }
     }, [auth.isAuthenticated, organizationPricing]);
 
+    const fetchPreferences = useCallback(async () => {
+        if (!auth.isAuthenticated) return;
+
+        setPreferencesLoading(true);
+        try {
+            const response = await getPreferencesApiV1OrganizationsPreferencesGet();
+            const nextPreferences = response.data || {};
+            setPreferences(nextPreferences);
+            setSelectedTimezone(nextPreferences.timezone || localTimezone);
+        } catch (error) {
+            console.error('Failed to fetch organization preferences:', error);
+            setSelectedTimezone(localTimezone);
+        } finally {
+            setPreferencesLoading(false);
+        }
+    }, [auth.isAuthenticated, localTimezone]);
+
     // Download a CSV of all runs matching the current filters.
     const handleDownloadReport = async () => {
         if (!auth.isAuthenticated) return;
@@ -204,37 +208,52 @@ export default function UsagePage() {
     const handleTimezoneChange = async (timezone: ITimezoneOption | string) => {
         setSelectedTimezone(timezone);
         setSavingTimezone(true);
+        const previousTimezone = preferences.timezone || localTimezone;
         try {
             const tzValue = typeof timezone === 'string' ? timezone : timezone.value;
-            await saveUserConfig({ timezone: tzValue });
+            const response = await savePreferencesApiV1OrganizationsPreferencesPut({
+                body: {
+                    ...preferences,
+                    timezone: tzValue,
+                },
+            });
+            if (response.error) {
+                throw new Error('Failed to save timezone');
+            }
+            setPreferences(response.data || { ...preferences, timezone: tzValue });
         } catch (error) {
             console.error('Failed to save timezone:', error);
-            // Revert to previous timezone on error
-            const prevTz = userConfig?.timezone || localTimezone;
-            setSelectedTimezone(prevTz);
+            setSelectedTimezone(previousTimezone);
         } finally {
             setSavingTimezone(false);
         }
     };
 
-    // Update timezone when userConfig loads
-    useEffect(() => {
-        if (!userConfigLoading) {
-            // Config has loaded - set the timezone
-            if (userConfig?.timezone) {
-                setSelectedTimezone(userConfig.timezone);
-            } else {
-                // No saved timezone, use local
-                setSelectedTimezone(localTimezone);
+    // Fetch MPS credits
+    const fetchMpsCredits = useCallback(async () => {
+        if (!auth.isAuthenticated) return;
+        try {
+            const response = await getMpsCreditsApiV1OrganizationsUsageMpsCreditsGet();
+            if (response.data) {
+                setMpsCredits(response.data);
             }
+        } catch (error) {
+            console.error('Failed to fetch MPS credits:', error);
+        } finally {
+            setIsLoadingCredits(false);
         }
-    }, [userConfig, userConfigLoading, localTimezone]);
+    }, [auth.isAuthenticated]);
+
+    // Update timezone when organization preferences load.
+    useEffect(() => {
+        fetchPreferences();
+    }, [fetchPreferences]);
 
     // Initial load - fetch when auth becomes available
     useEffect(() => {
         if (auth.isAuthenticated) {
-            fetchMpsCredits();
             fetchUsageHistory(currentPage, appliedFilters);
+            fetchMpsCredits();
         }
     }, [auth.isAuthenticated, currentPage, appliedFilters, fetchUsageHistory, fetchMpsCredits]);
 
@@ -341,8 +360,8 @@ export default function UsagePage() {
                                     instanceId={timezoneSelectId}
                                     value={selectedTimezone}
                                     onChange={handleTimezoneChange}
-                                    isDisabled={savingTimezone || userConfigLoading}
-                                    placeholder={userConfigLoading ? "Loading..." : "Select timezone"}
+                                    isDisabled={savingTimezone || preferencesLoading}
+                                    placeholder={preferencesLoading ? "Loading..." : "Select timezone"}
                                     styles={{
                                         control: (base, state) => ({
                                             ...base,
@@ -517,9 +536,9 @@ export default function UsagePage() {
                                                 <TableHead className="font-semibold">Disposition</TableHead>
                                                 <TableHead className="font-semibold">Date</TableHead>
                                                 <TableHead className="font-semibold text-right">Duration</TableHead>
-                                                <TableHead className="font-semibold text-right">
-                                                    {organizationPricing?.price_per_second_usd ? 'Cost (USD)' : 'Tokens'}
-                                                </TableHead>
+                                                {organizationPricing?.price_per_second_usd && (
+                                                    <TableHead className="font-semibold text-right">Cost (USD)</TableHead>
+                                                )}
                                                 <TableHead className="font-semibold">Actions</TableHead>
                                             </TableRow>
                                         </TableHeader>
@@ -556,12 +575,14 @@ export default function UsagePage() {
                                                     <TableCell className="text-right">
                                                         {formatDuration(run.call_duration_seconds)}
                                                     </TableCell>
-                                                    <TableCell className="text-right font-medium">
-                                                        {organizationPricing?.price_per_second_usd && run.charge_usd !== undefined && run.charge_usd !== null
-                                                            ? `$${run.charge_usd.toFixed(2)}`
-                                                            : run.dograh_token_usage.toLocaleString()
-                                                        }
-                                                    </TableCell>
+                                                    {organizationPricing?.price_per_second_usd && (
+                                                        <TableCell className="text-right font-medium">
+                                                            {run.charge_usd !== undefined && run.charge_usd !== null
+                                                                ? `$${run.charge_usd.toFixed(2)}`
+                                                                : '-'
+                                                            }
+                                                        </TableCell>
+                                                    )}
                                                     <TableCell>
                                                         <MediaPreviewButton
                                                             recordingUrl={run.recording_url}

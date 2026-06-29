@@ -17,6 +17,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    func,
     text,
 )
 from sqlalchemy.orm import declarative_base, relationship
@@ -68,16 +69,37 @@ class UserModel(Base):
         back_populates="users",
     )
     is_superuser = Column(Boolean, default=False)
-    email = Column(String, unique=True, index=True, nullable=True)
+    email = Column(String, nullable=True)
     password_hash = Column(String, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_users_email_lower",
+            func.lower(email),
+            unique=True,
+            postgresql_where=text("email IS NOT NULL"),
+        ),
+    )
 
 
 class UserConfigurationModel(Base):
+    """Per-user keyed JSON store, mirroring organization_configurations.
+
+    Keys are defined in UserConfigurationKey. The legacy v1 AI model
+    configuration lives under MODEL_CONFIGURATION; last_validated_at is only
+    meaningful for that key.
+    """
+
     __tablename__ = "user_configurations"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    key = Column(String, nullable=False)
     configuration = Column(JSON, nullable=False, default=dict)
     last_validated_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "key", name="_user_configuration_key_uc"),
+    )
 
 
 # New Organization model
@@ -88,22 +110,44 @@ class OrganizationModel(Base):
     provider_id = Column(String, unique=True, index=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
-    # Quota fields
+    # Deprecated: MPS owns quota and credit ledger state.
     quota_type = Column(
         Enum("monthly", "annual", name="quota_type"),
         nullable=False,
         default="monthly",
         server_default=text("'monthly'::quota_type"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
     )
     quota_dograh_tokens = Column(
-        Integer, nullable=False, default=0, server_default=text("0")
+        Integer,
+        nullable=False,
+        default=0,
+        server_default=text("0"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
     )
     quota_reset_day = Column(
-        Integer, nullable=False, default=1, server_default=text("1")
-    )  # 1-28, only for monthly
-    quota_start_date = Column(DateTime(timezone=True), nullable=True)  # Only for annual
+        Integer,
+        nullable=False,
+        default=1,
+        server_default=text("1"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
+    quota_start_date = Column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
     quota_enabled = Column(
-        Boolean, nullable=False, default=False, server_default=text("false")
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
     )
 
     price_per_second_usd = Column(Float, nullable=True)
@@ -519,6 +563,9 @@ class WorkflowRunModel(Base):
     is_completed = Column(Boolean, default=False)
     recording_url = Column(String, nullable=True)
     transcript_url = Column(String, nullable=True)
+    extra = Column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'::json")
+    )
     # Store storage backend as string enum (s3, minio)
     storage_backend = Column(
         Enum("s3", "minio", name="storage_backend"),
@@ -602,8 +649,9 @@ class WorkflowRunTextSessionModel(Base):
 
 class OrganizationUsageCycleModel(Base):
     """
-    This model is used to track the usage of Dograh tokens for an organization for a given usage
-    cycle.
+    This model is used to track reporting aggregates for an organization for a given
+    usage cycle. Quota fields on this model are deprecated; MPS owns quota and
+    credit ledger state.
     """
 
     __tablename__ = "organization_usage_cycles"
@@ -612,14 +660,24 @@ class OrganizationUsageCycleModel(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     period_start = Column(DateTime(timezone=True), nullable=False)
     period_end = Column(DateTime(timezone=True), nullable=False)
-    quota_dograh_tokens = Column(Integer, nullable=False)
+    quota_dograh_tokens = Column(
+        Integer,
+        nullable=False,
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
     used_dograh_tokens = Column(Float, nullable=False, default=0)
     total_duration_seconds = Column(
         Integer, nullable=False, default=0, server_default=text("0")
     )
     # New USD tracking fields
     used_amount_usd = Column(Float, nullable=True, default=0)
-    quota_amount_usd = Column(Float, nullable=True)
+    quota_amount_usd = Column(
+        Float,
+        nullable=True,
+        comment="Deprecated. MPS owns quota and credit ledger state.",
+        info={"deprecated": True},
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     updated_at = Column(
         DateTime(timezone=True),

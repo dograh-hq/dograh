@@ -9,11 +9,12 @@ import AppLayout from "@/components/layout/AppLayout";
 import PostHogIdentify from "@/components/PostHogIdentify";
 import { SentryErrorBoundary } from "@/components/SentryErrorBoundary";
 import SpinLoader from "@/components/SpinLoader";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { AppConfigProvider } from "@/context/AppConfigContext";
 import { OnboardingProvider } from "@/context/OnboardingContext";
+import { OrgConfigProvider } from "@/context/OrgConfigContext";
 import { TelephonyConfigWarningsProvider } from "@/context/TelephonyConfigWarningsContext";
-import { UserConfigProvider } from "@/context/UserConfigContext";
 import { AuthProvider } from "@/lib/auth";
 import { BRAND } from "@/lib/brand";
 
@@ -41,7 +42,7 @@ export default function RootLayout({
 }) {
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="dark" suppressHydrationWarning>
       <head>
         {/* Inline script to apply persisted theme (light by default) - runs before React hydrates */}
         <script
@@ -55,7 +56,9 @@ export default function RootLayout({
                   } else {
                     document.documentElement.classList.remove('dark');
                   }
-                } catch (e) {}
+                } catch (e) {
+                  document.documentElement.classList.add('dark');
+                }
               })();
             `,
           }}
@@ -63,26 +66,28 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <SentryErrorBoundary>
-          <AuthProvider>
-            <AppConfigProvider>
-              <Suspense fallback={<SpinLoader />}>
-                <UserConfigProvider>
-                  <TelephonyConfigWarningsProvider>
-                    <OnboardingProvider>
-                      <PostHogIdentify />
-                      <AppLayout>
-                        {children}
-                      </AppLayout>
-                      <Toaster />
-                      <ChatwootWidget />
-                    </OnboardingProvider>
-                  </TelephonyConfigWarningsProvider>
-                </UserConfigProvider>
-              </Suspense>
-            </AppConfigProvider>
-          </AuthProvider>
-        </SentryErrorBoundary>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+          <SentryErrorBoundary>
+            <AuthProvider>
+              <AppConfigProvider>
+                <Suspense fallback={<SpinLoader />}>
+                  <OrgConfigProvider>
+                    <TelephonyConfigWarningsProvider>
+                      <OnboardingProvider>
+                        <PostHogIdentify />
+                        <AppLayout>
+                          {children}
+                        </AppLayout>
+                        <Toaster />
+                        <ChatwootWidget />
+                      </OnboardingProvider>
+                    </TelephonyConfigWarningsProvider>
+                  </OrgConfigProvider>
+                </Suspense>
+              </AppConfigProvider>
+            </AuthProvider>
+          </SentryErrorBoundary>
+        </ThemeProvider>
       </body>
     </html>
   );

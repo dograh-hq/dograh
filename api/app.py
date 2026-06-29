@@ -2,7 +2,12 @@
 
 import sentry_sdk
 
-from api.constants import DEPLOYMENT_MODE, ENABLE_TELEMETRY, SENTRY_DSN
+from api.constants import (
+    CORS_ALLOWED_ORIGINS,
+    DEPLOYMENT_MODE,
+    ENABLE_TELEMETRY,
+    SENTRY_DSN,
+)
 from api.logging_config import ENVIRONMENT, setup_logging
 
 # Set up logging and get the listener for cleanup
@@ -97,6 +102,13 @@ app = FastAPI(
 # API and the cross-origin embed widget working (a strict origin allow-list would
 # break the widget, whose preflight the middleware intercepts before per-token domain
 # validation in routes/public_embed.py can run).
+#
+# NOTE: Upstream dograh-v1.38.0 switched non-oss deployments to a strict
+# CORS_ALLOWED_ORIGINS allowlist with allow_credentials=True. We intentionally do
+# NOT adopt that branch here: this SaaS fork relies on the cross-origin embed widget
+# (see routes/public_embed.py), which a strict allowlist would break, and our Bearer/
+# no-cookie auth model makes credentialed CORS unnecessary. The permissive wildcard +
+# allow_credentials=False below is safe and is kept for both OSS and SaaS modes.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -104,6 +116,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _add_public_embed_cors_middleware() -> None:
+    from api.routes.public_embed import PublicEmbedCORSMiddleware
+
+    app.add_middleware(PublicEmbedCORSMiddleware, api_prefix=API_PREFIX)
+
+
+_add_public_embed_cors_middleware()
 
 api_router = APIRouter()
 

@@ -19,7 +19,7 @@ import ipaddress
 import os
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 from aiortc import RTCIceServer
 from aiortc.sdp import candidate_from_sdp
@@ -45,7 +45,7 @@ from api.services.pipecat.ws_sender_registry import (
     register_ws_sender,
     unregister_ws_sender,
 )
-from api.services.quota_service import check_dograh_quota
+from api.services.quota_service import authorize_workflow_run_start
 
 router = APIRouter(prefix="/ws")
 
@@ -246,6 +246,74 @@ class SignalingManager:
     def __init__(self):
         self._connections: Dict[str, WebSocket] = {}
         self._peer_connections: Dict[str, SmallWebRTCConnection] = {}
+        self._connection_peer_ids: Dict[str, Set[str]] = {}
+        self._peer_connection_owners: Dict[str, str] = {}
+
+    def _track_peer_connection(
+        self, connection_id: str, pc_id: str, pc: SmallWebRTCConnection
+    ) -> None:
+        self._peer_connections[pc_id] = pc
+        self._peer_connection_owners[pc_id] = connection_id
+        self._connection_peer_ids.setdefault(connection_id, set()).add(pc_id)
+
+    def _forget_peer_connection(self, pc_id: str) -> Optional[str]:
+        connection_id = self._peer_connection_owners.pop(pc_id, None)
+        self._peer_connections.pop(pc_id, None)
+
+        if connection_id:
+            peer_ids = self._connection_peer_ids.get(connection_id)
+            if peer_ids is not None:
+                peer_ids.discard(pc_id)
+                if not peer_ids:
+                    self._connection_peer_ids.pop(connection_id, None)
+
+        return connection_id
+
+    async def _send_json_if_connected(
+        self, websocket: WebSocket, message: dict
+    ) -> bool:
+        if websocket.application_state != WebSocketState.CONNECTED:
+            return False
+
+        try:
+            await websocket.send_json(message)
+            return True
+        except Exception as e:
+            logger.debug(f"Failed to send signaling WebSocket message: {e}")
+            return False
+
+    async def _close_websocket_if_connected(
+        self, websocket: WebSocket, code: int = 1000, reason: str = ""
+    ) -> None:
+        if websocket.application_state != WebSocketState.CONNECTED:
+            return
+
+        try:
+            await websocket.close(code=code, reason=reason)
+        except Exception as e:
+            logger.debug(f"Failed to close signaling WebSocket: {e}")
+
+    async def _notify_call_ended_and_close_websocket(
+        self,
+        websocket: WebSocket,
+        workflow_run_id: int,
+        pc_id: str,
+        reason: str,
+    ) -> None:
+        await self._send_json_if_connected(
+            websocket,
+            {
+                "type": "call-ended",
+                "payload": {
+                    "workflow_run_id": workflow_run_id,
+                    "pc_id": pc_id,
+                    "reason": reason,
+                },
+            },
+        )
+        await self._close_websocket_if_connected(
+            websocket, code=1000, reason="call ended"
+        )
 
     async def handle_websocket(
         self,
@@ -257,35 +325,51 @@ class SignalingManager:
         """Handle WebSocket connection for signaling."""
         await websocket.accept()
         connection_id = f"{workflow_id}:{workflow_run_id}:{user.id}"
-        self._connections[connection_id] = websocket
+        connection_key = f"{connection_id}:{id(websocket)}"
+        self._connections[connection_key] = websocket
 
         try:
             while True:
                 message = await websocket.receive_json()
                 await self._handle_message(
-                    websocket, message, workflow_id, workflow_run_id, user
+                    websocket,
+                    message,
+                    workflow_id,
+                    workflow_run_id,
+                    user,
+                    connection_key,
                 )
         except WebSocketDisconnect:
             logger.info(f"WebSocket disconnected for {connection_id}")
         except Exception as e:
-            logger.error(f"WebSocket error for {connection_id}: {e}")
+            if websocket.application_state == WebSocketState.DISCONNECTED:
+                logger.info(f"WebSocket disconnected for {connection_id}")
+            else:
+                logger.error(f"WebSocket error for {connection_id}: {e}")
         finally:
             # Cleanup
-            self._connections.pop(connection_id, None)
+            self._connections.pop(connection_key, None)
+            peer_ids = list(self._connection_peer_ids.pop(connection_key, set()))
 
             # Unregister WebSocket sender for real-time feedback
             unregister_ws_sender(workflow_run_id)
 
-            # Clean up all peer connections for this workflow run
+            # Clean up peer connections owned by this WebSocket.
             # Note: In a WebSocket-based signaling approach (vs HTTP PATCH),
             # we maintain our own connection map instead of relying on
             # SmallWebRTCRequestHandler's _pcs_map. This is suitable for
             # multi-worker FastAPI deployments where state cannot be shared.
-            for pc_id in list(self._peer_connections.keys()):
+            for pc_id in peer_ids:
+                self._peer_connection_owners.pop(pc_id, None)
                 pc = self._peer_connections.pop(pc_id, None)
                 if pc:
-                    await pc.disconnect()
-                    logger.debug(f"Disconnected peer connection: {pc_id}")
+                    try:
+                        await pc.disconnect()
+                        logger.debug(f"Disconnected peer connection: {pc_id}")
+                    except Exception as e:
+                        logger.debug(
+                            f"Failed to disconnect peer connection {pc_id}: {e}"
+                        )
 
     async def _handle_message(
         self,
@@ -294,17 +378,20 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        connection_key: str,
     ):
         """Handle incoming WebSocket messages."""
         msg_type = message.get("type")
         payload = message.get("payload", {})
 
         if msg_type == "offer":
-            await self._handle_offer(ws, payload, workflow_id, workflow_run_id, user)
+            await self._handle_offer(
+                ws, payload, workflow_id, workflow_run_id, user, connection_key
+            )
         elif msg_type == "ice-candidate":
-            await self._handle_ice_candidate(ws, payload, workflow_run_id)
+            await self._handle_ice_candidate(payload, connection_key)
         elif msg_type == "renegotiate":
-            await self._handle_renegotiation(ws, payload, workflow_id, workflow_run_id)
+            await self._handle_renegotiation(ws, payload, connection_key)
 
     async def _handle_offer(
         self,
@@ -313,12 +400,22 @@ class SignalingManager:
         workflow_id: int,
         workflow_run_id: int,
         user: UserModel,
+        connection_key: str,
     ):
         """Handle offer message and create answer with ICE trickling."""
         pc_id = payload.get("pc_id")
         sdp = payload.get("sdp")
         type_ = payload.get("type")
         call_context_vars = payload.get("call_context_vars", {})
+
+        if not pc_id or not sdp or not type_:
+            await ws.send_json(
+                {
+                    "type": "error",
+                    "payload": {"message": "Missing offer fields"},
+                }
+            )
+            return
 
         # Set run context for logging and tracing. org_id must be set before
         # pc.initialize() so that aiortc's internal tasks inherit it.
@@ -329,7 +426,11 @@ class SignalingManager:
 
         # Check Dograh quota before initiating the call (apply per-workflow
         # model_overrides so we evaluate the keys this workflow will use).
-        quota_result = await check_dograh_quota(user, workflow_id=workflow_id)
+        quota_result = await authorize_workflow_run_start(
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+            actor_user=user,
+        )
         if not quota_result.has_quota:
             # Send error response for quota issues
             await ws.send_json(
@@ -343,7 +444,16 @@ class SignalingManager:
             )
             return
 
-        if pc_id and pc_id in self._peer_connections:
+        if pc_id in self._peer_connections:
+            if self._peer_connection_owners.get(pc_id) != connection_key:
+                await ws.send_json(
+                    {
+                        "type": "error",
+                        "payload": {"message": "Peer connection already owned"},
+                    }
+                )
+                return
+
             # Reuse existing connection
             logger.info(f"Reusing existing connection for pc_id: {pc_id}")
             pc = self._peer_connections[pc_id]
@@ -375,7 +485,7 @@ class SignalingManager:
             await pc.initialize(sdp=sdp, type=type_)
 
             # Store peer connection using client's pc_id
-            self._peer_connections[pc_id] = pc
+            self._track_peer_connection(connection_key, pc_id, pc)
 
             # Register WebSocket sender for real-time feedback
             async def ws_sender(message: dict):
@@ -388,7 +498,16 @@ class SignalingManager:
             @pc.event_handler("closed")
             async def handle_disconnected(webrtc_connection: SmallWebRTCConnection):
                 logger.info(f"PeerConnection closed: {webrtc_connection.pc_id}")
-                self._peer_connections.pop(webrtc_connection.pc_id, None)
+                owner_connection_id = self._forget_peer_connection(
+                    webrtc_connection.pc_id
+                )
+                if owner_connection_id == connection_key:
+                    await self._notify_call_ended_and_close_websocket(
+                        ws,
+                        workflow_run_id,
+                        webrtc_connection.pc_id,
+                        reason="peer_connection_closed",
+                    )
 
             # Start pipeline in background
             asyncio.create_task(
@@ -417,9 +536,7 @@ class SignalingManager:
                 }
             )
 
-    async def _handle_ice_candidate(
-        self, ws: WebSocket, payload: dict, workflow_run_id: int
-    ):
+    async def _handle_ice_candidate(self, payload: dict, connection_key: str):
         """Handle incoming ICE candidate from client.
 
         Uses SmallWebRTC's native ICE trickling support via add_ice_candidate().
@@ -437,6 +554,9 @@ class SignalingManager:
         pc = self._peer_connections.get(pc_id)
         if not pc:
             logger.warning(f"No peer connection found for pc_id: {pc_id}")
+            return
+        if self._peer_connection_owners.get(pc_id) != connection_key:
+            logger.warning(f"Ignoring ICE candidate for unowned pc_id: {pc_id}")
             return
 
         if candidate_data:
@@ -462,7 +582,7 @@ class SignalingManager:
             logger.debug(f"End of ICE candidates for pc_id: {pc_id}")
 
     async def _handle_renegotiation(
-        self, ws: WebSocket, payload: dict, workflow_id: int, workflow_run_id: int
+        self, ws: WebSocket, payload: dict, connection_key: str
     ):
         """Handle renegotiation request."""
         pc_id = payload.get("pc_id")
@@ -471,6 +591,11 @@ class SignalingManager:
         restart_pc = payload.get("restart_pc", False)
 
         if not pc_id or pc_id not in self._peer_connections:
+            await ws.send_json(
+                {"type": "error", "payload": {"message": "Peer connection not found"}}
+            )
+            return
+        if self._peer_connection_owners.get(pc_id) != connection_key:
             await ws.send_json(
                 {"type": "error", "payload": {"message": "Peer connection not found"}}
             )
@@ -543,6 +668,20 @@ async def public_signaling_websocket(
     embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
     if not embed_token:
         await websocket.close(code=1008, reason="Invalid embed token")
+        return
+
+    # Enforce the embed token's allowed-domain policy on the public signaling
+    # path, mirroring the HTTP embed endpoints (issue #330). Without this a
+    # leaked or replayed session token could attach from an arbitrary origin.
+    from api.routes.public_embed import validate_origin
+
+    origin = websocket.headers.get("origin") or websocket.headers.get("referer", "")
+    if not validate_origin(origin, embed_token.allowed_domains or []):
+        logger.warning(
+            f"Domain validation failed for public signaling: {origin} "
+            f"not in {embed_token.allowed_domains}"
+        )
+        await websocket.close(code=1008, reason="Domain not allowed")
         return
 
     # Create a minimal user object for compatibility with signaling manager

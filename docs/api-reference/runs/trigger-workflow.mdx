@@ -1,0 +1,25 @@
+---
+title: "Trigger an Outbound Agent Run by Agent UUID"
+description: "Start an outbound agent run using a workflow's stable Agent UUID"
+openapi: "POST /api/v1/public/agent/workflow/{workflow_uuid}"
+---
+
+Use this endpoint when you want to start an agent run directly by its stable Agent UUID instead of through an API Trigger node.
+
+The `workflow_uuid` is the workflow's Agent UUID. It is different from an API Trigger node's `trigger_path`.
+
+To find and copy the Agent UUID in the UI, see [Agent UUID](/configurations/agent-uuid).
+
+Use `workflow_run_id` from the response to later [retrieve run details](/api-reference/runs/get-run), recordings, and transcripts.
+
+Pass `initial_context` to inject runtime data as template variables into the agent's prompt. See [Using initial context](/api-reference/runs#using-initial-context).
+
+Pass `telephony_configuration_id` to route the call through a specific telephony configuration instead of your organization's default. The id is shown on each row in **Telephony configurations** (`https://app.dograh.com/telephony-configurations` for hosted or `http://localhost:3010/telephony-configurations` for local).
+
+<Note>
+This route expects a workflow UUID. Do not pass an API Trigger node UUID here. If you want to execute via an API Trigger node, use [Trigger an outbound agent run](/api-reference/runs/trigger) instead.
+</Note>
+
+<Note>
+Your telephony provider must be configured before outbound calls will connect. See [Telephony](/integrations/telephony/overview) for setup instructions.
+</Note>

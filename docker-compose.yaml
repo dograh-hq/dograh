@@ -3,7 +3,11 @@ services:
     image: pgvector/pgvector:pg17
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # Sourced from .env. Defaults to "postgres"
+      # NOTE: changing this on an existing install does NOT
+      # re-key the database — the password is baked into the volume on first init.
+      # You can manually change the password using psql in the container
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
       POSTGRES_DB: postgres
     logging:
       driver: "json-file"
@@ -27,11 +31,11 @@ services:
     ports:
       - "6379:6379"
     command: >
-      --requirepass redissecret
+      --requirepass ${REDIS_PASSWORD:-redissecret}
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "redissecret", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redissecret}", "ping"]
       interval: 3s
       timeout: 10s
       retries: 10
@@ -43,8 +47,8 @@ services:
     container_name: minio
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_API_CORS_ALLOW_ORIGIN: "*"
     ports:
       - "127.0.0.1:9000:9000" # Bind to localhost explicitly
@@ -136,13 +140,32 @@ services:
       BACKEND_API_ENDPOINT: "${BACKEND_API_ENDPOINT:-http://localhost:8000}"
 
       # Database configuration (using containerized postgres)
-      DATABASE_URL: "postgresql+asyncpg://postgres:postgres@postgres:5432/postgres"
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres"
 
       # Redis configuration (using containerized redis)
-      REDIS_URL: "redis://:redissecret@redis:6379"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
 
-      # Storage configuration - using local MinIO
-      ENABLE_AWS_S3: "false"
+      # Storage configuration - bundled MinIO by default. Set ENABLE_AWS_S3=true
+      # in .env to make the API use AWS S3 or another S3-compatible server.
+      ENABLE_AWS_S3: "${ENABLE_AWS_S3:-false}"
+
+      # S3 backend configuration. Compose's .env file is used for interpolation,
+      # but those values are not automatically injected into containers, so pass
+      # the S3 settings through explicitly.
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID:-}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY:-}"
+      AWS_SESSION_TOKEN: "${AWS_SESSION_TOKEN:-}"
+      S3_BUCKET: "${S3_BUCKET:-}"
+      S3_REGION: "${S3_REGION:-us-east-1}"
+
+      # For a non-AWS S3-compatible server, also set these in Compose's .env
+      # S3_ENDPOINT_URL        e.g. https://s3.example.com
+      # S3_SIGNATURE_VERSION   set "s3v4" if the server requires SigV4 (e.g. rustfs)
+      # S3_ADDRESSING_STYLE    set "path" if the server / TLS cert requires path-style
+      # The S3 backend issues real presigned URLs, so the bucket can stay private.
+      S3_ENDPOINT_URL: "${S3_ENDPOINT_URL:-}"
+      S3_SIGNATURE_VERSION: "${S3_SIGNATURE_VERSION:-}"
+      S3_ADDRESSING_STYLE: "${S3_ADDRESSING_STYLE:-}"
 
       # MinIO
       MINIO_ENDPOINT: "minio:9000"
@@ -150,8 +173,8 @@ services:
       # deployments behind HTTPS, set MINIO_PUBLIC_ENDPOINT in .env to
       # e.g. https://your-server.example.com (nginx proxies /voice-audio/).
       MINIO_PUBLIC_ENDPOINT: "${MINIO_PUBLIC_ENDPOINT:-http://localhost:9000}"
-      MINIO_ACCESS_KEY: "minioadmin"
-      MINIO_SECRET_KEY: "minioadmin"
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
       MINIO_BUCKET: "voice-audio"
       MINIO_SECURE: "false"
 
@@ -159,6 +182,17 @@ services:
       # distinct port starting at 8000). dograh-init renders nginx upstreams
       # from this value and nginx load-balances across them with least_conn.
       FASTAPI_WORKERS: "${FASTAPI_WORKERS:-1}"
+
+      # Trust X-Forwarded-* headers from any peer so uvicorn honors nginx's
+      # `X-Forwarded-Proto: https`. nginx runs as its own container and reaches
+      # uvicorn from a Docker-network IP (not loopback), but uvicorn trusts only
+      # 127.0.0.1 by default — so without this it ignores the header, request.url
+      # comes back as http://…, and inbound webhook signature checks fail for
+      # every provider at once (telephony providers sign the public https URL, so
+      # the recomputed signature won't match). "*" trusts all peers; the api port
+      # (8000) is published, so firewall/harden it at the host — or narrow this
+      # to your Docker bridge subnet — if that exposure matters to you.
+      FORWARDED_ALLOW_IPS: "*"
 
       # Langfuse — credentials can be set here or per-organization via the UI
       # at /settings. Tracing is automatically active when credentials are
@@ -173,7 +207,7 @@ services:
       TURN_SECRET: "${TURN_SECRET:-}"
       FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
 
-      OSS_JWT_SECRET: "${OSS_JWT_SECRET:-ChangeMeInProduction}"
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret}"
 
       # Telemetry
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
@@ -207,9 +241,13 @@ services:
   ui:
     image: ${REGISTRY:-dograhai}/dograh-ui:latest
     environment:
+      # Bind the Next.js standalone server to all interfaces
+      HOSTNAME: "0.0.0.0"
+
       # Server-side URL (SSR, internal Docker network)
       BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
       NODE_ENV: "oss"
+
       # Flag to enable/ disable posthog
       ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
 
@@ -225,7 +263,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget --no-verbose --tries=1 --spider http://localhost:3010 || exit 1",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:3010 || exit 1",
         ]
       interval: 30s
       timeout: 10s

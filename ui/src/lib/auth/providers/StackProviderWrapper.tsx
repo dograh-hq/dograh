@@ -9,10 +9,18 @@ import { AuthContext } from './AuthProvider';
 // Create a singleton StackClientApp instance to prevent multiple initializations
 let stackClientAppInstance: StackClientApp<true, string> | null = null;
 
-function getStackClientApp(): StackClientApp<true, string> {
+function getStackClientApp(
+  projectId: string,
+  publishableClientKey: string,
+): StackClientApp<true, string> {
   if (!stackClientAppInstance) {
+    // projectId / publishableClientKey are passed explicitly (fetched from the
+    // backend at runtime) instead of being read from inlined NEXT_PUBLIC_* env,
+    // so the prebuilt image works without build-time configuration.
     stackClientAppInstance = new StackClientApp({
       tokenStore: "nextjs-cookie",
+      projectId,
+      publishableClientKey,
       urls: {
         afterSignIn: "/after-sign-in"
       }
@@ -23,6 +31,8 @@ function getStackClientApp(): StackClientApp<true, string> {
 
 interface StackProviderWrapperProps {
   children: React.ReactNode;
+  projectId: string;
+  publishableClientKey: string;
 }
 
 // Simple context provider that uses Stack's useUser directly
@@ -114,8 +124,8 @@ const translationOverrides = {
   "Sign up with {provider}": "Sign up with {provider} Business",
 };
 
-export function StackProviderWrapper({ children }: StackProviderWrapperProps) {
-  const stackClientApp = getStackClientApp();
+export function StackProviderWrapper({ children, projectId, publishableClientKey }: StackProviderWrapperProps) {
+  const stackClientApp = getStackClientApp(projectId, publishableClientKey);
 
   return (
     <StackProvider app={stackClientApp} translationOverrides={translationOverrides}>

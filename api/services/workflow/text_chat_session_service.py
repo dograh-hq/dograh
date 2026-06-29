@@ -4,16 +4,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from loguru import logger
-
 from api.db import db_client
 from api.db.models import WorkflowRunTextSessionModel
 from api.db.workflow_run_text_session_client import (
     WorkflowRunTextSessionRevisionConflictError,
-)
-from api.services.pricing.workflow_run_cost import (
-    apply_usage_delta_to_organization,
-    build_workflow_run_cost_info,
 )
 from api.services.workflow.text_chat_logs import (
     build_text_chat_realtime_feedback_events,
@@ -207,7 +201,7 @@ async def execute_pending_text_chat_turn(
             error_message=str(e),
         )
         raise TextChatSessionExecutionError(
-            "Failed to execute text chat assistant turn"
+            f"Failed to execute text chat assistant turn: {e}"
         ) from e
 
     completed_session_data = normalize_text_chat_session_data(text_session.session_data)
@@ -261,20 +255,6 @@ async def execute_pending_text_chat_turn(
         state=execution.state,
         is_completed=execution.is_completed,
     )
-    workflow_run = await db_client.get_workflow_run_by_id(run_id)
-    if workflow_run:
-        try:
-            # Apply the per-turn delta so org usage tracks cumulative run cost
-            # without replaying the full session totals on every turn.
-            await apply_usage_delta_to_organization(workflow_run, execution.usage)
-        except Exception as e:
-            logger.error(
-                f"Failed to update organization usage for text chat run {run_id}: {e}"
-            )
-
-        cost_info = await build_workflow_run_cost_info(workflow_run)
-        if cost_info is not None:
-            await db_client.update_workflow_run(run_id, cost_info=cost_info)
 
     return await _reload_text_chat_session(run_id)
 

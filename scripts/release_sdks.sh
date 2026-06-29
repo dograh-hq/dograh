@@ -81,8 +81,29 @@ ts.write_text(
     re.sub(r'"version": "[^"]+"', f'"version": "{version}"', ts.read_text(), count=1)
 )
 
+ts_lock = pathlib.Path("sdk/typescript/package-lock.json")
+if ts_lock.exists():
+    lock_text = ts_lock.read_text()
+    lock_text = re.sub(
+        r'^  "version": "[^"]+"',
+        f'  "version": "{version}"',
+        lock_text,
+        count=1,
+        flags=re.M,
+    )
+    lock_text = re.sub(
+        r'^(      "version": ")[^"]+(")',
+        rf'\g<1>{version}\2',
+        lock_text,
+        count=1,
+        flags=re.M,
+    )
+    ts_lock.write_text(lock_text)
+
 print(f"  pyproject.toml → {version}")
 print(f"  package.json  → {version}")
+if ts_lock.exists():
+    print(f"  package-lock.json → {version}")
 PY
 
 echo "→ Building Python wheel + sdist..."

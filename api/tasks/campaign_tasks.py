@@ -14,6 +14,9 @@ from api.services.campaign.errors import (
 )
 from api.services.campaign.source_sync_factory import get_sync_service
 
+PHONE_NUMBER_POOL_EXHAUSTED_COUNTER_KEY = "phone_number_pool_exhausted_attempts"
+MAX_PHONE_NUMBER_POOL_EXHAUSTED_ATTEMPTS = 3
+
 
 async def sync_campaign_source(ctx: Dict, campaign_id: int) -> None:
     """
@@ -118,6 +121,12 @@ async def process_campaign_batch(
             campaign_id=campaign_id, batch_size=batch_size
         )
 
+        if processed_count > 0:
+            await db_client.reset_campaign_metadata_counter(
+                campaign_id=campaign_id,
+                key=PHONE_NUMBER_POOL_EXHAUSTED_COUNTER_KEY,
+            )
+
         # Publish batch completed event - orchestrator will handle next batch scheduling
         publisher = await get_campaign_event_publisher()
         await publisher.publish_batch_completed(
@@ -157,9 +166,43 @@ async def process_campaign_batch(
         raise
 
     except PhoneNumberPoolExhaustedError as e:
-        logger.warning(f"Phone number pool exhausted for campaign {campaign_id}: {e}")
+        attempt = await db_client.increment_campaign_metadata_counter(
+            campaign_id=campaign_id,
+            key=PHONE_NUMBER_POOL_EXHAUSTED_COUNTER_KEY,
+        )
+        logger.warning(
+            f"Phone number pool exhausted for campaign {campaign_id}: {e}; "
+            f"attempt={attempt}/{MAX_PHONE_NUMBER_POOL_EXHAUSTED_ATTEMPTS}"
+        )
 
         publisher = await get_campaign_event_publisher()
+
+        if attempt < MAX_PHONE_NUMBER_POOL_EXHAUSTED_ATTEMPTS:
+            await db_client.append_campaign_log(
+                campaign_id=campaign_id,
+                level="warning",
+                event="phone_number_pool_exhausted_retry",
+                message=(
+                    f"Phone number pool exhausted for org {e.organization_id}: "
+                    "no free from_number available to dispatch outbound calls; "
+                    f"retry attempt {attempt}/"
+                    f"{MAX_PHONE_NUMBER_POOL_EXHAUSTED_ATTEMPTS}"
+                ),
+                details={
+                    "error": str(e),
+                    "organization_id": e.organization_id,
+                    "attempt": attempt,
+                    "max_attempts": MAX_PHONE_NUMBER_POOL_EXHAUSTED_ATTEMPTS,
+                },
+            )
+            await publisher.publish_batch_completed(
+                campaign_id=campaign_id,
+                processed_count=0,
+                failed_count=0,
+                batch_size=batch_size,
+            )
+            return
+
         await publisher.publish_batch_failed(
             campaign_id=campaign_id,
             error=f"Phone number pool exhausted: {e}",
@@ -172,12 +215,15 @@ async def process_campaign_batch(
             level="error",
             event="phone_number_pool_exhausted",
             message=(
-                f"Phone number pool exhausted for org {e.organization_id}: "
-                "no free from_number available to dispatch outbound calls"
+                f"Phone number pool exhausted for org {e.organization_id} after "
+                f"{attempt} consecutive attempts: no free from_number available "
+                "to dispatch outbound calls"
             ),
             details={
                 "error": str(e),
                 "organization_id": e.organization_id,
+                "attempt": attempt,
+                "max_attempts": MAX_PHONE_NUMBER_POOL_EXHAUSTED_ATTEMPTS,
             },
         )
         raise

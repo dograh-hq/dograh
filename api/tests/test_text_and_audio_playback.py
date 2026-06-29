@@ -20,8 +20,7 @@ from pipecat.frames.frames import (
     TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -31,6 +30,7 @@ from pipecat.tests.mock_transport import MockTransport
 from pipecat.transports.base_transport import TransportParams
 
 from api.services.pipecat.recording_audio_cache import RecordingAudio
+from api.services.pipecat.worker_runner import run_pipeline_worker
 from api.services.workflow.dto import (
     EdgeDataDTO,
     EndCallNodeData,
@@ -212,7 +212,7 @@ async def run_pipeline_and_capture_frames(
         engine.set_transport_output(transport_output)
 
     pipeline = Pipeline([llm, tts, transport_output, context_aggregator.assistant()])
-    task = PipelineTask(pipeline, params=PipelineParams(), enable_rtvi=False)
+    task = PipelineWorker(pipeline, params=PipelineParams(), enable_rtvi=False)
     engine.set_task(task)
 
     # Spy on task.queue_frame and transport_output.queue_frame to capture
@@ -241,16 +241,10 @@ async def run_pipeline_and_capture_frames(
             new_callable=AsyncMock,
             return_value=1,
         ),
-        patch(
-            "api.services.workflow.pipecat_engine.apply_disposition_mapping",
-            new_callable=AsyncMock,
-            return_value="completed",
-        ),
     ):
-        runner = PipelineRunner()
 
         async def run():
-            await runner.run(task)
+            await run_pipeline_worker(task)
 
         async def initialize():
             await asyncio.sleep(0.01)

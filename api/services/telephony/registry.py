@@ -40,7 +40,8 @@ class ProviderUIField:
 
     name: str  # Must match the Pydantic field name on config_request_cls
     label: str
-    type: str  # "text" | "password" | "textarea" | "string-array" | "number"
+    # "text" | "password" | "textarea" | "string-array" | "number" | "boolean"
+    type: str
     required: bool = True
     sensitive: bool = False  # If true, mask when displaying stored value
     description: Optional[str] = None

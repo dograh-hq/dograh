@@ -1,0 +1,23 @@
+{
+  "nodes": [
+    {
+      "id": "s1",
+      "type": "startCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet.", "is_start": true}
+    },
+    {
+      "id": "t1",
+      "type": "trigger",
+      "position": {"x": 0, "y": 200},
+      "data": {"name": "Trigger A", "trigger_path": "trigger_a"}
+    },
+    {
+      "id": "t2",
+      "type": "trigger",
+      "position": {"x": 0, "y": 400},
+      "data": {"name": "Trigger B", "trigger_path": "trigger_b"}
+    }
+  ],
+  "edges": []
+}

@@ -40,6 +40,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { TOOL_DOCUMENTATION_URLS } from "@/constants/documentation";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 import {
@@ -58,6 +59,8 @@ function normalizeParameterType(value: string | null | undefined): ParameterType
     switch (value) {
         case "number":
         case "boolean":
+        case "object":
+        case "array":
             return value;
         default:
             return "string";
@@ -447,6 +450,11 @@ export default function ToolDetailPage() {
                 },
             });
 
+            if (response.error) {
+                setError(detailFromError(response.error, "Failed to save tool"));
+                return;
+            }
+
             if (response.data) {
                 setTool(response.data);
                 setSaveSuccess(true);
@@ -510,7 +518,7 @@ const data = await response.json();`;
 
     if (loading || !user) {
         return (
-            <div className="min-h-screen bg-background flex items-center justify-center">
+            <div className="min-h-screen flex items-center justify-center">
                 <div className="space-y-4">
                     <Skeleton className="h-12 w-64" />
                     <Skeleton className="h-64 w-96" />
@@ -521,7 +529,7 @@ const data = await response.json();`;
 
     if (isLoading) {
         return (
-            <div className="min-h-screen bg-background">
+            <div className="min-h-screen">
                 <div className="container mx-auto px-4 py-8">
                     <div className="max-w-4xl mx-auto space-y-6">
                         <Skeleton className="h-8 w-48" />
@@ -534,7 +542,7 @@ const data = await response.json();`;
 
     if (!tool) {
         return (
-            <div className="min-h-screen bg-background">
+            <div className="min-h-screen">
                 <div className="container mx-auto px-4 py-8">
                     <div className="max-w-4xl mx-auto text-center">
                         <h1 className="text-2xl font-bold mb-4">Tool not found</h1>
@@ -555,7 +563,7 @@ const data = await response.json();`;
     const categoryConfig = getCategoryConfig(tool.category as ToolCategory);
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen">
             <div className="container mx-auto px-4 py-8">
                 <div className="max-w-4xl mx-auto">
                     {/* Header */}

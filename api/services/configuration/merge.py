@@ -4,21 +4,71 @@ from __future__ import annotations
 stored, while honouring masked API keys.
 """
 
+import copy
 from typing import Dict
 
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
+    MODEL_OVERRIDE_FIELDS,
     SERVICE_SECRET_FIELDS,
+    contains_masked_key,
     resolve_masked_api_keys,
 )
 
 SERVICE_FIELDS = ("llm", "tts", "stt", "embeddings", "realtime")
 
 
+def _same_provider(incoming_cfg: dict, existing_cfg: dict) -> bool:
+    return not (
+        existing_cfg.get("provider") is not None
+        and incoming_cfg.get("provider") is not None
+        and incoming_cfg.get("provider") != existing_cfg.get("provider")
+    )
+
+
+def _merge_service_secret_fields(
+    incoming_cfg: dict,
+    existing_cfg: dict,
+    *,
+    preserve_missing: bool,
+    masked_value_preserves_full_secret: bool = False,
+) -> dict:
+    """Restore existing real secrets when incoming values are masked.
+
+    If ``preserve_missing`` is true, missing incoming secret fields are also
+    copied from the existing config. User config updates need that behavior;
+    workflow model overrides leave missing secrets blank so later enrichment can
+    copy from the current global config.
+    """
+    if not _same_provider(incoming_cfg, existing_cfg):
+        return incoming_cfg
+
+    for secret_field in SERVICE_SECRET_FIELDS:
+        if secret_field not in existing_cfg:
+            continue
+
+        incoming_secret = incoming_cfg.get(secret_field)
+        existing_secret = existing_cfg[secret_field]
+        if incoming_secret is not None:
+            if contains_masked_key(incoming_secret):
+                incoming_cfg[secret_field] = (
+                    existing_secret
+                    if masked_value_preserves_full_secret
+                    else resolve_masked_api_keys(
+                        incoming_secret,
+                        existing_secret,
+                    )
+                )
+        elif preserve_missing:
+            incoming_cfg[secret_field] = existing_secret
+
+    return incoming_cfg
+
+
 def merge_user_configurations(
-    existing: UserConfiguration, incoming_partial: Dict[str, dict]
-) -> UserConfiguration:
-    """Merge *incoming_partial* onto *existing* and return a new UserConfiguration.
+    existing: EffectiveAIModelConfiguration, incoming_partial: Dict[str, dict]
+) -> EffectiveAIModelConfiguration:
+    """Merge *incoming_partial* onto *existing* and return a new EffectiveAIModelConfiguration.
 
     *incoming_partial* is the body of the PUT request (already `model_dump()`ed or
     extracted via Pydantic `model_dump`).
@@ -41,23 +91,12 @@ def merge_user_configurations(
             return  # nothing to do
 
         old_cfg = merged.get(service_name, {})
-
-        provider_changed = (
-            old_cfg.get("provider") is not None
-            and incoming_cfg.get("provider") is not None
-            and incoming_cfg.get("provider") != old_cfg.get("provider")
-        )
-
-        if not provider_changed:
-            for secret_field in SERVICE_SECRET_FIELDS:
-                incoming_secret = incoming_cfg.get(secret_field)
-                if incoming_secret is not None:
-                    if old_cfg and secret_field in old_cfg:
-                        incoming_cfg[secret_field] = resolve_masked_api_keys(
-                            incoming_secret, old_cfg[secret_field]
-                        )
-                elif secret_field in old_cfg:
-                    incoming_cfg[secret_field] = old_cfg[secret_field]
+        if old_cfg:
+            incoming_cfg = _merge_service_secret_fields(
+                incoming_cfg,
+                old_cfg,
+                preserve_missing=True,
+            )
 
         merged[service_name] = incoming_cfg
 
@@ -74,4 +113,47 @@ def merge_user_configurations(
     if "timezone" in incoming_partial:
         merged["timezone"] = incoming_partial["timezone"]
 
-    return UserConfiguration.model_validate(merged)
+    return EffectiveAIModelConfiguration.model_validate(merged)
+
+
+def merge_workflow_configuration_secrets(
+    incoming_config: dict | None,
+    existing_config: dict | None,
+) -> dict | None:
+    """Restore persisted workflow override secrets when the client sends masks.
+
+    Workflow model overrides intentionally persist real keys so a workflow keeps
+    running after the global provider changes. API responses mask those keys, so
+    save requests must merge masked placeholders back to the stored real values.
+
+    Unlike user config updates, a missing workflow override secret is not copied
+    from the existing workflow config. Missing means "copy from current global"
+    during the later enrichment step.
+    """
+    if not incoming_config or not existing_config:
+        return incoming_config
+
+    merged = copy.deepcopy(incoming_config)
+    incoming_overrides = merged.get("model_overrides")
+    existing_overrides = existing_config.get("model_overrides")
+    if not isinstance(incoming_overrides, dict) or not isinstance(
+        existing_overrides, dict
+    ):
+        return merged
+
+    for section in MODEL_OVERRIDE_FIELDS:
+        incoming_section = incoming_overrides.get(section)
+        existing_section = existing_overrides.get(section)
+        if not isinstance(incoming_section, dict) or not isinstance(
+            existing_section, dict
+        ):
+            continue
+
+        incoming_overrides[section] = _merge_service_secret_fields(
+            incoming_section,
+            existing_section,
+            preserve_missing=False,
+            masked_value_preserves_full_secret=True,
+        )
+
+    return merged

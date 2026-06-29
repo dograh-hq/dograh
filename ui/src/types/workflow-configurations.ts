@@ -1,3 +1,5 @@
+import type { OrganizationAiModelConfigurationV2 } from "@/client/types.gen";
+
 export interface AmbientNoiseConfiguration {
     enabled: boolean;
     volume: number;
@@ -64,6 +66,7 @@ export interface WorkflowConfigurations {
     voicemail_detection?: VoicemailDetectionConfiguration;
     context_compaction_enabled?: boolean;  // Summarize context on node transitions to remove stale tool calls
     model_overrides?: ModelOverrides;  // Per-workflow model configuration overrides
+    model_configuration_v2_override?: OrganizationAiModelConfigurationV2;  // Full v2 model configuration override
     [key: string]: unknown;  // Allow additional properties for future configurations
 }
 

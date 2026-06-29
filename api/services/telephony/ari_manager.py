@@ -26,7 +26,7 @@ from loguru import logger
 from api.constants import REDIS_URL
 from api.db import db_client
 from api.enums import CallType, WorkflowRunMode
-from api.services.quota_service import check_dograh_quota_by_user_id
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.transfer_event_protocol import (
     TransferEvent,
@@ -564,19 +564,7 @@ class ARIConnection:
 
             user_id = workflow.user_id
 
-            # 3. Check quota (apply per-workflow model_overrides).
-            quota_result = await check_dograh_quota_by_user_id(
-                user_id, workflow_id=inbound_workflow_id
-            )
-            if not quota_result.has_quota:
-                logger.warning(
-                    f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "
-                    f"— hanging up inbound call {channel_id}"
-                )
-                await self._delete_channel(channel_id)
-                return
-
-            # 4. Create workflow run
+            # 3. Create workflow run
             call_id = channel_id
             workflow_run = await db_client.create_workflow_run(
                 name=f"ARI Inbound {caller_number}",
@@ -601,6 +589,20 @@ class ARIConnection:
                 f"{workflow_run.id} for channel {channel_id} "
                 f"(caller={caller_number}, called={called_number})"
             )
+
+            # 4. Check quota after the run exists so hosted v2 can mint and
+            # store the MPS correlation id before the pipeline starts.
+            quota_result = await authorize_workflow_run_start(
+                workflow_id=inbound_workflow_id,
+                workflow_run_id=workflow_run.id,
+            )
+            if not quota_result.has_quota:
+                logger.warning(
+                    f"[ARI org={self.organization_id}] Quota exceeded for user {user_id} "
+                    f"— hanging up inbound call {channel_id}"
+                )
+                await self._delete_channel(channel_id)
+                return
 
             # 5. Answer the inbound channel
             await self._answer_channel(channel_id)
@@ -657,9 +659,17 @@ class ARIConnection:
             await self._mark_ext_channel(ext_channel_id)
             await self._set_channel_run(ext_channel_id, workflow_run_id)
             await self._set_pending_bridge(ext_channel_id, channel_id, workflow_run_id)
+            # Persist the caller channel id as call_id. Inbound runs already
+            # set this in create_workflow_run, but outbound runs never do, so
+            # without this the serializer hangup (provider reads
+            # gathered_context["call_id"]) and the StasisEnd teardown both get
+            # an empty channel id and fail to hang up the live caller channel.
             await db_client.update_workflow_run(
                 run_id=int(workflow_run_id),
-                gathered_context={"ext_channel_id": ext_channel_id},
+                gathered_context={
+                    "ext_channel_id": ext_channel_id,
+                    "call_id": channel_id,
+                },
             )
 
             # 3. Create the ext media channel with the id we just registered.

@@ -11,7 +11,7 @@ Pre-Call Data Fetch allows you to enrich the call context with external data bef
 1. A call arrives (inbound) or is initiated (outbound).
 2. Dograh sends a **POST** request to your configured endpoint with a standardized payload.
 3. The caller hears a ring-back tone while waiting for the response.
-4. Your API responds with a JSON object containing `dynamic_variables`.
+4. Your API responds with a JSON object containing an `initial_context` object.
 5. The variables are merged into the call's initial context.
 6. The voice agent starts with full access to the fetched data via `{{variable_name}}` syntax.
 
@@ -50,12 +50,12 @@ The `Content-Type` header is set to `application/json`. If you configured a cred
 
 ## Expected Response Format
 
-Your API should return a **JSON object** with a `2xx` status code. The variables to inject into the call context should be placed inside the `dynamic_variables` key:
+Your API should return a **JSON object** with a `2xx` status code. The variables to inject into the call context should be placed inside the `initial_context` key:
 
 ```json
 {
   "call_inbound": {
-    "dynamic_variables": {
+    "initial_context": {
       "customer_name": "Jane Doe",
       "account_status": "active",
       "loyalty_tier": "gold",
@@ -65,16 +65,20 @@ Your API should return a **JSON object** with a `2xx` status code. The variables
 }
 ```
 
-You can also place `dynamic_variables` at the top level:
+You can also place `initial_context` at the top level:
 
 ```json
 {
-  "dynamic_variables": {
+  "initial_context": {
     "customer_name": "Jane Doe",
     "account_status": "active"
   }
 }
 ```
+
+<Note>
+The legacy `dynamic_variables` key is still accepted as a drop-in alias for `initial_context`, so existing integrations keep working without any changes. Use `initial_context` for new integrations. If a response contains both keys, `initial_context` takes precedence.
+</Note>
 
 After the response is received, you can reference these values anywhere template variables are supported:
 
@@ -82,17 +86,17 @@ After the response is received, you can reference these values anywhere template
 - **Prompt**: `The customer is a {{loyalty_tier}} member with {{open_tickets}} open support tickets.`
 
 <Note>
-If the response is not a valid JSON object, does not contain `dynamic_variables`, or the request fails or times out, the call proceeds normally without the additional context. The pre-call fetch never blocks or fails a call.
+If the response is not a valid JSON object, does not contain `initial_context` (or the legacy `dynamic_variables`), or the request fails or times out, the call proceeds normally without the additional context. The pre-call fetch never blocks or fails a call.
 </Note>
 
 ## Nested Variables
 
-If your `dynamic_variables` contain nested objects, you can access them using dot notation:
+If your `initial_context` contains nested objects, you can access them using dot notation:
 
 ```json
 {
   "call_inbound": {
-    "dynamic_variables": {
+    "initial_context": {
       "customer": {
         "name": "Jane Doe",
         "address": {
@@ -153,7 +157,7 @@ app.post("/dograh/pre-call", async (req, res) => {
 
   res.json({
     call_inbound: {
-      dynamic_variables: {
+      initial_context: {
         customer_name: customer.name,
         account_status: customer.status,
         loyalty_tier: customer.tier,

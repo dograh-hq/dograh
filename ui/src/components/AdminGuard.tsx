@@ -9,7 +9,7 @@ import { useIsAdmin } from '@/hooks/useIsAdmin';
 /**
  * Wraps admin-only configuration surfaces (models/providers, API keys,
  * telephony, platform settings). Non-admin users are redirected to the
- * overview page instead of seeing the page content.
+ * home page instead of seeing the page content.
  *
  * Intended to be used from a route `layout.tsx` so upstream page components
  * stay untouched (keeps the fork mergeable).
@@ -20,7 +20,7 @@ export function AdminGuard({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (isLoaded && !isAdmin) {
-            router.replace('/overview');
+            router.replace('/home');
         }
     }, [isLoaded, isAdmin, router]);
 

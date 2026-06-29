@@ -28,9 +28,11 @@ async function WorkflowList() {
         } else {
             // For OSS mode, this shouldn't happen as token is auto-generated
             return (
-                <div className="text-red-500">
-                    Authentication required. Please refresh the page.
-                </div>
+                <Card className="rounded-2xl border border-destructive/30 bg-card shadow-[var(--shadow-card)]">
+                    <CardContent className="p-8 text-center text-body text-destructive">
+                        Authentication required. Please refresh the page.
+                    </CardContent>
+                </Card>
             );
         }
     }
@@ -74,14 +76,17 @@ async function WorkflowList() {
         return (
             <>
                 {/* Active Workflows Section */}
-                <div className="mb-8">
-                    <h2 className="text-xl font-semibold mb-4">Active Agents</h2>
+                <div className="mb-10">
+                    <h2 className="text-h3 mb-4 text-foreground">Active Agents</h2>
                     {activeWorkflows.length > 0 || folders.length > 0 ? (
                         <AgentFolderView workflows={activeWorkflows} folders={folders} />
                     ) : (
-                        <Card>
-                            <CardContent className="p-8 text-center text-muted-foreground">
-                                No active workflows found. Create your first workflow to get started.
+                        <Card className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
+                            <CardContent className="flex flex-col items-center justify-center gap-1 p-12 text-center">
+                                <p className="text-body font-medium text-foreground">No active agents yet</p>
+                                <p className="text-small text-muted-foreground">
+                                    Create your first agent to get started.
+                                </p>
                             </CardContent>
                         </Card>
                     )}
@@ -89,7 +94,7 @@ async function WorkflowList() {
 
                 {/* Archived Section — collapsible, same design as the folder/Uncategorized sections */}
                 {archivedWorkflows.length > 0 && (
-                    <div className="mb-8">
+                    <div className="mb-10">
                         <FolderSection kind="archived" workflows={archivedWorkflows} />
                     </div>
                 )}
@@ -98,9 +103,11 @@ async function WorkflowList() {
     } catch (err) {
         logger.error(`Error fetching workflows: ${err}`);
         return (
-            <div className="text-red-500">
-                Failed to load Workflows. Please Try Again Later.
-            </div>
+            <Card className="rounded-2xl border border-destructive/30 bg-card shadow-[var(--shadow-card)]">
+                <CardContent className="p-8 text-center text-body text-destructive">
+                    Failed to load agents. Please try again later.
+                </CardContent>
+            </Card>
         );
     }
 }
@@ -110,12 +117,18 @@ async function PageContent() {
     const workflowList = await WorkflowList();
 
     return (
-        <div className="container mx-auto px-4 py-8">
+        <div className="container mx-auto px-4 py-10">
             {/* Your Workflows Section */}
             <div className="mb-6">
-                <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold">Your Agents</h1>
-                    <div className="flex gap-2">
+                <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+                    <div className="space-y-1">
+                        <p className="text-eyebrow text-muted-foreground">Voice Agents</p>
+                        <h1 className="text-h1 text-foreground">Your Agents</h1>
+                        <p className="text-body text-muted-foreground">
+                            Build, organize, and deploy your conversational AI agents.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
                         <UploadWorkflowButton />
                         <CreateFolderButton />
                         <CreateWorkflowButton />
@@ -129,30 +142,27 @@ async function PageContent() {
 
 function WorkflowsLoading() {
     return (
-        <div className="container mx-auto px-4 py-8">
-            {/* Get Started Section Loading */}
-            <div className="mb-12">
-                <div className="h-8 w-48 bg-muted rounded mb-6"></div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {Array.from({ length: 3 }, (_, i) => (
-                        <Card key={i}>
-                            <CardContent className="p-0">
-                                <div className="h-40 bg-muted/70" />
-                            </CardContent>
-                        </Card>
-                    ))}
+        <div className="container mx-auto animate-pulse px-4 py-10">
+            {/* Header Loading */}
+            <div className="mb-8 flex items-end justify-between gap-4">
+                <div className="space-y-2">
+                    <div className="h-3 w-24 rounded bg-muted" />
+                    <div className="h-8 w-48 rounded-lg bg-muted" />
+                    <div className="h-4 w-72 rounded bg-muted/70" />
+                </div>
+                <div className="flex gap-2">
+                    <div className="h-10 w-28 rounded-md bg-muted" />
+                    <div className="h-10 w-28 rounded-md bg-muted" />
+                    <div className="h-10 w-32 rounded-md bg-muted" />
                 </div>
             </div>
 
-            {/* Your Workflows Section Loading */}
-            <div className="mb-6">
-                <div className="flex justify-between items-center mb-6">
-                    <div className="h-8 w-48 bg-muted rounded"></div>
-                    <div className="h-10 w-32 bg-muted rounded"></div>
-                </div>
-                <Card>
+            {/* Active Agents Loading */}
+            <div className="mb-10">
+                <div className="mb-4 h-5 w-40 rounded bg-muted" />
+                <Card className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)]">
                     <CardContent className="p-0">
-                        <div className="h-96 bg-muted/70" />
+                        <div className="h-96 rounded-2xl bg-muted/60" />
                     </CardContent>
                 </Card>
             </div>

@@ -40,9 +40,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { SETTINGS_DOCUMENTATION_URLS } from "@/constants/documentation";
 import { UnsavedChangesProvider, useUnsavedChanges, useUnsavedChangesContext } from "@/context/UnsavedChangesContext";
 import { useAudioPlayback } from "@/hooks/useAudioPlayback";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
-import { useIsAdmin } from "@/hooks/useIsAdmin";
 import logger from "@/lib/logger";
 import {
     type AmbientNoiseConfiguration,

@@ -94,93 +94,101 @@ export default function CampaignsPage() {
     };
 
     return (
-        <div className="container mx-auto p-6 space-y-6">
-            <div className="flex justify-between items-center">
-                <div>
-                    <h1 className="text-3xl font-bold mb-2">Campaigns</h1>
-                    <p>Manage your bulk workflow execution campaigns</p>
+        <div className="container mx-auto space-y-8 px-4 py-10">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="space-y-1">
+                    <p className="text-eyebrow text-muted-foreground">Outbound</p>
+                    <h1 className="text-h1 text-foreground">Campaigns</h1>
+                    <p className="text-body text-muted-foreground">
+                        Manage your bulk workflow execution campaigns.
+                    </p>
                 </div>
-                    <Button onClick={handleCreateCampaign}>
-                        <Plus className="h-4 w-4 mr-2" />
-                        Create Campaign
-                    </Button>
-                </div>
+                <Button onClick={handleCreateCampaign}>
+                    <Plus className="mr-2 h-4 w-4" />
+                    Create Campaign
+                </Button>
+            </div>
 
-                <Card>
-                    <CardHeader>
-                        <CardTitle>All Campaigns</CardTitle>
-                        <CardDescription>
-                            View and manage your campaigns
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {isLoading ? (
-                            <div className="animate-pulse space-y-3">
-                                {[...Array(5)].map((_, i) => (
-                                    <div key={i} className="h-12 bg-muted rounded"></div>
-                                ))}
-                            </div>
-                        ) : campaignsData && campaignsData.campaigns.length > 0 ? (
-                            <div className="overflow-x-auto">
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>ID</TableHead>
-                                            <TableHead>Name</TableHead>
-                                            <TableHead>Workflow</TableHead>
-                                            <TableHead>State</TableHead>
-                                            <TableHead>Progress</TableHead>
-                                            <TableHead>Created</TableHead>
-                                            <TableHead className="text-right">Action</TableHead>
+            <Card className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
+                <CardHeader>
+                    <CardTitle className="text-h3">All Campaigns</CardTitle>
+                    <CardDescription className="text-small">
+                        View and manage your campaigns
+                    </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                    {isLoading ? (
+                        <div className="animate-pulse space-y-3 px-6 pb-6">
+                            {[...Array(5)].map((_, i) => (
+                                <div key={i} className="h-12 rounded-lg bg-muted" />
+                            ))}
+                        </div>
+                    ) : campaignsData && campaignsData.campaigns.length > 0 ? (
+                        <div className="overflow-x-auto border-t border-border/50">
+                            <Table>
+                                <TableHeader>
+                                    <TableRow className="border-border/50 bg-muted/40 hover:bg-muted/40">
+                                        <TableHead className="text-label text-muted-foreground">ID</TableHead>
+                                        <TableHead className="text-label text-muted-foreground">Name</TableHead>
+                                        <TableHead className="text-label text-muted-foreground">Workflow</TableHead>
+                                        <TableHead className="text-label text-muted-foreground">State</TableHead>
+                                        <TableHead className="text-label text-muted-foreground">Progress</TableHead>
+                                        <TableHead className="text-label text-muted-foreground">Created</TableHead>
+                                        <TableHead className="text-label text-right text-muted-foreground">Action</TableHead>
+                                    </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                    {campaignsData.campaigns.map((campaign) => (
+                                        <TableRow
+                                            key={campaign.id}
+                                            className="cursor-pointer border-border/50 transition-colors duration-200 hover:bg-muted/40"
+                                            onClick={() => handleRowClick(campaign.id)}
+                                        >
+                                            <TableCell className="py-3.5 tabular-nums text-muted-foreground">{campaign.id}</TableCell>
+                                            <TableCell className="py-3.5 font-medium text-foreground">{campaign.name}</TableCell>
+                                            <TableCell className="py-3.5 text-muted-foreground">{campaign.workflow_name}</TableCell>
+                                            <TableCell className="py-3.5">
+                                                <Badge variant={getStateBadgeVariant(campaign.state)} className="capitalize">
+                                                    {campaign.state}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="py-3.5 tabular-nums text-muted-foreground">
+                                                {campaign.executed_count} / {campaign.total_queued_count}
+                                            </TableCell>
+                                            <TableCell className="py-3.5 tabular-nums text-muted-foreground">{formatDate(campaign.created_at)}</TableCell>
+                                            <TableCell className="py-3.5 text-right">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleRowClick(campaign.id);
+                                                    }}
+                                                >
+                                                    View
+                                                </Button>
+                                            </TableCell>
                                         </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {campaignsData.campaigns.map((campaign) => (
-                                            <TableRow
-                                                key={campaign.id}
-                                                className="cursor-pointer hover:bg-muted/50"
-                                                onClick={() => handleRowClick(campaign.id)}
-                                            >
-                                                <TableCell>{campaign.id}</TableCell>
-                                                <TableCell className="font-medium">{campaign.name}</TableCell>
-                                                <TableCell>{campaign.workflow_name}</TableCell>
-                                                <TableCell>
-                                                    <Badge variant={getStateBadgeVariant(campaign.state)}>
-                                                        {campaign.state}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell>
-                                                    {campaign.executed_count} / {campaign.total_queued_count}
-                                                </TableCell>
-                                                <TableCell>{formatDate(campaign.created_at)}</TableCell>
-                                                <TableCell className="text-right">
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleRowClick(campaign.id);
-                                                        }}
-                                                    >
-                                                        View
-                                                    </Button>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                    ))}
+                                </TableBody>
+                            </Table>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
+                            <div className="space-y-1">
+                                <p className="text-body font-medium text-foreground">No campaigns yet</p>
+                                <p className="text-small text-muted-foreground">
+                                    Launch your first campaign to start reaching contacts.
+                                </p>
                             </div>
-                        ) : (
-                            <div className="text-center py-8">
-                                <p className="mb-4">No campaigns found</p>
-                                <Button onClick={handleCreateCampaign} variant="outline">
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Create your first campaign
-                                </Button>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
+                            <Button onClick={handleCreateCampaign} variant="outline">
+                                <Plus className="mr-2 h-4 w-4" />
+                                Create your first campaign
+                            </Button>
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
     );
 }

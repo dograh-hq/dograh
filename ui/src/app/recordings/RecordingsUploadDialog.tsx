@@ -292,7 +292,7 @@ export const RecordingsUploadDialog = ({
                 </DialogHeader>
 
                 {error && (
-                    <div className="text-sm text-destructive bg-destructive/10 rounded-md p-2">
+                    <div className="text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-xl p-3">
                         {error}
                     </div>
                 )}
@@ -339,7 +339,7 @@ export const RecordingsUploadDialog = ({
 
                     {/* Recording: filename + start/stop */}
                     {(recordingStep === "naming" || isRecording) && (
-                        <div className="space-y-2 rounded-md border border-dashed p-3 bg-muted/20">
+                        <div className="space-y-2 rounded-xl border border-dashed border-border/60 p-3 bg-muted/20">
                             {recordingStep === "naming" && (
                                 <>
                                     <div>
@@ -393,7 +393,7 @@ export const RecordingsUploadDialog = ({
                                 Pending ({pendingFiles.length} file{pendingFiles.length !== 1 ? "s" : ""})
                             </Label>
                             {pendingFiles.map((pf) => (
-                                <div key={pf.id} className="rounded-md border p-2 space-y-1.5 bg-muted/10">
+                                <div key={pf.id} className="rounded-xl border border-border/60 p-2.5 space-y-1.5 bg-muted/10">
                                     <div className="flex items-center gap-2">
                                         <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono truncate flex-1">
                                             {pf.file.name} ({(pf.file.size / (1024 * 1024)).toFixed(1)}MB)

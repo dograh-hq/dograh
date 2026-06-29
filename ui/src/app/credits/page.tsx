@@ -6,9 +6,9 @@ export default function CreditsPage() {
     <IntegrationPage
       eyebrow="Billing"
       title="Credits & Billing"
-      subtitle="Your plan, remaining call credits, and top-ups."
+      subtitle="Track your plan, monitor remaining call credits, and top up in seconds."
       cardTitle="Credits & Billing"
-      cardDescription="1 credit = 1 minute of calling. Top up anytime with Razorpay."
+      cardDescription="1 credit = 1 minute of calling. Top up anytime with secure payments via Razorpay."
     >
       <CreditsSection />
     </IntegrationPage>

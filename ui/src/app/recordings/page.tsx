@@ -37,12 +37,13 @@ export default function RecordingsPage() {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">Recordings</h1>
-                <p className="text-muted-foreground">
+                <p className="text-eyebrow text-primary">Media Library</p>
+                <h1 className="text-h1 mt-1">Recordings</h1>
+                <p className="text-body mt-1 text-muted-foreground">
                     Manage audio recordings for your organization. Use{" "}
                     <code className="rounded bg-muted px-1 text-xs">@</code> in prompt fields to insert them,
                     or as transition messages in tool calls.{" "}
-                    <a href={SETTINGS_DOCUMENTATION_URLS.recordings} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                    <a href={SETTINGS_DOCUMENTATION_URLS.recordings} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:text-foreground">
                         Learn more <ExternalLink className="h-3 w-3" />
                     </a>
                 </p>

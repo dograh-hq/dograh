@@ -10,7 +10,7 @@ import { useUserConfig } from '@/context/UserConfigContext';
  * Wraps superuser-only surfaces (admin Clients view). Stricter than
  * AdminGuard: org admins are NOT enough — only UserModel.is_superuser
  * (the deployment owner, promoted via ADMIN_EMAILS) passes. Everyone
- * else is redirected to the overview page.
+ * else is redirected to the home page.
  */
 export function SuperuserGuard({ children }: { children: ReactNode }) {
     const { isSuperuser, superuserLoaded } = useUserConfig();
@@ -18,7 +18,7 @@ export function SuperuserGuard({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (superuserLoaded && !isSuperuser) {
-            router.replace('/overview');
+            router.replace('/home');
         }
     }, [superuserLoaded, isSuperuser, router]);
 

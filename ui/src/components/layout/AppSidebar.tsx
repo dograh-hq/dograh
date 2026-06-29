@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowUpCircle,
   AudioLines,
+  BarChart3,
   Brain,
   ChevronLeft,
   ChevronRight,
@@ -12,10 +13,8 @@ import {
   Contact,
   CreditCard,
   Database,
-  FileText,
   Home,
   Key,
-  LayoutDashboard,
   LogOut,
   type LucideIcon,
   Megaphone,
@@ -24,7 +23,6 @@ import {
   PhoneCall,
   Settings,
   ShieldCheck,
-  TrendingUp,
   UserRound,
   Users,
   Workflow,
@@ -98,11 +96,6 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         title: "Home",
         url: "/home",
         icon: Home,
-      },
-      {
-        title: "Overview",
-        url: "/overview",
-        icon: LayoutDashboard,
       },
       {
         title: "KYC",
@@ -188,20 +181,15 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     label: "MANAGE",
     items: [
       {
-        title: "Agent Runs",
-        url: "/usage",
-        icon: TrendingUp,
+        title: "Analytics",
+        url: "/analytics",
+        icon: BarChart3,
       },
       {
         title: "Billing",
         url: "/billing",
         icon: CircleDollarSign,
       },
-      {
-        title: "Reports",
-        url: "/reports",
-        icon: FileText,
-      }
     ],
   },
   {
@@ -499,7 +487,7 @@ export function AppSidebar() {
           }
           return (
             <SidebarGroup
-              key={section.label ?? "overview"}
+              key={section.label ?? "main"}
               className={index === 0 ? "mt-2" : "mt-6"}
             >
               {section.label && (

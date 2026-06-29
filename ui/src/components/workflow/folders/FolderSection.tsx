@@ -128,7 +128,7 @@ export function FolderSection({
                 <div className="flex items-center gap-1">
                     <CollapsibleTrigger asChild>
                         <button
-                            className="group flex flex-1 items-center gap-2.5 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent"
+                            className="group flex flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors duration-200 hover:bg-muted/50"
                             aria-label={`Toggle ${title}`}
                         >
                             <ChevronRight
@@ -140,9 +140,9 @@ export function FolderSection({
                             />
                             {isFolder ? (
                                 open ? (
-                                    <FolderOpen size={17} className="shrink-0 text-amber-500" />
+                                    <FolderOpen size={17} className="shrink-0 text-cta" />
                                 ) : (
-                                    <FolderIcon size={17} className="shrink-0 text-amber-500" />
+                                    <FolderIcon size={17} className="shrink-0 text-cta" />
                                 )
                             ) : isArchived ? (
                                 <Archive size={16} className="shrink-0 text-muted-foreground" />
@@ -200,7 +200,7 @@ export function FolderSection({
                                 currentFolderId={folder?.id ?? null}
                             />
                         ) : (
-                            <div className="rounded-lg border border-dashed bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+                            <div className="rounded-xl border border-dashed border-border/70 bg-muted/30 p-6 text-center text-small text-muted-foreground">
                                 {isArchived
                                     ? 'No archived agents.'
                                     : isFolder

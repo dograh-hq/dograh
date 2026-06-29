@@ -153,15 +153,16 @@ export default function TelephonyConfigurationsPage() {
       <div className="container mx-auto px-4 py-8">
         <div className="flex items-start justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Telephony configurations</h1>
-            <p className="text-muted-foreground">
+            <p className="text-eyebrow text-primary">Integrations</p>
+            <h1 className="text-h1 mt-1">Telephony configurations</h1>
+            <p className="text-body mt-1 text-muted-foreground">
               Connect one or more telephony provider accounts. Each campaign uses one
               configuration; inbound calls are routed to the right one by account ID.{" "}
               <a
                 href={INTEGRATION_DOCUMENTATION_URLS.telephonyOverview}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-0.5 underline"
+                className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:text-foreground"
               >
                 Learn more <ExternalLink className="h-3 w-3" />
               </a>
@@ -173,7 +174,7 @@ export default function TelephonyConfigurationsPage() {
         </div>
 
         {telnyxMissingWebhookPublicKeyCount > 0 && (
-          <div className="mb-6 rounded-md border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-[var(--shadow-card)] dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 shrink-0 mt-0.5" />
               <div className="space-y-1 text-sm">
@@ -197,8 +198,8 @@ export default function TelephonyConfigurationsPage() {
 
         {loading ? (
           <div className="grid gap-3">
-            <Skeleton className="h-24 w-full" />
-            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-24 w-full rounded-2xl" />
+            <Skeleton className="h-24 w-full rounded-2xl" />
           </div>
         ) : items.length === 0 ? (
           <Card>
@@ -217,7 +218,10 @@ export default function TelephonyConfigurationsPage() {
         ) : (
           <div className="grid gap-3">
             {items.map((item) => (
-              <Card key={item.id}>
+              <Card
+                key={item.id}
+                className="transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-[var(--shadow-pop)]"
+              >
                 <CardContent className="flex items-center gap-4 py-4">
                   <Link
                     href={`/telephony-configurations/${item.id}`}
@@ -235,7 +239,7 @@ export default function TelephonyConfigurationsPage() {
                         )}
                       </div>
                       <span className="text-sm text-muted-foreground">
-                        {item.phone_number_count} phone{" "}
+                        <span className="tabular-nums">{item.phone_number_count}</span> phone{" "}
                         {item.phone_number_count === 1 ? "number" : "numbers"}
                       </span>
                       <button

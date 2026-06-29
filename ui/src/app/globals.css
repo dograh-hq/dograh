@@ -49,52 +49,53 @@
   --color-cta-foreground: var(--cta-foreground);
 }
 
-/* ── Auto4You Voice — Dusty Lavender design tokens ───────────────────────
-   Desaturated indigo-lavender (hue ~290-300) as the lone hue, rationed to
-   primary actions / focus / active-nav / live-call. Violet-tinted neutrals,
-   calm negative space, AA-safe contrast. Light + premium dark. */
+/* ── Auto4You Voice — Cream + Light-Brown design tokens ──────────────────
+   A warm, minimalistic palette: ivory cream canvas, caramel/mocha brown as
+   the lone brand hue (rationed to primary actions / focus / active-nav), and
+   muted warm pastels reserved for data-viz. Low chroma throughout for a
+   refined, luxury feel. Warm-tinted soft shadows. AA-safe. Light + dark. */
 :root {
   --radius: 0.75rem;
-  --background: oklch(0.984 0.006 300);
-  --foreground: oklch(0.26 0.03 295);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.26 0.03 295);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.26 0.03 295);
-  --primary: oklch(0.55 0.11 290); /* dusty lavender */
-  --primary-foreground: oklch(0.985 0.004 300); /* white labels — AA-safe */
-  --secondary: oklch(0.965 0.008 300);
-  --secondary-foreground: oklch(0.30 0.03 295);
-  --muted: oklch(0.965 0.008 300);
-  --muted-foreground: oklch(0.52 0.025 293);
-  --accent: oklch(0.95 0.02 295); /* soft lavender hover wash */
-  --accent-foreground: oklch(0.40 0.08 290);
-  --destructive: oklch(0.58 0.22 25);
-  --border: oklch(0.91 0.012 295);
-  --input: oklch(0.91 0.012 295);
-  --ring: oklch(0.55 0.11 290);
-  --success: oklch(0.62 0.12 162);
-  --warning: oklch(0.78 0.13 78);
-  --info: oklch(0.60 0.12 262);
-  /* cohesive pastel chart set: lavender → periwinkle → sage → amber → rose */
-  --chart-1: oklch(0.58 0.12 290);
-  --chart-2: oklch(0.66 0.11 245);
-  --chart-3: oklch(0.70 0.10 165);
-  --chart-4: oklch(0.74 0.10 55);
-  --chart-5: oklch(0.64 0.12 350);
-  --sidebar: oklch(0.975 0.008 300);
-  --sidebar-foreground: oklch(0.34 0.025 295);
-  --sidebar-primary: oklch(0.55 0.11 290);
-  --sidebar-primary-foreground: oklch(0.985 0.004 300);
-  --sidebar-accent: oklch(0.55 0.11 290 / 0.10);
-  --sidebar-accent-foreground: oklch(0.26 0.03 295);
-  --sidebar-border: oklch(0.91 0.012 295);
-  --sidebar-ring: oklch(0.55 0.11 290);
+  --background: oklch(0.985 0.012 85); /* warm cream */
+  --foreground: oklch(0.26 0.02 60); /* deep espresso */
+  --card: oklch(0.995 0.006 85); /* near-white ivory */
+  --card-foreground: oklch(0.26 0.02 60);
+  --popover: oklch(0.995 0.006 85);
+  --popover-foreground: oklch(0.26 0.02 60);
+  --primary: oklch(0.55 0.072 65); /* caramel / mocha brown */
+  --primary-foreground: oklch(0.99 0.005 85); /* warm ivory labels — AA-safe */
+  --secondary: oklch(0.93 0.014 80); /* soft taupe */
+  --secondary-foreground: oklch(0.30 0.02 62);
+  --muted: oklch(0.93 0.014 80);
+  --muted-foreground: oklch(0.50 0.02 65);
+  --accent: oklch(0.90 0.03 78); /* warm sand hover wash */
+  --accent-foreground: oklch(0.38 0.05 65);
+  --destructive: oklch(0.57 0.20 28);
+  --border: oklch(0.89 0.012 80);
+  --input: oklch(0.91 0.012 80);
+  --ring: oklch(0.55 0.072 65);
+  --success: oklch(0.62 0.10 150);
+  --warning: oklch(0.78 0.12 75);
+  --info: oklch(0.62 0.08 235);
+  /* warm pastel chart set: caramel → sage → dusty rose → soft sky → muted gold */
+  --chart-1: oklch(0.64 0.082 65);
+  --chart-2: oklch(0.72 0.058 150);
+  --chart-3: oklch(0.70 0.072 22);
+  --chart-4: oklch(0.72 0.058 235);
+  --chart-5: oklch(0.79 0.078 90);
+  --sidebar: oklch(0.975 0.012 84);
+  --sidebar-foreground: oklch(0.34 0.02 62);
+  --sidebar-primary: oklch(0.55 0.072 65);
+  --sidebar-primary-foreground: oklch(0.99 0.005 85);
+  --sidebar-accent: oklch(0.55 0.072 65 / 0.10);
+  --sidebar-accent-foreground: oklch(0.26 0.02 60);
+  --sidebar-border: oklch(0.89 0.012 80);
+  --sidebar-ring: oklch(0.55 0.072 65);
 
-  /* Elevation — violet-tinted, soft, light-from-above. */
-  --shadow-card: 0 1px 2px oklch(0.26 0.03 295 / 0.04), 0 4px 12px oklch(0.26 0.03 295 / 0.06);
-  --shadow-pop: 0 8px 24px oklch(0.26 0.03 295 / 0.10), 0 2px 6px oklch(0.26 0.03 295 / 0.06);
-  --shadow-modal: 0 24px 64px oklch(0.26 0.03 295 / 0.18), 0 8px 16px oklch(0.26 0.03 295 / 0.08);
+  /* Elevation — warm espresso-tinted, soft, low-opacity, light-from-above. */
+  --shadow-card: 0 1px 2px oklch(0.26 0.02 60 / 0.04), 0 4px 12px oklch(0.26 0.02 60 / 0.06);
+  --shadow-pop: 0 8px 24px oklch(0.26 0.02 60 / 0.09), 0 2px 6px oklch(0.26 0.02 60 / 0.05);
+  --shadow-modal: 0 24px 64px oklch(0.26 0.02 60 / 0.16), 0 8px 16px oklch(0.26 0.02 60 / 0.07);
   --shadow-inset-top: inset 0 1px 0 oklch(1 0 0 / 0.06);
 
   /* Motion */
@@ -105,9 +106,10 @@
   --dur-base: 220ms;
   --dur-slow: 300ms;
 
-  /* Single restrained warm accent — used only on primary CTAs + focus rings. */
-  --cta: oklch(0.72 0.15 65);
-  --cta-foreground: oklch(0.16 0.02 60);
+  /* Restrained warm amber accent — harmonized with the brown primary; used
+     only on primary CTAs + focus underlines. */
+  --cta: oklch(0.74 0.13 70);
+  --cta-foreground: oklch(0.20 0.02 60);
   /* Giant faded "dograh" wordmark (authentic Proxima Nova letterforms traced
      from the brand logo PNG — the font is commercial, so the lettering ships
      as static artwork in /public; fill + 0.9% opacity are baked into the
@@ -116,44 +118,44 @@
 }
 
 .dark {
-  --background: oklch(0.17 0.02 290); /* deep violet-charcoal */
-  --foreground: oklch(0.96 0.005 300);
-  --card: oklch(0.215 0.022 290);
-  --card-foreground: oklch(0.96 0.005 300);
-  --popover: oklch(0.24 0.022 290);
-  --popover-foreground: oklch(0.96 0.005 300);
-  --primary: oklch(0.70 0.12 292); /* lifted lavender for dark */
-  --primary-foreground: oklch(0.17 0.02 290);
-  --secondary: oklch(0.28 0.02 290);
-  --secondary-foreground: oklch(0.96 0.005 300);
-  --muted: oklch(0.27 0.018 290);
-  --muted-foreground: oklch(0.73 0.02 293);
-  --accent: oklch(0.32 0.045 290);
-  --accent-foreground: oklch(0.92 0.03 295);
-  --destructive: oklch(0.70 0.19 22);
-  --border: oklch(1 0 0 / 9%);
-  --input: oklch(1 0 0 / 12%);
-  --ring: oklch(0.70 0.12 292);
-  --success: oklch(0.72 0.13 160);
-  --warning: oklch(0.83 0.13 82);
-  --info: oklch(0.70 0.12 258);
-  --chart-1: oklch(0.70 0.13 292);
-  --chart-2: oklch(0.72 0.11 245);
-  --chart-3: oklch(0.76 0.11 165);
-  --chart-4: oklch(0.80 0.11 58);
-  --chart-5: oklch(0.72 0.13 350);
-  --sidebar: oklch(0.155 0.022 290);
-  --sidebar-foreground: oklch(0.88 0.012 300);
-  --sidebar-primary: oklch(0.70 0.12 292);
-  --sidebar-primary-foreground: oklch(0.17 0.02 290);
-  --sidebar-accent: oklch(0.70 0.12 292 / 0.16);
-  --sidebar-accent-foreground: oklch(0.96 0.005 300);
-  --sidebar-border: oklch(1 0 0 / 9%);
-  --sidebar-ring: oklch(0.70 0.12 292);
+  --background: oklch(0.20 0.012 60); /* warm espresso-charcoal */
+  --foreground: oklch(0.94 0.01 85); /* warm cream */
+  --card: oklch(0.24 0.014 60);
+  --card-foreground: oklch(0.94 0.01 85);
+  --popover: oklch(0.25 0.014 60);
+  --popover-foreground: oklch(0.94 0.01 85);
+  --primary: oklch(0.72 0.085 70); /* lifted caramel for dark */
+  --primary-foreground: oklch(0.20 0.012 60);
+  --secondary: oklch(0.30 0.014 60);
+  --secondary-foreground: oklch(0.94 0.01 85);
+  --muted: oklch(0.29 0.012 60);
+  --muted-foreground: oklch(0.74 0.016 72);
+  --accent: oklch(0.34 0.03 68);
+  --accent-foreground: oklch(0.92 0.02 80);
+  --destructive: oklch(0.70 0.18 25);
+  --border: oklch(0.30 0.012 60);
+  --input: oklch(0.34 0.014 60);
+  --ring: oklch(0.72 0.085 70);
+  --success: oklch(0.72 0.11 152);
+  --warning: oklch(0.83 0.12 80);
+  --info: oklch(0.72 0.08 235);
+  --chart-1: oklch(0.74 0.088 68);
+  --chart-2: oklch(0.77 0.066 152);
+  --chart-3: oklch(0.74 0.08 22);
+  --chart-4: oklch(0.76 0.066 235);
+  --chart-5: oklch(0.83 0.088 90);
+  --sidebar: oklch(0.18 0.012 60);
+  --sidebar-foreground: oklch(0.88 0.012 84);
+  --sidebar-primary: oklch(0.72 0.085 70);
+  --sidebar-primary-foreground: oklch(0.20 0.012 60);
+  --sidebar-accent: oklch(0.72 0.085 70 / 0.16);
+  --sidebar-accent-foreground: oklch(0.94 0.01 85);
+  --sidebar-border: oklch(0.30 0.012 60);
+  --sidebar-ring: oklch(0.72 0.085 70);
 
-  /* Warm accent, slightly brighter against the near-black surfaces. */
-  --cta: oklch(0.78 0.16 67);
-  --cta-foreground: oklch(0.16 0.02 60);
+  /* Warm amber accent, slightly brighter against the espresso surfaces. */
+  --cta: oklch(0.80 0.14 72);
+  --cta-foreground: oklch(0.20 0.02 60);
   --brand-imprint: url("/brand-imprint-dark.svg");
 }
 
@@ -167,10 +169,10 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    /* two restrained lavender blooms on the app shell — never a loud mesh */
+    /* two restrained warm blooms on the app shell — caramel + soft gold */
     background-image:
-      radial-gradient(60% 50% at 12% -8%, oklch(0.62 0.12 290 / 0.06), transparent 70%),
-      radial-gradient(45% 40% at 100% 0%, oklch(0.70 0.10 250 / 0.05), transparent 60%);
+      radial-gradient(60% 50% at 12% -8%, oklch(0.70 0.06 70 / 0.07), transparent 70%),
+      radial-gradient(45% 40% at 100% 0%, oklch(0.80 0.06 95 / 0.05), transparent 60%);
     background-attachment: fixed;
   }
 }
@@ -274,7 +276,7 @@
      paints inside .app-surface, which starts right of the ~270px sidebar —
      the +135px x-shift recentres the wordmark on the VISIBLE canvas. */
   .app-surface {
-    background-color: oklch(0.984 0.001 80);
+    background-color: oklch(0.985 0.012 85);
     background-image: var(--brand-imprint);
     background-size: min(68vw, 980px) auto;
     background-position: calc(50% + 135px) calc(100% - 24px);
@@ -288,7 +290,7 @@
     }
   }
   .dark .app-surface {
-    background-color: oklch(0.165 0.002 80);
+    background-color: oklch(0.19 0.012 60);
   }
 
   /* Giant faded "dograh" imprint for the auth pages (applied to the AuthShell
@@ -321,7 +323,7 @@
    a 1px highlight line plus an inner bloom fading rightwards. */
 .dark .app-sidebar-dock [data-slot="sidebar-inner"] {
   border-color: rgb(255 255 255 / 0.1);
-  background-color: oklch(0.18 0.002 80);
+  background-color: oklch(0.22 0.014 60);
   box-shadow:
     inset 1px 0 0 rgb(255 255 255 / 0.1),
     inset 3px 0 6px -4px rgb(255 255 255 / 0.08),
@@ -349,7 +351,7 @@
    amber underline on focus. Applied by LeadModalShell; CaptchaChallenge
    reuses slab + underline. */
 .dark .lead-form-slab {
-  background-color: oklch(0.215 0 0);
+  background-color: oklch(0.24 0.014 60);
   border-color: rgb(255 255 255 / 0.1);
 }
 /* Muted, compact labels — the big white default labels read amateurish. */

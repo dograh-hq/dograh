@@ -275,10 +275,10 @@ export default function EditCampaignPage() {
 
     if (isLoading) {
         return (
-            <div className="container mx-auto p-6 space-y-6 max-w-2xl">
-                <div className="animate-pulse">
-                    <div className="h-8 bg-muted rounded w-1/4 mb-4"></div>
-                    <div className="h-64 bg-muted rounded"></div>
+            <div className="container mx-auto max-w-2xl space-y-6 px-4 py-10">
+                <div className="animate-pulse space-y-4">
+                    <div className="h-8 w-1/3 rounded-lg bg-muted" />
+                    <div className="h-64 rounded-2xl bg-muted/60" />
                 </div>
             </div>
         );
@@ -286,30 +286,35 @@ export default function EditCampaignPage() {
 
     if (!campaign) {
         return (
-            <div className="container mx-auto p-6 space-y-6 max-w-2xl">
-                <p className="text-center text-muted-foreground">Campaign not found</p>
+            <div className="container mx-auto max-w-2xl px-4 py-10">
+                <Card className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)]">
+                    <CardContent className="p-12 text-center text-body text-muted-foreground">
+                        Campaign not found
+                    </CardContent>
+                </Card>
             </div>
         );
     }
 
     return (
-        <div className="container mx-auto p-6 pb-12 space-y-6 max-w-2xl">
+        <div className="container mx-auto max-w-2xl space-y-6 px-4 py-10 pb-12">
             <div>
                 <Button
                     variant="ghost"
                     onClick={handleBack}
-                    className="mb-4"
+                    className="mb-4 -ml-2 text-muted-foreground"
                 >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    <ArrowLeft className="mr-2 h-4 w-4" />
                     Back to Campaign
                 </Button>
-                <h1 className="text-3xl font-bold mb-2">Edit Campaign</h1>
-                <p className="text-muted-foreground">Modify campaign settings</p>
+                <p className="text-eyebrow text-muted-foreground">Edit Campaign</p>
+                <h1 className="mt-1 text-h1 text-foreground">Edit Campaign</h1>
+                <p className="mt-1 text-body text-muted-foreground">Modify campaign settings</p>
             </div>
 
-            <Card>
+            <Card className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
                 <CardHeader>
-                    <CardTitle>Campaign Settings</CardTitle>
+                    <CardTitle className="text-h3">Campaign Settings</CardTitle>
                     <CardDescription>
                         Update name, concurrency, retry, and schedule configuration
                     </CardDescription>

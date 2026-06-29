@@ -168,29 +168,34 @@ export function HomeMetrics() {
           <Link
             key={t.label}
             href={t.href}
-            className="group rounded-xl border bg-card p-4 shadow-[var(--shadow-card)] transition-all hover:-translate-y-0.5 hover:border-primary/30"
+            className="group flex flex-col rounded-2xl border border-border/60 bg-card p-4 shadow-[var(--shadow-card)] transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-[var(--shadow-pop)]"
           >
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <t.icon className="h-4 w-4 transition-colors group-hover:text-primary" />
-              <span className="text-eyebrow">{t.label}</span>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-eyebrow text-muted-foreground">{t.label}</span>
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-border/60 bg-muted text-muted-foreground transition-colors duration-200 group-hover:border-primary/30 group-hover:bg-accent group-hover:text-primary">
+                <t.icon className="h-3.5 w-3.5" />
+              </span>
             </div>
-            <p className="mt-2 text-h2 tabular leading-none">{t.value}</p>
+            <p className="metric mt-3 text-h2 leading-none tabular-nums">{t.value}</p>
             <p className="mt-1.5 text-small text-muted-foreground">{t.sub}</p>
           </Link>
         ))}
       </div>
 
       {m && m.recent.length > 0 && (
-        <div className="rounded-xl border bg-card p-4 shadow-[var(--shadow-card)]">
-          <div className="mb-1 flex items-center justify-between">
+        <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-[var(--shadow-card)] transition-all duration-200">
+          <div className="mb-2 flex items-center justify-between">
             <span className="text-eyebrow text-muted-foreground">Recent calls</span>
-            <Link href="/usage" className="text-small text-primary hover:underline">
+            <Link href="/usage" className="text-small text-primary transition-colors hover:underline">
               View all
             </Link>
           </div>
-          <ul className="divide-y">
+          <ul className="divide-y divide-border/50">
             {m.recent.map((r, i) => (
-              <li key={i} className="flex items-center justify-between gap-3 py-2.5">
+              <li
+                key={i}
+                className="-mx-2 flex items-center justify-between gap-3 rounded-lg px-2 py-2.5 transition-colors duration-200 hover:bg-accent/40"
+              >
                 <div className="min-w-0">
                   <p className="truncate text-label">
                     {r.workflow_name || 'Agent'}
@@ -200,7 +205,7 @@ export function HomeMetrics() {
                   </p>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-small tabular">{fmtDur(r.call_duration_seconds)}</p>
+                  <p className="text-small tabular-nums">{fmtDur(r.call_duration_seconds)}</p>
                   <p className="text-small text-muted-foreground">{timeAgo(r.created_at)}</p>
                 </div>
               </li>

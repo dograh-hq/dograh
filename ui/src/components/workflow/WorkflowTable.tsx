@@ -127,43 +127,43 @@ export function WorkflowTable({
     };
 
     return (
-        <Card className="overflow-hidden">
+        <Card className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
             <CardContent className="p-0">
                 <Table>
                     <TableHeader>
-                        <TableRow>
-                            <TableHead className="font-semibold">ID</TableHead>
-                            <TableHead className="font-semibold">Agent Name</TableHead>
-                            <TableHead className="font-semibold">Created At</TableHead>
-                            <TableHead className="font-semibold text-center">Total Runs</TableHead>
-                            <TableHead className="font-semibold text-right">Actions</TableHead>
+                        <TableRow className="border-border/50 bg-muted/40 hover:bg-muted/40">
+                            <TableHead className="text-label text-muted-foreground">ID</TableHead>
+                            <TableHead className="text-label text-muted-foreground">Agent Name</TableHead>
+                            <TableHead className="text-label text-muted-foreground">Created At</TableHead>
+                            <TableHead className="text-label text-center text-muted-foreground">Total Runs</TableHead>
+                            <TableHead className="text-label text-right text-muted-foreground">Actions</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
                         {workflows.map((workflow) => (
                             <TableRow
                                 key={workflow.id}
-                                className={`hover:bg-accent transition-colors ${showArchived ? 'opacity-60' : ''}`}
+                                className={`border-border/50 transition-colors duration-200 hover:bg-muted/40 ${showArchived ? 'opacity-70' : ''}`}
                             >
-                                <TableCell className="text-muted-foreground">
+                                <TableCell className="py-3.5 tabular-nums text-muted-foreground">
                                     {workflow.id}
                                 </TableCell>
-                                <TableCell className="font-medium">
+                                <TableCell className="py-3.5 font-medium text-foreground">
                                     {workflow.name}
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="py-3.5 tabular-nums text-muted-foreground">
                                     {new Date(workflow.created_at).toLocaleDateString('en-US', {
                                         year: 'numeric',
                                         month: 'short',
                                         day: 'numeric',
                                     })}
                                 </TableCell>
-                                <TableCell className="text-center">
-                                    <span className="inline-flex items-center justify-center min-w-[2rem] px-2 py-1 text-sm font-semibold bg-muted rounded-full">
+                                <TableCell className="py-3.5 text-center">
+                                    <span className="inline-flex min-w-[2.25rem] items-center justify-center rounded-full bg-muted px-2.5 py-1 text-xs font-semibold tabular-nums text-foreground">
                                         {workflow.total_runs || 0}
                                     </span>
                                 </TableCell>
-                                <TableCell className="text-right">
+                                <TableCell className="py-3.5 text-right">
                                     <div className="flex justify-end gap-2">
                                         <Button
                                             variant="outline"

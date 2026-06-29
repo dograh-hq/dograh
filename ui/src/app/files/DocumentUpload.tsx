@@ -185,7 +185,7 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
       <div className="space-y-4">
         {ossNotice}
         {/* Selected file info */}
-        <div className="flex items-center gap-3 p-3 border rounded-lg bg-muted/30">
+        <div className="flex items-center gap-3 p-3 rounded-xl border border-border/60 bg-muted/30">
           <FileText className="w-8 h-8 text-primary flex-shrink-0" />
           <div className="flex-1 min-w-0">
             <p className="font-medium truncate">{selectedFile.name}</p>
@@ -204,8 +204,8 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
           <RadioGroup value={retrievalMode} onValueChange={setRetrievalMode}>
             <label
               htmlFor="full_document"
-              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                retrievalMode === 'full_document' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
+                retrievalMode === 'full_document' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/40'
               }`}
             >
               <RadioGroupItem value="full_document" id="full_document" className="mt-0.5" />
@@ -219,8 +219,8 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
             </label>
             <label
               htmlFor="chunked"
-              className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
-                retrievalMode === 'chunked' ? 'border-primary bg-primary/5' : 'hover:bg-muted/50'
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all duration-200 ${
+                retrievalMode === 'chunked' ? 'border-primary bg-primary/5' : 'border-border/60 hover:bg-muted/40'
               }`}
             >
               <RadioGroupItem value="chunked" id="chunked" className="mt-0.5" />
@@ -258,9 +258,9 @@ export default function DocumentUpload({ onUploadSuccess }: DocumentUploadProps)
       {/* Drag and Drop Area */}
       <div
         className={`
-          border-2 border-dashed rounded-lg p-8 text-center transition-colors
-          ${dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25'}
-          ${uploading ? 'opacity-50 pointer-events-none' : 'cursor-pointer hover:border-primary hover:bg-muted/50'}
+          border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-200
+          ${dragActive ? 'border-primary bg-primary/5' : 'border-border/70'}
+          ${uploading ? 'opacity-50 pointer-events-none' : 'cursor-pointer hover:border-primary hover:bg-muted/40'}
         `}
         onDragEnter={handleDrag}
         onDragLeave={handleDrag}

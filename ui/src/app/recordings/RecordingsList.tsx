@@ -148,14 +148,17 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
 
     if (isLoading && recordings.length === 0) {
         return (
-            <div className="space-y-4">
+            <div className="space-y-3">
                 {[1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="space-y-2 flex-1">
-                            <Skeleton className="h-4 w-48" />
-                            <Skeleton className="h-3 w-64" />
+                    <div key={i} className="flex items-center justify-between p-4 rounded-xl border border-border/50">
+                        <div className="flex items-center gap-4 flex-1">
+                            <Skeleton className="h-10 w-10 rounded-lg" />
+                            <div className="space-y-2 flex-1">
+                                <Skeleton className="h-4 w-48" />
+                                <Skeleton className="h-3 w-64" />
+                            </div>
                         </div>
-                        <Skeleton className="h-8 w-24" />
+                        <Skeleton className="h-8 w-16 rounded-md" />
                     </div>
                 ))}
             </div>
@@ -164,7 +167,7 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
 
     if (error) {
         return (
-            <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
+            <div className="p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive">
                 {error}
             </div>
         );
@@ -201,8 +204,8 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
 
             {/* Recordings List */}
             {filteredRecordings.length === 0 ? (
-                <div className="text-center py-12">
-                    <AudioLines className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/20 py-14 text-center">
+                    <AudioLines className="w-12 h-12 text-muted-foreground mb-4" />
                     <p className="text-muted-foreground">
                         {searchQuery
                             ? "No recordings match your search"
@@ -218,7 +221,7 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
                         return (
                             <div
                                 key={rec.recording_id}
-                                className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                                className="flex items-center justify-between p-4 rounded-xl border border-border/50 transition-all duration-200 hover:border-border hover:bg-muted/40"
                             >
                                 <div className="flex items-center gap-4 flex-1 min-w-0">
                                     <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -288,7 +291,7 @@ export default function RecordingsList({ refreshKey }: { refreshKey?: number }) 
                                             {rec.transcript}
                                         </p>
                                         <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                                            <span>{formatDate(rec.created_at)}</span>
+                                            <span className="tabular-nums">{formatDate(rec.created_at)}</span>
                                         </div>
                                     </div>
                                 </div>

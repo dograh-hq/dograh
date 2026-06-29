@@ -5,7 +5,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 import { getAuthUserApiV1UserAuthUserGet } from '@/client/sdk.gen';
 import { useAuth } from '@/lib/auth';
 
-import { OrgConfigProvider, useOrgConfig } from './OrgConfigContext';
+import { useOrgConfig } from './OrgConfigContext';
 
 // Upstream (dograh-v1.38.0) refactored the old inline UserConfigContext into
 // `OrgConfigContext`, which now owns the org-context + user-config + pricing +

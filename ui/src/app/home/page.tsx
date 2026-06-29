@@ -163,29 +163,30 @@ export default function HomePage() {
 
                 {/* Hero — describe your agent */}
                 <div className="text-center mb-8">
-                    <h2 className="text-h2 tracking-tight mb-2">
+                    <p className="text-eyebrow text-primary">Build an agent</p>
+                    <h2 className="text-h2 mt-1 mb-2">
                         What should your voice agent do?
                     </h2>
-                    <p className="text-muted-foreground">
+                    <p className="text-body text-muted-foreground">
                         Describe the agent you want and we&apos;ll build a working voice agent for you.
                     </p>
                 </div>
 
                 <div className="mx-auto max-w-2xl mb-16">
-                    <div className="rounded-2xl border bg-card shadow-sm focus-within:ring-1 focus-within:ring-ring transition-shadow">
+                    <div className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200 focus-within:border-border focus-within:shadow-[var(--shadow-pop)]">
                         <Textarea
                             value={description}
                             onChange={(e) => setDescription(e.target.value)}
                             placeholder="Describe the agent you want… e.g. Call my property leads, pitch our new 2BHK project in Pune and book site visits."
-                            className="min-h-[120px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 text-base p-4"
+                            className="min-h-[120px] resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 text-base p-5"
                             disabled={isCreating}
                         />
-                        <div className="flex items-center gap-2 border-t px-3 py-2">
+                        <div className="flex items-center gap-2 border-t border-border/50 px-3 py-2.5">
                             <Input
                                 value={describeBusinessName}
                                 onChange={(e) => setDescribeBusinessName(e.target.value)}
                                 placeholder="Your business name"
-                                className="h-9 max-w-[220px] border-0 bg-muted/50 shadow-none focus-visible:ring-0"
+                                className="h-9 max-w-[220px] border-0 bg-muted/60 shadow-none focus-visible:ring-0"
                                 disabled={isCreating}
                             />
                             <div className="flex-1" />
@@ -193,7 +194,7 @@ export default function HomePage() {
                                 size="sm"
                                 onClick={handleDescribeCreate}
                                 disabled={isCreating || !description.trim() || !describeBusinessName.trim()}
-                                className="rounded-full"
+                                className="rounded-full bg-cta text-cta-foreground hover:bg-cta/90 transition-all duration-200"
                             >
                                 {isCreating ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -206,28 +207,36 @@ export default function HomePage() {
                             </Button>
                         </div>
                     </div>
-                    {error && <p className="mt-2 text-sm text-destructive text-center">{error}</p>}
+                    {error && <p className="mt-3 text-small text-destructive text-center">{error}</p>}
                 </div>
 
                 {/* Templates */}
                 <div className="mb-6">
-                    <h2 className="text-xl font-semibold mb-1">Or start from a template</h2>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-eyebrow text-primary">Templates</p>
+                    <h2 className="text-h3 mt-1">Or start from a template</h2>
+                    <p className="text-body mt-1 text-muted-foreground">
                         Pick a ready-made agent and fill in your business details.
                     </p>
                 </div>
 
                 {templatesError && (
-                    <p className="text-sm text-destructive mb-4">{templatesError}</p>
+                    <p className="text-small text-destructive mb-4">{templatesError}</p>
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {templatesLoading
                         ? Array.from({ length: 4 }).map((_, i) => (
-                              <Card key={i}>
+                              <Card
+                                  key={i}
+                                  className="rounded-2xl border-border/60 bg-card shadow-[var(--shadow-card)]"
+                              >
                                   <CardHeader>
-                                      <Skeleton className="h-5 w-40" />
-                                      <Skeleton className="h-4 w-full" />
+                                      <div className="flex items-center gap-3">
+                                          <Skeleton className="h-10 w-10 shrink-0 rounded-xl" />
+                                          <Skeleton className="h-5 w-40" />
+                                      </div>
+                                      <Skeleton className="mt-1 h-4 w-full" />
+                                      <Skeleton className="h-4 w-2/3" />
                                   </CardHeader>
                               </Card>
                           ))
@@ -245,12 +254,12 @@ export default function HomePage() {
                                               openTemplateDialog(template);
                                           }
                                       }}
-                                      className="cursor-pointer transition-colors hover:bg-accent/50 focus-visible:ring-1 focus-visible:ring-ring outline-none"
+                                      className="group cursor-pointer rounded-2xl border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-[var(--shadow-pop)] focus-visible:ring-1 focus-visible:ring-ring outline-none"
                                   >
                                       <CardHeader>
                                           <div className="flex items-center gap-3">
-                                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted">
-                                                  <Icon className="h-4 w-4" />
+                                              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-muted text-muted-foreground transition-colors duration-200 group-hover:border-primary/30 group-hover:bg-accent group-hover:text-primary">
+                                                  <Icon className="h-[18px] w-[18px]" />
                                               </div>
                                               <CardTitle className="text-base">{template.name}</CardTitle>
                                           </div>

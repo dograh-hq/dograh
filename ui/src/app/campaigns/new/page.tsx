@@ -347,24 +347,25 @@ export default function NewCampaignPage() {
     };
 
     return (
-        <div className="container mx-auto p-6 pb-12 space-y-6 max-w-2xl">
+        <div className="container mx-auto max-w-2xl space-y-6 px-4 py-10 pb-12">
             <div>
                 <Button
                     variant="ghost"
                     onClick={handleBack}
-                    className="mb-4"
+                    className="mb-4 -ml-2 text-muted-foreground"
                 >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    <ArrowLeft className="mr-2 h-4 w-4" />
                     Back to Campaigns
                 </Button>
-                <h1 className="text-3xl font-bold mb-2">Create New Campaign</h1>
-                <p className="text-muted-foreground">Set up a new campaign to execute workflows at scale</p>
+                <p className="text-eyebrow text-muted-foreground">New Campaign</p>
+                <h1 className="mt-1 text-h1 text-foreground">Create New Campaign</h1>
+                <p className="mt-1 text-body text-muted-foreground">Set up a new campaign to execute workflows at scale</p>
             </div>
 
-            <Card>
+            <Card className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
                     <CardHeader>
-                        <CardTitle>Campaign Details</CardTitle>
-                        <CardDescription>
+                        <CardTitle className="text-h3">Campaign Details</CardTitle>
+                        <CardDescription className="text-small">
                             Configure your campaign settings
                         </CardDescription>
                     </CardHeader>
@@ -499,10 +500,10 @@ export default function NewCampaignPage() {
                             <Collapsible
                                 open={showAdvancedSettings}
                                 onOpenChange={setShowAdvancedSettings}
-                                className="border rounded-lg"
+                                className="rounded-xl border border-border/60"
                             >
-                                <CollapsibleTrigger className="flex items-center justify-between w-full p-4 hover:bg-muted/50 transition-colors">
-                                    <span className="font-medium">Advanced Settings</span>
+                                <CollapsibleTrigger className="flex w-full items-center justify-between rounded-xl p-4 transition-colors duration-200 hover:bg-muted/40">
+                                    <span className="text-label text-foreground">Advanced Settings</span>
                                     {showAdvancedSettings ? (
                                         <ChevronDown className="h-4 w-4" />
                                     ) : (

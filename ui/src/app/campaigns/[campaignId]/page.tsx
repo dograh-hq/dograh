@@ -472,10 +472,11 @@ export default function CampaignDetailPage() {
 
     if (isLoadingCampaign) {
         return (
-            <div className="container mx-auto p-6 space-y-6">
-                <div className="animate-pulse">
-                    <div className="h-8 bg-muted rounded w-1/4 mb-4"></div>
-                    <div className="h-64 bg-muted rounded"></div>
+            <div className="container mx-auto space-y-6 px-4 py-10">
+                <div className="animate-pulse space-y-4">
+                    <div className="h-4 w-24 rounded bg-muted/70" />
+                    <div className="h-8 w-1/3 rounded-lg bg-muted" />
+                    <div className="h-64 rounded-2xl bg-muted/60" />
                 </div>
             </div>
         );
@@ -483,31 +484,35 @@ export default function CampaignDetailPage() {
 
     if (!campaign) {
         return (
-            <div className="container mx-auto p-6 space-y-6">
-                <p className="text-center text-muted-foreground">Campaign not found</p>
+            <div className="container mx-auto px-4 py-10">
+                <Card className="rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)]">
+                    <CardContent className="p-12 text-center text-body text-muted-foreground">
+                        Campaign not found
+                    </CardContent>
+                </Card>
             </div>
         );
     }
 
     return (
-        <div className="container mx-auto p-6 space-y-6">
+        <div className="container mx-auto space-y-6 px-4 py-10">
             <div>
                 <Button
                     variant="ghost"
                     onClick={handleBack}
-                    className="mb-4"
+                    className="mb-4 -ml-2 text-muted-foreground"
                 >
-                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    <ArrowLeft className="mr-2 h-4 w-4" />
                     Back to Campaigns
                 </Button>
-                <div className="flex justify-between items-start">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold mb-2">{campaign.name}</h1>
-                            <div className="flex items-center gap-4">
-                                <Badge variant={getStateBadgeVariant(campaign.state)}>
+                        <h1 className="mb-2 text-h1 text-foreground">{campaign.name}</h1>
+                            <div className="flex items-center gap-3">
+                                <Badge variant={getStateBadgeVariant(campaign.state)} className="capitalize">
                                     {campaign.state}
                                 </Badge>
-                                <span className="text-muted-foreground">
+                                <span className="text-small tabular-nums text-muted-foreground">
                                     Created {formatDate(campaign.created_at)}
                                 </span>
                             </div>
@@ -598,9 +603,9 @@ export default function CampaignDetailPage() {
                 </div>
 
                 {/* Campaign Details */}
-                <Card className="mb-6">
+                <Card className="mb-6 rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
                     <CardHeader>
-                        <CardTitle>Campaign Details</CardTitle>
+                        <CardTitle className="text-h3">Campaign Details</CardTitle>
                         <CardDescription>
                             Configuration and source information
                         </CardDescription>
@@ -714,9 +719,9 @@ export default function CampaignDetailPage() {
                 </Card>
 
                 {/* Campaign Settings */}
-                <Card className="mb-6">
+                <Card className="mb-6 rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
                     <CardHeader>
-                        <CardTitle>Campaign Settings</CardTitle>
+                        <CardTitle className="text-h3">Campaign Settings</CardTitle>
                         <CardDescription>
                             Concurrency and retry configuration
                         </CardDescription>
@@ -829,9 +834,9 @@ export default function CampaignDetailPage() {
                 </Card>
 
                 {/* Activity Log */}
-                <Card className="mb-6">
+                <Card className="mb-6 rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
                     <CardHeader>
-                        <CardTitle>Activity Log</CardTitle>
+                        <CardTitle className="text-h3">Activity Log</CardTitle>
                         <CardDescription>
                             Recent state transitions and failures. Newest first.
                         </CardDescription>

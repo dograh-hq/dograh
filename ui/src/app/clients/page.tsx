@@ -250,17 +250,21 @@ export default function ClientsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto max-w-6xl px-4 py-8">
-        <div className="mb-6 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="mb-2 flex items-center gap-2 text-3xl font-bold">
-              <Users className="h-7 w-7" /> Clients
+      <div className="stagger container mx-auto max-w-6xl px-4 py-10">
+        <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-eyebrow text-primary">Superuser</p>
+            <h1 className="text-h1 mt-1 flex items-center gap-2.5">
+              <Users className="h-7 w-7 text-muted-foreground" /> Clients
             </h1>
-            <p className="text-muted-foreground">
+            <p className="text-body mt-2 text-muted-foreground">
               Client organizations and their VoiceLink provisioning state.
               Assign a DID once the client&apos;s channels are purchased, or
               retry provisioning when it is pending. Use{" "}
-              <Link href="/superadmin" className="underline underline-offset-2">
+              <Link
+                href="/superadmin"
+                className="font-medium text-foreground underline underline-offset-2 transition-colors hover:text-primary"
+              >
                 superadmin impersonation
               </Link>{" "}
               to configure a client&apos;s models.
@@ -271,6 +275,7 @@ export default function ClientsPage() {
             size="sm"
             onClick={() => fetchClients(true)}
             disabled={loading || refreshing}
+            className="shrink-0"
           >
             <RefreshCw
               className={`mr-2 h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
@@ -280,53 +285,76 @@ export default function ClientsPage() {
         </div>
 
         {loading ? (
-          <div className="grid gap-3">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-40 w-full" />
+          <div className="rounded-2xl border border-border/60 bg-card p-5 shadow-[var(--shadow-card)]">
+            <div className="grid gap-3">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+              <Skeleton className="h-12 w-full" />
+            </div>
           </div>
         ) : clients.length === 0 ? (
-          <div className="rounded-md border p-8 text-center text-muted-foreground">
-            No client organizations yet. New signups appear here automatically.
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-border/60 bg-card px-6 py-16 text-center shadow-[var(--shadow-card)]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+              <Users className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <p className="text-label text-foreground">No client organizations yet</p>
+            <p className="text-body max-w-sm text-muted-foreground">
+              New signups appear here automatically.
+            </p>
           </div>
         ) : (
-          <div className="rounded-md border">
+          <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-[var(--shadow-card)]">
             <Table>
               <TableHeader>
-                <TableRow>
-                  <TableHead>Organization</TableHead>
-                  <TableHead>Owner email</TableHead>
-                  <TableHead>VoiceLink status</TableHead>
-                  <TableHead>Client ID</TableHead>
-                  <TableHead>DID</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                <TableRow className="border-border/50 hover:bg-transparent">
+                  <TableHead className="text-label text-muted-foreground">Organization</TableHead>
+                  <TableHead className="text-label text-muted-foreground">Owner email</TableHead>
+                  <TableHead className="text-label text-muted-foreground">VoiceLink status</TableHead>
+                  <TableHead className="text-label text-muted-foreground">Client ID</TableHead>
+                  <TableHead className="text-label text-muted-foreground">DID</TableHead>
+                  <TableHead className="text-label text-right text-muted-foreground">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {clients.map((client) => (
-                  <TableRow key={client.organization_id}>
+                  <TableRow
+                    key={client.organization_id}
+                    className="border-border/50 transition-colors hover:bg-muted/40"
+                  >
                     <TableCell>
-                      <div className="font-medium">
+                      <div className="font-medium tabular-nums">
                         #{client.organization_id}
                       </div>
                       <div className="max-w-[180px] truncate text-xs text-muted-foreground">
                         {client.organization_name}
                       </div>
                     </TableCell>
-                    <TableCell>{client.owner_email ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {client.owner_email ?? "—"}
+                    </TableCell>
                     <TableCell>
                       <VoiceLinkStatusBadge client={client} />
                     </TableCell>
                     <TableCell>
-                      {client.live_client_id ?? client.voicelink_client_id ?? "—"}
+                      <span className="font-mono text-sm tabular-nums">
+                        {client.live_client_id ?? client.voicelink_client_id ?? "—"}
+                      </span>
                       {client.voicelink_username && (
                         <div className="text-xs text-muted-foreground">
                           {client.voicelink_username}
                         </div>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="font-mono text-sm tabular-nums">
                       {client.did_number ??
-                        (client.has_voicelink_config ? "Config, no DID" : "—")}
+                        (client.has_voicelink_config ? (
+                          <span className="font-sans text-muted-foreground">
+                            Config, no DID
+                          </span>
+                        ) : (
+                          "—"
+                        ))}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">

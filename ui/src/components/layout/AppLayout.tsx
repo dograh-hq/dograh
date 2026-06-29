@@ -21,12 +21,17 @@ function AppHeader() {
   const { toggleSidebar } = useSidebar();
 
   return (
-    <header className="material sticky top-0 z-50 flex items-center justify-between border-b px-4 py-2.5">
-      <div className="flex items-center gap-3">
+    <header className="material sticky top-0 z-50 flex items-center justify-between border-b border-border/60 px-4 py-2.5 sm:px-6">
+      <div className="flex items-center gap-2.5">
         <Button variant="ghost" size="icon" onClick={toggleSidebar} aria-label="Open menu" className="md:hidden">
           <Menu className="h-5 w-5" />
         </Button>
-        <Link href="/" className="text-lg font-bold md:hidden">{BRAND.name}</Link>
+        <Link
+          href="/"
+          className="text-lg font-bold tracking-tight transition-colors duration-200 hover:text-primary md:hidden"
+        >
+          {BRAND.name}
+        </Link>
       </div>
       <div className="flex items-center gap-3">
         {BRAND.showCommunityLinks && (

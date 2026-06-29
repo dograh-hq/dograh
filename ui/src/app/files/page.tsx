@@ -49,10 +49,11 @@ export default function FilesPage() {
     return (
         <div className="container mx-auto px-4 py-8">
             <div className="mb-8">
-                <h1 className="text-3xl font-bold mb-2">Knowledge Base Files</h1>
-                <p className="text-muted-foreground">
+                <p className="text-eyebrow text-primary">Knowledge Base</p>
+                <h1 className="text-h1 mt-1">Knowledge Base Files</h1>
+                <p className="text-body mt-1 text-muted-foreground">
                     Upload and manage documents for your voice agents to reference.{" "}
-                    <a href="https://docs.dograh.com/voice-agent/knowledge-base" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline">
+                    <a href="https://docs.dograh.com/voice-agent/knowledge-base" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-0.5 underline underline-offset-2 hover:text-foreground">
                         Learn more <ExternalLink className="h-3 w-3" />
                     </a>
                 </p>

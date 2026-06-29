@@ -306,9 +306,10 @@ export default function APIKeysPage() {
     if (loading || !user) {
         return (
             <div className="min-h-screen flex items-center justify-center">
-                <div className="space-y-4">
-                    <Skeleton className="h-12 w-64" />
-                    <Skeleton className="h-64 w-96" />
+                <div className="w-full max-w-md space-y-4 rounded-2xl border border-border/60 bg-card p-6 shadow-[var(--shadow-card)]">
+                    <Skeleton className="h-10 w-48" />
+                    <Skeleton className="h-4 w-64" />
+                    <Skeleton className="h-40 w-full" />
                 </div>
             </div>
         );
@@ -321,25 +322,26 @@ export default function APIKeysPage() {
 
     return (
         <div className="min-h-screen">
-            <div className="container mx-auto px-4 py-8">
-                <div className="max-w-6xl mx-auto">
+            <div className="container mx-auto px-4 py-10">
+                <div className="stagger max-w-6xl mx-auto">
                     <div className="mb-8">
-                        <h1 className="text-3xl font-bold mb-2">Developer Portal</h1>
-                        <p className="text-muted-foreground">Manage your API keys to access {BRAND.name} services programmatically</p>
+                        <p className="text-eyebrow text-primary">Developers</p>
+                        <h1 className="text-h1 mt-1">Developer Portal</h1>
+                        <p className="text-body mt-2 text-muted-foreground">Manage your API keys to access {BRAND.name} services programmatically</p>
                     </div>
 
                     {error && (
-                        <div className="mb-4 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
+                        <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-sm text-destructive">
                             {error}
                         </div>
                     )}
 
-                    <Card className="mb-6">
+                    <Card className="mb-6 rounded-2xl border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
                         <CardHeader>
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <CardTitle>API Keys</CardTitle>
-                                    <CardDescription>
+                            <div className="flex justify-between items-center gap-4">
+                                <div className="space-y-1.5">
+                                    <CardTitle className="text-h3">API Keys</CardTitle>
+                                    <CardDescription className="text-body">
                                         Create and manage API keys for your organization
                                     </CardDescription>
                                 </div>
@@ -364,9 +366,9 @@ export default function APIKeysPage() {
                         </CardHeader>
                         <CardContent>
                             {isLoading ? (
-                                <div className="space-y-4">
+                                <div className="space-y-3">
                                     {[1, 2, 3].map((i) => (
-                                        <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+                                        <div key={i} className="flex items-center justify-between p-4 border border-border/60 rounded-xl">
                                             <div className="space-y-2">
                                                 <Skeleton className="h-4 w-32" />
                                                 <Skeleton className="h-3 w-24" />
@@ -376,20 +378,22 @@ export default function APIKeysPage() {
                                     ))}
                                 </div>
                             ) : apiKeys.length === 0 ? (
-                                <div className="text-center py-12">
-                                    <Key className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                                    <p className="text-muted-foreground mb-4">No API keys found</p>
+                                <div className="flex flex-col items-center gap-3 py-12 text-center">
+                                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                                        <Key className="w-6 h-6 text-muted-foreground" />
+                                    </div>
+                                    <p className="text-label text-foreground">No API keys found</p>
                                     <Button onClick={() => setIsCreateDialogOpen(true)}>
                                         Create Your First API Key
                                     </Button>
                                 </div>
                             ) : (
-                                <div className="space-y-4">
+                                <div className="space-y-3">
                                     {apiKeys.map((key) => (
                                         <div
                                             key={key.id}
-                                            className={`flex items-center justify-between p-4 border rounded-lg ${
-                                                key.archived_at ? 'bg-muted opacity-60' : 'bg-card'
+                                            className={`flex items-center justify-between gap-4 p-4 border border-border/60 rounded-xl transition-all duration-200 ${
+                                                key.archived_at ? 'bg-muted opacity-60' : 'bg-card hover:border-border hover:shadow-[var(--shadow-card)]'
                                             }`}
                                         >
                                             <div className="flex-1">
@@ -443,12 +447,12 @@ export default function APIKeysPage() {
                     </Card>
 
                     {/* Dograh Service Keys Section */}
-                    <Card className="mb-6">
+                    <Card className="mb-6 rounded-2xl border-border/60 bg-card shadow-[var(--shadow-card)] transition-all duration-200">
                         <CardHeader>
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <CardTitle>{BRAND.name} Service Keys</CardTitle>
-                                    <CardDescription>
+                            <div className="flex justify-between items-center gap-4">
+                                <div className="space-y-1.5">
+                                    <CardTitle className="text-h3">{BRAND.name} Service Keys</CardTitle>
+                                    <CardDescription className="text-body">
                                         Manage service keys for accessing {BRAND.name} AI services (LLM, TTS, STT)
                                     </CardDescription>
                                 </div>
@@ -472,8 +476,8 @@ export default function APIKeysPage() {
                                             Create Service Key
                                         </Button>
                                     ) : BRAND.showCommunityLinks ? (
-                                        <span className="text">
-                                            To generate additional service keys, <a href="https://app.dograh.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Sign up on app.dograh.com</a>
+                                        <span className="text-sm text-muted-foreground">
+                                            To generate additional service keys, <a href="https://app.dograh.com" target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline underline-offset-2 hover:text-primary/80">Sign up on app.dograh.com</a>
                                         </span>
                                     ) : null}
                                 </div>
@@ -481,9 +485,9 @@ export default function APIKeysPage() {
                         </CardHeader>
                         <CardContent>
                             {isServiceKeysLoading ? (
-                                <div className="space-y-4">
+                                <div className="space-y-3">
                                     {[1, 2].map((i) => (
-                                        <div key={i} className="flex items-center justify-between p-4 border rounded-lg">
+                                        <div key={i} className="flex items-center justify-between p-4 border border-border/60 rounded-xl">
                                             <div className="space-y-2">
                                                 <Skeleton className="h-4 w-32" />
                                                 <Skeleton className="h-3 w-24" />
@@ -493,9 +497,11 @@ export default function APIKeysPage() {
                                     ))}
                                 </div>
                             ) : serviceKeys.length === 0 ? (
-                                <div className="text-center py-12">
-                                    <Key className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                                    <p className="text-muted-foreground mb-4">No service keys found</p>
+                                <div className="flex flex-col items-center gap-3 py-12 text-center">
+                                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                                        <Key className="w-6 h-6 text-muted-foreground" />
+                                    </div>
+                                    <p className="text-label text-foreground">No service keys found</p>
                                     {canCreateServiceKey && (
                                         <Button onClick={() => setIsCreateServiceDialogOpen(true)}>
                                             Create Your First Service Key
@@ -503,12 +509,12 @@ export default function APIKeysPage() {
                                     )}
                                 </div>
                             ) : (
-                                <div className="space-y-4">
+                                <div className="space-y-3">
                                     {serviceKeys.map((key) => (
                                         <div
                                             key={key.id}
-                                            className={`flex items-center justify-between p-4 border rounded-lg ${
-                                                key.archived_at ? 'bg-muted opacity-60' : 'bg-card'
+                                            className={`flex items-center justify-between gap-4 p-4 border border-border/60 rounded-xl transition-all duration-200 ${
+                                                key.archived_at ? 'bg-muted opacity-60' : 'bg-card hover:border-border hover:shadow-[var(--shadow-card)]'
                                             }`}
                                         >
                                             <div className="flex-1">
@@ -557,7 +563,7 @@ export default function APIKeysPage() {
                         </CardContent>
                     </Card>
 
-                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                    <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
                         <p className="text-sm text-yellow-600 dark:text-yellow-500">
                             <strong>Important:</strong> Keep your API keys secure. Never share them publicly or commit them to version control.
                             API keys provide full access to your organization&apos;s resources.
@@ -608,7 +614,7 @@ export default function APIKeysPage() {
                     </DialogHeader>
                     {createdKey && (
                         <div className="space-y-4">
-                            <div className="p-4 bg-muted rounded-lg">
+                            <div className="p-4 bg-muted rounded-xl">
                                 <p className="text-sm text-muted-foreground mb-2">Your API Key:</p>
                                 <div className="flex items-center gap-2">
                                     <code className="flex-1 p-2 bg-background rounded text-sm font-mono break-all">
@@ -623,7 +629,7 @@ export default function APIKeysPage() {
                                     </Button>
                                 </div>
                             </div>
-                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
                                 <p className="text-sm text-yellow-600 dark:text-yellow-500">
                                     Store this key securely. It will only be shown once and cannot be retrieved later.
                                 </p>
@@ -683,7 +689,7 @@ export default function APIKeysPage() {
                     </DialogHeader>
                     {createdServiceKey && (
                         <div className="space-y-4">
-                            <div className="p-4 bg-muted rounded-lg">
+                            <div className="p-4 bg-muted rounded-xl">
                                 <p className="text-sm text-muted-foreground mb-2">Your Service Key:</p>
                                 <div className="flex items-center gap-2">
                                     <code className="flex-1 p-2 bg-background rounded text-sm font-mono break-all">
@@ -698,7 +704,7 @@ export default function APIKeysPage() {
                                     </Button>
                                 </div>
                             </div>
-                            <div className="p-4 bg-muted border rounded-lg">
+                            <div className="p-4 bg-muted border border-border/60 rounded-xl">
                                 <p className="text-sm text-muted-foreground">
                                     This key provides access to {BRAND.name} AI services including LLM, Text-to-Speech, and Speech-to-Text.
                                     {createdServiceKey.expires_at && (
@@ -708,7 +714,7 @@ export default function APIKeysPage() {
                                     )}
                                 </p>
                             </div>
-                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+                            <div className="p-4 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
                                 <p className="text-sm text-yellow-600 dark:text-yellow-500">
                                     Store this key securely. It will only be shown once and cannot be retrieved later.
                                 </p>

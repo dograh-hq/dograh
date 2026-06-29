@@ -42,7 +42,7 @@ export default function RootLayout({
 }) {
 
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         {/* Inline script to apply persisted theme (light by default) - runs before React hydrates */}
         <script
@@ -57,7 +57,7 @@ export default function RootLayout({
                     document.documentElement.classList.remove('dark');
                   }
                 } catch (e) {
-                  document.documentElement.classList.add('dark');
+                  document.documentElement.classList.remove('dark');
                 }
               })();
             `,
@@ -66,7 +66,7 @@ export default function RootLayout({
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false} disableTransitionOnChange>
+        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false} disableTransitionOnChange>
           <SentryErrorBoundary>
             <AuthProvider>
               <AppConfigProvider>

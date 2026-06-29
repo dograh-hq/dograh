@@ -50,7 +50,7 @@ def _merge_service_secret_fields(
         incoming_secret = incoming_cfg.get(secret_field)
         existing_secret = existing_cfg[secret_field]
         if incoming_secret is not None:
-            if contains_masked_key(incoming_secret):
+            if contains_masked_key(incoming_secret, existing_secret):
                 incoming_cfg[secret_field] = (
                     existing_secret
                     if masked_value_preserves_full_secret

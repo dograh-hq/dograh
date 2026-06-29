@@ -45,16 +45,16 @@ def _existing_openai_config():
 class TestMaskedKeyRejection:
     def test_detects_short_masked_api_keys(self):
         """Short masked API keys should be rejected even without the legacy marker."""
-        assert contains_masked_key(mask_key("EMPTY"))
-        assert contains_masked_key(mask_key("X"))
-        assert contains_masked_key(mask_key("mykey"))
+        assert contains_masked_key(mask_key("EMPTY"), "EMPTY")
+        assert contains_masked_key(mask_key("X"), "X")
+        assert contains_masked_key(mask_key("mykey"), "mykey")
 
     def test_detects_masked_api_key_with_mask_char_in_visible_suffix(self):
         """The visible suffix can contain MASK_CHAR and still be masked."""
         masked = mask_key("vsk*v")
 
         assert masked == "*sk*v"
-        assert contains_masked_key(masked)
+        assert contains_masked_key(masked, "vsk*v")
 
     def test_allows_unmasked_short_api_keys(self):
         """Unmasked short keys should not be rejected as masked placeholders."""
@@ -62,6 +62,8 @@ class TestMaskedKeyRejection:
         assert not contains_masked_key("X")
         assert not contains_masked_key("mykey")
         assert not contains_masked_key("vsk*v")
+        assert not contains_masked_key("*rk5f")
+        assert not contains_masked_key("*rk5f", "different-existing-key")
 
     def test_rejects_masked_api_key_on_provider_change(self):
         """Changing provider with a masked API key should return 400."""
@@ -86,6 +88,42 @@ class TestMaskedKeyRejection:
                     "llm": {
                         "provider": "google",
                         "api_key": MASKED_KEY,
+                        "model": "gemini-2.5-flash",
+                    }
+                },
+            )
+
+            assert response.status_code == 400
+            assert "masked" in response.json()["detail"].lower()
+
+    def test_rejects_short_masked_api_key_on_provider_change(self):
+        """Changing provider with a short masked API key should return 400."""
+        app = _make_test_app()
+        client = TestClient(app)
+        existing = EffectiveAIModelConfiguration(
+            llm=OpenAILLMService(
+                provider="openai",
+                api_key="EMPTY",
+                model="gpt-4.1",
+            )
+        )
+
+        with (
+            patch("api.routes.user.db_client") as mock_db,
+            patch("api.routes.user.UserConfigurationValidator") as mock_validator,
+        ):
+            mock_db.get_user_configurations = AsyncMock(return_value=existing)
+            mock_db.update_user_configuration = AsyncMock(
+                side_effect=lambda uid, cfg: cfg
+            )
+            mock_validator.return_value.validate = AsyncMock()
+
+            response = client.put(
+                "/user/configurations/user",
+                json={
+                    "llm": {
+                        "provider": "google",
+                        "api_key": mask_key("EMPTY"),
                         "model": "gemini-2.5-flash",
                     }
                 },
@@ -131,6 +169,43 @@ class TestMaskedKeyRejection:
         client = TestClient(app)
 
         new_key = "AIzaSyNewRealKey12345678"
+        updated = EffectiveAIModelConfiguration(
+            llm=GoogleLLMService(
+                provider="google",
+                api_key=new_key,
+                model="gemini-2.5-flash",
+            )
+        )
+
+        with (
+            patch("api.routes.user.db_client") as mock_db,
+            patch("api.routes.user.UserConfigurationValidator") as mock_validator,
+        ):
+            mock_db.get_user_configurations = AsyncMock(
+                return_value=_existing_openai_config()
+            )
+            mock_db.update_user_configuration = AsyncMock(return_value=updated)
+            mock_validator.return_value.validate = AsyncMock()
+
+            response = client.put(
+                "/user/configurations/user",
+                json={
+                    "llm": {
+                        "provider": "google",
+                        "api_key": new_key,
+                        "model": "gemini-2.5-flash",
+                    }
+                },
+            )
+
+            assert response.status_code == 200
+
+    def test_allows_new_star_prefixed_api_key(self):
+        """A new real key may have the same shape as an unrelated masked key."""
+        app = _make_test_app()
+        client = TestClient(app)
+
+        new_key = "*rk5f"
         updated = EffectiveAIModelConfiguration(
             llm=GoogleLLMService(
                 provider="google",

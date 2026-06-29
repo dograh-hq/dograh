@@ -538,7 +538,10 @@ class TestWorkflowConfigurationSecrets:
         masked = mask_workflow_configurations(configs)
 
         assert masked["model_overrides"]["llm"]["api_key"] != "sk-real-llm-key"
-        assert contains_masked_key(masked["model_overrides"]["llm"]["api_key"])
+        assert contains_masked_key(
+            masked["model_overrides"]["llm"]["api_key"],
+            "sk-real-llm-key",
+        )
         assert masked["model_overrides"]["llm"]["api_key"].endswith("-key")
         assert masked["model_overrides"]["tts"]["api_key"] != "el-real-tts-key"
         assert masked["ambient_noise_configuration"] == {"enabled": True}

@@ -1078,6 +1078,7 @@ async def update_workflow(
                     incoming_v2_override,
                     existing_v2_override_config,
                 )
+                mask_check_existing = existing_v2_override_config
                 if existing_v2_override_config is None:
                     resolved_config = await get_resolved_ai_model_configuration(
                         user_id=user.id,
@@ -1087,7 +1088,11 @@ async def update_workflow(
                         v2_override,
                         resolved_config.organization_configuration,
                     )
-                check_for_masked_keys_in_ai_model_configuration_v2(v2_override)
+                    mask_check_existing = resolved_config.organization_configuration
+                check_for_masked_keys_in_ai_model_configuration_v2(
+                    v2_override,
+                    mask_check_existing,
+                )
                 effective = compile_ai_model_configuration_v2(v2_override)
                 await UserConfigurationValidator().validate(
                     effective,

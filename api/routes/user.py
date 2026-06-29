@@ -155,7 +155,7 @@ async def update_user_configurations(
             raise HTTPException(status_code=422, detail=str(e))
 
         try:
-            check_for_masked_keys(user_configurations)
+            check_for_masked_keys(user_configurations, existing_config)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 

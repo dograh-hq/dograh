@@ -326,7 +326,7 @@ async def save_model_configuration_v2(
     existing = await get_organization_ai_model_configuration_v2(organization_id)
     configuration = merge_ai_model_configuration_v2_secrets(request, existing)
     try:
-        check_for_masked_keys_in_ai_model_configuration_v2(configuration)
+        check_for_masked_keys_in_ai_model_configuration_v2(configuration, existing)
         effective = compile_ai_model_configuration_v2(configuration)
         await UserConfigurationValidator().validate(
             effective,

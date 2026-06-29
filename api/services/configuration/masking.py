@@ -23,12 +23,23 @@ SERVICE_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret
 MODEL_OVERRIDE_FIELDS = ("llm", "tts", "stt", "realtime")
 
 
-def contains_masked_key(value: str | list[str] | None) -> bool:
+def contains_masked_key(
+    value: str | list[str] | None,
+    existing: str | list[str] | None = None,
+) -> bool:
     """Return True if *value* looks like a masked placeholder."""
     if value is None:
         return False
     keys = value if isinstance(value, list) else [value]
-    return any(MASK_MARKER in k or _matches_mask_shape(k) for k in keys)
+    if existing is None:
+        return any(MASK_MARKER in k for k in keys)
+
+    existing_keys = existing if isinstance(existing, list) else [existing]
+    return any(
+        MASK_MARKER in key
+        or any(_matches_existing_mask(key, real_key) for real_key in existing_keys)
+        for key in keys
+    )
 
 
 def _matches_mask_shape(key: str) -> bool:
@@ -43,20 +54,39 @@ def _matches_mask_shape(key: str) -> bool:
     return key[:masked_prefix_length] == MASK_CHAR * masked_prefix_length
 
 
-def check_for_masked_keys(config: "EffectiveAIModelConfiguration") -> None:
+def _matches_existing_mask(key: str, existing: str | None) -> bool:
+    return bool(existing) and _matches_mask_shape(key) and is_mask_of(key, existing)
+
+
+def check_for_masked_keys(
+    config: "EffectiveAIModelConfiguration",
+    existing: "EffectiveAIModelConfiguration | None" = None,
+) -> None:
     """Raise ValueError if any service in *config* still has a masked secret."""
     for field in ("llm", "tts", "stt", "embeddings", "realtime"):
         service = getattr(config, field, None)
         if service is None:
             continue
+        existing_service = getattr(existing, field, None) if existing else None
         for secret_field in SERVICE_SECRET_FIELDS:
             if not hasattr(service, secret_field):
                 continue
             if secret_field == "api_key" and hasattr(service, "get_all_api_keys"):
                 secret_value = service.get_all_api_keys()
+                existing_secret_value = (
+                    existing_service.get_all_api_keys()
+                    if existing_service
+                    and hasattr(existing_service, "get_all_api_keys")
+                    else None
+                )
             else:
                 secret_value = getattr(service, secret_field, None)
-            if contains_masked_key(secret_value):
+                existing_secret_value = (
+                    getattr(existing_service, secret_field, None)
+                    if existing_service and hasattr(existing_service, secret_field)
+                    else None
+                )
+            if contains_masked_key(secret_value, existing_secret_value):
                 raise ValueError(
                     f"The {field} {secret_field} appears to be masked. "
                     "Please provide the actual value, not the masked value."

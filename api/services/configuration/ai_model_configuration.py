@@ -244,7 +244,10 @@ def merge_ai_model_configuration_v2_secrets(
         existing_dograh = existing_dict.get("dograh") or {}
         incoming_key = incoming_dograh.get("api_key")
         existing_key = existing_dograh.get("api_key")
-        if incoming_key and existing_key and contains_masked_key(incoming_key):
+        if incoming_key and existing_key and contains_masked_key(
+            incoming_key,
+            existing_key,
+        ):
             incoming_dograh["api_key"] = resolve_masked_api_keys(
                 incoming_key,
                 existing_key,
@@ -258,9 +261,13 @@ def merge_ai_model_configuration_v2_secrets(
 
 def check_for_masked_keys_in_ai_model_configuration_v2(
     configuration: OrganizationAIModelConfigurationV2,
+    existing: OrganizationAIModelConfigurationV2 | None = None,
 ) -> None:
     data = configuration.model_dump(mode="json", exclude_none=True)
-    _raise_if_masked_secret(data)
+    existing_data = (
+        existing.model_dump(mode="json", exclude_none=True) if existing else None
+    )
+    _raise_if_masked_secret(data, existing_data)
 
 
 def mask_ai_model_configuration_v2(
@@ -381,22 +388,26 @@ def _merge_service_secret_fields(incoming: dict, existing: dict):
         existing_secret = existing[secret_field]
         if incoming_secret is None:
             incoming[secret_field] = existing_secret
-        elif contains_masked_key(incoming_secret):
+        elif contains_masked_key(incoming_secret, existing_secret):
             incoming[secret_field] = resolve_masked_api_keys(
                 incoming_secret,
                 existing_secret,
             )
 
 
-def _raise_if_masked_secret(value):
+def _raise_if_masked_secret(value, existing=None):
     if isinstance(value, dict):
         for key, nested in value.items():
-            if key in SERVICE_SECRET_FIELDS and contains_masked_key(nested):
+            existing_nested = existing.get(key) if isinstance(existing, dict) else None
+            if key in SERVICE_SECRET_FIELDS and contains_masked_key(
+                nested,
+                existing_nested,
+            ):
                 raise ValueError(
                     f"The {key} appears to be masked. Please provide the actual "
                     "value, not the masked value."
                 )
-            _raise_if_masked_secret(nested)
+            _raise_if_masked_secret(nested, existing_nested)
     elif isinstance(value, list):
         for item in value:
             _raise_if_masked_secret(item)

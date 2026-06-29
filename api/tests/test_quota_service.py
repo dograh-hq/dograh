@@ -58,6 +58,10 @@ def _actor():
 
 
 def _patch_workflow_context(monkeypatch, *, workflow=None, owner=None):
+    # These tests exercise the MPS / legacy-key paths, which only run when
+    # managed model services are enabled. The default is off (local single-ledger
+    # gate), so enable it here for the MPS-path tests.
+    monkeypatch.setattr(quota_service, "MANAGED_MODEL_SERVICES_ENABLED", True)
     monkeypatch.setattr(
         quota_service.db_client,
         "get_workflow_by_id",
@@ -431,3 +435,104 @@ async def test_authorize_workflow_run_rejects_actor_from_another_org(monkeypatch
 
     assert result.has_quota is False
     assert result.error_code == "workflow_not_found"
+
+
+# --- Local single-ledger gate (MANAGED_MODEL_SERVICES_ENABLED default False) ---
+
+
+@pytest.mark.asyncio
+async def test_run_reserves_and_passes_when_mps_disabled(monkeypatch):
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_by_id",
+        AsyncMock(return_value=_workflow()),
+    )
+    reserve = AsyncMock(return_value=600)
+    store = AsyncMock()
+    monkeypatch.setattr(quota_service, "reserve_call_credits", reserve)
+    monkeypatch.setattr(quota_service, "_store_reserved_credit_seconds", store)
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7, workflow_run_id=5
+    )
+
+    assert result.has_quota is True
+    reserve.assert_awaited_once_with(42, quota_service.CREDIT_RESERVATION_SECONDS)
+    store.assert_awaited_once_with(5, 600)
+
+
+@pytest.mark.asyncio
+async def test_run_insufficient_credits_returns_402_code(monkeypatch):
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_by_id",
+        AsyncMock(return_value=_workflow()),
+    )
+    monkeypatch.setattr(
+        quota_service, "reserve_call_credits", AsyncMock(return_value=None)
+    )
+
+    result = await quota_service.authorize_workflow_run_start(
+        workflow_id=7, workflow_run_id=5
+    )
+
+    assert result.has_quota is False
+    assert result.error_code == "insufficient_credits"
+
+
+@pytest.mark.asyncio
+async def test_preflight_blocks_on_zero_balance(monkeypatch):
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_by_id",
+        AsyncMock(return_value=_workflow()),
+    )
+    monkeypatch.setattr(
+        quota_service, "has_free_call_seconds", AsyncMock(return_value=False)
+    )
+
+    result = await quota_service.authorize_workflow_run_start(workflow_id=7)
+
+    assert result.has_quota is False
+    assert result.error_code == "insufficient_credits"
+
+
+@pytest.mark.asyncio
+async def test_preflight_allows_positive_balance(monkeypatch):
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_by_id",
+        AsyncMock(return_value=_workflow()),
+    )
+    monkeypatch.setattr(
+        quota_service, "has_free_call_seconds", AsyncMock(return_value=True)
+    )
+
+    result = await quota_service.authorize_workflow_run_start(workflow_id=7)
+
+    assert result.has_quota is True
+
+
+@pytest.mark.asyncio
+async def test_mps_client_not_called_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        quota_service.db_client,
+        "get_workflow_by_id",
+        AsyncMock(return_value=_workflow()),
+    )
+    monkeypatch.setattr(
+        quota_service, "reserve_call_credits", AsyncMock(return_value=0)
+    )
+    monkeypatch.setattr(quota_service, "_store_reserved_credit_seconds", AsyncMock())
+    mps_authorize = AsyncMock()
+    monkeypatch.setattr(
+        quota_service.mps_service_key_client,
+        "authorize_workflow_run_start",
+        mps_authorize,
+    )
+
+    await quota_service.authorize_workflow_run_start(
+        workflow_id=7, workflow_run_id=5
+    )
+
+    mps_authorize.assert_not_awaited()

@@ -9,7 +9,11 @@ from typing import Any
 
 from loguru import logger
 
-from api.constants import DEPLOYMENT_MODE
+from api.constants import (
+    CREDIT_RESERVATION_SECONDS,
+    DEPLOYMENT_MODE,
+    MANAGED_MODEL_SERVICES_ENABLED,
+)
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.configuration.ai_model_configuration import (
@@ -21,7 +25,13 @@ from api.services.managed_model_services import (
     get_dograh_service_api_key,
     uses_managed_model_services_v2,
 )
+from api.services.credits.reservation import (
+    INSUFFICIENT_CREDITS_MESSAGE,
+    RESERVED_CREDIT_SECONDS_KEY,
+    reserve_call_credits,
+)
 from api.services.mps_service_key_client import mps_service_key_client
+from api.services.trial_credits import has_free_call_seconds
 
 MINIMUM_DOGRAH_CREDITS_FOR_CALL = 0.10
 
@@ -73,6 +83,30 @@ def _insufficient_legacy_quota_result() -> QuotaCheckResult:
         has_quota=False,
         error_code="quota_exceeded",
         error_message=LEGACY_QUOTA_EXCEEDED_MESSAGE,
+    )
+
+
+def _insufficient_credits_result() -> QuotaCheckResult:
+    return QuotaCheckResult(
+        has_quota=False,
+        error_code="insufficient_credits",
+        error_message=INSUFFICIENT_CREDITS_MESSAGE,
+    )
+
+
+async def _store_reserved_credit_seconds(
+    workflow_run_id: int | None, seconds: int
+) -> None:
+    """Persist the reserved hold on the run so completion can reconcile it."""
+    if not workflow_run_id or not seconds:
+        return
+    workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
+    if not workflow_run:
+        return
+    initial_context = dict(workflow_run.initial_context or {})
+    initial_context[RESERVED_CREDIT_SECONDS_KEY] = seconds
+    await db_client.update_workflow_run(
+        workflow_run_id, initial_context=initial_context
     )
 
 
@@ -389,6 +423,22 @@ async def authorize_workflow_run_start(
                 error_code="workflow_not_found",
                 error_message="Workflow not found",
             )
+
+        # Single-ledger billing: when MPS is disabled (default), the local
+        # call-minute credit ledger is the only gate. An actual run reserves a
+        # race-safe hold (reconciled to true duration on completion); a pre-flight
+        # check (no run id, e.g. campaign start) just verifies a positive balance.
+        if not MANAGED_MODEL_SERVICES_ENABLED:
+            org_id = workflow.organization_id
+            if workflow_run_id is None:
+                if not await has_free_call_seconds(org_id):
+                    return _insufficient_credits_result()
+                return QuotaCheckResult(has_quota=True)
+            reserved = await reserve_call_credits(org_id, CREDIT_RESERVATION_SECONDS)
+            if reserved is None:
+                return _insufficient_credits_result()
+            await _store_reserved_credit_seconds(workflow_run_id, reserved)
+            return QuotaCheckResult(has_quota=True)
 
         workflow_owner = await db_client.get_user_by_id(workflow.user_id)
         if not workflow_owner:

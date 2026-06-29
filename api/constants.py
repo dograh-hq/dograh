@@ -109,6 +109,17 @@ CREDIT_PACKS = [
 # balance) to claim a phone number. PLACEHOLDER — founder sets the real price.
 # 0 = free to claim. Unmetered (unlimited) orgs are never charged.
 NUMBER_SETUP_MINUTES = int(os.getenv("NUMBER_SETUP_MINUTES", "0"))
+
+# Single-ledger billing. When False (default) the upstream Dograh MPS model
+# billing is OFF and the local call-minute credit ledger
+# (organizations.free_call_seconds_remaining) is the ONLY billing system.
+MANAGED_MODEL_SERVICES_ENABLED = (
+    os.getenv("MANAGED_MODEL_SERVICES_ENABLED", "false").lower() == "true"
+)
+# Seconds held per in-flight call as a race-safe reservation, then reconciled to
+# the call's true duration on completion. ~ a generous maximum call length.
+CREDIT_RESERVATION_SECONDS = int(os.getenv("CREDIT_RESERVATION_SECONDS", "600"))
+
 # Comma-separated list of emails that are promoted to superuser on
 # local-auth signup/login (e.g. "owner@example.com,ops@example.com").
 ADMIN_EMAILS = os.getenv("ADMIN_EMAILS", "")

@@ -23,6 +23,8 @@
                 "api.app:app",
                 "--reload",
                 "--host", "0.0.0.0"
+                // Port comes from UVICORN_PORT in api/.env (per-worktree);
+                // unset -> uvicorn's default 8000. See scripts/worktree-assign-port.sh.
             ],
             "cwd": "${workspaceFolder}",
             "envFile": "${workspaceFolder}/api/.env",

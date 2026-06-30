@@ -1,24 +1,44 @@
 #!/usr/bin/env bash
-# One-time environment setup for a fresh git worktree.
+# Environment setup for a git worktree: pipecat submodule, isolated venv,
+# Python --dev deps, and ui/node_modules. A fresh worktree is just a source
+# checkout, so it has none of these; this provisions an ISOLATED environment
+# (its own editable pipecat install points at THIS worktree's pipecat, so
+# pipecat edits here take effect).
 #
-# A new worktree is just a source checkout — it has no venv, the pipecat
-# submodule isn't checked out, and ui/node_modules may be missing. This wires
-# up an ISOLATED environment so the worktree can run independently (its own
-# editable pipecat install points at THIS worktree's pipecat, so pipecat edits
-# here take effect).
+# Runs automatically once per worktree via the "folderOpen" task in
+# .vscode/tasks.json. A success sentinel (venv/.worktree-setup-complete) makes
+# it run-once:
+#   --if-needed : exit immediately if already provisioned (used by folderOpen)
+#   (no flag)   : always run / re-provision (the manual "force" task)
 #
-# Heavy (minutes) — deliberately NOT a folderOpen task. Run it once per worktree:
-#   ./scripts/setup-worktree.sh        (or VS Code: Run Task -> "Setup worktree environment")
-#
-# Fast on repeat: uv hardlinks wheels from its global cache, npm uses its cache.
+# Heavy (minutes) the first time; instant skip afterwards. uv hardlinks wheels
+# from its global cache and npm uses its cache, so even a forced re-run is fast.
 set -euo pipefail
+
+IF_NEEDED=0
+for arg in "$@"; do
+  case "$arg" in
+    --if-needed) IF_NEEDED=1 ;;
+    *) echo "Unknown argument: $arg" >&2; echo "Usage: $0 [--if-needed]" >&2; exit 1 ;;
+  esac
+done
 
 ROOT="$(git rev-parse --show-toplevel)"
 cd "$ROOT"
 PYVER="${PYVER:-3.13}"
+SENTINEL="$ROOT/venv/.worktree-setup-complete"
+
+# Run-once guard: skip instantly when already provisioned. Checked BEFORE the log
+# is (re)written so a skip never clobbers the previous run's log. The sentinel
+# lives inside venv/, so deleting venv/ (or the worktree) forces a redo; an
+# interrupted run never writes it, so the next open self-heals.
+if [ "$IF_NEEDED" -eq 1 ] && [ -f "$SENTINEL" ]; then
+  echo "[setup-worktree] already provisioned ($SENTINEL) — skipping."
+  exit 0
+fi
 
 # Mirror all output to a gitignored, worktree-local log so you can follow
-# progress any time this runs (manual, VS Code task, or background):
+# progress any time this runs (folderOpen task, manual, or background):
 #   tail -f logs/setup-worktree.log
 # (/logs/ is already in .gitignore, and each worktree has its own logs/.)
 LOG="$ROOT/logs/setup-worktree.log"
@@ -47,4 +67,6 @@ echo "==> [3/4] Python deps (--dev; submodule already inited)..."
 echo "==> [4/4] UI node_modules..."
 ( cd ui && npm install )
 
+# Mark success LAST, so an interrupted run re-provisions on the next open.
+touch "$SENTINEL"
 echo "✅ Worktree env ready: $(basename "$ROOT")  ($(python -V 2>&1))"

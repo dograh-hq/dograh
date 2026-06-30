@@ -12,11 +12,28 @@ from loguru import logger
 
 from api.db import db_client
 from api.db.models import KnowledgeBaseChunkModel
-from api.services.gen_ai import OpenAIEmbeddingService
+from api.services.gen_ai import build_embedding_service
 from api.services.mps_service_key_client import mps_service_key_client
 from api.services.storage import storage_fs
 
 MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024
+EMBEDDING_BATCH_SIZE = 64
+
+
+async def _embed_texts_in_batches(
+    embedding_service,
+    texts: list[str],
+    batch_size: int = EMBEDDING_BATCH_SIZE,
+) -> list[list[float]]:
+    """Generate embeddings in bounded batches for provider/MPS stability."""
+    embeddings: list[list[float]] = []
+    for start in range(0, len(texts), batch_size):
+        batch = texts[start : start + batch_size]
+        logger.info(
+            f"Generating embedding batch {start // batch_size + 1} ({len(batch)} texts)"
+        )
+        embeddings.extend(await embedding_service.embed_texts(batch))
+    return embeddings
 
 
 async def process_knowledge_base_document(
@@ -120,6 +137,44 @@ async def process_knowledge_base_document(
             mime_type=mime_type,
         )
 
+        embeddings_provider = None
+        embeddings_api_key = None
+        embeddings_model = None
+        embeddings_base_url = None
+        embeddings_endpoint = None
+        embeddings_api_version = None
+        if retrieval_mode == "chunked" and document.created_by:
+            from api.services.configuration.ai_model_configuration import (
+                apply_managed_embeddings_base_url,
+                get_resolved_ai_model_configuration,
+            )
+
+            resolved_config = await get_resolved_ai_model_configuration(
+                user_id=document.created_by,
+                organization_id=document.organization_id,
+            )
+            effective_config = resolved_config.effective
+            if effective_config.embeddings:
+                embeddings_provider = getattr(
+                    effective_config.embeddings, "provider", None
+                )
+                embeddings_api_key = effective_config.embeddings.api_key
+                embeddings_model = effective_config.embeddings.model
+                embeddings_base_url = apply_managed_embeddings_base_url(
+                    provider=embeddings_provider,
+                    base_url=getattr(effective_config.embeddings, "base_url", None),
+                )
+                embeddings_endpoint = getattr(
+                    effective_config.embeddings, "endpoint", None
+                )
+                embeddings_api_version = getattr(
+                    effective_config.embeddings, "api_version", None
+                )
+                logger.info(
+                    f"Using user embeddings config: provider={embeddings_provider}, "
+                    f"model={embeddings_model}"
+                )
+
         logger.info(f"Delegating document processing to MPS (mode={retrieval_mode})")
         mps_response = await mps_service_key_client.process_document(
             file_path=temp_file_path,
@@ -148,21 +203,9 @@ async def process_knowledge_base_document(
             )
             return
 
-        # Chunked mode: fetch user embedding config, embed via OpenAI, persist chunks.
-        embeddings_api_key = None
-        embeddings_model = None
-        embeddings_base_url = None
-        if document.created_by:
-            user_config = await db_client.get_user_configurations(document.created_by)
-            if user_config.embeddings:
-                embeddings_api_key = user_config.embeddings.api_key
-                embeddings_model = user_config.embeddings.model
-                embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
-                logger.info(f"Using user embeddings config: model={embeddings_model}")
-
         if not embeddings_api_key:
             error_message = (
-                "OpenAI API key not configured. Please set your API key in "
+                "API key not configured. Please set your API key in "
                 "Model Configurations > Embedding to process documents."
             )
             logger.warning(f"Document {document_id}: {error_message}")
@@ -171,11 +214,19 @@ async def process_knowledge_base_document(
             )
             return
 
-        embedding_service = OpenAIEmbeddingService(
+        # Ingestion runs outside any workflow run, so resolve the MPS correlation
+        # id here (mint only for orgs already on v2; never create an account).
+        embedding_service = await build_embedding_service(
             db_client=db_client,
+            provider=embeddings_provider,
             api_key=embeddings_api_key,
-            model_id=embeddings_model or "text-embedding-3-small",
+            model=embeddings_model,
             base_url=embeddings_base_url,
+            endpoint=embeddings_endpoint,
+            api_version=embeddings_api_version,
+            organization_id=organization_id,
+            created_by=created_by_provider_id,
+            resolve_correlation=True,
         )
 
         mps_chunks = mps_response.get("chunks", [])
@@ -205,12 +256,21 @@ async def process_knowledge_base_document(
             f"Generating embeddings for {len(chunk_texts)} chunks "
             f"using {embedding_service.get_model_id()}"
         )
-        embeddings = await embedding_service.embed_texts(chunk_texts)
+        embeddings = await _embed_texts_in_batches(embedding_service, chunk_texts)
+        if len(embeddings) != len(chunk_records):
+            raise ValueError(
+                "Embedding count mismatch: "
+                f"expected {len(chunk_records)}, got {len(embeddings)}"
+            )
         for chunk_record, embedding in zip(chunk_records, embeddings):
             chunk_record.embedding = embedding
 
         logger.info("Storing chunks in database")
-        await db_client.create_chunks_batch(chunk_records)
+        await db_client.replace_chunks_for_document(
+            document_id=document_id,
+            organization_id=organization_id,
+            chunks=chunk_records,
+        )
 
         await db_client.update_document_status(
             document_id,
@@ -225,9 +285,8 @@ async def process_knowledge_base_document(
         )
 
     except Exception as e:
-        logger.error(
-            f"Error processing knowledge base document {document_id}: {e}",
-            exc_info=True,
+        logger.exception(
+            "Error processing knowledge base document {}: {}", document_id, e
         )
         await db_client.update_document_status(
             document_id, "failed", error_message=str(e)

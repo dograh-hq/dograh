@@ -1,4 +1,7 @@
-from fastapi import APIRouter
+import secrets
+from typing import Annotated
+
+from fastapi import APIRouter, Header, HTTPException, status
 from loguru import logger
 from pydantic import BaseModel
 
@@ -68,10 +71,19 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     backend_api_endpoint: str
+    # Public URL the deployment is reachable at when it sits behind a Cloudflare
+    # tunnel (the host has no public IP). null for a directly-reachable deployment.
+    # The UI shows this so operators know the URL telephony providers should call.
+    tunnel_url: str | None = None
     deployment_mode: str
     auth_provider: str
     turn_enabled: bool
     force_turn_relay: bool
+    # Public Stack Auth client config — only populated when auth_provider == "stack".
+    # The UI reads these at runtime to initialize Stack, so they no longer need to
+    # be baked into the browser bundle at build time. Both are public values.
+    stack_project_id: str | None = None
+    stack_publishable_client_key: str | None = None
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -79,20 +91,88 @@ async def health() -> HealthResponse:
     from api.constants import (
         APP_VERSION,
         AUTH_PROVIDER,
+        BACKEND_API_ENDPOINT,
         DEPLOYMENT_MODE,
         FORCE_TURN_RELAY,
+        STACK_AUTH_PROJECT_ID,
+        STACK_PUBLISHABLE_CLIENT_KEY,
         TURN_SECRET,
     )
-    from api.utils.common import get_backend_endpoints
+    from api.utils.common import get_backend_endpoints, is_local_or_private_url
 
     logger.debug("Health endpoint called")
     backend_endpoint, _ = await get_backend_endpoints()
+    # tunnel_url is set only when a Cloudflare tunnel was actually resolved: the
+    # configured address isn't publicly reachable, but get_backend_endpoints found
+    # a public tunnel URL for it. This is the URL the UI shows for inbound webhooks.
+    # It stays null for a directly-reachable (public IP / domain) deployment, where
+    # backend_api_endpoint itself is the public URL.
+    tunnel_url = (
+        backend_endpoint
+        if is_local_or_private_url(BACKEND_API_ENDPOINT)
+        and not is_local_or_private_url(backend_endpoint)
+        else None
+    )
+    is_stack = AUTH_PROVIDER == "stack"
     return HealthResponse(
         status="ok",
         version=APP_VERSION,
-        backend_api_endpoint=backend_endpoint,
+        backend_api_endpoint=BACKEND_API_ENDPOINT,
+        tunnel_url=tunnel_url,
         deployment_mode=DEPLOYMENT_MODE,
         auth_provider=AUTH_PROVIDER,
         turn_enabled=bool(TURN_SECRET),
         force_turn_relay=FORCE_TURN_RELAY,
+        stack_project_id=STACK_AUTH_PROJECT_ID if is_stack else None,
+        stack_publishable_client_key=(
+            STACK_PUBLISHABLE_CLIENT_KEY if is_stack else None
+        ),
     )
+
+
+class ActiveCallsResponse(BaseModel):
+    active_calls: int
+
+
+DOGRAH_DEVOPS_SECRET_HEADER = "X-Dograh-Devops-Secret"
+
+
+def _verify_devops_secret(
+    configured_secret: str | None,
+    provided_secret: str | None,
+) -> None:
+    if not configured_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Devops secret is not configured",
+        )
+    if not provided_secret or not secrets.compare_digest(
+        provided_secret,
+        configured_secret,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden",
+        )
+
+
+@router.get("/health/active-calls", response_model=ActiveCallsResponse)
+async def active_calls(
+    x_dograh_devops_secret: Annotated[
+        str | None,
+        Header(alias=DOGRAH_DEVOPS_SECRET_HEADER),
+    ] = None,
+) -> ActiveCallsResponse:
+    """In-flight call count for THIS worker — the drain signal for deploys.
+
+    A deploy orchestrator polls this per worker and waits for zero before
+    sending SIGTERM, because uvicorn force-closes live call WebSockets (close
+    code 1012) on SIGTERM and would cut calls mid-conversation otherwise. The
+    count is per-process: one uvicorn per VM port (scripts/rolling_update.sh)
+    or per Kubernetes pod (preStop hook). See api/services/pipecat/active_calls.py.
+    """
+    from api.constants import DOGRAH_DEVOPS_SECRET
+    from api.services.pipecat.active_calls import active_call_count
+
+    _verify_devops_secret(DOGRAH_DEVOPS_SECRET, x_dograh_devops_secret)
+    return ActiveCallsResponse(active_calls=active_call_count())

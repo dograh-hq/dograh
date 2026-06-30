@@ -4,13 +4,23 @@ description: "You can use Template Variables in your prompts for your Agent node
 ---
 
 ### Template Rendering
-You can reference template variables which is passed as [`initial_context`](/core-concepts/context-and-variables#initial_context) either using the [API Trigger](/voice-agent/api-trigger) or when uploading a Sheet for a [campaign](/core-concepts/campaigns). You can also use any extracted variable as [`gathered_context`](/core-concepts/context-and-variables#gathered_context)
 
-The template rendering can take nested values. 
+You reference template variables with `{{double_brace}}` syntax. The data comes from [`initial_context`](/core-concepts/context-and-variables#initial_context) — set via the [API Trigger](/voice-agent/api-trigger), a [campaign](/core-concepts/campaigns) sheet, or a [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch) that enriches the context when the call starts — and, in Webhook payloads only, from [`gathered_context`](/core-concepts/context-and-variables#gathered_context) (variables extracted during the call).
 
-Example: If the initial context is
+**The syntax depends on where you use it:**
 
-```
+| Where | `initial_context` | `gathered_context` |
+| --- | --- | --- |
+| Agent node prompts | `{{field_name}}` (referenced directly) | Not available |
+| Webhook Node payloads | `{{initial_context.field_name}}` | `{{gathered_context.field_name}}` |
+
+#### Agent node prompts
+
+In an Agent node prompt, reference each `initial_context` field **directly by name**. Nested values are supported with dot notation.
+
+Example: if the initial context is
+
+```json
 {
     "initial_context": {
         "user": {
@@ -20,13 +30,25 @@ Example: If the initial context is
 }
 ```
 
-You can write your prompt to access the user's name as below
+write your prompt to access the user's name as below:
 
-Prompt: `You are Alice, who is talking to {{initial_context.user.name}}.`
+Prompt: `You are Alice, who is talking to {{user.name}}.`
+
+<Note>
+Variables extracted during the call (`gathered_context`) are **not** available in Agent prompts — a prompt can only reference `initial_context` fields. To act on extracted data, send it to a [Webhook Node](/voice-agent/webhook).
+</Note>
+
+#### Webhook Node payloads
+
+When constructing a [Webhook Node](/voice-agent/webhook) payload, the context objects are nested under their names, so reference them with the `initial_context.` and `gathered_context.` prefixes:
+
+Payload value: `{{initial_context.user.name}}` or `{{gathered_context.call_disposition}}`
 
 ### Using Template Variables for Testing
 
 Template variables defined in your workflow **Settings > Context Variables** are included in test calls (both web and phone) made from the workflow editor. This is useful for simulating data that would normally come from telephony or an API trigger.
+
+<img src="../images/template-variables.png" alt="Template Variables panel in workflow Settings, showing a customer_name variable and fields to add new key/value pairs" style={{border: "1px solid #d1d5db", borderRadius: "8px", maxWidth: "100%"}} />
 
 For example, you can set `caller_number` and `called_number` as context variables to test [Pre-Call Data Fetch](/voice-agent/pre-call-data-fetch#testing-with-test-calls) without needing a real inbound call.
 

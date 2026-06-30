@@ -7,15 +7,19 @@ script in `api/services/admin_utils/local_exec.py` is the production
 consumer.
 """
 
+from collections import Counter
+
 from api.services.workflow.node_specs import all_specs
 
 
-def _build_type_rules() -> tuple[set[str], set[str]]:
+def _build_type_rules() -> tuple[set[str], set[str], dict[str, int], dict[str, int]]:
     """From NodeSpec.graph_constraints, derive the set of types that are
     forbidden as edge sources (max_outgoing == 0) and as targets
     (max_incoming == 0)."""
     src_forbidden: set[str] = set()
     tgt_forbidden: set[str] = set()
+    min_instances: dict[str, int] = {}
+    max_instances: dict[str, int] = {}
     for spec in all_specs():
         gc = spec.graph_constraints
         if gc is None:
@@ -24,7 +28,11 @@ def _build_type_rules() -> tuple[set[str], set[str]]:
             src_forbidden.add(spec.name)
         if gc.max_incoming == 0:
             tgt_forbidden.add(spec.name)
-    return src_forbidden, tgt_forbidden
+        if gc.min_instances is not None:
+            min_instances[spec.name] = gc.min_instances
+        if gc.max_instances is not None:
+            max_instances[spec.name] = gc.max_instances
+    return src_forbidden, tgt_forbidden, min_instances, max_instances
 
 
 def _empty_violation(reason: str) -> dict:
@@ -49,7 +57,7 @@ def audit_definition(nodes, edges) -> list[dict]:
     if not isinstance(nodes, list) or not isinstance(edges, list):
         return []
 
-    src_forbidden, tgt_forbidden = _build_type_rules()
+    src_forbidden, tgt_forbidden, min_instances, max_instances = _build_type_rules()
     nodes_by_id: dict = {}
     for n in nodes:
         if isinstance(n, dict) and "id" in n:
@@ -57,14 +65,25 @@ def audit_definition(nodes, edges) -> list[dict]:
 
     violations: list[dict] = []
 
-    # Graph-level: WorkflowGraph._assert_start_node requires exactly one
-    # startCall node. The DTO doesn't enforce this, so legacy or
-    # script-edited rows can land in a state that fails at runtime.
-    start_count = sum(1 for t in nodes_by_id.values() if t == "startCall")
-    if start_count == 0:
-        violations.append(_empty_violation("no_start_node"))
-    elif start_count > 1:
-        violations.append(_empty_violation(f"multiple_start_nodes:{start_count}"))
+    node_counts = Counter(t for t in nodes_by_id.values() if isinstance(t, str))
+    for node_type, min_count in min_instances.items():
+        count = node_counts.get(node_type, 0)
+        if count < min_count:
+            reason = (
+                "no_start_node"
+                if node_type == "startCall" and min_count == 1
+                else f"min_instances_{min_count}:{node_type}:{count}"
+            )
+            violations.append(_empty_violation(reason))
+    for node_type, max_count in max_instances.items():
+        count = node_counts.get(node_type, 0)
+        if count > max_count:
+            reason = (
+                f"multiple_start_nodes:{count}"
+                if node_type == "startCall" and max_count == 1
+                else f"max_instances_{max_count}:{node_type}:{count}"
+            )
+            violations.append(_empty_violation(reason))
     for e in edges:
         if not isinstance(e, dict):
             continue

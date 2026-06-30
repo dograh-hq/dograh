@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from loguru import logger
+from pipecat.bus.serializers.json import JSONMessageSerializer
 from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     CancelFrame,
@@ -17,12 +17,10 @@ from pipecat.frames.frames import (
     LLMContextFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    TextFrame,
     TTSSpeakFrame,
     TTSStoppedFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
@@ -33,7 +31,6 @@ from pipecat.utils.run_context import set_current_org_id
 
 from api.db import db_client
 from api.enums import WorkflowRunMode, WorkflowRunState
-from api.services.configuration.resolve import resolve_effective_config
 from api.services.pipecat.audio_config import create_audio_config
 from api.services.pipecat.pipeline_builder import create_pipeline_task
 from api.services.pipecat.pipeline_metrics_aggregator import (
@@ -45,6 +42,10 @@ from api.services.pipecat.tracing_config import (
     build_remote_parent_context,
     get_trace_url,
 )
+from api.services.pipecat.worker_runner import (
+    run_pipeline_worker,
+    wait_for_pipeline_worker_started,
+)
 from api.services.workflow.dto import ReactFlowDTO
 from api.services.workflow.pipecat_engine import PipecatEngine
 from api.services.workflow.workflow_graph import WorkflowGraph
@@ -53,6 +54,46 @@ TEXT_CHAT_CHECKPOINT_VERSION = 1
 TEXT_CHAT_TURN_TIMEOUT_SECONDS = 60.0
 TEXT_CHAT_IDLE_SETTLE_SECONDS = 0.2
 TEXT_CHAT_INTERNAL_CANCEL_REASON = "text_chat_turn_complete"
+
+
+def _pipecat_type_tag(type_: type) -> str:
+    return f"{type_.__module__}.{type_.__name__}"
+
+
+def _pipecat_json_serializer() -> JSONMessageSerializer:
+    return JSONMessageSerializer()
+
+
+def _serialize_text_chat_checkpoint_messages(messages: list[Any]) -> list[Any]:
+    """Serialize Pipecat context messages for JSONB checkpoint storage."""
+    # Pipecat's bus JSON serializer already knows how to preserve LLMContext,
+    # LLMSpecificMessage, and binary provider fields such as Gemini signatures.
+    # Keep the serializer shape dependency contained to these checkpoint helpers.
+    encoded_context = _pipecat_json_serializer()._serialize_value(
+        LLMContext(messages=list(messages))
+    )
+    encoded_data = (
+        encoded_context.get("__data__") if isinstance(encoded_context, dict) else None
+    )
+    encoded_messages = (
+        encoded_data.get("messages") if isinstance(encoded_data, dict) else None
+    )
+    if not isinstance(encoded_messages, list):
+        raise TypeError("Pipecat LLMContext serializer returned an unexpected shape")
+    return encoded_messages
+
+
+def _deserialize_text_chat_checkpoint_messages(messages: list[Any]) -> list[Any]:
+    """Restore JSONB checkpoint messages to Pipecat context message objects."""
+    restored_context = _pipecat_json_serializer()._deserialize_value(
+        {
+            "__type__": _pipecat_type_tag(LLMContext),
+            "__data__": {"messages": list(messages)},
+        }
+    )
+    if not isinstance(restored_context, LLMContext):
+        raise TypeError("Pipecat LLMContext deserializer returned an unexpected type")
+    return restored_context.get_messages()
 
 
 def text_chat_trace_id(workflow_run_id: int) -> str:
@@ -165,12 +206,17 @@ class _TaskQueueProxy:
 
 
 class _TextChatCaptureProcessor(FrameProcessor):
-    def __init__(self, response_window: _ResponseWindowState) -> None:
+    def __init__(
+        self,
+        response_window: _ResponseWindowState,
+        context: LLMContext,
+    ) -> None:
         super().__init__()
         self.last_activity_at = time.monotonic()
         self.activity_count = 0
         self.events: list[dict[str, Any]] = []
         self._response_window = response_window
+        self._context = context
 
     def _touch(self) -> None:
         self.last_activity_at = time.monotonic()
@@ -190,12 +236,14 @@ class _TextChatCaptureProcessor(FrameProcessor):
         self._touch()
 
         if isinstance(frame, TTSSpeakFrame):
-            text_frame = TextFrame(frame.text)
-            text_frame.append_to_context = (
+            append_to_context = (
                 frame.append_to_context if frame.append_to_context is not None else True
             )
-            await self.push_frame(text_frame, direction)
-            await self.push_frame(LLMAssistantPushAggregationFrame(), direction)
+            text = frame.text.strip()
+            if text:
+                self._response_window.outputs.append(text)
+                if append_to_context:
+                    self._context.add_message({"role": "assistant", "content": text})
             return
 
         if isinstance(frame, LLMContextFrame) and direction == FrameDirection.UPSTREAM:
@@ -383,7 +431,6 @@ async def execute_text_chat_pending_turn(
         if pending_turn.get("user_message") is not None
         else None
     )
-
     workflow_run, _ = await db_client.get_workflow_run_with_context(workflow_run_id)
     if not workflow_run or workflow_run.workflow_id != workflow_id:
         raise ValueError("Workflow run not found for text chat execution")
@@ -397,7 +444,6 @@ async def execute_text_chat_pending_turn(
     )
     if workflow is None:
         raise ValueError("Workflow not found for text chat execution")
-
     # Stamp the async context so OTEL spans are tagged with this org and routed
     # to its Langfuse project (the voice paths do this in run_pipeline /
     # webrtc_signaling; the text path previously skipped it, so its spans never
@@ -407,14 +453,30 @@ async def execute_text_chat_pending_turn(
     run_definition = workflow_run.definition
     run_configs = run_definition.workflow_configurations or {}
 
-    user_config = await db_client.get_user_configurations(workflow_run.workflow.user.id)
-    user_config = resolve_effective_config(
-        user_config, run_configs.get("model_overrides")
+    from api.services.configuration.ai_model_configuration import (
+        get_effective_ai_model_configuration_for_workflow,
+    )
+
+    user_config = await get_effective_ai_model_configuration_for_workflow(
+        user_id=workflow_run.workflow.user.id,
+        organization_id=workflow.organization_id,
+        workflow_configurations=run_configs,
     )
     if user_config.llm is None:
         raise ValueError("Text chat requires an LLM configuration")
+    from api.services.managed_model_services import (
+        MPS_CORRELATION_ID_CONTEXT_KEY,
+        ensure_mps_correlation_id,
+    )
 
-    llm = create_llm_service(user_config)
+    base_initial_context = dict(workflow_run.initial_context or {})
+    mps_correlation_id = await ensure_mps_correlation_id(
+        ai_model_config=user_config,
+        workflow_run_id=workflow_run_id,
+        initial_context=base_initial_context,
+    )
+
+    llm = create_llm_service(user_config, correlation_id=mps_correlation_id)
     inference_llm = llm
 
     runtime_configuration = {
@@ -422,19 +484,27 @@ async def execute_text_chat_pending_turn(
         "llm_model": user_config.llm.model,
     }
     initial_context = {
-        **(workflow_run.initial_context or {}),
+        **base_initial_context,
         "runtime_configuration": runtime_configuration,
     }
+    if mps_correlation_id:
+        initial_context[MPS_CORRELATION_ID_CONTEXT_KEY] = mps_correlation_id
+    await db_client.update_workflow_run(
+        workflow_run_id,
+        initial_context=initial_context,
+    )
 
     workflow_graph = WorkflowGraph(
-        ReactFlowDTO.model_validate(run_definition.workflow_json)
+        ReactFlowDTO.model_validate(run_definition.workflow_json),
+        skip_instance_constraints_for={"trigger"},
     )
     base_checkpoint = _resolve_checkpoint_for_pending_turn(session_data, checkpoint)
-
-    response_window = _ResponseWindowState()
-    capture_processor = _TextChatCaptureProcessor(response_window)
     context = LLMContext()
-    context.set_messages(base_checkpoint["messages"])
+    context.set_messages(
+        _deserialize_text_chat_checkpoint_messages(base_checkpoint["messages"])
+    )
+    response_window = _ResponseWindowState()
+    capture_processor = _TextChatCaptureProcessor(response_window, context)
 
     node_transition_events = capture_processor.events
 
@@ -463,15 +533,22 @@ async def execute_text_chat_pending_turn(
     embeddings_model = None
     embeddings_base_url = None
     if user_config.embeddings:
+        from api.services.configuration.ai_model_configuration import (
+            apply_managed_embeddings_base_url,
+        )
+
         embeddings_api_key = user_config.embeddings.api_key
         embeddings_model = user_config.embeddings.model
-        embeddings_base_url = getattr(user_config.embeddings, "base_url", None)
+        embeddings_provider = getattr(user_config.embeddings, "provider", None)
+        embeddings_base_url = apply_managed_embeddings_base_url(
+            provider=embeddings_provider,
+            base_url=getattr(user_config.embeddings, "base_url", None),
+        )
 
     has_recordings = await db_client.has_active_recordings(workflow.organization_id)
     context_compaction_enabled = (workflow.workflow_configurations or {}).get(
         "context_compaction_enabled", False
     )
-
     engine = PipecatEngine(
         llm=llm,
         inference_llm=inference_llm,
@@ -517,7 +594,6 @@ async def execute_text_chat_pending_turn(
     trace_span_attributes = {
         "langfuse.trace.name": workflow_run.name or f"text-chat-{workflow_run_id}"
     }
-
     pipeline = Pipeline(
         [
             llm,
@@ -534,8 +610,7 @@ async def execute_text_chat_pending_turn(
         conversation_type="text",
         additional_span_attributes=trace_span_attributes,
     )
-    runner = PipelineRunner(handle_sigint=False, handle_sigterm=False)
-    runner_task = asyncio.create_task(runner.run(task))
+    runner_task = asyncio.create_task(run_pipeline_worker(task))
 
     engine.set_task(task)
     engine.set_audio_config(audio_config)
@@ -548,7 +623,7 @@ async def execute_text_chat_pending_turn(
     )
 
     try:
-        await asyncio.wait_for(task._pipeline_start_event.wait(), timeout=5.0)
+        await wait_for_pipeline_worker_started(task, timeout=5.0, run_task=runner_task)
 
         await engine.initialize()
 
@@ -595,18 +670,13 @@ async def execute_text_chat_pending_turn(
                 activity_marker=generation_marker,
             )
     finally:
-        if not task.has_finished():
-            await task.cancel(reason=TEXT_CHAT_INTERNAL_CANCEL_REASON)
         try:
+            if not task.has_finished():
+                await task.cancel(reason=TEXT_CHAT_INTERNAL_CANCEL_REASON)
             await runner_task
-        except Exception:
-            logger.exception(
-                "Transportless text chat pipeline failed while closing run {}",
-                workflow_run_id,
-            )
+        finally:
+            await engine.close_mcp_sessions()
             await engine.cleanup()
-            raise
-        await engine.cleanup()
 
     gathered_context = await engine.get_gathered_context()
     assistant_text = (
@@ -617,29 +687,36 @@ async def execute_text_chat_pending_turn(
     assistant_created_at = datetime.now(UTC).isoformat()
     usage = pipeline_metrics_aggregator.get_all_usage_metrics_serialized()
     current_node = getattr(engine, "_current_node", None)
+    context_messages = context.get_messages()
+    encoded_messages = _serialize_text_chat_checkpoint_messages(context_messages)
+    encoded_gathered_context = jsonable_encoder(gathered_context)
+    encoded_tool_state = jsonable_encoder(base_checkpoint.get("tool_state") or {})
 
     updated_checkpoint = {
         "version": TEXT_CHAT_CHECKPOINT_VERSION,
         "anchor_turn_id": pending_turn.get("id"),
         "current_node_id": current_node.id if current_node else None,
-        "messages": jsonable_encoder(context.get_messages()),
-        "gathered_context": jsonable_encoder(gathered_context),
-        "tool_state": jsonable_encoder(base_checkpoint.get("tool_state") or {}),
+        "messages": encoded_messages,
+        "gathered_context": encoded_gathered_context,
+        "tool_state": encoded_tool_state,
     }
 
-    encoded_gathered_context = jsonable_encoder(gathered_context)
     trace_url = get_trace_url(trace_id, org_id=workflow.organization_id)
     if trace_url:
         encoded_gathered_context = {**encoded_gathered_context, "trace_url": trace_url}
 
+    encoded_events = jsonable_encoder(capture_processor.events)
+    encoded_usage = jsonable_encoder(usage)
+    encoded_initial_context = jsonable_encoder(initial_context)
+
     return TextChatTurnExecutionResult(
         assistant_text=assistant_text,
         assistant_created_at=assistant_created_at,
-        events=jsonable_encoder(capture_processor.events),
-        usage=jsonable_encoder(usage),
+        events=encoded_events,
+        usage=encoded_usage,
         checkpoint=updated_checkpoint,
         gathered_context=encoded_gathered_context,
-        initial_context=jsonable_encoder(initial_context),
+        initial_context=encoded_initial_context,
         state=(
             WorkflowRunState.COMPLETED.value
             if engine.is_call_disposed()

@@ -102,18 +102,36 @@ echo ""
 echo -e "${BLUE}[3/4] Python virtual environment${NC}"
 VENV_PATH="$BASE_DIR/venv"
 
-if [[ -d "$VENV_PATH" && -f "$VENV_PATH/bin/activate" ]]; then
-    echo -e "${GREEN}✓ venv already exists at $VENV_PATH${NC}"
-else
-    PY=""
+find_python_313() {
+    local candidate=""
+    local version=""
+
     for candidate in python3.13 python3 python; do
-        if command -v "$candidate" >/dev/null 2>&1; then
-            PY="$candidate"
-            break
+        if ! command -v "$candidate" >/dev/null 2>&1; then
+            continue
+        fi
+
+        version=$("$candidate" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || true)
+        if [[ "$version" == "3.13" ]]; then
+            echo "$candidate"
+            return 0
         fi
     done
+
+    return 1
+}
+
+if [[ -d "$VENV_PATH" && -f "$VENV_PATH/bin/activate" ]]; then
+    VENV_VERSION=$("$VENV_PATH/bin/python" -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || true)
+    if [[ "$VENV_VERSION" != "3.13" ]]; then
+        echo -e "${RED}Error: existing venv uses Python ${VENV_VERSION:-unknown}. Remove $VENV_PATH and re-run with Python 3.13.${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ venv already exists at $VENV_PATH (Python $VENV_VERSION)${NC}"
+else
+    PY="$(find_python_313 || true)"
     if [[ -z "$PY" ]]; then
-        echo -e "${RED}Error: no python interpreter found on PATH. Install Python 3.13.${NC}"
+        echo -e "${RED}Error: no Python 3.13 interpreter found on PATH. Install Python 3.13.${NC}"
         exit 1
     fi
     "$PY" -m venv "$VENV_PATH"
@@ -126,7 +144,7 @@ echo ""
 ###############################################################################
 
 echo -e "${BLUE}[4/4] Environment files${NC}"
-for pair in "api/.env.example|api/.env" "ui/.env.example|ui/.env"; do
+for pair in "api/.env.example|api/.env" "api/.env.test.example|api/.env.test" "ui/.env.example|ui/.env"; do
     src="${pair%|*}"
     dst="${pair#*|}"
     if [[ -f "$dst" ]]; then

@@ -21,11 +21,11 @@ from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import CallType, WorkflowRunState
+from api.enums import CallType, WorkflowRunMode, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
-from api.services.quota_service import check_dograh_quota_by_user_id
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.telephony.call_transfer_manager import get_call_transfer_manager
 from api.services.telephony.factory import (
     get_all_telephony_providers,
@@ -53,7 +53,7 @@ class InitiateCallRequest(BaseModel):
     workflow_run_id: int | None = None
     phone_number: str | None = None
     # Optional explicit telephony config to use for the test call. If omitted,
-    # falls back to the user's per-user default (when set), then the org default.
+    # falls back to the org default.
     telephony_configuration_id: int | None = None
     # Optional caller-ID phone number to dial out from. Must belong to the
     # resolved telephony configuration; otherwise the provider picks one.
@@ -82,7 +82,12 @@ async def initiate_call(
     """Initiate a call using the configured telephony provider from web browser. This is
     supposed to be a test call method for the draft version of the agent."""
 
-    user_configuration = await db_client.get_user_configurations(user.id)
+    from api.services.organization_preferences import get_organization_preferences
+
+    preferences = await get_organization_preferences(
+        user.selected_organization_id,
+        db=db_client,
+    )
 
     # Resolve which telephony config to use: explicit request value, otherwise
     # the org's default outbound config.
@@ -116,13 +121,12 @@ async def initiate_call(
             detail="telephony_not_configured",
         )
 
-    phone_number = request.phone_number or user_configuration.test_phone_number
+    phone_number = request.phone_number or preferences.test_phone_number
 
     if not phone_number:
         raise HTTPException(
             status_code=400,
-            detail="Phone number must be provided in request or set in user "
-            "configuration",
+            detail="Phone number must be provided in request or set in organization preferences",
         )
 
     workflow = await db_client.get_workflow(
@@ -131,14 +135,6 @@ async def initiate_call(
     if not workflow:
         raise HTTPException(status_code=404, detail="Workflow not found")
     execution_user_id = _get_execution_user_id(workflow)
-
-    # Check Dograh quota before initiating the call (apply per-workflow
-    # model_overrides so the keys we will actually use are the ones checked).
-    quota_result = await check_dograh_quota_by_user_id(
-        execution_user_id, workflow_id=workflow.id
-    )
-    if not quota_result.has_quota:
-        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Determine the workflow run mode based on provider type
     workflow_run_mode = provider.PROVIDER_NAME
@@ -181,6 +177,16 @@ async def initiate_call(
                 detail="workflow_run_workflow_mismatch",
             )
         workflow_run_name = workflow_run.name
+
+    # Check Dograh quota after the run exists so hosted v2 can mint and store
+    # the MPS correlation id before initiating the call.
+    quota_result = await authorize_workflow_run_start(
+        workflow_id=workflow.id,
+        workflow_run_id=workflow_run_id,
+        actor_user=user,
+    )
+    if not quota_result.has_quota:
+        raise HTTPException(status_code=402, detail=quota_result.error_message)
 
     # Construct webhook URL based on provider type
     backend_endpoint, _ = await get_backend_endpoints()
@@ -578,12 +584,36 @@ async def _handle_telephony_websocket(
             provider_type = workflow_run.initial_context.get("provider")
             logger.info(f"Extracted provider_type: {provider_type}")
 
+        if (
+            workflow_run.mode == WorkflowRunMode.SMALLWEBRTC.value
+            or provider_type == WorkflowRunMode.SMALLWEBRTC.value
+        ):
+            logger.warning(
+                f"SmallWebRTC workflow run {workflow_run_id} reached telephony "
+                f"websocket; mode={workflow_run.mode}, provider={provider_type}"
+            )
+            await websocket.close(
+                code=4400,
+                reason=(
+                    "smallwebrtc runs connect through the WebRTC signaling endpoint, "
+                    "not the telephony websocket"
+                ),
+            )
+            return
+
         if not provider_type:
             logger.error(
                 f"No provider type found in workflow run {workflow_run_id}. "
                 f"gathered_context: {workflow_run.gathered_context}, mode: {workflow_run.mode}"
             )
-            await websocket.close(code=4400, reason="Provider type not found")
+            await websocket.close(
+                code=4400,
+                reason=(
+                    f"No provider type found for workflow run {workflow_run_id} "
+                    f"(mode: {workflow_run.mode}); telephony websocket requires "
+                    "a telephony provider"
+                ),
+            )
             return
 
         logger.info(
@@ -654,7 +684,7 @@ async def handle_inbound_run(request: Request):
             logger.error("Unable to detect provider for /inbound/run webhook")
             return generic_hangup_response()
 
-        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+        normalized_data = normalize_webhook_data(provider_class, webhook_data, headers)
         logger.info(
             f"/inbound/run normalized data — provider={normalized_data.provider} "
             f"to={normalized_data.to_number} from={normalized_data.from_number}"
@@ -735,19 +765,8 @@ async def handle_inbound_run(request: Request):
                 TelephonyError.SIGNATURE_VALIDATION_FAILED
             )
 
-        # 4. Quota check (use the workflow's model_overrides if set).
-        quota_result = await check_dograh_quota_by_user_id(
-            user_id, workflow_id=workflow_id
-        )
-        if not quota_result.has_quota:
-            logger.warning(
-                f"User {user_id} has exceeded quota: {quota_result.error_message}"
-            )
-            return provider_class.generate_validation_error_response(
-                TelephonyError.QUOTA_EXCEEDED
-            )
-
-        # 5. Create workflow run + return provider-shaped response.
+        # 5. Create workflow run + authorize quota before returning provider
+        # stream instructions.
         workflow_run_id = await _create_inbound_workflow_run(
             workflow_id,
             user_id,
@@ -756,6 +775,17 @@ async def handle_inbound_run(request: Request):
             telephony_configuration_id=telephony_configuration_id,
             from_phone_number_id=phone_row.id,
         )
+        quota_result = await authorize_workflow_run_start(
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+        )
+        if not quota_result.has_quota:
+            logger.warning(
+                f"User {user_id} has exceeded quota: {quota_result.error_message}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.QUOTA_EXCEEDED
+            )
 
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()
         websocket_url = (
@@ -841,7 +871,7 @@ async def handle_inbound_telephony(
             logger.error("Unable to detect provider for webhook")
             return generic_hangup_response()
 
-        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+        normalized_data = normalize_webhook_data(provider_class, webhook_data, headers)
 
         logger.info(f"Inbound call - Provider: {normalized_data.provider}")
         logger.info(f"Normalized data: {normalized_data}")
@@ -870,20 +900,8 @@ async def handle_inbound_telephony(
             logger.error(f"Request validation failed: {error_type}")
             return provider_class.generate_validation_error_response(error_type)
 
-        # Check quota before processing (apply per-workflow model_overrides).
+        # Create workflow run.
         user_id = workflow_context["user_id"]
-        quota_result = await check_dograh_quota_by_user_id(
-            user_id, workflow_id=workflow_id
-        )
-        if not quota_result.has_quota:
-            logger.warning(
-                f"User {user_id} has exceeded quota for inbound calls: {quota_result.error_message}"
-            )
-            return provider_class.generate_validation_error_response(
-                TelephonyError.QUOTA_EXCEEDED
-            )
-
-        # Create workflow run
         workflow_run_id = await _create_inbound_workflow_run(
             workflow_id,
             workflow_context["user_id"],
@@ -892,6 +910,17 @@ async def handle_inbound_telephony(
             telephony_configuration_id=workflow_context["telephony_configuration_id"],
             from_phone_number_id=workflow_context.get("from_phone_number_id"),
         )
+        quota_result = await authorize_workflow_run_start(
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
+        )
+        if not quota_result.has_quota:
+            logger.warning(
+                f"User {user_id} has exceeded quota for inbound calls: {quota_result.error_message}"
+            )
+            return provider_class.generate_validation_error_response(
+                TelephonyError.QUOTA_EXCEEDED
+            )
 
         # Generate response URLs
         backend_endpoint, wss_backend_endpoint = await get_backend_endpoints()

@@ -3,11 +3,14 @@ from datetime import datetime, timezone
 
 from loguru import logger
 from pydantic import ValidationError
+from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.models import UserConfigurationModel, UserModel
-from api.schemas.user_configuration import UserConfiguration
+from api.enums import UserConfigurationKey
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 
 
 class UserClient(BaseDBClient):
@@ -27,8 +30,6 @@ class UserClient(BaseDBClient):
 
             # Use PostgreSQL's INSERT ... ON CONFLICT DO NOTHING
             # This is atomic and handles race conditions at the database level
-            from sqlalchemy.dialects.postgresql import insert
-
             stmt = insert(UserModel.__table__).values(
                 provider_id=provider_id,
                 created_at=datetime.now(timezone.utc),
@@ -64,19 +65,57 @@ class UserClient(BaseDBClient):
             )
             return result.scalars().first()
 
-    async def get_user_configurations(self, user_id: int) -> UserConfiguration:
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(UserConfigurationModel).where(
-                    UserConfigurationModel.user_id == user_id
-                )
+    async def _get_user_configuration_row(
+        self, session, user_id: int, key: str
+    ) -> UserConfigurationModel | None:
+        result = await session.execute(
+            select(UserConfigurationModel).where(
+                UserConfigurationModel.user_id == user_id,
+                UserConfigurationModel.key == key,
             )
-            configuration_obj = result.scalars().first()
+        )
+        return result.scalars().first()
+
+    async def get_user_configuration_value(self, user_id: int, key: str) -> dict | None:
+        """Get the JSON value stored for a user under `key`, or None."""
+        async with self.async_session() as session:
+            row = await self._get_user_configuration_row(session, user_id, key)
+            return row.configuration if row else None
+
+    async def upsert_user_configuration_value(
+        self, user_id: int, key: str, value: dict
+    ) -> dict:
+        """Create or update the JSON value stored for a user under `key`."""
+        async with self.async_session() as session:
+            stmt = insert(UserConfigurationModel.__table__).values(
+                user_id=user_id,
+                key=key,
+                configuration=value,
+            )
+            stmt = stmt.on_conflict_do_update(
+                constraint="_user_configuration_key_uc",
+                set_={"configuration": stmt.excluded.configuration},
+            ).returning(UserConfigurationModel.configuration)
+            try:
+                result = await session.execute(stmt)
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                raise e
+            return result.scalar_one()
+
+    async def get_user_configurations(
+        self, user_id: int
+    ) -> EffectiveAIModelConfiguration:
+        async with self.async_session() as session:
+            configuration_obj = await self._get_user_configuration_row(
+                session, user_id, UserConfigurationKey.MODEL_CONFIGURATION.value
+            )
             if not configuration_obj:
-                return UserConfiguration()
+                return EffectiveAIModelConfiguration()
 
             try:
-                return UserConfiguration.model_validate(
+                return EffectiveAIModelConfiguration.model_validate(
                     {
                         **configuration_obj.configuration,
                         "last_validated_at": configuration_obj.last_validated_at,
@@ -89,41 +128,23 @@ class UserClient(BaseDBClient):
                     f"Failed to validate user configuration for user {user_id}: {e}. "
                     "Returning default configuration."
                 )
-                return UserConfiguration()
+                return EffectiveAIModelConfiguration()
 
     async def update_user_configuration(
-        self, user_id: int, configuration: UserConfiguration
-    ) -> UserConfiguration:
-        async with self.async_session() as session:
-            result = await session.execute(
-                select(UserConfigurationModel).where(
-                    UserConfigurationModel.user_id == user_id
-                )
-            )
-            configuration_obj = result.scalars().first()
-            if not configuration_obj:
-                configuration_obj = UserConfigurationModel(
-                    user_id=user_id, configuration=configuration.model_dump()
-                )
-                session.add(configuration_obj)
-            else:
-                configuration_obj.configuration = configuration.model_dump()
-            try:
-                await session.commit()
-            except Exception as e:
-                await session.rollback()
-                raise e
-            await session.refresh(configuration_obj)
-        return UserConfiguration.model_validate(configuration_obj.configuration)
+        self, user_id: int, configuration: EffectiveAIModelConfiguration
+    ) -> EffectiveAIModelConfiguration:
+        value = await self.upsert_user_configuration_value(
+            user_id,
+            UserConfigurationKey.MODEL_CONFIGURATION.value,
+            configuration.model_dump(),
+        )
+        return EffectiveAIModelConfiguration.model_validate(value)
 
     async def update_user_configuration_last_validated_at(self, user_id: int) -> None:
         async with self.async_session() as session:
-            result = await session.execute(
-                select(UserConfigurationModel).where(
-                    UserConfigurationModel.user_id == user_id
-                )
+            configuration_obj = await self._get_user_configuration_row(
+                session, user_id, UserConfigurationKey.MODEL_CONFIGURATION.value
             )
-            configuration_obj = result.scalars().first()
             if not configuration_obj:
                 raise ValueError(f"User configuration with ID {user_id} not found")
             configuration_obj.last_validated_at = datetime.now()
@@ -161,15 +182,26 @@ class UserClient(BaseDBClient):
         async with self.async_session() as session:
             from sqlalchemy import update
 
-            stmt = update(UserModel).where(UserModel.id == user_id).values(email=email)
+            stmt = (
+                update(UserModel)
+                .where(UserModel.id == user_id)
+                .values(email=email.lower())
+            )
             await session.execute(stmt)
             await session.commit()
 
     async def get_user_by_email(self, email: str) -> UserModel | None:
-        """Fetch a user by their email address."""
+        """Fetch a user by their email address (case-insensitive).
+
+        Email addresses are case-insensitive in practice, so a user who
+        signed up as "User@example.com" must still be found when they later
+        log in as "user@example.com". Compare on lower(email) so lookups are
+        robust to capitalization differences across sign-in flows.
+        """
+        normalized_email = email.lower()
         async with self.async_session() as session:
             result = await session.execute(
-                select(UserModel).where(UserModel.email == email)
+                select(UserModel).where(func.lower(UserModel.email) == normalized_email)
             )
             return result.scalars().first()
 
@@ -180,7 +212,7 @@ class UserClient(BaseDBClient):
         async with self.async_session() as session:
             user = UserModel(
                 provider_id=f"oss_{int(datetime.now(timezone.utc).timestamp())}_{uuid.uuid4()}",
-                email=email,
+                email=email.lower(),
                 password_hash=password_hash,
             )
             session.add(user)

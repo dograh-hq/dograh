@@ -4,6 +4,7 @@ This client communicates with the Model Proxy Service (MPS) for service key mana
 Service keys are stored and managed entirely in MPS, not in the local database.
 """
 
+import asyncio
 from typing import List, Optional
 
 import httpx
@@ -263,10 +264,12 @@ class MPSServiceKeyClient:
             HTTPException: If the API call fails
         """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/api/v1/service-keys/usage",
-                json={"service_key": service_key},
-                headers=self._get_headers(organization_id, created_by),
+            response = await client.get(
+                f"{self.base_url}/api/v1/service-keys/usage/self",
+                headers={
+                    "Authorization": f"Bearer {service_key}",
+                    "Content-Type": "application/json",
+                },
             )
 
             if response.status_code == 200:
@@ -351,6 +354,277 @@ class MPSServiceKeyClient:
                     response=response,
                 )
 
+    async def create_credit_purchase_url(
+        self,
+        organization_id: int,
+        created_by: Optional[str] = None,
+        return_url: Optional[str] = None,
+        billing_details: Optional[dict] = None,
+    ) -> dict:
+        """Create a short-lived MPS checkout URL for adding organization credits."""
+        payload = {
+            "created_by": created_by,
+            "return_url": return_url,
+            "billing_details": billing_details or {},
+        }
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/checkout-sessions",
+                json=payload,
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to create MPS credit purchase URL: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to create MPS credit purchase URL: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
+    async def get_credit_ledger(
+        self,
+        organization_id: int,
+        page: int = 1,
+        limit: int = 50,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """Get the MPS v2 billing account balance and recent credit ledger."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/ledger",
+                params={"page": page, "limit": limit},
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to get MPS credit ledger: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to get MPS credit ledger: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
+    async def get_billing_account_status(
+        self,
+        organization_id: int,
+        created_by: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Get an existing MPS v2 billing account without creating one."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/status",
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to get MPS billing account status: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to get MPS billing account status: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
+    async def ensure_billing_account_v2(
+        self,
+        organization_id: int,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """Create or return the MPS v2 billing account for an organization."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.get(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/balance",
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to ensure MPS billing account v2: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to ensure MPS billing account v2: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
+    async def authorize_workflow_run_start(
+        self,
+        *,
+        organization_id: int,
+        workflow_run_id: int | None = None,
+        service_key: Optional[str] = None,
+        require_correlation_id: bool = False,
+        minimum_credits: float | None = None,
+        metadata: Optional[dict] = None,
+        created_by: Optional[str] = None,
+    ) -> dict:
+        """Authorize a hosted workflow run and optionally mint its MPS correlation."""
+        payload = {
+            "workflow_run_id": workflow_run_id,
+            "service_key": service_key,
+            "require_correlation_id": require_correlation_id,
+            "metadata": metadata or {},
+        }
+        if minimum_credits is not None:
+            payload["minimum_credits"] = minimum_credits
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/billing/accounts/{organization_id}/run-authorization",
+                json=payload,
+                headers=self._get_headers(
+                    organization_id=organization_id,
+                    created_by=created_by,
+                ),
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.warning(
+                "Failed to authorize MPS workflow run start: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to authorize MPS workflow run start: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
+    async def create_correlation_id(
+        self,
+        *,
+        service_key: str,
+        workflow_run_id: int | None = None,
+    ) -> dict:
+        """Mint a server-generated correlation ID for managed model services."""
+        payload: dict[str, int] = {}
+        if workflow_run_id is not None:
+            payload["workflow_run_id"] = workflow_run_id
+
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            response = await client.post(
+                f"{self.base_url}/api/v1/service-keys/correlation-id/self",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {service_key}",
+                    "Content-Type": "application/json",
+                },
+            )
+
+            if response.status_code == 200:
+                return response.json()
+
+            logger.error(
+                "Failed to create correlation ID: "
+                f"{response.status_code} - {response.text}"
+            )
+            raise httpx.HTTPStatusError(
+                f"Failed to create correlation ID: {response.text}",
+                request=response.request,
+                response=response,
+            )
+
+    async def report_platform_usage(
+        self,
+        *,
+        organization_id: int,
+        correlation_id: Optional[str] = None,
+        duration_seconds: Optional[float] = None,
+        workflow_run_id: int | None = None,
+        metadata: Optional[dict] = None,
+        max_attempts: int = 3,
+    ) -> dict:
+        """Report hosted Dograh platform usage for a completed workflow run."""
+        if DEPLOYMENT_MODE == "oss":
+            raise ValueError("OSS deployments must not report platform usage to MPS")
+        if not correlation_id and duration_seconds is None:
+            raise ValueError(
+                "Platform usage reports require correlation_id or duration_seconds"
+            )
+
+        payload: dict = {
+            "metadata": metadata or {},
+        }
+        if correlation_id:
+            payload["correlation_id"] = correlation_id
+        if duration_seconds is not None:
+            payload["duration_seconds"] = duration_seconds
+        if workflow_run_id is not None:
+            payload["workflow_run_id"] = workflow_run_id
+
+        max_attempts = max(1, max_attempts)
+        last_response: httpx.Response | None = None
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            for attempt in range(1, max_attempts + 1):
+                response = await client.post(
+                    (
+                        f"{self.base_url}/api/v1/billing/accounts/"
+                        f"{organization_id}/platform-usage"
+                    ),
+                    json=payload,
+                    headers=self._get_headers(organization_id=organization_id),
+                )
+                last_response = response
+
+                if response.status_code == 200:
+                    return response.json()
+
+                usage_not_ready = (
+                    response.status_code == 409 and "usage_not_ready" in response.text
+                )
+                if usage_not_ready and attempt < max_attempts:
+                    await asyncio.sleep(attempt)
+                    continue
+
+                log = logger.warning if usage_not_ready else logger.error
+                log(
+                    "Failed to report platform usage: "
+                    f"{response.status_code} - {response.text}"
+                )
+                raise httpx.HTTPStatusError(
+                    f"Failed to report platform usage: {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+
+        raise httpx.HTTPStatusError(
+            "Failed to report platform usage",
+            request=last_response.request,
+            response=last_response,
+        )
+
     async def transcribe_audio(
         self,
         audio_data: bytes,
@@ -429,10 +703,12 @@ class MPSServiceKeyClient:
         """
         try:
             with httpx.Client(timeout=self.timeout) as client:
-                response = client.post(
-                    f"{self.base_url}/api/v1/service-keys/usage",
-                    json={"service_key": service_key},
-                    headers=self._get_headers(organization_id, created_by),
+                response = client.get(
+                    f"{self.base_url}/api/v1/service-keys/usage/self",
+                    headers={
+                        "Authorization": f"Bearer {service_key}",
+                        "Content-Type": "application/json",
+                    },
                 )
                 return response.status_code == 200
         except Exception:
@@ -444,6 +720,9 @@ class MPSServiceKeyClient:
         provider: str,
         model: Optional[str] = None,
         language: Optional[str] = None,
+        q: Optional[str] = None,
+        gender: Optional[str] = None,
+        accent: Optional[str] = None,
         organization_id: Optional[int] = None,
         created_by: Optional[str] = None,
     ) -> dict:
@@ -469,6 +748,12 @@ class MPSServiceKeyClient:
                 params["model"] = model
             if language:
                 params["language"] = language
+            if q:
+                params["q"] = q
+            if gender:
+                params["gender"] = gender
+            if accent:
+                params["accent"] = accent
             response = await client.get(
                 f"{self.base_url}/api/v1/voice-proxy/{provider}/voices",
                 headers=self._get_headers(organization_id, created_by),

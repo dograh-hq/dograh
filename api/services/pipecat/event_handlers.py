@@ -9,8 +9,8 @@ from api.services.integrations import IntegrationRuntimeSession
 from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.audio_playback import play_audio_loop
 from api.services.pipecat.in_memory_buffers import (
-    InMemoryAudioBuffer,
     InMemoryLogsBuffer,
+    InMemoryRecordingBuffers,
 )
 from api.services.pipecat.pipeline_metrics_aggregator import PipelineMetricsAggregator
 from api.services.pipecat.tracing_config import get_trace_url
@@ -21,7 +21,7 @@ from api.tasks.function_names import FunctionNames
 from pipecat.frames.frames import (
     Frame,
 )
-from pipecat.pipeline.task import PipelineTask
+from pipecat.pipeline.worker import PipelineWorker
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.utils.enums import EndTaskReason
 
@@ -40,11 +40,11 @@ async def _capture_call_event(
             "workflow_run_id": workflow_run_id,
             "workflow_id": workflow_run.workflow_id if workflow_run else None,
             "call_type": workflow_run.mode if workflow_run else None,
-            "call_direction": (workflow_run.initial_context or {}).get(
-                "direction", "outbound"
-            )
-            if workflow_run
-            else None,
+            "call_direction": (
+                (workflow_run.initial_context or {}).get("direction", "outbound")
+                if workflow_run
+                else None
+            ),
         }
         if extra_properties:
             properties.update(extra_properties)
@@ -58,7 +58,7 @@ async def _capture_call_event(
 
 
 def register_event_handlers(
-    task: PipelineTask,
+    task: PipelineWorker,
     transport,
     workflow_run_id: int,
     engine: PipecatEngine,
@@ -73,7 +73,7 @@ def register_event_handlers(
     """Register all event handlers for transport and task events.
 
     Returns:
-        in_memory_audio_buffer for use by other handlers.
+        In-memory recording buffers for use by other handlers.
     """
     # Initialize in-memory buffers with proper audio configuration
     sample_rate = audio_config.pipeline_sample_rate if audio_config else 16000
@@ -84,7 +84,7 @@ def register_event_handlers(
         f"with sample_rate={sample_rate}Hz, channels={num_channels}"
     )
 
-    in_memory_audio_buffer = InMemoryAudioBuffer(
+    in_memory_audio_buffers = InMemoryRecordingBuffers(
         workflow_run_id=workflow_run_id,
         sample_rate=sample_rate,
         num_channels=num_channels,
@@ -184,13 +184,13 @@ def register_event_handlers(
         )
 
     @task.event_handler("on_pipeline_started")
-    async def on_pipeline_started(_task: PipelineTask, _frame: Frame):
+    async def on_pipeline_started(_task: PipelineWorker, _frame: Frame):
         logger.debug("In on_pipeline_started callback handler")
         ready_state["pipeline_started"] = True
         await maybe_trigger_initial_response()
 
     @task.event_handler("on_pipeline_error")
-    async def on_pipeline_error(_task: PipelineTask, frame: Frame):
+    async def on_pipeline_error(_task: PipelineWorker, frame: Frame):
         logger.warning(f"Pipeline error for workflow run {workflow_run_id}: {frame}")
         try:
             workflow_run = await db_client.get_workflow_run_by_id(workflow_run_id)
@@ -218,7 +218,7 @@ def register_event_handlers(
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(
-        task: PipelineTask,
+        task: PipelineWorker,
         _frame: Frame,
     ):
         logger.debug(f"In on_pipeline_finished callback handler")
@@ -363,13 +363,31 @@ def register_event_handlers(
 
         # Write buffers to temp files and enqueue combined processing task
         audio_temp_path = None
+        user_audio_temp_path = None
+        bot_audio_temp_path = None
         transcript_temp_path = None
 
         try:
-            if not in_memory_audio_buffer.is_empty:
-                audio_temp_path = await in_memory_audio_buffer.write_to_temp_file()
+            if not in_memory_audio_buffers.mixed.is_empty:
+                audio_temp_path = (
+                    await in_memory_audio_buffers.mixed.write_to_temp_file()
+                )
             else:
                 logger.debug("Audio buffer is empty, skipping upload")
+
+            if not in_memory_audio_buffers.user.is_empty:
+                user_audio_temp_path = (
+                    await in_memory_audio_buffers.user.write_to_temp_file()
+                )
+            else:
+                logger.debug("User audio buffer is empty, skipping upload")
+
+            if not in_memory_audio_buffers.bot.is_empty:
+                bot_audio_temp_path = (
+                    await in_memory_audio_buffers.bot.write_to_temp_file()
+                )
+            else:
+                logger.debug("Bot audio buffer is empty, skipping upload")
 
             transcript_temp_path = in_memory_logs_buffer.write_transcript_to_temp_file()
             if not transcript_temp_path:
@@ -385,16 +403,18 @@ def register_event_handlers(
             workflow_run_id,
             audio_temp_path,
             transcript_temp_path,
+            user_audio_temp_path,
+            bot_audio_temp_path,
         )
 
     # Return the buffer so it can be passed to other handlers
-    return in_memory_audio_buffer
+    return in_memory_audio_buffers
 
 
 def register_audio_data_handler(
     audio_buffer: AudioBufferProcessor,
     workflow_run_id,
-    in_memory_buffer: InMemoryAudioBuffer,
+    in_memory_buffers: InMemoryRecordingBuffers,
 ):
     """Register event handler for audio data"""
     logger.info(f"Registering audio data handler for workflow run {workflow_run_id}")
@@ -404,9 +424,19 @@ def register_audio_data_handler(
         if not audio:
             return
 
-        # Use in-memory buffer
         try:
-            await in_memory_buffer.append(audio)
+            await in_memory_buffers.mixed.append(audio)
         except MemoryError as e:
-            logger.error(f"Memory buffer full: {e}")
-            # Could implement overflow to disk here if needed
+            logger.error(f"Mixed audio buffer full: {e}")
+
+    @audio_buffer.event_handler("on_track_audio_data")
+    async def on_track_audio_data(
+        buffer, user_audio, bot_audio, sample_rate, num_channels
+    ):
+        try:
+            if user_audio:
+                await in_memory_buffers.user.append(user_audio)
+            if bot_audio:
+                await in_memory_buffers.bot.append(bot_audio)
+        except MemoryError as e:
+            logger.error(f"Track audio buffer full: {e}")

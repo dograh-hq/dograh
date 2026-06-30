@@ -147,7 +147,8 @@ export function EmbeddedVoiceTester({
                 onOpenChange={setApiKeyModalOpen}
                 error={apiKeyError}
                 errorCode={apiKeyErrorCode}
-                onNavigateToCredits={() => router.push("/api-keys")}
+                onNavigateToBilling={() => router.push("/billing")}
+                onNavigateToDevelopers={() => router.push("/api-keys")}
                 onNavigateToModelConfig={() => router.push("/model-configurations")}
             />
 

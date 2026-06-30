@@ -6,12 +6,13 @@ import type { NodeSpec } from '@/client/types.gen';
 import { useNodeSpecs } from '@/components/flow/renderer';
 import { Button } from '@/components/ui/button';
 
-import { NodeType } from './types';
+import { FlowNode, NodeType } from './types';
 
 type AddNodePanelProps = {
     isOpen: boolean;
     onClose: () => void;
     onNodeSelect: (nodeType: NodeType) => void;
+    nodes: FlowNode[];
 };
 
 // Section ordering and labels. Drives both the category → section title
@@ -32,10 +33,12 @@ function NodeSection({
     title,
     specs,
     onNodeSelect,
+    nodeTypeCounts,
 }: {
     title: string;
     specs: NodeSpec[];
     onNodeSelect: (nodeType: NodeType) => void;
+    nodeTypeCounts: Map<string, number>;
 }) {
     if (specs.length === 0) return null;
     return (
@@ -46,12 +49,23 @@ function NodeSection({
             <div className="space-y-2">
                 {specs.map((spec) => {
                     const Icon = resolveIcon(spec.icon);
+                    const maxInstances = spec.graph_constraints?.max_instances;
+                    const disabled =
+                        maxInstances !== undefined &&
+                        maxInstances !== null &&
+                        (nodeTypeCounts.get(spec.name) ?? 0) >= maxInstances;
                     return (
                         <Button
                             key={spec.name}
                             variant="outline"
                             className="w-full justify-start p-4 h-auto hover:bg-accent/50 transition-colors"
                             onClick={() => onNodeSelect(spec.name as NodeType)}
+                            disabled={disabled}
+                            title={
+                                disabled
+                                    ? `${spec.display_name} limit reached for this workflow`
+                                    : undefined
+                            }
                         >
                             <div className="flex items-center">
                                 <div className="bg-muted p-2 rounded-lg mr-3 border border-border">
@@ -74,7 +88,7 @@ function NodeSection({
     );
 }
 
-export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodePanelProps) {
+export default function AddNodePanel({ isOpen, onNodeSelect, onClose, nodes }: AddNodePanelProps) {
     const { specs } = useNodeSpecs();
 
     // Group registered specs by category, preserving the SECTION_ORDER.
@@ -85,6 +99,14 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
             specs: specs.filter((s) => s.category === category),
         }));
     }, [specs]);
+
+    const nodeTypeCounts = useMemo(() => {
+        const counts = new Map<string, number>();
+        nodes.forEach((node) => {
+            counts.set(node.type, (counts.get(node.type) ?? 0) + 1);
+        });
+        return counts;
+    }, [nodes]);
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -128,6 +150,7 @@ export default function AddNodePanel({ isOpen, onNodeSelect, onClose }: AddNodeP
                             title={title}
                             specs={specs}
                             onNodeSelect={onNodeSelect}
+                            nodeTypeCounts={nodeTypeCounts}
                         />
                     ))}
                 </div>

@@ -18,20 +18,10 @@ initial_context ──► Agent ──► gathered_context
 
 Data available to the agent before the call starts — the contact's name, account details, appointment information, anything the agent should know upfront. It can be set from several places:
 
-- **API trigger** — pass it in the request body when calling `POST /public/agent/{uuid}` or `POST /telephony/initiate-call`
-- **Campaign CSV** — columns beyond `phone_number` automatically become `initial_context` fields for each contact's call
-- **Dashboard** — set default template context variables on the agent, used when no external context is provided
-
-```json
-{
-  "phone_number": "+14155550100",
-  "initial_context": {
-    "customer_name": "Jane Smith",
-    "plan": "premium",
-    "renewal_date": "April 1"
-  }
-}
-```
+- **[API trigger](/voice-agent/api-trigger)** — pass it in the request body when calling `POST /public/agent/{uuid}` or `POST /telephony/initiate-call`
+- **[Campaign CSV](/core-concepts/campaigns)** — columns beyond `phone_number` automatically become `initial_context` fields for each contact's call
+- **[Pre-call data fetch](/voice-agent/pre-call-data-fetch)** — enrich the context with data from your CRM or ERP via an HTTP call as the call starts, before the agent speaks
+- **[Agent Settings](/voice-agent/template-variables#using-template-variables-for-testing)** — set template context variables on the agent for testing; they're included in test calls from the workflow editor and ignored on production calls
 
 ### Template variables
 
@@ -103,7 +93,7 @@ Data the agent collects *during* the call. You configure what to extract in the 
 
 <img src="../images/extracted_variables.png" alt="Extracted variables" style={{border: "1px solid #d1d5db", borderRadius: "8px", maxWidth: "100%"}} />
 
-`gathered_context` is returned in the run record after the call completes and is available in [webhook payloads](/developer/webhooks) for downstream processing.
+`gathered_context` is returned in the run record after the call completes and is available in [webhook payloads](/developer/webhooks) for downstream processing. It is **not** available as a template variable in Agent prompts — prompts can only reference `initial_context` fields.
 
 ## Data flow example
 

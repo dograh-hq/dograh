@@ -14,6 +14,7 @@ import { createWorkflowDraftApiV1WorkflowWorkflowIdCreateDraftPost, getWorkflowV
 import type { DocumentResponseSchema, RecordingResponseSchema, ToolResponse } from '@/client/types.gen';
 import { useNodeSpecs } from "@/components/flow/renderer";
 import { FlowEdge, FlowNode, NodeType } from "@/components/flow/types";
+import { HireExpertNudge } from "@/components/lead-forms/HireExpertNudge";
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -481,6 +482,7 @@ function RenderWorkflow({
     return (
         <WorkflowProvider value={workflowContextValue}>
             <div className="flex flex-col h-screen min-w-fit">
+                <HireExpertNudge workflowId={workflowId} />
                 {/* New Workflow Editor Header */}
                 <WorkflowEditorHeader
                     workflowName={workflowName}
@@ -656,7 +658,7 @@ function RenderWorkflow({
                         </div>
 
                         {isTesterRailOpen && (
-                            <aside className="hidden h-full w-[420px] shrink-0 border-l border-border xl:block">
+                            <aside className="hidden h-full w-[400px] shrink-0 border-l border-border xl:block">
                                 <WorkflowTesterPanel
                                     workflowId={workflowId}
                                     initialContextVariables={templateContextVariables}
@@ -690,6 +692,7 @@ function RenderWorkflow({
                     isOpen={isAddNodePanelOpen}
                     onNodeSelect={handleNodeSelect}
                     onClose={() => setIsAddNodePanelOpen(false)}
+                    nodes={nodes}
                 />
 
                 <VersionHistoryPanel

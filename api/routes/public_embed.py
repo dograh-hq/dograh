@@ -7,6 +7,7 @@ They handle CORS, domain validation, and session management for embedded workflo
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Optional
+from urllib.parse import urlsplit
 
 from fastapi import (
     APIRouter,
@@ -16,6 +17,8 @@ from fastapi import (
 )
 from loguru import logger
 from pydantic import BaseModel
+from starlette.datastructures import Headers
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from api.db import db_client
 from api.enums import WorkflowRunMode
@@ -26,6 +29,9 @@ from api.routes.turn_credentials import (
 )
 
 router = APIRouter(prefix="/public/embed")
+
+EMBED_CORS_ALLOW_HEADERS = "Content-Type, Origin"
+EMBED_CORS_MAX_AGE = "86400"
 
 
 class InitEmbedRequest(BaseModel):
@@ -70,11 +76,9 @@ def validate_origin(origin: str, allowed_domains: list) -> bool:
         # If no domains specified, allow all origins
         return True
 
-    # Extract domain from origin (remove protocol)
-    if "://" in origin:
-        domain = origin.split("://")[1].split("/")[0].split(":")[0]
-    else:
-        domain = origin
+    domain, origin_port = _parse_origin_host_port(origin)
+    if not domain:
+        return False
 
     # Normalize domain for www matching
     def normalize_www(d: str) -> tuple[str, str]:
@@ -87,16 +91,23 @@ def validate_origin(origin: str, allowed_domains: list) -> bool:
     domain_variants = normalize_www(domain)
 
     for allowed in allowed_domains:
+        allowed = str(allowed).strip().lower()
         if allowed == "*":
             return True
-        elif allowed.startswith("*."):
+        allowed_domain, allowed_port = _parse_origin_host_port(allowed)
+        if not allowed_domain:
+            continue
+        if allowed_port is not None and allowed_port != origin_port:
+            continue
+
+        if allowed_domain.startswith("*."):
             # Wildcard subdomain matching
-            base_domain = allowed[2:]
+            base_domain = allowed_domain[2:]
             if domain == base_domain or domain.endswith("." + base_domain):
                 return True
         else:
             # Check both www and non-www versions
-            allowed_variants = normalize_www(allowed)
+            allowed_variants = normalize_www(allowed_domain)
             # If any variant of domain matches any variant of allowed, it's valid
             if any(
                 dv in allowed_variants or av in domain_variants
@@ -106,6 +117,24 @@ def validate_origin(origin: str, allowed_domains: list) -> bool:
                 return True
 
     return False
+
+
+def _parse_origin_host_port(value: str) -> tuple[str, str | None]:
+    candidate = value.strip().lower()
+    if not candidate:
+        return "", None
+
+    if "://" not in candidate and not candidate.startswith("//"):
+        candidate = f"//{candidate}"
+
+    parsed = urlsplit(candidate)
+    try:
+        parsed_port = parsed.port
+    except ValueError:
+        parsed_port = None
+
+    port = str(parsed_port) if parsed_port is not None else None
+    return (parsed.hostname or "").rstrip("."), port
 
 
 def generate_session_token() -> str:
@@ -121,8 +150,120 @@ def get_request_origin(request: Request) -> str:
     return origin
 
 
+def _cors_response(origin: str, methods: str) -> Response:
+    return Response(
+        headers={
+            "Access-Control-Allow-Origin": origin,
+            "Access-Control-Allow-Methods": methods,
+            "Access-Control-Allow-Headers": EMBED_CORS_ALLOW_HEADERS,
+            "Access-Control-Max-Age": EMBED_CORS_MAX_AGE,
+            "Vary": "Origin",
+        }
+    )
+
+
+def _allow_embed_origin(response: Response, origin: str) -> None:
+    response.headers["Access-Control-Allow-Origin"] = origin
+    vary = response.headers.get("Vary")
+    if not vary:
+        response.headers["Vary"] = "Origin"
+        return
+
+    vary_values = {value.strip().lower() for value in vary.split(",")}
+    if "origin" not in vary_values:
+        response.headers["Vary"] = f"{vary}, Origin"
+
+
+async def _config_preflight_response(token: str, origin: str) -> Response:
+    embed_token = await db_client.get_embed_token_by_token(token)
+    if not embed_token or not embed_token.is_active:
+        return Response(status_code=403)
+
+    if not validate_origin(origin, embed_token.allowed_domains or []):
+        return Response(status_code=403)
+
+    return _cors_response(origin, "GET, OPTIONS")
+
+
+async def _turn_credentials_preflight_response(
+    session_token: str, origin: str
+) -> Response:
+    embed_session = await db_client.get_embed_session_by_token(session_token)
+    if not embed_session:
+        return Response(status_code=403)
+
+    if embed_session.expires_at and embed_session.expires_at < datetime.now(UTC):
+        return Response(status_code=403)
+
+    embed_token = await db_client.get_embed_token_by_id(embed_session.embed_token_id)
+    if not embed_token:
+        return Response(status_code=403)
+
+    if not validate_origin(origin, embed_token.allowed_domains or []):
+        return Response(status_code=403)
+
+    return _cors_response(origin, "GET, OPTIONS")
+
+
+async def build_public_embed_preflight_response(
+    path: str, origin: str, requested_method: str, api_prefix: str = "/api/v1"
+) -> Response | None:
+    """Handle embed preflights before global CORSMiddleware rejects external sites."""
+    public_embed_prefix = f"{api_prefix.rstrip('/')}/public/embed"
+
+    if path == f"{public_embed_prefix}/init":
+        if requested_method.upper() != "POST":
+            return Response(status_code=405)
+        return _cors_response(origin, "POST, OPTIONS")
+
+    config_prefix = f"{public_embed_prefix}/config/"
+    if path.startswith(config_prefix):
+        if requested_method.upper() != "GET":
+            return Response(status_code=405)
+        token = path[len(config_prefix) :].split("/", 1)[0]
+        return await _config_preflight_response(token, origin)
+
+    turn_credentials_prefix = f"{public_embed_prefix}/turn-credentials/"
+    if path.startswith(turn_credentials_prefix):
+        if requested_method.upper() != "GET":
+            return Response(status_code=405)
+        session_token = path[len(turn_credentials_prefix) :].split("/", 1)[0]
+        return await _turn_credentials_preflight_response(session_token, origin)
+
+    return None
+
+
+class PublicEmbedCORSMiddleware:
+    """Allow token-gated embed CORS before global SaaS CORS rejects preflights."""
+
+    def __init__(self, app: ASGIApp, api_prefix: str = "/api/v1"):
+        self.app = app
+        self.api_prefix = api_prefix
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("method") != "OPTIONS":
+            await self.app(scope, receive, send)
+            return
+
+        headers = Headers(scope=scope)
+        origin = headers.get("origin")
+        requested_method = headers.get("access-control-request-method")
+
+        if origin and requested_method:
+            response = await build_public_embed_preflight_response(
+                scope.get("path", ""), origin, requested_method, self.api_prefix
+            )
+            if response is not None:
+                await response(scope, receive, send)
+                return
+
+        await self.app(scope, receive, send)
+
+
 @router.post("/init", response_model=InitEmbedResponse)
-async def initialize_embed_session(request: Request, init_request: InitEmbedRequest):
+async def initialize_embed_session(
+    request: Request, init_request: InitEmbedRequest, response: Response
+):
     """Initialize an embed session with token validation and domain checking.
 
     This endpoint:
@@ -158,6 +299,9 @@ async def initialize_embed_session(request: Request, init_request: InitEmbedRequ
         )
         raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
 
+    if origin:
+        _allow_embed_origin(response, origin)
+
     # Create workflow run
     try:
         workflow_run = await db_client.create_workflow_run(
@@ -165,7 +309,10 @@ async def initialize_embed_session(request: Request, init_request: InitEmbedRequ
             workflow_id=embed_token.workflow_id,
             mode=WorkflowRunMode.SMALLWEBRTC.value,
             user_id=embed_token.created_by,  # Use token creator as run owner
-            initial_context=init_request.context_variables,
+            initial_context={
+                **(init_request.context_variables or {}),
+                "provider": WorkflowRunMode.SMALLWEBRTC.value,
+            },
         )
     except Exception as e:
         logger.error(f"Failed to create workflow run: {e}")
@@ -204,8 +351,19 @@ async def initialize_embed_session(request: Request, init_request: InitEmbedRequ
     )
 
 
+@router.options("/config/{token}")
+async def options_embed_config(token: str, request: Request):
+    """Fallback OPTIONS handler for the embed config endpoint.
+
+    Browser preflights include Access-Control-Request-Method and are handled by
+    PublicEmbedCORSMiddleware before global CORS. This keeps non-conformant
+    OPTIONS requests on the same validation path.
+    """
+    return await _config_preflight_response(token, request.headers.get("origin", ""))
+
+
 @router.get("/config/{token}", response_model=EmbedConfigResponse)
-async def get_embed_config(token: str, request: Request):
+async def get_embed_config(token: str, request: Request, response: Response):
     """Get embed configuration without creating a session.
 
     This endpoint is used to fetch widget configuration for display purposes
@@ -226,6 +384,11 @@ async def get_embed_config(token: str, request: Request):
     if not validate_origin(origin, embed_token.allowed_domains or []):
         raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
 
+    # Set CORS header explicitly; the global CORSMiddleware covers only
+    # first-party origins; this endpoint is fetched by external embed sites.
+    if origin:
+        _allow_embed_origin(response, origin)
+
     # Extract settings with defaults
     settings = embed_token.settings or {}
 
@@ -243,24 +406,20 @@ async def get_embed_config(token: str, request: Request):
 
 @router.options("/init")
 async def options_init(request: Request):
-    """Handle CORS preflight for init endpoint"""
+    """Fallback OPTIONS handler for init endpoint."""
+    # Browser preflights are handled by PublicEmbedCORSMiddleware before global CORS.
     # For init endpoint, we need to check the token in the request body
     # But OPTIONS requests don't have body, so we'll be permissive
     # The actual validation happens in the POST request
     origin = request.headers.get("origin", "*")
 
-    return Response(
-        headers={
-            "Access-Control-Allow-Origin": origin,
-            "Access-Control-Allow-Methods": "POST, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Origin",
-            "Access-Control-Max-Age": "86400",
-        }
-    )
+    return _cors_response(origin, "POST, OPTIONS")
 
 
 @router.get("/turn-credentials/{session_token}", response_model=TurnCredentialsResponse)
-async def get_public_turn_credentials(session_token: str, request: Request):
+async def get_public_turn_credentials(
+    session_token: str, request: Request, response: Response
+):
     """Get TURN credentials for an embed session.
 
     This endpoint allows embedded widgets to obtain TURN server credentials
@@ -295,6 +454,9 @@ async def get_public_turn_credentials(session_token: str, request: Request):
         )
         raise HTTPException(status_code=403, detail=f"Domain not allowed: {origin}")
 
+    if origin:
+        _allow_embed_origin(response, origin)
+
     # Check if TURN is configured
     if not TURN_SECRET:
         raise HTTPException(
@@ -316,63 +478,8 @@ async def get_public_turn_credentials(session_token: str, request: Request):
 
 @router.options("/turn-credentials/{session_token}")
 async def options_turn_credentials(request: Request, session_token: str):
-    """Handle CORS preflight for TURN credentials endpoint"""
-    origin = request.headers.get("origin", "*")
-
-    # Try to validate the session token and get allowed domains
-    allowed_origin = origin
-    try:
-        embed_session = await db_client.get_embed_session_by_token(session_token)
-        if embed_session:
-            embed_token = await db_client.get_embed_token_by_id(
-                embed_session.embed_token_id
-            )
-            if embed_token:
-                # Check if origin is in allowed domains (empty means allow all)
-                if validate_origin(origin, embed_token.allowed_domains or []):
-                    allowed_origin = origin
-                else:
-                    allowed_origin = ""
-    except Exception:
-        # On error, be permissive for OPTIONS
-        pass
-
-    return Response(
-        headers={
-            "Access-Control-Allow-Origin": allowed_origin,
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-            "Access-Control-Max-Age": "86400",
-        }
-    )
-
-
-@router.options("/config/{token}")
-async def options_config(request: Request, token: str):
-    """Handle CORS preflight for config endpoint"""
-    # Get origin header
-    origin = request.headers.get("origin", "*")
-
-    # Try to validate the token and get allowed domains
-    allowed_origin = origin
-    try:
-        embed_token = await db_client.get_embed_token_by_token(token)
-        if embed_token and embed_token.is_active:
-            # Check if origin is in allowed domains
-            if validate_origin(origin, embed_token.allowed_domains or []):
-                allowed_origin = origin
-            else:
-                # If not allowed, don't include the origin
-                allowed_origin = ""
-    except Exception:
-        # On error, be permissive for OPTIONS
-        pass
-
-    return Response(
-        headers={
-            "Access-Control-Allow-Origin": allowed_origin,
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-            "Access-Control-Max-Age": "86400",
-        }
+    """Fallback OPTIONS handler for TURN credentials endpoint."""
+    # Browser preflights are handled by PublicEmbedCORSMiddleware before global CORS.
+    return await _turn_credentials_preflight_response(
+        session_token, request.headers.get("origin", "")
     )

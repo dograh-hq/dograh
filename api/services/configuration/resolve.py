@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from api.schemas.user_configuration import UserConfiguration
+import copy
+
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.registry import (
     REGISTRY,
     ServiceType,
 )
 
-# Maps override key → (UserConfiguration field, ServiceType for registry lookup)
+# Maps override key → (EffectiveAIModelConfiguration field, ServiceType for registry lookup)
 _SECTION_MAP: dict[str, ServiceType] = {
     "llm": ServiceType.LLM,
     "tts": ServiceType.TTS,
@@ -29,10 +31,52 @@ def _build_section_from_override(service_type: ServiceType, override: dict):
     return config_cls(**override)
 
 
+_SECRET_FIELDS = ("api_key", "credentials", "aws_access_key", "aws_secret_key")
+
+
+def enrich_overrides_with_api_keys(
+    model_overrides: dict,
+    user_config: EffectiveAIModelConfiguration,
+) -> dict:
+    """Copy API keys from the global config into model_overrides where missing.
+
+    When a workflow override selects the same provider as the current global
+    config but omits the API key, the override becomes broken if the global
+    config later switches to a different provider. This function stamps the
+    global provider's API key (and other secret fields) into the override at
+    save time so the override is self-contained.
+    """
+    result = copy.deepcopy(model_overrides)
+    for section_key in _SECTION_MAP:
+        if section_key not in result:
+            continue
+        override = result[section_key]
+        override_provider = override.get("provider")
+        if not override_provider:
+            continue
+        global_section = getattr(user_config, section_key, None)
+        if global_section is None:
+            continue
+        if getattr(global_section, "provider", None) != override_provider:
+            continue
+        for field in _SECRET_FIELDS:
+            if override.get(field):
+                continue
+            if field == "api_key" and hasattr(global_section, "get_all_api_keys"):
+                all_keys = global_section.get_all_api_keys()
+                if all_keys:
+                    override[field] = all_keys[0] if len(all_keys) == 1 else all_keys
+            else:
+                global_value = getattr(global_section, field, None)
+                if global_value is not None:
+                    override[field] = global_value
+    return result
+
+
 def resolve_effective_config(
-    user_config: UserConfiguration,
+    user_config: EffectiveAIModelConfiguration,
     model_overrides: dict | None,
-) -> UserConfiguration:
+) -> EffectiveAIModelConfiguration:
     """Deep-merge workflow model_overrides onto global user config.
 
     - If model_overrides is None or empty, returns a copy of user_config unchanged.

@@ -4,9 +4,9 @@ This observer watches pipeline frames and sends relevant events (transcriptions,
 bot text, function calls, TTFB metrics) over WebSocket to provide real-time
 feedback in the UI.
 
-For frames with presentation timestamps (pts), like TTSTextFrame, we respect
-the timing by queuing them and sending at the appropriate time, similar to
-how base_output.py handles timed frames.
+For TTS text, we wait until the frame has passed through BaseOutputTransport.
+That transport already applies presentation timestamp timing against audio
+playback, so the UI text is emitted from the same clock as the spoken audio.
 
 Streaming vs. persisted data:
 - WebSocket receives all events in real-time (interim transcriptions, TTS text
@@ -20,9 +20,7 @@ rather than being observed here, to ensure precise timing at the moment of
 node changes.
 """
 
-import asyncio
 import json
-import time
 from typing import TYPE_CHECKING, Awaitable, Callable, Optional, Set
 
 from loguru import logger
@@ -60,8 +58,8 @@ from pipecat.frames.frames import (
 from pipecat.metrics.metrics import TTFBMetricsData
 from pipecat.observers.base_observer import BaseObserver, FramePushed
 from pipecat.processors.frame_processor import FrameDirection
+from pipecat.transports.base_output import BaseOutputTransport
 from pipecat.utils.enums import RealtimeFeedbackType
-from pipecat.utils.time import nanoseconds_to_seconds
 
 
 class RealtimeFeedbackObserver(BaseObserver):
@@ -69,17 +67,14 @@ class RealtimeFeedbackObserver(BaseObserver):
 
     WebSocket streaming (all events for live UI):
     - User transcriptions (interim and final)
-    - Bot TTS text (with pts-based timing)
+    - Bot TTS text after output transport timing
     - Function calls (start/end)
     - TTFB metrics (LLM generation time only)
 
     Logs buffer persistence (only final data for post-call analysis):
-    - Complete user transcripts per turn (via on_user_turn_stopped)
+    - Complete user transcripts per turn (via on_user_turn_message_added)
     - Complete assistant transcripts per turn (via on_assistant_turn_stopped)
     - Function calls and TTFB metrics
-
-    For frames with pts (presentation timestamp), we queue them and send at the
-    appropriate time to sync with audio playback.
 
     Note: Node transitions are handled by PipecatEngine.set_node() callback.
     """
@@ -100,105 +95,47 @@ class RealtimeFeedbackObserver(BaseObserver):
         self._logs_buffer = logs_buffer
         self._frames_seen: Set[str] = set()
 
-        # Clock/timing for pts-based frames (similar to base_output.py)
-        self._clock_queue: Optional[asyncio.PriorityQueue] = None
-        self._clock_task: Optional[asyncio.Task] = None
-        self._clock_start_time: Optional[float] = (
-            None  # Wall clock time when we started
-        )
-        self._pts_start_time: Optional[int] = None  # First pts value we saw
-
-    async def _ensure_clock_task(self):
-        """Create the clock task if it doesn't exist."""
-        if self._clock_queue is None:
-            self._clock_queue = asyncio.PriorityQueue()
-            self._clock_task = asyncio.create_task(self._clock_task_handler())
-
-    async def _cancel_clock_task(self):
-        """Cancel the clock task and clear the queue.
-
-        Called on interruption to discard any pending bot text that
-        hasn't been sent yet.
-        """
-        if self._clock_task:
-            self._clock_task.cancel()
-            try:
-                await self._clock_task
-            except asyncio.CancelledError:
-                pass
-            self._clock_task = None
-        self._clock_queue = None
-        # Reset timing references so next bot response starts fresh
-        self._clock_start_time = None
-        self._pts_start_time = None
-
     async def cleanup(self):
         """Clean up resources. Must be called when the observer is no longer needed."""
-        await self._cancel_clock_task()
-
-    async def _handle_interruption(self):
-        """Handle interruption by clearing queued bot text.
-
-        Similar to base_output.py's handle_interruptions, we cancel the
-        clock task and recreate it to discard pending frames.
-        """
-        await self._cancel_clock_task()
-
-    async def _clock_task_handler(self):
-        """Process timed frames from the queue, respecting their presentation timestamps.
-
-        Similar to base_output.py's _clock_task_handler, we wait until the
-        frame's pts time has arrived before sending.
-        """
-        while True:
-            try:
-                pts, _frame_id, message = await self._clock_queue.get()
-
-                # Calculate when to send based on pts relative to our start time
-                if (
-                    self._clock_start_time is not None
-                    and self._pts_start_time is not None
-                ):
-                    # Target time = start wall time + (frame pts - start pts) in seconds
-                    target_time = self._clock_start_time + nanoseconds_to_seconds(
-                        pts - self._pts_start_time
-                    )
-                    current_time = time.time()
-                    if target_time > current_time:
-                        await asyncio.sleep(target_time - current_time)
-
-                # Send the message (clock queue only has TTS text, WS-only)
-                await self._send_ws(message)
-                self._clock_queue.task_done()
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.debug(f"Clock task error: {e}")
+        pass
 
     async def on_push_frame(self, data: FramePushed):
         """Process frames and send relevant ones to the client."""
         frame = data.frame
         frame_direction = data.direction
+        source = data.source
 
         # Skip already processed frames (frames can be observed multiple times).
         # ErrorFrames are accepted in either direction — push_error() emits them
-        # UPSTREAM, and we still want to surface them to the UI.
+        # UPSTREAM, and we still want to surface them to the UI. Upstream-only
+        # transcription frames are accepted too: upstream Gemini Live emits user
+        # transcripts toward the user aggregator, not downstream. Broadcast
+        # transcription siblings are still handled only on the downstream copy to
+        # avoid duplicate live UI messages.
         if frame.id in self._frames_seen:
             return
-        if frame_direction != FrameDirection.DOWNSTREAM and not isinstance(
-            frame, ErrorFrame
+        if frame_direction != FrameDirection.DOWNSTREAM:
+            is_upstream_transcription = (
+                isinstance(frame, (InterimTranscriptionFrame, TranscriptionFrame))
+                and frame.broadcast_sibling_id is None
+            )
+            if not isinstance(frame, ErrorFrame) and not is_upstream_transcription:
+                return
+
+        # TTSTextFrame may be observed before the output transport has applied
+        # its audio clock. Match RTVIObserver: leave the frame unmarked so the
+        # transport-pushed copy can be handled with playback timing already done.
+        if isinstance(frame, TTSTextFrame) and not isinstance(
+            source, BaseOutputTransport
         ):
             return
+
         self._frames_seen.add(frame.id)
 
         logger.trace(f"{self} Received Frame: {frame} Direction: {frame_direction}")
 
-        # Handle pipeline termination - stop clock task
-        if isinstance(frame, (EndFrame, CancelFrame, StopFrame)):
-            await self._cancel_clock_task()
-        # Handle interruptions - clear any queued bot text
-        elif isinstance(frame, InterruptionFrame):
-            await self._handle_interruption()
+        if isinstance(frame, (EndFrame, CancelFrame, StopFrame, InterruptionFrame)):
+            return
         # Bot speaking state - WS only (ephemeral state signals, not persisted)
         elif isinstance(frame, BotStartedSpeakingFrame):
             await self._send_ws(
@@ -245,27 +182,16 @@ class RealtimeFeedbackObserver(BaseObserver):
         elif isinstance(frame, TTSSpeakFrame):
             if getattr(frame, "persist_to_logs", False):
                 await self._append_to_buffer(build_bot_text_event(text=frame.text))
-        # Handle bot TTS text - respect pts timing, WebSocket only
+        # Handle bot TTS text after output transport timing, WebSocket only
         # Complete turn text is persisted via register_turn_handlers,
         # except for frames explicitly flagged persist_to_logs (e.g. recording
         # transcripts from play_audio) which bypass the aggregator path.
         elif isinstance(frame, TTSTextFrame):
             message = build_bot_text_event(text=frame.text)
 
-            # If frame has pts, queue it for timed delivery
-            if frame.pts:
-                # Initialize timing reference on first pts frame
-                if self._pts_start_time is None:
-                    self._pts_start_time = frame.pts
-                    self._clock_start_time = time.time()
-
-                await self._ensure_clock_task()
-                await self._clock_queue.put((frame.pts, frame.id, message))
-            elif getattr(frame, "persist_to_logs", False):
-                # No pts + explicit persistence request (recording transcript).
+            if getattr(frame, "persist_to_logs", False):
                 await self._send_message(message)
             else:
-                # No pts, send immediately
                 await self._send_ws(message)
         # Handle function call in progress
         elif (
@@ -374,13 +300,13 @@ def register_turn_log_handlers(
 ):
     """Register event handlers on aggregators to persist final turn transcripts.
 
-    Hooks into on_user_turn_stopped and on_assistant_turn_stopped to store
+    Hooks into on_user_turn_message_added and on_assistant_turn_stopped to store
     complete turn text in the logs buffer. Works for both WebRTC and telephony
     calls — independent of WebSocket availability.
     """
 
-    @user_aggregator.event_handler("on_user_turn_stopped")
-    async def on_user_turn_stopped(aggregator, strategy, message):
+    @user_aggregator.event_handler("on_user_turn_message_added")
+    async def on_user_turn_message_added(aggregator, message):
         logs_buffer.increment_turn()
         try:
             await logs_buffer.append(

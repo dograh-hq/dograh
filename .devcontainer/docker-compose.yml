@@ -1,0 +1,38 @@
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    command: sleep infinity
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PYTHONUNBUFFERED: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    init: true
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    cap_add:
+      - SYS_ADMIN
+    networks:
+      - app-network
+    volumes:
+      - .:/workspaces/dograh:cached
+      - dograh-venv:/workspaces/dograh/venv
+      - dograh-ui-node_modules:/workspaces/dograh/ui/node_modules
+      - dograh-ts-validator-node_modules:/workspaces/dograh/api/mcp_server/ts_validator/node_modules
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:8000:8000"
+volumes:
+  dograh-venv:
+  dograh-ui-node_modules:
+  dograh-ts-validator-node_modules:

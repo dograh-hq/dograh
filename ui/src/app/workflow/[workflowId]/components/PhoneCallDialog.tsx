@@ -4,15 +4,21 @@ import 'react-international-phone/style.css';
 
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { PhoneInput } from 'react-international-phone';
 
 import {
+    getPreferencesApiV1OrganizationsPreferencesGet,
     initiateCallApiV1TelephonyInitiateCallPost,
     listPhoneNumbersApiV1OrganizationsTelephonyConfigsConfigIdPhoneNumbersGet,
-    listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet
+    listTelephonyConfigurationsApiV1OrganizationsTelephonyConfigsGet,
+    savePreferencesApiV1OrganizationsPreferencesPut,
 } from '@/client/sdk.gen';
-import type { PhoneNumberResponse, TelephonyConfigurationListItem } from '@/client/types.gen';
+import type {
+    OrganizationPreferences,
+    PhoneNumberResponse,
+    TelephonyConfigurationListItem,
+} from '@/client/types.gen';
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -33,6 +39,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useUserConfig } from "@/context/UserConfigContext";
+import { detailFromError } from "@/lib/apiError";
 
 interface PhoneCallDialogProps {
     open: boolean;
@@ -48,20 +55,39 @@ export const PhoneCallDialog = ({
     user,
 }: PhoneCallDialogProps) => {
     const router = useRouter();
-    const { userConfig, saveUserConfig } = useUserConfig();
-    const [phoneNumber, setPhoneNumber] = useState(userConfig?.test_phone_number || "");
+    const { refreshConfig } = useUserConfig();
+    const [preferences, setPreferences] = useState<OrganizationPreferences>({});
+    const [preferencesLoaded, setPreferencesLoaded] = useState(false);
+    const [phoneNumber, setPhoneNumber] = useState("");
     const [callLoading, setCallLoading] = useState(false);
     const [callError, setCallError] = useState<string | null>(null);
     const [callSuccessMsg, setCallSuccessMsg] = useState<string | null>(null);
     const [phoneChanged, setPhoneChanged] = useState(false);
     const [checkingConfig, setCheckingConfig] = useState(false);
     const [needsConfiguration, setNeedsConfiguration] = useState<boolean | null>(null);
-    const [sipMode, setSipMode] = useState(() => /^(PJSIP|SIP)\//i.test(userConfig?.test_phone_number || ""));
+    const [sipMode, setSipMode] = useState(false);
     const [telephonyConfigs, setTelephonyConfigs] = useState<TelephonyConfigurationListItem[]>([]);
     const [selectedConfigId, setSelectedConfigId] = useState<string>("");
     const [fromPhoneNumbers, setFromPhoneNumbers] = useState<PhoneNumberResponse[]>([]);
     const [selectedFromPhoneNumberId, setSelectedFromPhoneNumberId] = useState<string>("");
     const [loadingPhoneNumbers, setLoadingPhoneNumbers] = useState(false);
+
+    const fetchPreferences = useCallback(async () => {
+        const result =
+            await getPreferencesApiV1OrganizationsPreferencesGet();
+        if (result.error) {
+            throw new Error(detailFromError(result.error, "Failed to load phone preferences"));
+        }
+        return result.data || {};
+    }, []);
+
+    const applyPreferences = useCallback((nextPreferences: OrganizationPreferences) => {
+        const saved = nextPreferences.test_phone_number || "";
+        setPreferences(nextPreferences);
+        setPhoneNumber(saved);
+        setSipMode(/^(PJSIP|SIP)\//i.test(saved));
+        setPhoneChanged(false);
+    }, []);
 
     // Check telephony configuration when dialog opens
     useEffect(() => {
@@ -96,6 +122,33 @@ export const PhoneCallDialog = ({
 
         checkConfig();
     }, [open]);
+
+    // Load organization-scoped call preferences when dialog opens.
+    useEffect(() => {
+        if (!open) return;
+
+        let cancelled = false;
+        setPreferencesLoaded(false);
+
+        const loadPreferences = async () => {
+            try {
+                const nextPreferences = await fetchPreferences();
+                if (cancelled) return;
+                applyPreferences(nextPreferences);
+                setPreferencesLoaded(true);
+            } catch (err) {
+                if (cancelled) return;
+                applyPreferences({});
+                setPreferencesLoaded(false);
+                setCallError(err instanceof Error ? err.message : "Failed to load phone preferences");
+            }
+        };
+
+        loadPreferences();
+        return () => {
+            cancelled = true;
+        };
+    }, [applyPreferences, fetchPreferences, open]);
 
     // Reset state when dialog closes
     useEffect(() => {
@@ -149,22 +202,9 @@ export const PhoneCallDialog = ({
         };
     }, [open, selectedConfigId]);
 
-    // Keep phoneNumber in sync with userConfig when dialog opens
-    useEffect(() => {
-        if (open) {
-            const saved = userConfig?.test_phone_number || "";
-            setPhoneNumber(saved);
-            setSipMode(/^(PJSIP|SIP)\//i.test(saved));
-            setPhoneChanged(false);
-            setCallError(null);
-            setCallSuccessMsg(null);
-            setCallLoading(false);
-        }
-    }, [open, userConfig?.test_phone_number]);
-
     const handlePhoneInputChange = (formattedValue: string) => {
         setPhoneNumber(formattedValue);
-        setPhoneChanged(formattedValue !== userConfig?.test_phone_number);
+        setPhoneChanged(formattedValue !== (preferences.test_phone_number || ""));
         setCallError(null);
         setCallSuccessMsg(null);
     };
@@ -174,17 +214,39 @@ export const PhoneCallDialog = ({
         router.push('/telephony-configurations');
     };
 
+    const savePhoneNumberPreference = async () => {
+        const currentPreferences = preferencesLoaded ? preferences : await fetchPreferences();
+        const result =
+            await savePreferencesApiV1OrganizationsPreferencesPut({
+                body: {
+                    ...currentPreferences,
+                    test_phone_number: phoneNumber || null,
+                },
+            });
+
+        if (result.error) {
+            throw new Error(detailFromError(result.error, "Failed to save phone preferences"));
+        }
+        if (!result.data) {
+            throw new Error("Failed to save phone preferences");
+        }
+
+        setPreferences(result.data);
+        setPreferencesLoaded(true);
+        setPhoneChanged(false);
+        await refreshConfig();
+    };
+
     const handleStartCall = async () => {
         setCallLoading(true);
         setCallError(null);
         setCallSuccessMsg(null);
         try {
-            if (!user || !userConfig) return;
+            if (!user) return;
 
             // Save phone number if it has changed
             if (phoneChanged) {
-                await saveUserConfig({ ...userConfig, test_phone_number: phoneNumber });
-                setPhoneChanged(false);
+                await savePhoneNumberPreference();
             }
 
             const response = await initiateCallApiV1TelephonyInitiateCallPost({
@@ -268,7 +330,7 @@ export const PhoneCallDialog = ({
                             {telephonyConfigs.map((config) => (
                                 <SelectItem key={config.id} value={String(config.id)}>
                                     {config.name} ({config.provider})
-                                    {config.is_default_outbound ? " — default" : ""}
+                                    {config.is_default_outbound ? " - default" : ""}
                                 </SelectItem>
                             ))}
                         </SelectContent>
@@ -294,8 +356,8 @@ export const PhoneCallDialog = ({
                             <SelectContent>
                                 {fromPhoneNumbers.map((phone) => (
                                     <SelectItem key={phone.id} value={String(phone.id)}>
-                                        {phone.label ? `${phone.label} — ${phone.address}` : phone.address}
-                                        {phone.is_default_caller_id ? " — default" : ""}
+                                        {phone.label ? `${phone.label} - ${phone.address}` : phone.address}
+                                        {phone.is_default_caller_id ? " - default" : ""}
                                     </SelectItem>
                                 ))}
                             </SelectContent>

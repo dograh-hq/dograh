@@ -57,3 +57,27 @@ button[data-testid*="search"],
   animation: search-pulse 2s ease-in-out infinite !important;
 }
 
+
+/* Custom scrollbar */
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #16A34A transparent;
+}
+
+/* WebKit: Chrome, Edge, Safari, mobile */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #16A34A;
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #15803D;
+}

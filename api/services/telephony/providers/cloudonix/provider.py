@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from loguru import logger
 
 from api.db import db_client
-from api.enums import WorkflowRunMode
+from api.enums import TelephonyCallStatus, WorkflowRunMode
 from api.services.telephony.base import (
     CallInitiationResult,
     NormalizedInboundData,
@@ -348,15 +348,15 @@ class CloudonixProvider(TelephonyProvider):
         # Map Cloudonix status values to common format
         # These mappings may need adjustment based on actual Cloudonix callback format
         status_map = {
-            "initiated": "initiated",
-            "ringing": "ringing",
-            "answered": "answered",
-            "completed": "completed",
-            "failed": "failed",
-            "busy": "busy",
-            "no-answer": "no-answer",
-            "canceled": "canceled",
-            "error": "error",
+            "initiated": TelephonyCallStatus.INITIATED,
+            "ringing": TelephonyCallStatus.RINGING,
+            "answered": TelephonyCallStatus.ANSWERED,
+            "completed": TelephonyCallStatus.COMPLETED,
+            "failed": TelephonyCallStatus.FAILED,
+            "busy": TelephonyCallStatus.BUSY,
+            "no-answer": TelephonyCallStatus.NO_ANSWER,
+            "canceled": TelephonyCallStatus.CANCELED,
+            "error": TelephonyCallStatus.ERROR,
         }
 
         call_status = data.get("status", "")
@@ -372,6 +372,33 @@ class CloudonixProvider(TelephonyProvider):
             "direction": data.get("direction"),
             "duration": data.get("duration") or data.get("CallDuration"),
             "extra": data,  # Include all original data
+        }
+
+    @staticmethod
+    def parse_cdr_status_callback(data: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse Cloudonix CDR data into generic status callback format."""
+        disposition_map = {
+            "ANSWER": TelephonyCallStatus.COMPLETED,
+            "BUSY": TelephonyCallStatus.BUSY,
+            "CANCEL": TelephonyCallStatus.CANCELED,
+            "FAILED": TelephonyCallStatus.FAILED,
+            "CONGESTION": TelephonyCallStatus.FAILED,
+            "NOANSWER": TelephonyCallStatus.NO_ANSWER,
+        }
+
+        disposition = data.get("disposition") or ""
+        session = data.get("session")
+        billsec = data.get("billsec")
+
+        return {
+            "call_id": session.get("token") if isinstance(session, dict) else "",
+            "status": disposition_map.get(disposition.upper(), disposition.lower()),
+            "from_number": data.get("from"),
+            "to_number": data.get("to"),
+            "duration": str(
+                billsec if billsec is not None else (data.get("duration") or 0)
+            ),
+            "extra": data,
         }
 
     async def get_webhook_response(
@@ -699,12 +726,16 @@ class CloudonixProvider(TelephonyProvider):
             if "Twilio-AccountSid" in trunk_headers:
                 underlying_provider = "twilio"
 
+        direction = webhook_data.get("Direction", "inbound").lower()
+        if direction in {"inbound", "subscriber"}:
+            direction = "inbound"
+
         return NormalizedInboundData(
             provider=CloudonixProvider.PROVIDER_NAME,
             call_id=call_id,
             from_number=webhook_data.get("From", ""),
             to_number=webhook_data.get("To", ""),
-            direction=webhook_data.get("Direction", "inbound").lower(),
+            direction=direction,
             call_status=webhook_data.get("CallStatus", "in-progress"),
             account_id=account_id,
             from_country=webhook_data.get("FromCountry"),

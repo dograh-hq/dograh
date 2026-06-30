@@ -168,7 +168,17 @@ export interface paths {
          */
         get: operations["list_tools_api_v1_tools__get"];
         put?: never;
-        post?: never;
+        /**
+         * Create Tool
+         * @description Create a new tool.
+         *
+         *     Args:
+         *         request: The tool creation request
+         *
+         *     Returns:
+         *         The created tool
+         */
+        post: operations["create_tool_api_v1_tools__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -262,6 +272,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * CalculatorToolDefinition
+         * @description Tool definition for Calculator tools.
+         */
+        CalculatorToolDefinition: {
+            /**
+             * Schema Version
+             * @description Schema version.
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * @description Tool type. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "calculator";
+        };
         /** CallDispositionCodes */
         CallDispositionCodes: {
             /**
@@ -269,6 +296,46 @@ export interface components {
              * @default []
              */
             disposition_codes: string[];
+        };
+        /**
+         * CreateToolRequest
+         * @description Request schema for creating a reusable tool.
+         */
+        CreateToolRequest: {
+            /**
+             * Name
+             * @description Display name for the tool.
+             */
+            name: string;
+            /**
+             * Description
+             * @description Description shown to the agent when deciding whether to call it.
+             */
+            description?: string | null;
+            /**
+             * Category
+             * @description Tool category. Must match definition.type.
+             * @default http_api
+             * @enum {string}
+             */
+            category: "http_api" | "end_call" | "transfer_call" | "calculator" | "native" | "integration" | "mcp";
+            /**
+             * Icon
+             * @description Lucide icon identifier.
+             * @default globe
+             */
+            icon: string | null;
+            /**
+             * Icon Color
+             * @description Hex color for the tool icon.
+             * @default #3B82F6
+             */
+            icon_color: string | null;
+            /**
+             * Definition
+             * @description Typed tool definition.
+             */
+            definition: components["schemas"]["HttpApiToolDefinition"] | components["schemas"]["EndCallToolDefinition"] | components["schemas"]["TransferCallToolDefinition"] | components["schemas"]["CalculatorToolDefinition"] | components["schemas"]["McpToolDefinition"];
         };
         /** CreateWorkflowRequest */
         CreateWorkflowRequest: {
@@ -404,6 +471,59 @@ export interface components {
             is_active: boolean;
         };
         /**
+         * EndCallConfig
+         * @description Configuration for End Call tools.
+         */
+        EndCallConfig: {
+            /**
+             * Messagetype
+             * @description Type of goodbye message.
+             * @default none
+             * @enum {string}
+             */
+            messageType: "none" | "custom" | "audio";
+            /**
+             * Custommessage
+             * @description Custom message to play before ending the call.
+             */
+            customMessage?: string | null;
+            /**
+             * Audiorecordingid
+             * @description Recording ID for audio goodbye message.
+             */
+            audioRecordingId?: string | null;
+            /**
+             * Endcallreason
+             * @description When enabled, the model must provide a reason for ending the call. The reason is set as call disposition and added to call tags.
+             * @default false
+             */
+            endCallReason: boolean;
+            /**
+             * Endcallreasondescription
+             * @description Description shown to the model for the reason parameter. Used only when endCallReason is enabled.
+             */
+            endCallReasonDescription?: string | null;
+        };
+        /**
+         * EndCallToolDefinition
+         * @description Tool definition for End Call tools.
+         */
+        EndCallToolDefinition: {
+            /**
+             * Schema Version
+             * @description Schema version.
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * @description Tool type. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "end_call";
+            /** @description End Call configuration. */
+            config: components["schemas"]["EndCallConfig"];
+        };
+        /**
          * GraphConstraints
          * @description Per-node-type graph rules. WorkflowGraph enforces these at validation.
          */
@@ -416,11 +536,94 @@ export interface components {
             min_outgoing?: number | null;
             /** Max Outgoing */
             max_outgoing?: number | null;
+            /** Min Instances */
+            min_instances?: number | null;
+            /** Max Instances */
+            max_instances?: number | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HttpApiConfig
+         * @description Configuration for HTTP API tools.
+         */
+        HttpApiConfig: {
+            /**
+             * Method
+             * @description HTTP method to use for the request.
+             * @enum {string}
+             */
+            method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+            /**
+             * Url
+             * @description Target HTTP or HTTPS URL.
+             */
+            url: string;
+            /**
+             * Headers
+             * @description Static headers to include with every request.
+             */
+            headers?: {
+                [key: string]: string;
+            } | null;
+            /**
+             * Credential Uuid
+             * @description Reference to an external credential for request authentication.
+             */
+            credential_uuid?: string | null;
+            /**
+             * Parameters
+             * @description Parameters the model must provide when calling this tool.
+             */
+            parameters?: components["schemas"]["ToolParameter"][] | null;
+            /**
+             * Preset Parameters
+             * @description Parameters injected by Dograh from fixed values or workflow context templates.
+             */
+            preset_parameters?: components["schemas"]["PresetToolParameter"][] | null;
+            /**
+             * Timeout Ms
+             * @description Request timeout in milliseconds.
+             * @default 5000
+             */
+            timeout_ms: number | null;
+            /**
+             * Custommessage
+             * @description Custom message to play after tool execution.
+             */
+            customMessage?: string | null;
+            /**
+             * Custommessagetype
+             * @description Type of custom message.
+             */
+            customMessageType?: ("text" | "audio") | null;
+            /**
+             * Custommessagerecordingid
+             * @description Recording ID for an audio custom message.
+             */
+            customMessageRecordingId?: string | null;
+        };
+        /**
+         * HttpApiToolDefinition
+         * @description Tool definition for HTTP API tools.
+         */
+        HttpApiToolDefinition: {
+            /**
+             * Schema Version
+             * @description Schema version.
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * @description Tool type. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "http_api";
+            /** @description HTTP API configuration. */
+            config: components["schemas"]["HttpApiConfig"];
         };
         /** InitiateCallRequest */
         InitiateCallRequest: {
@@ -434,6 +637,72 @@ export interface components {
             telephony_configuration_id?: number | null;
             /** From Phone Number Id */
             from_phone_number_id?: number | null;
+        };
+        /**
+         * McpToolConfig
+         * @description Configuration for a customer MCP server tool definition.
+         */
+        McpToolConfig: {
+            /**
+             * Transport
+             * @description MCP transport protocol.
+             * @default streamable_http
+             * @constant
+             */
+            transport: "streamable_http";
+            /**
+             * Url
+             * @description MCP server URL. Must use http:// or https://.
+             */
+            url: string;
+            /**
+             * Credential Uuid
+             * @description Reference to an external credential for MCP server auth.
+             */
+            credential_uuid?: string | null;
+            /**
+             * Tools Filter
+             * @description Allowlist of MCP tool names to expose. Empty exposes all tools.
+             */
+            tools_filter?: string[];
+            /**
+             * Timeout Secs
+             * @description Connection timeout in seconds.
+             * @default 30
+             */
+            timeout_secs: number;
+            /**
+             * Sse Read Timeout Secs
+             * @description SSE read timeout in seconds.
+             * @default 300
+             */
+            sse_read_timeout_secs: number;
+            /**
+             * Discovered Tools
+             * @description Server-managed cache of the MCP server's tool catalog [{name, description}]. Populated best-effort by the backend.
+             */
+            discovered_tools?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /**
+         * McpToolDefinition
+         * @description Persisted MCP tool definition.
+         */
+        McpToolDefinition: {
+            /**
+             * Schema Version
+             * @description Schema version.
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * @description Tool type. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "mcp";
+            /** @description MCP server configuration. */
+            config: components["schemas"]["McpToolConfig"];
         };
         /**
          * NodeCategory
@@ -494,6 +763,34 @@ export interface components {
             spec_version: string;
             /** Node Types */
             node_types: components["schemas"]["NodeSpec"][];
+        };
+        /**
+         * PresetToolParameter
+         * @description A parameter injected by Dograh at runtime.
+         */
+        PresetToolParameter: {
+            /**
+             * Name
+             * @description Parameter name used as a key in the request body.
+             */
+            name: string;
+            /**
+             * Type
+             * @description JSON type for the resolved value.
+             * @enum {string}
+             */
+            type: "string" | "number" | "boolean" | "object" | "array";
+            /**
+             * Value Template
+             * @description Fixed value or template, e.g. {{initial_context.phone_number}}.
+             */
+            value_template: string;
+            /**
+             * Required
+             * @description Whether the parameter must resolve to a non-empty value.
+             * @default true
+             */
+            required: boolean;
         };
         /**
          * PropertyOption
@@ -626,8 +923,36 @@ export interface components {
             is_active: boolean;
         };
         /**
+         * ToolParameter
+         * @description A parameter that the tool accepts from the model at call time.
+         */
+        ToolParameter: {
+            /**
+             * Name
+             * @description Parameter name used as a key in the tool request body.
+             */
+            name: string;
+            /**
+             * Type
+             * @description JSON type for the parameter value.
+             * @enum {string}
+             */
+            type: "string" | "number" | "boolean" | "object" | "array";
+            /**
+             * Description
+             * @description Description shown to the model for this parameter.
+             */
+            description: string;
+            /**
+             * Required
+             * @description Whether this parameter is required when the tool is called.
+             * @default true
+             */
+            required: boolean;
+        };
+        /**
          * ToolResponse
-         * @description Response schema for a tool.
+         * @description Response schema for a reusable tool.
          */
         ToolResponse: {
             /** Id */
@@ -658,6 +983,59 @@ export interface components {
             /** Updated At */
             updated_at: string | null;
             created_by?: components["schemas"]["CreatedByResponse"] | null;
+        };
+        /**
+         * TransferCallConfig
+         * @description Configuration for Transfer Call tools.
+         */
+        TransferCallConfig: {
+            /**
+             * Destination
+             * @description Phone number or SIP endpoint to transfer the call to, e.g. +1234567890 or PJSIP/1234.
+             */
+            destination: string;
+            /**
+             * Messagetype
+             * @description Type of message to play before transfer.
+             * @default none
+             * @enum {string}
+             */
+            messageType: "none" | "custom" | "audio";
+            /**
+             * Custommessage
+             * @description Custom message to play before transferring.
+             */
+            customMessage?: string | null;
+            /**
+             * Audiorecordingid
+             * @description Recording ID for audio message before transfer.
+             */
+            audioRecordingId?: string | null;
+            /**
+             * Timeout
+             * @description Maximum seconds to wait for the destination to answer.
+             * @default 30
+             */
+            timeout: number;
+        };
+        /**
+         * TransferCallToolDefinition
+         * @description Tool definition for Transfer Call tools.
+         */
+        TransferCallToolDefinition: {
+            /**
+             * Schema Version
+             * @description Schema version.
+             * @default 1
+             */
+            schema_version: number;
+            /**
+             * @description Tool type. (enum property replaced by openapi-typescript)
+             * @enum {string}
+             */
+            type: "transfer_call";
+            /** @description Transfer Call configuration. */
+            config: components["schemas"]["TransferCallConfig"];
         };
         /** UpdateWorkflowRequest */
         UpdateWorkflowRequest: {
@@ -756,26 +1134,38 @@ export interface components {
     headers: never;
     pathItems: never;
 }
+export type CalculatorToolDefinition = components['schemas']['CalculatorToolDefinition'];
 export type CallDispositionCodes = components['schemas']['CallDispositionCodes'];
+export type CreateToolRequest = components['schemas']['CreateToolRequest'];
 export type CreateWorkflowRequest = components['schemas']['CreateWorkflowRequest'];
 export type CreatedByResponse = components['schemas']['CreatedByResponse'];
 export type CredentialResponse = components['schemas']['CredentialResponse'];
 export type DisplayOptions = components['schemas']['DisplayOptions'];
 export type DocumentListResponseSchema = components['schemas']['DocumentListResponseSchema'];
 export type DocumentResponseSchema = components['schemas']['DocumentResponseSchema'];
+export type EndCallConfig = components['schemas']['EndCallConfig'];
+export type EndCallToolDefinition = components['schemas']['EndCallToolDefinition'];
 export type GraphConstraints = components['schemas']['GraphConstraints'];
 export type HttpValidationError = components['schemas']['HTTPValidationError'];
+export type HttpApiConfig = components['schemas']['HttpApiConfig'];
+export type HttpApiToolDefinition = components['schemas']['HttpApiToolDefinition'];
 export type InitiateCallRequest = components['schemas']['InitiateCallRequest'];
+export type McpToolConfig = components['schemas']['McpToolConfig'];
+export type McpToolDefinition = components['schemas']['McpToolDefinition'];
 export type NodeCategory = components['schemas']['NodeCategory'];
 export type NodeExample = components['schemas']['NodeExample'];
 export type NodeSpec = components['schemas']['NodeSpec'];
 export type NodeTypesResponse = components['schemas']['NodeTypesResponse'];
+export type PresetToolParameter = components['schemas']['PresetToolParameter'];
 export type PropertyOption = components['schemas']['PropertyOption'];
 export type PropertySpec = components['schemas']['PropertySpec'];
 export type PropertyType = components['schemas']['PropertyType'];
 export type RecordingListResponseSchema = components['schemas']['RecordingListResponseSchema'];
 export type RecordingResponseSchema = components['schemas']['RecordingResponseSchema'];
+export type ToolParameter = components['schemas']['ToolParameter'];
 export type ToolResponse = components['schemas']['ToolResponse'];
+export type TransferCallConfig = components['schemas']['TransferCallConfig'];
+export type TransferCallToolDefinition = components['schemas']['TransferCallToolDefinition'];
 export type UpdateWorkflowRequest = components['schemas']['UpdateWorkflowRequest'];
 export type ValidationError = components['schemas']['ValidationError'];
 export type WorkflowListResponse = components['schemas']['WorkflowListResponse'];
@@ -1057,6 +1447,49 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ToolResponse"][];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_tool_api_v1_tools__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+                "X-API-Key"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateToolRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolResponse"];
                 };
             };
             /** @description Not found */

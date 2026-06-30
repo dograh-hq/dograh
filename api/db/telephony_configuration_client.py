@@ -103,6 +103,30 @@ class TelephonyConfigurationClient(BaseDBClient):
             )
             return int(result.scalar() or 0)
 
+    async def count_vonage_configs_missing_signature_secret(
+        self, organization_id: int
+    ) -> int:
+        """Count Vonage configs in this org with no signature_secret."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(func.count(TelephonyConfigurationModel.id)).where(
+                    TelephonyConfigurationModel.organization_id == organization_id,
+                    TelephonyConfigurationModel.provider == "vonage",
+                    (
+                        TelephonyConfigurationModel.credentials.op("->>")(
+                            "signature_secret"
+                        ).is_(None)
+                    )
+                    | (
+                        TelephonyConfigurationModel.credentials.op("->>")(
+                            "signature_secret"
+                        )
+                        == ""
+                    ),
+                )
+            )
+            return int(result.scalar() or 0)
+
     async def list_all_telephony_configurations_by_provider(
         self, provider: str
     ) -> List[TelephonyConfigurationModel]:

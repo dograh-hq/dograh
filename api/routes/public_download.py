@@ -6,14 +6,16 @@ post-call processing for runs that execute integrations, QA, or campaign
 reporting.
 """
 
-from typing import Literal
-
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from loguru import logger
 
 from api.db import db_client
 from api.services.storage import get_storage_for_backend
+from api.utils.recording_artifacts import (
+    get_recording_storage_backend,
+    get_recording_storage_key,
+)
 
 router = APIRouter(prefix="/public/download")
 
@@ -21,7 +23,7 @@ router = APIRouter(prefix="/public/download")
 @router.get("/workflow/{token}/{artifact_type}")
 async def download_workflow_artifact(
     token: str,
-    artifact_type: Literal["recording", "transcript"],
+    artifact_type: str,
     inline: bool = Query(
         default=False, description="Display inline in browser instead of download"
     ),
@@ -36,13 +38,15 @@ async def download_workflow_artifact(
 
     Args:
         token: The public access token (UUID format)
-        artifact_type: Type of artifact - "recording" or "transcript"
+        artifact_type: Type of artifact - "recording", "transcript",
+            "user_recording", or "bot_recording"
         inline: If true, sets Content-Disposition to inline for browser preview
 
     Returns:
         RedirectResponse to the signed URL (302 redirect)
 
     Raises:
+        HTTPException 400: If artifact type is unsupported
         HTTPException 404: If token is invalid or artifact not found
     """
     # 1. Lookup workflow run by token
@@ -52,10 +56,26 @@ async def download_workflow_artifact(
         raise HTTPException(status_code=404, detail="Invalid or expired token")
 
     # 2. Get file path based on artifact type
+    artifact_storage_backend = None
     if artifact_type == "recording":
         file_path = workflow_run.recording_url
-    else:  # transcript
+    elif artifact_type == "transcript":
         file_path = workflow_run.transcript_url
+    elif artifact_type == "user_recording":
+        file_path = get_recording_storage_key(workflow_run.extra, "user")
+        artifact_storage_backend = get_recording_storage_backend(
+            workflow_run.extra, "user"
+        )
+    elif artifact_type == "bot_recording":
+        file_path = get_recording_storage_key(workflow_run.extra, "bot")
+        artifact_storage_backend = get_recording_storage_backend(
+            workflow_run.extra, "bot"
+        )
+    else:
+        logger.warning(
+            f"Unsupported artifact type: type={artifact_type}, workflow_run_id={workflow_run.id}"
+        )
+        raise HTTPException(status_code=400, detail="Unsupported artifact type")
 
     if not file_path:
         logger.warning(
@@ -68,7 +88,9 @@ async def download_workflow_artifact(
 
     # 3. Get storage backend for this workflow run
     try:
-        storage = get_storage_for_backend(workflow_run.storage_backend)
+        storage = get_storage_for_backend(
+            artifact_storage_backend or workflow_run.storage_backend
+        )
     except ValueError as e:
         logger.error(f"Invalid storage backend: {workflow_run.storage_backend}")
         raise HTTPException(status_code=500, detail="Storage configuration error")

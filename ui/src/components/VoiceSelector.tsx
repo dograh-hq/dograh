@@ -10,11 +10,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 // Providers that have MPS voice endpoints
 type TTSProviderWithVoices = "elevenlabs" | "deepgram" | "sarvam" | "cartesia" | "dograh" | "rime";
 const MPS_VOICE_PROVIDERS: TTSProviderWithVoices[] = ["elevenlabs", "deepgram", "sarvam", "cartesia", "dograh", "rime"];
+const ALL_FILTER_VALUE = "__all__";
 
 interface VoiceSelectorProps {
     provider: string;
@@ -22,6 +24,8 @@ interface VoiceSelectorProps {
     onChange: (voiceId: string) => void;
     model?: string;
     language?: string;
+    showFilters?: boolean;
+    allowManualInput?: boolean;
     className?: string;
 }
 
@@ -31,10 +35,15 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     onChange,
     model,
     language,
+    showFilters = false,
+    allowManualInput = true,
     className,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [genderFilter, setGenderFilter] = useState(ALL_FILTER_VALUE);
+    const [languageFilter, setLanguageFilter] = useState(ALL_FILTER_VALUE);
+    const [accentFilter, setAccentFilter] = useState(ALL_FILTER_VALUE);
     const [isManualInput, setIsManualInput] = useState(false);
     const [manualVoiceId, setManualVoiceId] = useState(value || "");
     const [voices, setVoices] = useState<VoiceInfo[]>([]);
@@ -102,13 +111,15 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     useEffect(() => {
         if (value && voices.length > 0) {
             const voiceExists = voices.some((v) => v.voice_id === value);
-            if (!voiceExists) {
+            if (!voiceExists && allowManualInput) {
                 // If the value doesn't exist in the list, switch to manual input mode
                 setIsManualInput(true);
                 setManualVoiceId(value);
+            } else if (voiceExists) {
+                setIsManualInput(false);
             }
         }
-    }, [value, voices]);
+    }, [value, voices, allowManualInput]);
 
     // Cleanup audio on unmount or when popover closes
     useEffect(() => {
@@ -131,7 +142,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
 
     const filteredVoices = voices.filter((voice) => {
         const searchLower = searchTerm.toLowerCase();
-        return (
+        const matchesSearch = (
             voice.name.toLowerCase().includes(searchLower) ||
             voice.voice_id.toLowerCase().includes(searchLower) ||
             (voice.description?.toLowerCase() || "").includes(searchLower) ||
@@ -139,7 +150,22 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
             (voice.gender?.toLowerCase() || "").includes(searchLower) ||
             (voice.language?.toLowerCase() || "").includes(searchLower)
         );
+        if (!matchesSearch) return false;
+        if (genderFilter !== ALL_FILTER_VALUE && (voice.gender || "").toLowerCase() !== genderFilter) return false;
+        if (languageFilter !== ALL_FILTER_VALUE && (voice.language || "").toLowerCase() !== languageFilter) return false;
+        if (accentFilter !== ALL_FILTER_VALUE && (voice.accent || "").toLowerCase() !== accentFilter) return false;
+        return true;
     });
+
+    const genderOptions = Array.from(
+        new Set(voices.map((voice) => voice.gender?.toLowerCase()).filter(Boolean) as string[]),
+    ).sort();
+    const languageOptions = Array.from(
+        new Set(voices.map((voice) => voice.language?.toLowerCase()).filter(Boolean) as string[]),
+    ).sort();
+    const accentOptions = Array.from(
+        new Set(voices.map((voice) => voice.accent?.toLowerCase()).filter(Boolean) as string[]),
+    ).sort();
 
     const handleSelectVoice = (voiceId: string) => {
         onChange(voiceId);
@@ -148,6 +174,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     };
 
     const handleManualInputToggle = (checked: boolean) => {
+        if (!allowManualInput) return;
         setIsManualInput(checked);
         if (checked) {
             setManualVoiceId(value || "");
@@ -219,7 +246,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
         );
     }
 
-    if (isManualInput) {
+    if (isManualInput && allowManualInput) {
         return (
             <div className={cn("space-y-2", className)}>
                 <Input
@@ -280,6 +307,52 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                                 className="pl-8"
                             />
                         </div>
+
+                        {showFilters && (
+                            <div className="grid gap-2 sm:grid-cols-3">
+                                <Select value={genderFilter} onValueChange={setGenderFilter}>
+                                    <SelectTrigger className="h-8">
+                                        <SelectValue placeholder="Gender" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={ALL_FILTER_VALUE}>All genders</SelectItem>
+                                        {genderOptions.map((gender) => (
+                                            <SelectItem key={gender} value={gender} className="capitalize">
+                                                {gender}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+
+                                <Select value={languageFilter} onValueChange={setLanguageFilter}>
+                                    <SelectTrigger className="h-8">
+                                        <SelectValue placeholder="Language" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={ALL_FILTER_VALUE}>All languages</SelectItem>
+                                        {languageOptions.map((voiceLanguage) => (
+                                            <SelectItem key={voiceLanguage} value={voiceLanguage} className="uppercase">
+                                                {voiceLanguage}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+
+                                <Select value={accentFilter} onValueChange={setAccentFilter}>
+                                    <SelectTrigger className="h-8">
+                                        <SelectValue placeholder="Accent" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value={ALL_FILTER_VALUE}>All accents</SelectItem>
+                                        {accentOptions.map((accent) => (
+                                            <SelectItem key={accent} value={accent} className="uppercase">
+                                                {accent}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
 
                         <div className="max-h-[300px] overflow-auto space-y-1">
                             {error ? (
@@ -358,26 +431,30 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                         </div>
 
                         <div className="pt-2 border-t flex items-center justify-between">
-                            <div className="flex items-center space-x-2">
-                                <Checkbox
-                                    id="manual-voice-input-popup"
-                                    checked={isManualInput}
-                                    onCheckedChange={(checked) => {
-                                        handleManualInputToggle(checked as boolean);
-                                        if (checked) {
-                                            setIsOpen(false);
-                                        }
-                                    }}
-                                />
-                                <Label
-                                    htmlFor="manual-voice-input-popup"
-                                    className="text-sm font-normal cursor-pointer"
-                                >
-                                    Add Voice ID Manually
-                                </Label>
-                            </div>
+                            {allowManualInput ? (
+                                <div className="flex items-center space-x-2">
+                                    <Checkbox
+                                        id="manual-voice-input-popup"
+                                        checked={isManualInput}
+                                        onCheckedChange={(checked) => {
+                                            handleManualInputToggle(checked as boolean);
+                                            if (checked) {
+                                                setIsOpen(false);
+                                            }
+                                        }}
+                                    />
+                                    <Label
+                                        htmlFor="manual-voice-input-popup"
+                                        className="text-sm font-normal cursor-pointer"
+                                    >
+                                        Add Voice ID Manually
+                                    </Label>
+                                </div>
+                            ) : (
+                                <span />
+                            )}
                             <p className="text-xs text-muted-foreground">
-                                {voices.length} voices available
+                                {filteredVoices.length} of {voices.length} voices
                             </p>
                         </div>
                     </div>

@@ -1,10 +1,16 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from pipecat.processors.aggregators.llm_context import LLMSpecificMessage
 
 from api.db.models import OrganizationModel, UserModel
-from api.schemas.user_configuration import UserConfiguration
+from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
+from api.services.workflow.text_chat_runner import (
+    _deserialize_text_chat_checkpoint_messages,
+    _serialize_text_chat_checkpoint_messages,
+)
 from api.tests.integrations._run_pipeline_helpers import USER_CONFIGURATION
 from pipecat.tests import MockLLMService
 
@@ -16,6 +22,49 @@ def _log_texts(logs: dict | None, event_type: str) -> list[str]:
         for event in events
         if event.get("type") == event_type
     ]
+
+
+def test_text_chat_checkpoint_messages_round_trip_google_thought_signature():
+    signature = bytes.fromhex("12340a32010c39d6c7f38fd8b8eb6ab0")
+    messages = [
+        {"role": "assistant", "content": "Hello."},
+        {
+            "role": "user",
+            "content": "Hi",
+        },
+        LLMSpecificMessage(
+            llm="google",
+            message={
+                "type": "thought_signature",
+                "signature": signature,
+                "bookmark": {"text": "Hello."},
+            },
+        ),
+    ]
+
+    encoded = _serialize_text_chat_checkpoint_messages(messages)
+
+    json.dumps(encoded)
+    assert encoded[-1] == {
+        "__specific__": True,
+        "llm": "google",
+        "message": {
+            "type": "thought_signature",
+            "signature": {
+                "__type__": "bytes",
+                "__data__": "EjQKMgEMOdbH84/YuOtqsA==",
+            },
+            "bookmark": {"text": "Hello."},
+        },
+    }
+
+    restored = _deserialize_text_chat_checkpoint_messages(encoded)
+
+    assert restored[:2] == messages[:2]
+    assert isinstance(restored[-1], LLMSpecificMessage)
+    assert restored[-1].llm == "google"
+    assert restored[-1].message["signature"] == signature
+    assert restored[-1].message["bookmark"] == {"text": "Hello."}
 
 
 async def _create_user_and_workflow(
@@ -38,7 +87,7 @@ async def _create_user_and_workflow(
 
     await db_session.update_user_configuration(
         user_id=user.id,
-        configuration=UserConfiguration.model_validate(USER_CONFIGURATION),
+        configuration=EffectiveAIModelConfiguration.model_validate(USER_CONFIGURATION),
     )
 
     workflow = await db_session.create_workflow(
@@ -49,6 +98,38 @@ async def _create_user_and_workflow(
     )
 
     return user, workflow
+
+
+@pytest.mark.asyncio
+async def test_text_chat_session_creation_requires_selected_organization():
+    from httpx import ASGITransport, AsyncClient
+
+    from api.app import app
+    from api.services.auth.depends import get_user
+
+    user = UserModel(provider_id="textchat-user-no-selected-org")
+
+    async def mock_get_user():
+        return user
+
+    original_override = app.dependency_overrides.get(get_user)
+    app.dependency_overrides[get_user] = mock_get_user
+
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            response = await client.post(
+                "/api/v1/workflow/123/text-chat/sessions", json={}
+            )
+    finally:
+        if original_override:
+            app.dependency_overrides[get_user] = original_override
+        else:
+            app.dependency_overrides.pop(get_user, None)
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "No organization selected"}
 
 
 @pytest.mark.asyncio
@@ -144,11 +225,7 @@ async def test_text_chat_session_creation_executes_initial_assistant_turn(
     assert "Start" in (created["gathered_context"] or {}).get("nodes_visited", [])
     workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
     assert workflow_run is not None
-    assert workflow_run.cost_info[
-        "call_duration_seconds"
-    ] == workflow_run.usage_info.get("call_duration_seconds", 0)
-    assert "cost_breakdown" in workflow_run.cost_info
-    assert "dograh_token_usage" in workflow_run.cost_info
+    assert "call_duration_seconds" in workflow_run.usage_info
     assert _log_texts(run_payload["logs"], "rtf-bot-text") == [
         "Hello from the workflow tester."
     ]
@@ -264,11 +341,7 @@ async def test_text_chat_message_executes_assistant_turn(
     assert "Start" in (payload["gathered_context"] or {}).get("nodes_visited", [])
     workflow_run = await db_session.get_workflow_run_by_id(created["workflow_run_id"])
     assert workflow_run is not None
-    assert workflow_run.cost_info[
-        "call_duration_seconds"
-    ] == workflow_run.usage_info.get("call_duration_seconds", 0)
-    assert "cost_breakdown" in workflow_run.cost_info
-    assert "dograh_token_usage" in workflow_run.cost_info
+    assert "call_duration_seconds" in workflow_run.usage_info
     assert _log_texts(run_payload["logs"], "rtf-user-transcription") == ["Hi there"]
     assert _log_texts(run_payload["logs"], "rtf-bot-text") == [
         "Welcome to the workflow tester.",
@@ -1009,7 +1082,7 @@ async def test_text_chat_session_creation_requires_selected_org_scope(
 
     await db_session.update_user_configuration(
         user_id=user.id,
-        configuration=UserConfiguration.model_validate(USER_CONFIGURATION),
+        configuration=EffectiveAIModelConfiguration.model_validate(USER_CONFIGURATION),
     )
 
     workflow = await db_session.create_workflow(
@@ -1081,7 +1154,7 @@ async def test_text_chat_session_creation_rejects_quota_before_creating_run(
 
     async with test_client_factory(user) as client:
         with patch(
-            "api.routes.workflow_text_chat.check_dograh_quota",
+            "api.routes.workflow_text_chat.authorize_workflow_run_start",
             new=AsyncMock(
                 return_value=SimpleNamespace(
                     has_quota=False,
@@ -1096,11 +1169,16 @@ async def test_text_chat_session_creation_rejects_quota_before_creating_run(
 
     assert create_response.status_code == 402
     assert create_response.json()["detail"] == "Quota exceeded"
-    _, total_count = await db_session.get_workflow_runs_by_workflow_id(
+    runs, total_count = await db_session.get_workflow_runs_by_workflow_id(
         workflow.id,
         organization_id=workflow.organization_id,
     )
-    assert total_count == 0
+    assert total_count == 1
+    text_session = await db_session.get_workflow_run_text_session(
+        runs[0].id,
+        organization_id=workflow.organization_id,
+    )
+    assert text_session is None
 
 
 @pytest.mark.asyncio
@@ -1144,7 +1222,7 @@ async def test_text_chat_append_rejects_quota_without_mutating_session(
     async with test_client_factory(user) as client:
         with (
             patch(
-                "api.routes.workflow_text_chat.check_dograh_quota",
+                "api.routes.workflow_text_chat.authorize_workflow_run_start",
                 new=AsyncMock(
                     side_effect=[
                         SimpleNamespace(has_quota=True, error_message=""),

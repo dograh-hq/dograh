@@ -1,0 +1,53 @@
+{
+    // Tasks that auto-run when a worktree folder is opened (runOptions.runOn:
+    // folderOpen). First time, VS Code asks to "Allow Automatic Tasks in Folder"
+    // (or set task.allowAutomaticTasks: "on" in User settings to skip the prompt).
+    //   - "Assign worktree port"        : fast; sets UVICORN_PORT + UI BACKEND_URLs
+    //   - "Set up worktree environment" : heavy first time (submodule + venv +
+    //                                     deps), instant skip after — run-once via
+    //                                     venv/.worktree-setup-complete. Follow it:
+    //                                       tail -f logs/setup-worktree.log
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Assign worktree port",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/worktree-assign-port.sh",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared",
+                "close": true
+            },
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Set up worktree environment",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/setup-worktree.sh",
+            "args": ["--if-needed"],
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated"
+            },
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "problemMatcher": []
+        },
+        {
+            // Manual: force a full re-provision, ignoring the run-once sentinel.
+            // Run via: Tasks: Run Task -> "Re-setup worktree (force)".
+            "label": "Re-setup worktree (force)",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/setup-worktree.sh",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

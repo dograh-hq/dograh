@@ -1,15 +1,30 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from loguru import logger
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from api.constants import DEFAULT_CAMPAIGN_RETRY_CONFIG, DEFAULT_ORG_CONCURRENCY_LIMIT
+from api.constants import (
+    DEFAULT_CAMPAIGN_RETRY_CONFIG,
+    DEFAULT_ORG_CONCURRENCY_LIMIT,
+    DEPLOYMENT_MODE,
+)
 from api.db import db_client
 from api.db.models import UserModel
 from api.db.telephony_configuration_client import TelephonyConfigurationInUseError
 from api.enums import OrganizationConfigurationKey, PostHogEvent
+from api.schemas.ai_model_configuration import (
+    DOGRAH_DEFAULT_LANGUAGE,
+    DOGRAH_DEFAULT_VOICE,
+    DOGRAH_SPEED_MAX,
+    DOGRAH_SPEED_MIN,
+    DOGRAH_SPEED_OPTIONS,
+    DOGRAH_SPEED_STEP,
+    OrganizationAIModelConfigurationResponse,
+    OrganizationAIModelConfigurationV2,
+)
+from api.schemas.organization_preferences import OrganizationPreferences
 from api.schemas.telephony_config import (
     TelephonyConfigRequest,
     TelephonyConfigurationCreateRequest,
@@ -26,8 +41,42 @@ from api.schemas.telephony_phone_number import (
     PhoneNumberUpdateRequest,
     ProviderSyncStatus,
 )
-from api.services.auth.depends import get_user
-from api.services.configuration.masking import is_mask_of, mask_key
+from api.services.auth.depends import (
+    _sync_posthog_organization_mps_billing_v2_status,
+    get_user,
+    get_user_with_selected_organization,
+)
+from api.services.configuration.ai_model_configuration import (
+    check_for_masked_keys_in_ai_model_configuration_v2,
+    compile_ai_model_configuration_v2,
+    convert_legacy_ai_model_configuration_to_v2,
+    get_organization_ai_model_configuration_v2,
+    get_resolved_ai_model_configuration,
+    mask_ai_model_configuration_v2,
+    merge_ai_model_configuration_v2_secrets,
+    migrate_workflow_model_configurations_to_v2,
+    upsert_organization_ai_model_configuration_v2,
+)
+from api.services.configuration.check_validity import UserConfigurationValidator
+from api.services.configuration.defaults import DEFAULT_SERVICE_PROVIDERS
+from api.services.configuration.masking import is_mask_of, mask_key, mask_user_config
+from api.services.configuration.registry import (
+    DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
+    DOGRAH_STT_LANGUAGES,
+    REGISTRY,
+    DograhTTSService,
+    ServiceProviders,
+    ServiceType,
+)
+from api.services.mps_billing import ensure_hosted_mps_billing_account_v2
+from api.services.organization_context import (
+    OrganizationContextResponse,
+    get_organization_context,
+)
+from api.services.organization_preferences import (
+    get_organization_preferences,
+    upsert_organization_preferences,
+)
 from api.services.posthog_client import capture_event
 from api.services.telephony import registry as telephony_registry
 from api.services.telephony.factory import get_telephony_provider_by_id
@@ -96,6 +145,13 @@ class TelephonyConfigWarningsResponse(BaseModel):
     """
 
     telnyx_missing_webhook_public_key_count: int
+    vonage_missing_signature_secret_count: int
+
+
+@router.get("/context", response_model=OrganizationContextResponse)
+async def get_current_organization_context(user: UserModel = Depends(get_user)):
+    """Return organization-scoped configuration signals owned by Dograh."""
+    return await get_organization_context(user)
 
 
 @router.get(
@@ -145,8 +201,7 @@ async def get_telephony_providers_metadata(user: UserModel = Depends(get_user)):
 async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
     """Return aggregated warning counts for the current org's telephony configs.
 
-    Today this surfaces only Telnyx configs missing ``webhook_public_key``;
-    additional warning types should be added as new fields on the response.
+    Surfaces provider configs missing webhook-verification credentials.
     """
     if not user.selected_organization_id:
         raise HTTPException(status_code=400, detail="No organization selected")
@@ -154,9 +209,269 @@ async def get_telephony_config_warnings(user: UserModel = Depends(get_user)):
     telnyx_missing = await db_client.count_telnyx_configs_missing_webhook_public_key(
         user.selected_organization_id
     )
+    vonage_missing = await db_client.count_vonage_configs_missing_signature_secret(
+        user.selected_organization_id
+    )
     return TelephonyConfigWarningsResponse(
         telnyx_missing_webhook_public_key_count=telnyx_missing,
+        vonage_missing_signature_secret_count=vonage_missing,
     )
+
+
+# ---------------------------------------------------------------------------
+# AI model configurations v2
+# ---------------------------------------------------------------------------
+
+
+def _dograh_allows_custom_voice() -> bool:
+    extra = DograhTTSService.model_fields["voice"].json_schema_extra
+    if isinstance(extra, dict):
+        return bool(extra.get("allow_custom_input", False))
+    return False
+
+
+def _byok_provider_schemas(service_type: ServiceType) -> dict[str, dict]:
+    return {
+        provider: model_cls.model_json_schema()
+        for provider, model_cls in REGISTRY[service_type].items()
+        if provider != ServiceProviders.DOGRAH.value
+    }
+
+
+async def _model_configuration_v2_response(
+    *,
+    user: UserModel,
+    configuration: OrganizationAIModelConfigurationV2 | None = None,
+) -> OrganizationAIModelConfigurationResponse:
+    resolved = await get_resolved_ai_model_configuration(
+        user_id=user.id,
+        organization_id=user.selected_organization_id,
+    )
+    raw_configuration = (
+        configuration
+        if configuration is not None
+        else resolved.organization_configuration
+    )
+    return OrganizationAIModelConfigurationResponse(
+        configuration=mask_ai_model_configuration_v2(raw_configuration),
+        effective_configuration=mask_user_config(resolved.effective),
+        source=resolved.source,
+    )
+
+
+@router.get("/model-configurations/v2/defaults")
+async def get_model_configuration_v2_defaults(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    byok_default_providers = {
+        service: provider
+        for service, provider in DEFAULT_SERVICE_PROVIDERS.items()
+        if provider != ServiceProviders.DOGRAH.value
+    }
+    return {
+        "dograh": {
+            "voices": [DOGRAH_DEFAULT_VOICE],
+            "allow_custom_input": _dograh_allows_custom_voice(),
+            "speeds": list(DOGRAH_SPEED_OPTIONS),
+            "speed_range": {
+                "min": DOGRAH_SPEED_MIN,
+                "max": DOGRAH_SPEED_MAX,
+                "step": DOGRAH_SPEED_STEP,
+            },
+            "languages": DOGRAH_STT_LANGUAGES,
+            "multilingual_languages": DOGRAH_MULTILINGUAL_AUTODETECT_LANGUAGES,
+            "defaults": {
+                "voice": DOGRAH_DEFAULT_VOICE,
+                "speed": 1.0,
+                "language": DOGRAH_DEFAULT_LANGUAGE,
+            },
+        },
+        "byok": {
+            "pipeline": {
+                "llm": _byok_provider_schemas(ServiceType.LLM),
+                "tts": _byok_provider_schemas(ServiceType.TTS),
+                "stt": _byok_provider_schemas(ServiceType.STT),
+                "embeddings": _byok_provider_schemas(ServiceType.EMBEDDINGS),
+                "default_providers": byok_default_providers,
+            },
+            "realtime": {
+                "realtime": _byok_provider_schemas(ServiceType.REALTIME),
+                "llm": _byok_provider_schemas(ServiceType.LLM),
+                "embeddings": _byok_provider_schemas(ServiceType.EMBEDDINGS),
+                "default_providers": byok_default_providers,
+            },
+        },
+    }
+
+
+@router.get(
+    "/model-configurations/v2",
+    response_model=OrganizationAIModelConfigurationResponse,
+)
+async def get_model_configuration_v2(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    return await _model_configuration_v2_response(user=user)
+
+
+@router.put(
+    "/model-configurations/v2",
+    response_model=OrganizationAIModelConfigurationResponse,
+)
+async def save_model_configuration_v2(
+    request: OrganizationAIModelConfigurationV2,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    organization_id = user.selected_organization_id
+    existing = await get_organization_ai_model_configuration_v2(organization_id)
+    configuration = merge_ai_model_configuration_v2_secrets(request, existing)
+    try:
+        check_for_masked_keys_in_ai_model_configuration_v2(configuration)
+        effective = compile_ai_model_configuration_v2(configuration)
+        await UserConfigurationValidator().validate(
+            effective,
+            organization_id=organization_id,
+            created_by=user.provider_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=exc.args[0])
+
+    await upsert_organization_ai_model_configuration_v2(
+        organization_id,
+        configuration,
+    )
+    return await _model_configuration_v2_response(
+        user=user,
+        configuration=configuration,
+    )
+
+
+@router.get("/model-configurations/v2/migration-preview")
+async def preview_model_configuration_v2_migration(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    legacy = await db_client.get_user_configurations(user.id)
+    try:
+        configuration = convert_legacy_ai_model_configuration_to_v2(legacy)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {
+        "configuration": mask_ai_model_configuration_v2(configuration),
+        "effective_configuration": mask_user_config(
+            compile_ai_model_configuration_v2(configuration)
+        ),
+    }
+
+
+@router.post(
+    "/model-configurations/v2/migrate",
+    response_model=OrganizationAIModelConfigurationResponse,
+)
+async def migrate_model_configuration_v2(
+    force: bool = Query(default=False),
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    organization_id = user.selected_organization_id
+    existing = await get_organization_ai_model_configuration_v2(organization_id)
+    if existing is not None and not force:
+        raise HTTPException(
+            status_code=409,
+            detail="Organization already has a v2 model configuration",
+        )
+
+    legacy = await db_client.get_user_configurations(user.id)
+    try:
+        configuration = convert_legacy_ai_model_configuration_to_v2(legacy)
+        effective = compile_ai_model_configuration_v2(configuration)
+        await UserConfigurationValidator().validate(
+            effective,
+            organization_id=organization_id,
+            created_by=user.provider_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=exc.args[0])
+
+    billing_account_status = None
+    if DEPLOYMENT_MODE != "oss":
+        try:
+            billing_account_status = await ensure_hosted_mps_billing_account_v2(
+                organization_id,
+                created_by=str(user.provider_id),
+            )
+        except Exception as exc:
+            logger.error(
+                "Failed to initialize MPS billing v2 account for organization {}: {}",
+                organization_id,
+                exc,
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to initialize MPS billing v2 account",
+            )
+
+    await upsert_organization_ai_model_configuration_v2(
+        organization_id,
+        configuration,
+    )
+    await migrate_workflow_model_configurations_to_v2(
+        organization_id=organization_id,
+        fallback_user_config=legacy,
+    )
+    if DEPLOYMENT_MODE != "oss":
+        _sync_posthog_organization_mps_billing_v2_status(
+            organization_id,
+            uses_mps_billing_v2=bool(
+                billing_account_status
+                and billing_account_status.get("billing_mode") == "v2"
+            ),
+        )
+    return await _model_configuration_v2_response(
+        user=user,
+        configuration=configuration,
+    )
+
+
+@router.get("/preferences", response_model=OrganizationPreferences)
+async def get_preferences(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    organization_id = user.selected_organization_id
+    return await get_organization_preferences(organization_id)
+
+
+@router.put("/preferences", response_model=OrganizationPreferences)
+async def save_preferences(
+    request: OrganizationPreferences,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    organization_id = user.selected_organization_id
+    return await upsert_organization_preferences(
+        organization_id,
+        request,
+    )
+
+
+@router.get(
+    "/model-configurations/preferences",
+    response_model=OrganizationPreferences,
+    include_in_schema=False,
+)
+async def get_model_configuration_preferences_legacy(
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    return await get_preferences(user=user)
+
+
+@router.put(
+    "/model-configurations/preferences",
+    response_model=OrganizationPreferences,
+    include_in_schema=False,
+)
+async def save_model_configuration_preferences_legacy(
+    request: OrganizationPreferences,
+    user: UserModel = Depends(get_user_with_selected_organization),
+):
+    return await save_preferences(request=request, user=user)
 
 
 def preserve_masked_fields(provider: str, request_dict: dict, existing: dict):

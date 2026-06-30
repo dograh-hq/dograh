@@ -1,9 +1,7 @@
 "use client";
 
-import { AlertCircle } from "lucide-react";
-
 import type { RecordingResponseSchema } from "@/client/types.gen";
-import { RecordingSelect } from "@/components/flow/TextOrAudioInput";
+import { RecordingSelect, StaticTextWarning } from "@/components/flow/TextOrAudioInput";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -144,10 +142,7 @@ export function EndCallToolConfig({
                         </div>
                         {messageType === "custom" && (
                             <div className="pl-8 space-y-2">
-                                <div className="flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 border border-amber-200">
-                                    <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-                                    <span>This text is spoken as-is. For multilingual workflows, choose your phrasing carefully.</span>
-                                </div>
+                                <StaticTextWarning />
                                 <Textarea
                                     value={customMessage}
                                     onChange={(e) => onCustomMessageChange(e.target.value)}

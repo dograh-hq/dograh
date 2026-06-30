@@ -2,13 +2,15 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, text
+from sqlalchemy import func, text, update
 from sqlalchemy.future import select
 
 from api.db.base_client import BaseDBClient
 from api.db.filters import apply_workflow_run_filters, get_workflow_run_order_clause
 from api.db.models import CampaignModel, QueuedRunModel, WorkflowRunModel
 from api.schemas.workflow import WorkflowRunResponseSchema
+from api.services.workflow.run_usage_response import format_public_cost_info
+from api.utils.recording_artifacts import get_recording_storage_key
 
 
 class CampaignClient(BaseDBClient):
@@ -44,9 +46,11 @@ class CampaignClient(BaseDBClient):
                 source_id=source_id,
                 created_by=user_id,
                 organization_id=organization_id,
-                retry_config=retry_config
-                if retry_config
-                else CampaignModel.retry_config.default.arg,
+                retry_config=(
+                    retry_config
+                    if retry_config
+                    else CampaignModel.retry_config.default.arg
+                ),
                 orchestrator_metadata=orchestrator_metadata,
                 telephony_configuration_id=telephony_configuration_id,
             )
@@ -215,26 +219,15 @@ class CampaignClient(BaseDBClient):
                         "is_completed": run.is_completed,
                         "recording_url": run.recording_url,
                         "transcript_url": run.transcript_url,
-                        "cost_info": {
-                            "dograh_token_usage": (
-                                run.cost_info.get("dograh_token_usage")
-                                if run.cost_info
-                                and "dograh_token_usage" in run.cost_info
-                                else round(
-                                    float(run.cost_info.get("total_cost_usd", 0)) * 100,
-                                    2,
-                                )
-                                if run.cost_info and "total_cost_usd" in run.cost_info
-                                else 0
-                            ),
-                            "call_duration_seconds": int(
-                                round(run.cost_info.get("call_duration_seconds") or 0)
-                            )
-                            if run.cost_info
-                            else None,
-                        }
-                        if run.cost_info
-                        else None,
+                        "user_recording_url": get_recording_storage_key(
+                            run.extra, "user"
+                        ),
+                        "bot_recording_url": get_recording_storage_key(
+                            run.extra, "bot"
+                        ),
+                        "cost_info": format_public_cost_info(
+                            run.cost_info, run.usage_info
+                        ),
                         "definition_id": run.definition_id,
                         "initial_context": run.initial_context,
                         "gathered_context": run.gathered_context,
@@ -286,9 +279,11 @@ class CampaignClient(BaseDBClient):
                 source_id=parent_campaign.source_id,
                 created_by=parent_campaign.created_by,
                 organization_id=parent_campaign.organization_id,
-                retry_config=retry_config
-                if retry_config
-                else CampaignModel.retry_config.default.arg,
+                retry_config=(
+                    retry_config
+                    if retry_config
+                    else CampaignModel.retry_config.default.arg
+                ),
                 orchestrator_metadata=child_meta,
                 rate_limit_per_second=parent_campaign.rate_limit_per_second,
                 total_rows=len(queued_runs_data),
@@ -354,8 +349,7 @@ class CampaignClient(BaseDBClient):
         # Retries create new queued_runs with suffixed source_uuids linked via
         # parent_queued_run_id, so group by the ROOT queued_run using a
         # recursive walk and pick the latest workflow_run across the tree.
-        sql = text(
-            f"""
+        sql = text(f"""
             WITH RECURSIVE run_tree AS (
                 SELECT id AS root_id, id AS run_id
                 FROM queued_runs
@@ -382,8 +376,7 @@ class CampaignClient(BaseDBClient):
             JOIN latest_run_per_root lr ON lr.root_id = q0.id
             WHERE q0.campaign_id = :cid
               AND ({tag_filter})
-            """
-        )
+            """)
 
         async with self.async_session() as session:
             result = await session.execute(sql, {"cid": campaign_id})
@@ -466,6 +459,63 @@ class CampaignClient(BaseDBClient):
                 await session.rollback()
                 raise
 
+    async def increment_campaign_metadata_counter(
+        self, campaign_id: int, key: str
+    ) -> int:
+        """Atomically increment an integer field in campaign orchestrator_metadata."""
+        async with self.async_session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE campaigns "
+                    "SET orchestrator_metadata = ("
+                    "        COALESCE(orchestrator_metadata::jsonb, '{}'::jsonb) "
+                    "        || jsonb_build_object("
+                    "            :key, "
+                    "            COALESCE((orchestrator_metadata::jsonb ->> :key)::int, 0) + 1"
+                    "        )"
+                    "    )::json, "
+                    "    updated_at = :now "
+                    "WHERE id = :campaign_id "
+                    "RETURNING (orchestrator_metadata::jsonb ->> :key)::int"
+                ),
+                {
+                    "campaign_id": campaign_id,
+                    "key": key,
+                    "now": datetime.now(UTC),
+                },
+            )
+            attempt = result.scalar_one()
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            return attempt
+
+    async def reset_campaign_metadata_counter(self, campaign_id: int, key: str) -> None:
+        """Remove a counter field from campaign orchestrator_metadata."""
+        async with self.async_session() as session:
+            await session.execute(
+                text(
+                    "UPDATE campaigns "
+                    "SET orchestrator_metadata = ("
+                    "        COALESCE(orchestrator_metadata::jsonb, '{}'::jsonb) - :key"
+                    "    )::json, "
+                    "    updated_at = :now "
+                    "WHERE id = :campaign_id"
+                ),
+                {
+                    "campaign_id": campaign_id,
+                    "key": key,
+                    "now": datetime.now(UTC),
+                },
+            )
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+
     # QueuedRun methods
     async def bulk_create_queued_runs(self, queued_runs_data: list[dict]) -> None:
         """Bulk create queued runs"""
@@ -500,6 +550,35 @@ class CampaignClient(BaseDBClient):
                 raise e
             await session.refresh(queued_run)
             return queued_run
+
+    async def return_processing_queued_runs_without_workflow(
+        self, queued_run_ids: list[int]
+    ) -> int:
+        """Return claimed queued_runs to queued if no workflow was created for them."""
+        if not queued_run_ids:
+            return 0
+
+        workflow_exists = (
+            select(WorkflowRunModel.id)
+            .where(WorkflowRunModel.queued_run_id == QueuedRunModel.id)
+            .exists()
+        )
+        async with self.async_session() as session:
+            result = await session.execute(
+                update(QueuedRunModel)
+                .where(
+                    QueuedRunModel.id.in_(queued_run_ids),
+                    QueuedRunModel.state == "processing",
+                    ~workflow_exists,
+                )
+                .values(state="queued")
+            )
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+            return result.rowcount or 0
 
     async def count_queued_runs(
         self, campaign_id: int, state: Optional[str] = None
@@ -576,7 +655,7 @@ class CampaignClient(BaseDBClient):
         async with self.async_session() as session:
             conditions = [
                 WorkflowRunModel.is_completed.is_(True),
-                WorkflowRunModel.cost_info["call_duration_seconds"]
+                WorkflowRunModel.usage_info["call_duration_seconds"]
                 .as_string()
                 .isnot(None),
             ]
@@ -599,6 +678,7 @@ class CampaignClient(BaseDBClient):
                     WorkflowRunModel.initial_context,
                     WorkflowRunModel.gathered_context,
                     WorkflowRunModel.cost_info,
+                    WorkflowRunModel.usage_info,
                     WorkflowRunModel.public_access_token,
                 )
                 .where(*conditions)

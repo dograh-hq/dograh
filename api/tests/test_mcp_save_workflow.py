@@ -244,6 +244,58 @@ const only = wf.addTyped(endCall({ name: "only", prompt: "bye" }));
     update_mock.assert_not_awaited()
 
 
+@pytest.mark.asyncio
+async def test_graph_validation_catches_duplicate_api_triggers(mock_backends):
+    save_mock, update_mock = mock_backends
+    payload = {
+        "nodes": [
+            {
+                "id": "start-1",
+                "type": "startCall",
+                "position": {"x": 0, "y": 0},
+                "data": {"name": "Start", "prompt": "Greet."},
+            },
+            {
+                "id": "trigger-1",
+                "type": "trigger",
+                "position": {"x": 0, "y": 200},
+                "data": {"name": "Trigger A", "trigger_path": "support_west"},
+            },
+            {
+                "id": "trigger-2",
+                "type": "trigger",
+                "position": {"x": 0, "y": 400},
+                "data": {"name": "Trigger B", "trigger_path": "support_east"},
+            },
+        ],
+        "edges": [],
+    }
+
+    with (
+        patch(
+            "api.mcp_server.tools.save_workflow.parse_code",
+            AsyncMock(
+                return_value={
+                    "ok": True,
+                    "workflowName": _FakeWorkflowModel.name,
+                    "workflow": payload,
+                }
+            ),
+        ),
+        patch(
+            "api.mcp_server.tools.save_workflow.reconcile_positions",
+            return_value=payload,
+        ),
+    ):
+        result = await save_workflow(workflow_id=1, code="ignored")
+
+    assert result["saved"] is False
+    assert result["error_code"] == "graph_validation"
+    assert "at most one API Trigger" in result["error"]
+    save_mock.assert_not_awaited()
+    update_mock.assert_not_awaited()
+
+
 # ─── Workflow not found / unauthorized ───────────────────────────────────
 
 

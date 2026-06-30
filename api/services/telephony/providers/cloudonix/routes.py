@@ -12,6 +12,7 @@ from pipecat.utils.run_context import set_current_run_id
 
 from api.db import db_client
 from api.services.telephony.factory import get_telephony_provider_for_run
+from api.services.telephony.providers.cloudonix.provider import CloudonixProvider
 from api.services.telephony.status_processor import (
     StatusCallbackRequest,
     _process_status_update,
@@ -103,7 +104,8 @@ async def handle_cloudonix_cdr(request: Request):
         return {"status": "error", "message": "Missing domain field"}
 
     # Extract call_id to find workflow run
-    call_id = cdr_data.get("session").get("token")
+    session = cdr_data.get("session")
+    call_id = session.get("token") if isinstance(session, dict) else None
     logger.info(f"Cloudonix CDR data for call id {call_id} - {cdr_data}")
     if not call_id:
         logger.warning("Cloudonix CDR missing call_id field")
@@ -119,8 +121,15 @@ async def handle_cloudonix_cdr(request: Request):
     set_current_run_id(workflow_run_id)
     logger.info(f"[run {workflow_run_id}] Processing Cloudonix CDR for call {call_id}")
 
-    # Convert CDR to status update using StatusCallbackRequest
-    status_update = StatusCallbackRequest.from_cloudonix_cdr(cdr_data)
+    parsed_data = CloudonixProvider.parse_cdr_status_callback(cdr_data)
+    status_update = StatusCallbackRequest(
+        call_id=parsed_data["call_id"],
+        status=parsed_data["status"],
+        from_number=parsed_data.get("from_number"),
+        to_number=parsed_data.get("to_number"),
+        duration=parsed_data.get("duration"),
+        extra=parsed_data.get("extra", {}),
+    )
 
     # Process the status update
     await _process_status_update(workflow_run_id, status_update)

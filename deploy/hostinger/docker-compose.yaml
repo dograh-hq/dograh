@@ -1,0 +1,281 @@
+# Dograh — Hostinger VPS Docker Manager deployment
+# =================================================================
+# This variant is for environments where a SHARED, MANAGED Traefik
+# (with Let's Encrypt) already terminates TLS and routes ingress —
+# e.g. Hostinger's VPS Docker Manager catalog.
+#
+# Differences from the canonical docker-compose.yaml:
+#   - No bundled `nginx` service. Traefik is the ingress; we attach
+#     routing intent via labels instead of shipping our own proxy.
+#   - No `cloudflared` tunnel. The app is reachable at a real domain.
+#   - Web tier (ui/api/minio) publishes NO host ports — Traefik reaches
+#     them over its own Docker network. coturn is the ONLY service that
+#     binds host ports, because WebRTC media is UDP and CANNOT traverse
+#     an HTTP reverse proxy.
+#   - `api` runs ENVIRONMENT=production (correct public ICE-candidate
+#     filtering + UDP-first TURN).
+#   - coturn is configured entirely from CLI flags (no `dograh-init`
+#     renderer, no host bind-mounts). The whole stack is therefore a single
+#     self-contained file — nothing outside it needs to exist on the host,
+#     which is what a catalog compose-import requires.
+#   - FASTAPI_WORKERS is pinned to 1 (see the note on the `api` service).
+#
+# Required .env keys — see .env.example. At minimum:
+#   PUBLIC_HOST, TURN_HOST, TURN_SECRET, OSS_JWT_SECRET,
+#   TRAEFIK_NETWORK, TRAEFIK_CERTRESOLVER, TRAEFIK_ENTRYPOINT
+# =================================================================
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres}"
+      POSTGRES_DB: postgres
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # No host port: Postgres is reachable only inside app-network.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - app-network
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: >
+      --requirepass ${REDIS_PASSWORD:-redissecret}
+    # No host port: Redis is reachable only inside app-network.
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-redissecret}", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
+    networks:
+      - app-network
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    # No host ports. Browsers fetch audio via Traefik at
+    # https://${PUBLIC_HOST}/voice-audio/... (objects are public-read,
+    # unsigned URLs — no presign/host-signature to break). For console
+    # admin, port-forward 9001 over SSH instead of publishing it.
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-proxy}"
+      # Audio file downloads. Highest priority so it wins over the UI catch-all.
+      - "traefik.http.routers.dograh-audio.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/voice-audio`)"
+      - "traefik.http.routers.dograh-audio.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.dograh-audio.tls=true"
+      - "traefik.http.routers.dograh-audio.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.dograh-audio.priority=20"
+      - "traefik.http.services.dograh-audio.loadbalancer.server.port=9000"
+    networks:
+      - app-network
+      - traefik
+
+  # TURN/STUN relay for WebRTC NAT traversal. This is the voice media path —
+  # it is UDP and is NOT, and cannot be, proxied by Traefik. These host ports
+  # MUST be published and opened in the VPS firewall, and TURN_HOST must be the
+  # VPS public IP (or a domain resolving to it). Without this, calls connect
+  # (signaling succeeds over Traefik) but carry NO audio.
+  #
+  # Configured entirely from CLI flags (`-n` disables config-file lookup), so
+  # the stack ships no host-side config and needs no init/renderer container —
+  # it is a single self-contained file, which is what a catalog import requires.
+  coturn:
+    image: coturn/coturn:4.8.0
+    container_name: coturn
+    restart: unless-stopped
+    command:
+      - -n
+      - "--listening-port=3478"
+      - "--tls-listening-port=5349"
+      - "--min-port=49152"
+      - "--max-port=49200"
+      - "--external-ip=${TURN_HOST}"
+      - "--realm=dograh.com"
+      - --use-auth-secret
+      - "--static-auth-secret=${TURN_SECRET}"
+      - --fingerprint
+      - --no-cli
+      - --no-multicast-peers
+      - "--log-file=stdout"
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "5349:5349/udp"
+      - "5349:5349/tcp"
+      - "49152-49200:49152-49200/udp"
+    networks:
+      - app-network
+
+  api:
+    image: ${REGISTRY:-dograhai}/dograh-api:${DOGRAH_VERSION:-latest}
+    restart: unless-stopped
+    volumes:
+      - shared-tmp:/tmp
+    environment:
+      # production => drop private-IP host ICE candidates on a public VPS and
+      # order TURN URIs UDP-first. Required for correct remote WebRTC.
+      ENVIRONMENT: "production"
+      LOG_LEVEL: "INFO"
+
+      # Public HTTPS origin (Traefik-terminated). Used for absolute URLs and
+      # for verifying inbound telephony webhook signatures.
+      BACKEND_API_ENDPOINT: "https://${PUBLIC_HOST}"
+
+      DATABASE_URL: "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres"
+      REDIS_URL: "redis://:${REDIS_PASSWORD:-redissecret}@redis:6379"
+
+      ENABLE_AWS_S3: "false"
+      MINIO_ENDPOINT: "minio:9000"
+      # Full public URL browsers use to fetch audio. Traefik routes
+      # /voice-audio/ to minio:9000. This replaces the nginx sub_filter hack.
+      MINIO_PUBLIC_ENDPOINT: "https://${PUBLIC_HOST}"
+      # Must match the MinIO root creds above (same env vars).
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-minioadmin}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-minioadmin}"
+      MINIO_BUCKET: "voice-audio"
+      MINIO_SECURE: "false"
+
+      # IMPORTANT: pinned to 1. The image launches FASTAPI_WORKERS as
+      # independent uvicorn processes on consecutive ports (8000, 8001, ...)
+      # expecting the bundled nginx to least_conn-balance long-lived
+      # WebSockets across them. We dropped that nginx for Traefik, and a
+      # managed Traefik (label provider) can only target one port — so values
+      # >1 would leave the extra workers idle. The container also runs
+      # singletons (telephony ARI manager, campaign orchestrator) + migrations
+      # that must run exactly once. Scale vertically (bigger VPS) here; do not
+      # raise this and do not naively replicate this service.
+      FASTAPI_WORKERS: "1"
+
+      # Trust Traefik's X-Forwarded-Proto: https so request.url is https and
+      # inbound webhook signature checks pass. Narrow to the Docker subnet if
+      # you prefer.
+      FORWARDED_ALLOW_IPS: "*"
+
+      # TURN — must match coturn. TURN_HOST is the VPS public IP / TURN domain.
+      TURN_HOST: "${TURN_HOST:?TURN_HOST is required for WebRTC media}"
+      TURN_SECRET: "${TURN_SECRET:?TURN_SECRET is required for WebRTC media}"
+      FORCE_TURN_RELAY: "${FORCE_TURN_RELAY:-false}"
+
+      OSS_JWT_SECRET: "${OSS_JWT_SECRET:?OSS_JWT_SECRET must be set to a strong secret}"
+
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      POSTHOG_API_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.i.posthog.com"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/api/v1/health'').read()"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-proxy}"
+      # REST API + the signaling WebSocket (/api/v1/ws/signaling/...).
+      # Traefik upgrades WebSockets automatically — no extra labels needed.
+      # Higher priority than the UI so /api/v1 is matched first.
+      - "traefik.http.routers.dograh-api.rule=Host(`${PUBLIC_HOST}`) && PathPrefix(`/api/v1`)"
+      - "traefik.http.routers.dograh-api.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.dograh-api.tls=true"
+      - "traefik.http.routers.dograh-api.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.dograh-api.priority=10"
+      - "traefik.http.services.dograh-api.loadbalancer.server.port=8000"
+    networks:
+      - app-network
+      - traefik
+
+  ui:
+    image: ${REGISTRY:-dograhai}/dograh-ui:${DOGRAH_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      HOSTNAME: "0.0.0.0"
+      # Server-side (SSR) calls stay on the internal Docker network.
+      BACKEND_URL: "${BACKEND_URL:-http://api:8000}"
+      NODE_ENV: "oss"
+      ENABLE_TELEMETRY: "${ENABLE_TELEMETRY:-true}"
+      POSTHOG_KEY: "phc_ItizB1dP6yv7ZYobbcqrpxTdbomDA8hJFSEmAMdYvIr"
+      POSTHOG_HOST: "https://us.posthog.com"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://127.0.0.1:3010 || exit 1",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik-proxy}"
+      # Catch-all for everything that is not /api/v1 or /voice-audio.
+      - "traefik.http.routers.dograh-ui.rule=Host(`${PUBLIC_HOST}`)"
+      - "traefik.http.routers.dograh-ui.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.dograh-ui.tls=true"
+      - "traefik.http.routers.dograh-ui.tls.certresolver=${TRAEFIK_CERTRESOLVER:-letsencrypt}"
+      - "traefik.http.routers.dograh-ui.priority=1"
+      - "traefik.http.services.dograh-ui.loadbalancer.server.port=3010"
+    networks:
+      - app-network
+      - traefik
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio-data:
+    driver: local
+  shared-tmp:
+    driver: local
+
+networks:
+  # Internal network for service-to-service traffic (db, redis, minio, coturn).
+  app-network:
+    driver: bridge
+  # The EXTERNAL network that the managed Traefik is attached to. Its name is
+  # provider-specific — set TRAEFIK_NETWORK in .env to match Hostinger's actual
+  # Traefik network. This file does not create it; it must already exist.
+  traefik:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik-proxy}

@@ -15,7 +15,7 @@
     <img src="https://img.shields.io/badge/⚡_60_秒自托管-一行命令-111827?style=for-the-badge" alt="60 秒自托管">
   </a>
   &nbsp;
-  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">
+  <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">
     <img src="https://img.shields.io/badge/💬_加入_Slack-社区-4A154B?style=for-the-badge&logo=slack" alt="加入 Slack">
   </a>
 </p>
@@ -23,7 +23,8 @@
 <p align="center">
   <a href="https://docs.dograh.com">📖 文档</a> &nbsp;·&nbsp;
   <a href="LICENSE">📜 BSD 2-Clause</a> &nbsp;·&nbsp;
-  <a href="README.md">🌐 English</a>
+  <a href="README.md">🌐 English</a> &nbsp;·&nbsp;
+  <a href="README.ja-JP.md">🌐 日本語</a>
 </p>
 
 <p align="center">
@@ -84,9 +85,20 @@
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && REGISTRY=ghcr.io/dograh-hq ENABLE_TELEMETRY=true docker compose up --pull always
 ```
 
+> **⚡ 想让 AI 智能体帮你完成部署?**
+> 如果你使用 **Claude Code** 或 **Codex**,可以安装官方的 [Dograh 部署技能(skill)](https://github.com/dograh-hq/dograh-plugins),让智能体替你完成安装、配置与排障——它会识别你的操作系统、选择合适的部署方式、运行 Dograh 自带的部署脚本并验证结果。
+>
+> ```text
+> # 在 Claude Code 中
+> /plugin marketplace add dograh-hq/dograh-plugins
+> /plugin install dograh@dograh
+> ```
+>
+> 然后开启一个新会话,让它 _"set up Dograh"_(或运行 `/dograh-setup`)。Codex 同样支持——详见[插件仓库](https://github.com/dograh-hq/dograh-plugins#install)。
+
 > **提示**
 > 首次启动需要 2-3 分钟拉取所有镜像。启动完成后,打开 http://localhost:3010 即可创建你的第一个 AI 语音助手!
-> 常见问题及解决方案请参见 🔧 **[故障排查](docs/troubleshooting.md)**。
+> 常见问题及解决方案请参见 🔧 **[故障排查](docs/getting-started/troubleshooting.mdx)**。
 
 ### 🎙️ 你的第一个语音机器人
 
@@ -144,7 +156,7 @@ curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/m
 - **GitHub Discussions** —— 分享使用场景、提问、交流工作流配方。
 - **GitHub Issues** —— 报告 bug 或提交功能请求。
 
-👉 加入我们 → [Dograh 社区 Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ)
+👉 加入我们 → [Dograh 社区 Slack](https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g)
 
 ## 🙌 参与贡献
 
@@ -178,5 +190,5 @@ Dograh AI 基于 [BSD 2-Clause 协议](LICENSE)开源 —— 与构建 Dograh AI
   <p align="center">
     <a href="https://github.com/dograh-hq/dograh/stargazers">⭐ 给我们一个 Star</a> |
     <a href="https://app.dograh.com">☁️ 试用云端版本</a> |
-    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3czr47sw5-MSg1J0kJ7IMPOCHF~03auQ">💬 加入 Slack</a>
+    <a href="https://join.slack.com/t/dograh-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">💬 加入 Slack</a>
   </p>

@@ -106,25 +106,6 @@ export async function getRedirectUrl(token: string, permissions: { id: string }[
 
 
 /**
- * --------------------------------------------------------------------------
- * Cookie helpers
- * --------------------------------------------------------------------------
- */
-
-export function setStackRefreshCookie(refreshToken: string) {
-  const expiryDate = new Date();
-  expiryDate.setFullYear(expiryDate.getFullYear() + 1);
-
-  const isDograhDomain = window.location.hostname.endsWith('.dograh.com');
-  const cookieDomainPart = isDograhDomain ? '; domain=.dograh.com' : '';
-
-  document.cookie =
-    `stack-refresh-${process.env.NEXT_PUBLIC_STACK_PROJECT_ID}=${refreshToken}; ` +
-    `expires=${expiryDate.toUTCString()}; path=/` +
-    `${cookieDomainPart}; secure; samesite=lax`;
-}
-
-/**
  * Centralised impersonation logic to avoid code duplication between pages.
  *
  * It performs the super-admin impersonate request, sets the cross-sub-domain

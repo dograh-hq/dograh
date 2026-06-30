@@ -13,9 +13,8 @@ Adds:
   flow kicks off the bot's first response.
 - **One-off LLMMessagesAppendFrame handling** for ephemeral realtime prompts
   like user-idle checks, without mutating Dograh's local ``LLMContext``.
-- **finalized=True on TranscriptionFrame** for parity with the Gemini
-  service (every OpenAI transcription via the ``completed`` event is
-  final by construction).
+- **finalized=True on TranscriptionFrame** because every OpenAI
+  transcription via the ``completed`` event is final by construction.
 """
 
 import json
@@ -23,6 +22,7 @@ from typing import Any
 
 from loguru import logger
 
+from api.services.pipecat.realtime.static_greeting import format_static_greeting_prompt
 from pipecat.frames.frames import (
     BotStartedSpeakingFrame,
     BotStoppedSpeakingFrame,
@@ -57,6 +57,7 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         # has finished speaking, matching Dograh's Gemini Live behavior.
         self._bot_is_speaking: bool = False
         self._deferred_function_calls: list[FunctionCallFromLLM] = []
+        self._pending_initial_greeting_text: str | None = None
 
     # ------------------------------------------------------------------
     # Frame handling: mute, TTSSpeakFrame as greeting trigger
@@ -74,11 +75,16 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         if isinstance(frame, TTSSpeakFrame):
             # Greeting trigger: the engine queues a TTSSpeakFrame after node
             # setup. OpenAI Realtime renders its own audio, so we don't pass
-            # the frame to TTS. Route through _handle_context so the initial
-            # response and later tool-result turns share the same context
-            # lifecycle even when Dograh has already pre-populated self._context.
+            # the frame to TTS. For configured static text greetings, ask the
+            # model to say the exact greeting; otherwise route through
+            # _handle_context so the initial response and later tool-result
+            # turns share the same context lifecycle.
             if not self._handled_initial_context:
-                await self._handle_context(self._context)
+                greeting_text = frame.text.strip() if frame.text else ""
+                if greeting_text:
+                    await self._handle_initial_greeting(self._context, greeting_text)
+                else:
+                    await self._handle_context(self._context)
             else:
                 logger.warning(
                     f"{self}: TTSSpeakFrame after initial context already "
@@ -138,6 +144,57 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             self._context = context
             await self._process_completed_function_calls(send_new_results=True)
 
+    async def _handle_initial_greeting(self, context: LLMContext, greeting_text: str):
+        if context is None:
+            logger.warning(
+                f"{self}: received initial greeting trigger before context was set"
+            )
+            return
+
+        self._handled_initial_context = True
+        self._context = context
+        await self._create_initial_greeting_response(greeting_text)
+
+    async def _create_initial_greeting_response(self, greeting_text: str):
+        if self._disconnecting:
+            return
+
+        if not self._api_session_ready:
+            self._pending_initial_greeting_text = greeting_text
+            self._run_llm_when_api_session_ready = True
+            return
+
+        self._pending_initial_greeting_text = None
+        await self._ensure_conversation_setup()
+        await self._send_manual_response_create(
+            instructions=format_static_greeting_prompt(greeting_text),
+            tool_choice="none",
+        )
+
+    async def _ensure_conversation_setup(self):
+        if not self._llm_needs_conversation_setup:
+            return
+
+        adapter = self.get_llm_adapter()
+        llm_invocation_params = adapter.get_llm_invocation_params(self._context)
+        for item in llm_invocation_params["messages"]:
+            evt = events.ConversationItemCreateEvent(item=item)
+            self._messages_added_manually[evt.item.id] = True
+            await self.send_client_event(evt)
+
+        await self._send_session_update()
+        self._llm_needs_conversation_setup = False
+
+    async def _handle_evt_session_updated(self, evt):
+        self._api_session_ready = True
+        if self._pending_initial_greeting_text is not None:
+            greeting_text = self._pending_initial_greeting_text
+            self._run_llm_when_api_session_ready = False
+            await self._create_initial_greeting_response(greeting_text)
+        elif self._run_llm_when_api_session_ready:
+            self._run_llm_when_api_session_ready = False
+            await self._create_response()
+
     async def _send_user_audio(self, frame):
         if self._user_is_muted:
             return
@@ -191,7 +248,12 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             return "\n".join(parts) if parts else None
         return None
 
-    async def _send_manual_response_create(self):
+    async def _send_manual_response_create(
+        self,
+        *,
+        instructions: str | None = None,
+        tool_choice: str | None = None,
+    ):
         """Trigger inference after manually appending conversation items."""
         await self.push_frame(LLMFullResponseStartFrame())
         await self.start_processing_metrics()
@@ -199,7 +261,9 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
         await self.send_client_event(
             events.ResponseCreateEvent(
                 response=events.ResponseProperties(
-                    output_modalities=self._get_enabled_modalities()
+                    output_modalities=self._get_enabled_modalities(),
+                    instructions=instructions,
+                    tool_choice=tool_choice,
                 )
             )
         )
@@ -254,9 +318,8 @@ class DograhOpenAIRealtimeLLMService(OpenAIRealtimeLLMService):
             logger.error(f"Failed to process function call arguments: {e}")
 
     # ------------------------------------------------------------------
-    # Transcription: broadcast with finalized=True for parity with the
-    # Gemini service (consumers that check `finalized` should see True
-    # for every completed-transcription event from OpenAI).
+    # Transcription: broadcast with finalized=True for every
+    # completed-transcription event from OpenAI.
     # ------------------------------------------------------------------
 
     async def handle_evt_input_audio_transcription_completed(self, evt):

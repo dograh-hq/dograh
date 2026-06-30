@@ -18,7 +18,7 @@ from api.services.auth.depends import get_user
 from api.services.campaign.runner import campaign_runner_service
 from api.services.campaign.source_sync import CampaignSourceSyncService
 from api.services.campaign.source_sync_factory import get_sync_service
-from api.services.quota_service import check_dograh_quota
+from api.services.quota_service import authorize_workflow_run_start
 from api.services.reports import generate_campaign_report_csv
 from api.services.storage import storage_fs
 
@@ -375,7 +375,7 @@ async def create_campaign(
         if workflow_def:
             try:
                 dto = ReactFlowDTO(**workflow_def)
-                graph = WorkflowGraph(dto)
+                graph = WorkflowGraph(dto, skip_instance_constraints_for={"trigger"})
                 required_vars = graph.get_required_template_variables()
 
                 if (
@@ -550,7 +550,10 @@ async def start_campaign(
 
     # Check Dograh quota before starting campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).
-    quota_result = await check_dograh_quota(user, workflow_id=campaign.workflow_id)
+    quota_result = await authorize_workflow_run_start(
+        workflow_id=campaign.workflow_id,
+        actor_user=user,
+    )
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 
@@ -872,7 +875,10 @@ async def resume_campaign(
 
     # Check Dograh quota before resuming campaign (apply per-workflow
     # model_overrides so we evaluate the keys this campaign will use).
-    quota_result = await check_dograh_quota(user, workflow_id=campaign.workflow_id)
+    quota_result = await authorize_workflow_run_start(
+        workflow_id=campaign.workflow_id,
+        actor_user=user,
+    )
     if not quota_result.has_quota:
         raise HTTPException(status_code=402, detail=quota_result.error_message)
 

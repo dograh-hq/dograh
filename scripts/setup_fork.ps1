@@ -102,18 +102,33 @@ Write-Host '[3/4] Python virtual environment' -ForegroundColor Blue
 $VenvPath = Join-Path $BaseDir 'venv'
 $VenvActivate = Join-Path $VenvPath 'Scripts/Activate.ps1'
 
-if (Test-Path $VenvActivate) {
-    Write-Host "OK venv already exists at $VenvPath" -ForegroundColor Green
-} else {
-    $py = $null
-    foreach ($candidate in @('python3.13', 'python', 'python3')) {
-        if (Get-Command $candidate -ErrorAction SilentlyContinue) {
-            $py = $candidate
-            break
+function Get-Python313Command {
+    foreach ($candidate in @('python3.13', 'python3', 'python')) {
+        if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) {
+            continue
+        }
+
+        $version = & $candidate -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+        if ($LASTEXITCODE -eq 0 -and $version -eq '3.13') {
+            return $candidate
         }
     }
+
+    return $null
+}
+
+if (Test-Path $VenvActivate) {
+    $venvPython = Join-Path $VenvPath 'Scripts/python.exe'
+    $venvVersion = & $venvPython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>$null
+    if ($LASTEXITCODE -ne 0 -or $venvVersion -ne '3.13') {
+        Write-Host "Error: existing venv uses Python $venvVersion. Remove $VenvPath and re-run with Python 3.13." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "OK venv already exists at $VenvPath (Python $venvVersion)" -ForegroundColor Green
+} else {
+    $py = Get-Python313Command
     if (-not $py) {
-        Write-Host 'Error: no python interpreter found on PATH. Install Python 3.13.' -ForegroundColor Red
+        Write-Host 'Error: no Python 3.13 interpreter found on PATH. Install Python 3.13.' -ForegroundColor Red
         exit 1
     }
     & $py -m venv $VenvPath
@@ -128,8 +143,9 @@ Write-Host ''
 
 Write-Host '[4/4] Environment files' -ForegroundColor Blue
 $pairs = @(
-    @{ Src = 'api/.env.example'; Dst = 'api/.env' },
-    @{ Src = 'ui/.env.example';  Dst = 'ui/.env'  }
+    @{ Src = 'api/.env.example';      Dst = 'api/.env'      },
+    @{ Src = 'api/.env.test.example'; Dst = 'api/.env.test' },
+    @{ Src = 'ui/.env.example';       Dst = 'ui/.env'       }
 )
 foreach ($p in $pairs) {
     if (Test-Path $p.Dst) {

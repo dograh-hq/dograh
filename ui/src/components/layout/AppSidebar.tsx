@@ -19,6 +19,7 @@ import {
   Phone,
   Settings,
   TrendingUp,
+  UserRound,
   Workflow,
   Wrench,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React, { useRef } from "react";
 
+import { BrandLogo } from "@/components/BrandLogo";
 import ThemeToggle from "@/components/ThemeSwitcher";
 import { Button } from "@/components/ui/button";
 import {
@@ -52,6 +54,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAppConfig } from "@/context/AppConfigContext";
+import { useLeadForms } from "@/context/LeadFormsContext";
 import { useTelephonyConfigWarnings } from "@/context/TelephonyConfigWarningsContext";
 import { useLatestReleaseVersion } from "@/hooks/useLatestReleaseVersion";
 import type { LocalUser } from "@/lib/auth";
@@ -129,7 +132,7 @@ const NAV_SECTIONS: SidebarNavSection[] = [
     ],
   },
   {
-    label: "OBSERVE",
+    label: "MANAGE",
     items: [
       {
         title: "Agent Runs",
@@ -137,10 +140,15 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         icon: TrendingUp,
       },
       {
+        title: "Billing",
+        url: "/billing",
+        icon: CircleDollarSign,
+      },
+      {
         title: "Reports",
         url: "/reports",
         icon: FileText,
-      },
+      }
     ],
   },
 ];
@@ -158,8 +166,14 @@ export function AppSidebar() {
   const { state, isMobile, setOpenMobile } = useSidebar();
   const { provider, getSelectedTeam, logout, user } = useAuth();
   const { config } = useAppConfig();
-  const { telnyxMissingWebhookPublicKeyCount } = useTelephonyConfigWarnings();
-  const hasTelephonyWarning = telnyxMissingWebhookPublicKeyCount > 0;
+  const { openHireExpert } = useLeadForms();
+  const {
+    telnyxMissingWebhookPublicKeyCount,
+    vonageMissingSignatureSecretCount,
+  } = useTelephonyConfigWarnings();
+  const hasTelephonyWarning =
+    telnyxMissingWebhookPublicKeyCount > 0 ||
+    vonageMissingSignatureSecretCount > 0;
   const isCollapsed = !isMobile && state === "collapsed";
 
   // Get selected team for Stack auth (cast to Team type from Stack)
@@ -218,8 +232,9 @@ export function AppSidebar() {
         asChild
         tooltip={tooltip}
         className={cn(
-          "hover:bg-accent hover:text-accent-foreground",
-          isItemActive && "bg-accent text-accent-foreground"
+          "rounded-xl transition-colors hover:bg-accent hover:text-accent-foreground",
+          isItemActive &&
+            "bg-cta/15 font-semibold text-foreground hover:bg-cta/20 hover:text-foreground"
         )}
       >
         <Link
@@ -228,7 +243,18 @@ export function AppSidebar() {
           className={cn("relative", isCollapsed && "justify-center")}
           translate="no"
         >
-          <Icon className="h-4 w-4 shrink-0" />
+          {isItemActive && !isCollapsed && (
+            <span
+              className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-cta"
+              aria-hidden
+            />
+          )}
+          <Icon
+            className={cn(
+              "h-4 w-4 shrink-0",
+              isItemActive && "text-cta drop-shadow-[0_0_6px_rgba(240,170,70,0.8)]"
+            )}
+          />
           <span
             className={cn("notranslate min-w-0 flex-1 truncate", isCollapsed && "sr-only")}
             translate="no"
@@ -254,17 +280,71 @@ export function AppSidebar() {
     );
   };
 
+  // Footer identity trigger: avatar initials only (no name), in a subtle
+  // bordered circle. Same treatment expanded and collapsed.
+  const displayIdentity =
+    user?.displayName ||
+    (user as { primaryEmail?: string } | undefined)?.primaryEmail ||
+    (user as LocalUser | undefined)?.email ||
+    "";
+  const userInitials =
+    displayIdentity
+      .split(/[\s@]/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((s: string) => s[0]?.toUpperCase())
+      .join("") || "U";
+
+  const userChipTrigger = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="h-7 w-7 shrink-0 cursor-pointer rounded-full border border-border/80 bg-muted/40 hover:bg-muted/60"
+    >
+      <span className="text-xs font-medium">{userInitials}</span>
+    </Button>
+  );
+
+  // "Hire an Expert" CTA, rendered INSIDE the shared footer pill next to the
+  // profile icon. Expanded: label pill filling the row. Collapsed: icon-only.
+  const hireExpertButton = isCollapsed ? (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          size="icon"
+          className="h-7 w-7 rounded-full"
+          onClick={() => openHireExpert("sidebar")}
+          aria-label="Hire an Expert"
+        >
+          <UserRound className="h-3.5 w-3.5" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        <p>Hire an Expert</p>
+      </TooltipContent>
+    </Tooltip>
+  ) : (
+    <Button
+      size="sm"
+      className="h-7 gap-1.5 rounded-full px-3 text-xs"
+      onClick={() => openHireExpert("sidebar")}
+    >
+      <UserRound className="h-3.5 w-3.5" />
+      Hire an Expert
+    </Button>
+  );
+
   return (
-    <Sidebar collapsible="icon" className="border-r">
-      <SidebarHeader className="border-b px-2 py-3 notranslate" translate="no">
+    <Sidebar collapsible="icon" variant="floating" className="app-sidebar-dock py-4">
+      <SidebarHeader className="px-2 py-3 notranslate" translate="no">
         <div className="flex items-center justify-between">
           <div className={cn("flex items-center gap-2", isCollapsed && "hidden")}>
             <Link
               href="/"
-              className="notranslate flex items-center gap-2 px-2 text-xl font-bold"
+              className="notranslate flex items-center gap-2 px-1"
               translate="no"
             >
-              Dograh
+              <BrandLogo mark className="h-6" />
               {versionInfo && (
                 <span
                   className="notranslate text-xs font-normal text-muted-foreground"
@@ -288,7 +368,7 @@ export function AppSidebar() {
                   </a>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  <p>Latest: {latestRelease} — click to see the update guide</p>
+                  <p>Latest: {latestRelease} - click to see the update guide</p>
                 </TooltipContent>
               </Tooltip>
             )}
@@ -362,25 +442,20 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter
-        className={cn("border-t p-4 notranslate", isCollapsed && "p-2")}
+        className={cn("p-3 notranslate", isCollapsed && "p-2")}
         translate="no"
       >
         <div className="space-y-2">
           {provider !== "stack" && (
-            <div className={cn("flex", isCollapsed ? "justify-center" : "justify-start")}>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-1 rounded-full border border-border/60 bg-muted/30 p-1",
+                isCollapsed && "flex-col"
+              )}
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
-                    <span className="text-xs font-medium">
-                      {(user?.displayName || (user as LocalUser | undefined)?.email || "")
-                        .split(/[\s@]/)
-                        .filter(Boolean)
-                        .slice(0, 2)
-                        .map((s: string) => s[0]?.toUpperCase())
-                        .join("")
-                        || "U"}
-                    </span>
-                  </Button>
+                  {userChipTrigger}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start" className="w-56">
                   <DropdownMenuLabel className="font-normal">
@@ -401,24 +476,20 @@ export function AppSidebar() {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {hireExpertButton}
             </div>
           )}
 
           {provider === "stack" && (
-            <div className={cn("flex", isCollapsed ? "justify-center" : "justify-start")}>
+            <div
+              className={cn(
+                "flex items-center justify-between gap-1 rounded-full border border-border/60 bg-muted/30 p-1",
+                isCollapsed && "flex-col"
+              )}
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 cursor-pointer rounded-full">
-                    <span className="text-xs font-medium">
-                      {(user?.displayName || (user as { primaryEmail?: string })?.primaryEmail || "")
-                        .split(/[\s@]/)
-                        .filter(Boolean)
-                        .slice(0, 2)
-                        .map((s: string) => s[0]?.toUpperCase())
-                        .join("")
-                        || "U"}
-                    </span>
-                  </Button>
+                  {userChipTrigger}
                 </DropdownMenuTrigger>
                 <DropdownMenuContent side="top" align="start" className="w-56">
                   <DropdownMenuLabel className="font-normal">
@@ -440,42 +511,30 @@ export function AppSidebar() {
                     <Settings className="mr-2 h-4 w-4" />
                     Platform Settings
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => router.push("/usage")} className="cursor-pointer">
-                    <CircleDollarSign className="mr-2 h-4 w-4" />
-                    Usage
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => logout()} className="cursor-pointer">
                     <LogOut className="mr-2 h-4 w-4" />
                     Sign out
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {hireExpertButton}
             </div>
           )}
 
-          <div className={cn("mt-2 border-t pt-2", isCollapsed && "flex justify-center")}>
-            {isCollapsed ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="notranslate" translate="no">
-                    <ThemeToggle
-                      showLabel={false}
-                      className="hover:bg-accent hover:text-accent-foreground"
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="right">
-                  <p>Toggle theme</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : (
-              <div className="notranslate" translate="no">
-                <ThemeToggle
-                  showLabel={true}
-                  className="hover:bg-accent hover:text-accent-foreground"
-                />
-              </div>
-            )}
+          <div className="mt-1 flex justify-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="notranslate" translate="no">
+                  <ThemeToggle
+                    showLabel={false}
+                    className="rounded-full hover:bg-accent hover:text-accent-foreground"
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side={isCollapsed ? "right" : "top"}>
+                <p>Toggle theme</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </SidebarFooter>

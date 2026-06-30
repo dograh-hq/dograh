@@ -1,0 +1,23 @@
+{
+  "nodes": [
+    {
+      "id": "s1",
+      "type": "startCall",
+      "position": {"x": 0, "y": 0},
+      "data": {"name": "Start", "prompt": "Greet.", "is_start": true}
+    },
+    {
+      "id": "g1",
+      "type": "globalNode",
+      "position": {"x": 0, "y": 200},
+      "data": {"name": "Global A", "prompt": "Use a calm tone."}
+    },
+    {
+      "id": "g2",
+      "type": "globalNode",
+      "position": {"x": 0, "y": 400},
+      "data": {"name": "Global B", "prompt": "Keep answers short."}
+    }
+  ],
+  "edges": []
+}

@@ -3,6 +3,7 @@
 import { ExternalLink } from "lucide-react";
 
 import { MCPSection } from "@/components/MCPSection";
+import { OrganizationPreferencesSection } from "@/components/OrganizationPreferencesSection";
 import { TelemetrySection } from "@/components/TelemetrySection";
 import {
   Card,
@@ -22,6 +23,19 @@ export default function SettingsPage() {
             Manage your platform configuration and integrations.
           </p>
         </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Preferences</CardTitle>
+            <CardDescription>
+              Set organization-wide defaults such as the test phone number and
+              timezone.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <OrganizationPreferencesSection />
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

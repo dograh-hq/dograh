@@ -22,7 +22,7 @@ The relevant required variables for each mode are noted in the descriptions belo
 |---|---|---|
 | `ENVIRONMENT` | `local` | Runtime environment. Affects logging and behaviour. One of `local`, `production`, `test` |
 | `DEPLOYMENT_MODE` | `oss` | Deployment mode. Use `oss` for self-hosted |
-| `AUTH_PROVIDER` | `local` | Authentication provider. Use `local` for OSS |
+| `AUTH_PROVIDER` | `local` | Authentication provider. `local` (default) uses the built-in email/password flow. Set to `stack` to delegate to Stack Auth for social login — see [Authentication](/deployment/authentication) for the full setup |
 
 ---
 
@@ -48,14 +48,30 @@ Never use the placeholder `OSS_JWT_SECRET` in a production deployment. Generate 
 
 ---
 
+## Authentication (Stack Auth)
+
+Set these when `AUTH_PROVIDER=stack` to delegate sign-in to [Stack Auth](https://stack-auth.com) for social login. The project id and publishable client key are public and are served to the browser at runtime via `/api/v1/health`; the secret server key stays server-side. See [Authentication](/deployment/authentication) for the full walkthrough.
+
+| Variable | Default | Description |
+|---|---|---|
+| `STACK_AUTH_PROJECT_ID` | `null` | **Required for `stack`.** Stack project ID (public) |
+| `STACK_PUBLISHABLE_CLIENT_KEY` | `null` | **Required for `stack`.** Stack publishable client key (public) |
+| `STACK_SECRET_SERVER_KEY` | `null` | **Required for `stack`.** Stack secret server key — server-side only, also set on the `ui` service. Keep secret |
+| `STACK_AUTH_API_URL` | `null` | **Required for `stack`.** Stack REST API base URL (e.g. `https://api.stack-auth.com`) |
+
+---
+
 ## URLs
 
 | Variable | Default | Description |
 |---|---|---|
-| `BACKEND_API_ENDPOINT` | `http://localhost:8000` | Internal URL of the backend API |
+| `PUBLIC_BASE_URL` | `null` | Canonical public origin for the deployment (scheme + host, e.g. `https://203-0-113-10.sslip.io`). For a standard single-host install this is the only endpoint value you set — `BACKEND_API_ENDPOINT` and `MINIO_PUBLIC_ENDPOINT` derive from it |
+| `PUBLIC_HOST` | `null` | Public host without scheme (e.g. `203-0-113-10.sslip.io`); `TURN_HOST` derives from it |
+| `BACKEND_API_ENDPOINT` | `PUBLIC_BASE_URL`, else `http://localhost:8000` | Public URL the backend builds webhook / callback / embed links from. Set explicitly only to override the value derived from `PUBLIC_BASE_URL` |
 | `UI_APP_URL` | `http://localhost:3010` | URL of the frontend application |
 | `MPS_API_URL` | `https://services.dograh.com` | Dograh Managed Platform Services URL |
 | `DOGRAH_MPS_SECRET_KEY` | `null` | **Required for non-OSS deployments.** Secret key for authenticating with MPS |
+| `CORS_ALLOWED_ORIGINS` | `null` | **Required for non-OSS deployments.** Comma-separated list of origins allowed to make credentialed cross-origin requests (e.g. `https://app.example.com,https://admin.example.com`). Ignored in OSS mode, which serves a permissive same-origin policy without credentials |
 
 ---
 
@@ -68,7 +84,7 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 | Variable | Default | Description |
 |---|---|---|
 | `MINIO_ENDPOINT` | `localhost:9000` | MinIO server host and port |
-| `MINIO_PUBLIC_ENDPOINT` | `null` | Publicly accessible MinIO URL (for download links) |
+| `MINIO_PUBLIC_ENDPOINT` | `PUBLIC_BASE_URL`, else `http://localhost:9000` | Publicly accessible MinIO URL for download links. Derives from `PUBLIC_BASE_URL`; set explicitly only for a separate object-storage origin |
 | `MINIO_ACCESS_KEY` | N/A | **Required for OSS deployments.** MinIO access key. Must be set to a secure value in production |
 | `MINIO_SECRET_KEY` | N/A | **Required for OSS deployments.** MinIO secret key. Must be set to a secure value in production |
 | `MINIO_BUCKET` | `voice-audio` | Bucket name for audio files |
@@ -81,6 +97,32 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 | `ENABLE_AWS_S3` | `false` | Set to `true` to use AWS S3 instead of MinIO |
 | `S3_BUCKET` | `null` | S3 bucket name |
 | `S3_REGION` | `us-east-1` | AWS region |
+| `S3_ENDPOINT_URL` | `null` | Custom S3 endpoint for S3-compatible servers (e.g. `https://s3.example.com`). Leave unset for AWS. |
+| `S3_SIGNATURE_VERSION` | `null` | Signing version. Unset uses botocore's default; set `s3v4` for servers that require SigV4. |
+| `S3_ADDRESSING_STYLE` | `null` | `auto` (default), `path`, or `virtual`. Many S3-compatible servers and TLS setups require `path`. |
+
+Credentials come from the standard `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` environment variables.
+
+#### S3-compatible servers (MinIO, rustfs, Ceph, ...)
+
+The S3 backend can target any S3-compatible server, not just AWS. Prefer it over the MinIO backend when you need **presigned URLs against a private bucket**: the MinIO backend returns plain unsigned object URLs and relies on the bucket being anonymously public-readable, whereas the S3 backend issues real presigned URLs so the bucket can stay private.
+
+To use it, set `ENABLE_AWS_S3=true` and point it at your server with the `S3_*` overrides above. For example, against [rustfs](https://github.com/rustfs/rustfs):
+
+```bash
+ENABLE_AWS_S3=true
+S3_BUCKET=voice-audio
+S3_REGION=us-east-1
+S3_ENDPOINT_URL=https://s3.example.com
+S3_SIGNATURE_VERSION=s3v4   # rustfs rejects SigV2 with SignatureDoesNotMatch
+S3_ADDRESSING_STYLE=path    # rustfs and most non-AWS TLS certs require path-style
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+<Note>
+Presigned URLs point at `S3_ENDPOINT_URL`, so that host must be reachable from the browser. Because browsers fetch transcripts cross-origin, the bucket also needs a CORS rule allowing your app's origin for `GET`/`HEAD` — configure this on the storage server (e.g. via `PutBucketCors`), not in Dograh.
+</Note>
 
 ---
 
@@ -88,7 +130,7 @@ Dograh uses **MinIO by default**, which is bundled with the self-hosted deployme
 
 | Variable | Default | Description |
 |---|---|---|
-| `TURN_HOST` | `localhost` | TURN server hostname for WebRTC NAT traversal |
+| `TURN_HOST` | `PUBLIC_HOST`, else `localhost` | TURN server hostname for WebRTC NAT traversal. Derives from `PUBLIC_HOST`; set explicitly only when TURN runs on a separate host |
 | `TURN_PORT` | `3478` | TURN server port |
 | `TURN_TLS_PORT` | `5349` | TURN server TLS port |
 | `TURN_SECRET` | `null` | **Required for WebRTC.** Shared secret for TURN credential generation |

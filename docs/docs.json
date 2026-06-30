@@ -126,6 +126,16 @@
         "icon": "code",
         "groups": [
           {
+            "group": "Contribution",
+            "pages": [
+              "contribution/introduction",
+              "contribution/setup",
+              "contribution/devcontainer",
+              "contribution/host-managed-setup",
+              "contribution/fork-workflow"
+            ]
+          },
+          {
             "group": "Guides",
             "pages": [
               "developer/workflow-schema",
@@ -147,17 +157,11 @@
             "pages": [
               "deployment/introduction",
               "deployment/docker",
+              "deployment/authentication",
               "deployment/custom-domain",
               "deployment/scaling",
               "deployment/update",
               "deployment/heroku"
-            ]
-          },
-          {
-            "group": "Contribution",
-            "pages": [
-              "contribution/introduction",
-              "contribution/setup"
             ]
           }
         ]
@@ -202,15 +206,15 @@
                 ]
               },
               {
-                "group": "Calls",
+                "group": "Runs",
                 "pages": [
-                  "api-reference/calls",
-                  "api-reference/calls/trigger",
-                  "api-reference/calls/trigger-workflow",
-                  "api-reference/calls/get-run",
-                  "api-reference/calls/list-runs",
-                  "api-reference/calls/download",
-                  "api-reference/calls/inbound"
+                  "api-reference/runs",
+                  "api-reference/runs/trigger",
+                  "api-reference/runs/trigger-workflow",
+                  "api-reference/runs/get-run",
+                  "api-reference/runs/list-runs",
+                  "api-reference/runs/download",
+                  "api-reference/runs/inbound"
                 ]
               },
               {
@@ -292,7 +296,6 @@
   "search": {
     "prompt": "Search for Tools, Webhook, Deployment, etc..."
   },
-  "openapi": "/api-reference/openapi.json",
   "customCSS": "/custom.css",
   "contextual": {
     "options": [
@@ -311,5 +314,8 @@
       "github": "https://github.com/dograh-hq",
       "linkedin": "https://linkedin.com/company/dograh"
     }
+  },
+  "api": {
+    "openapi": "api-reference/openapi.json"
   }
 }

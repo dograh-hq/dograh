@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { detailFromError } from "@/lib/apiError";
 import { useAuth } from "@/lib/auth";
 
 interface ConfigFormDialogProps {
@@ -46,7 +47,8 @@ interface ConfigFormDialogProps {
   onSaved: () => void;
 }
 
-type FieldValues = Record<string, string | number | undefined>;
+type FieldValue = string | number | boolean | undefined;
+type FieldValues = Record<string, FieldValue>;
 
 export function ConfigFormDialog({
   open,
@@ -103,7 +105,7 @@ export function ConfigFormDialog({
     if (!isEdit) setValues({});
   }, [providerName, isEdit]);
 
-  const updateField = (fieldName: string, value: string | number) => {
+  const updateField = (fieldName: string, value: FieldValue) => {
     setValues((prev) => ({ ...prev, [fieldName]: value }));
   };
 
@@ -132,7 +134,7 @@ export function ConfigFormDialog({
             body: { name: name || undefined, config: configPayload },
           },
         );
-        if (res.error) throw new Error(detailFromError(res.error));
+        if (res.error) throw new Error(detailFromError(res.error, "Failed to save configuration"));
         toast.success("Configuration updated");
       } else {
         const res = await createTelephonyConfigurationApiV1OrganizationsTelephonyConfigsPost(
@@ -145,7 +147,7 @@ export function ConfigFormDialog({
             },
           },
         );
-        if (res.error) throw new Error(detailFromError(res.error));
+        if (res.error) throw new Error(detailFromError(res.error, "Failed to save configuration"));
         toast.success("Configuration created");
       }
       onOpenChange(false);
@@ -291,8 +293,8 @@ export function ConfigFormDialog({
 
 interface FieldInputProps {
   field: TelephonyProviderMetadata["fields"][number];
-  value: string | number | undefined;
-  onChange: (v: string | number) => void;
+  value: FieldValue;
+  onChange: (v: FieldValue) => void;
   isEdit: boolean;
 }
 
@@ -334,6 +336,15 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
       />
     );
   }
+  if (field.type === "boolean") {
+    return (
+      <Switch
+        id={`cfg-field-${field.name}`}
+        checked={Boolean(value)}
+        onCheckedChange={onChange}
+      />
+    );
+  }
   return (
     <Input
       id={`cfg-field-${field.name}`}
@@ -344,17 +355,4 @@ function FieldInput({ field, value, onChange, isEdit }: FieldInputProps) {
       autoComplete={field.sensitive ? "current-password" : undefined}
     />
   );
-}
-
-// FastAPI error responses come back as { detail: string } or
-// { detail: [{loc, msg, ...}] }. Surface a useful message either way.
-function detailFromError(err: unknown): string {
-  if (typeof err === "string") return err;
-  const e = err as { detail?: unknown };
-  if (typeof e?.detail === "string") return e.detail;
-  if (Array.isArray(e?.detail) && e.detail.length > 0) {
-    const first = e.detail[0] as { msg?: string };
-    if (first?.msg) return first.msg;
-  }
-  return "Failed to save configuration";
 }

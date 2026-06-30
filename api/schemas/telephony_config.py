@@ -20,6 +20,10 @@ from api.services.telephony.providers.cloudonix.config import (
     CloudonixConfigurationRequest,
     CloudonixConfigurationResponse,
 )
+from api.services.telephony.providers.exotel.config import (
+    ExotelConfigurationRequest,
+    ExotelConfigurationResponse,
+)
 from api.services.telephony.providers.plivo.config import (
     PlivoConfigurationRequest,
     PlivoConfigurationResponse,
@@ -48,6 +52,7 @@ TelephonyConfigRequest = Annotated[
     Union[
         ARIConfigurationRequest,
         CloudonixConfigurationRequest,
+        ExotelConfigurationRequest,
         PlivoConfigurationRequest,
         TelnyxConfigurationRequest,
         TwilioConfigurationRequest,
@@ -73,6 +78,7 @@ class TelephonyConfigurationResponse(BaseModel):
     cloudonix: Optional[CloudonixConfigurationResponse] = None
     ari: Optional[ARIConfigurationResponse] = None
     telnyx: Optional[TelnyxConfigurationResponse] = None
+    exotel: Optional[ExotelConfigurationResponse] = None
 
 
 # ---------------------------------------------------------------------------
@@ -136,6 +142,8 @@ __all__ = [
     "ARIConfigurationResponse",
     "CloudonixConfigurationRequest",
     "CloudonixConfigurationResponse",
+    "ExotelConfigurationRequest",
+    "ExotelConfigurationResponse",
     "PlivoConfigurationRequest",
     "PlivoConfigurationResponse",
     "TelephonyConfigRequest",

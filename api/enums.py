@@ -45,6 +45,7 @@ class TelephonyCallStatus(str, Enum):
 
 class WorkflowRunMode(Enum):
     ARI = "ari"
+    EXOTEL = "exotel"
     PLIVO = "plivo"
     TWILIO = "twilio"
     VONAGE = "vonage"

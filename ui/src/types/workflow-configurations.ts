@@ -11,7 +11,7 @@ export interface AmbientNoiseConfiguration {
 export type TurnStopStrategy = 'transcription' | 'turn_analyzer';
 export type TurnStartStrategy = 'default' | 'min_words' | 'provisional_vad';
 export const DEFAULT_TURN_START_MIN_WORDS = 3;
-export const DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.0;
+export const DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.5;
 
 export const TURN_START_STRATEGY_OPTIONS: Array<{
     value: TurnStartStrategy;

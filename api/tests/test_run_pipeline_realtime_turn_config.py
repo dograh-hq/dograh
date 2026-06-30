@@ -10,14 +10,18 @@ from pipecat.turns.user_start.vad_user_turn_start_strategy import (
 from pipecat.turns.user_stop import (
     ExternalUserTurnStopStrategy,
     SpeechTimeoutUserTurnStopStrategy,
+    TurnAnalyzerUserTurnStopStrategy,
 )
 
+import api.services.pipecat.run_pipeline as run_pipeline_module
 from api.services.configuration.registry import ServiceProviders
 from api.services.pipecat.run_pipeline import (
+    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_USER_TURN_STOP_TIMEOUT,
     EXTERNAL_TURN_USER_STOP_TIMEOUT,
     _create_non_realtime_user_turn_start_strategies,
+    _create_non_realtime_user_turn_stop_strategies,
     _create_realtime_user_turn_config,
     _resolve_user_turn_stop_timeout,
 )
@@ -181,6 +185,55 @@ def test_non_realtime_can_use_provisional_vad_start_strategy():
 
     assert len(strategies) == 1
     assert isinstance(strategies[0], ProvisionalVADUserTurnStartStrategy)
+    assert strategies[0]._pause_secs == DEFAULT_PROVISIONAL_VAD_PAUSE_SECS
+
+
+def test_non_realtime_provisional_vad_uses_configured_pause_secs():
+    strategies = _create_non_realtime_user_turn_start_strategies(
+        {"turn_start_strategy": "provisional_vad", "provisional_vad_pause_secs": 0.4},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], ProvisionalVADUserTurnStartStrategy)
+    assert strategies[0]._pause_secs == 0.4
+
+
+def test_non_realtime_uses_external_stop_for_external_turn_stt():
+    strategies = _create_non_realtime_user_turn_stop_strategies(
+        {},
+        uses_external_turns=True,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], ExternalUserTurnStopStrategy)
+
+
+def test_non_realtime_default_uses_speech_timeout_stop():
+    strategies = _create_non_realtime_user_turn_stop_strategies(
+        {},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], SpeechTimeoutUserTurnStopStrategy)
+
+
+def test_non_realtime_can_use_turn_analyzer_stop_strategy(monkeypatch):
+    monkeypatch.setattr(
+        run_pipeline_module,
+        "LocalSmartTurnAnalyzerV3",
+        lambda *, params: params,
+    )
+
+    strategies = _create_non_realtime_user_turn_stop_strategies(
+        {"turn_stop_strategy": "turn_analyzer", "smart_turn_stop_secs": 1.5},
+        uses_external_turns=False,
+    )
+
+    assert len(strategies) == 1
+    assert isinstance(strategies[0], TurnAnalyzerUserTurnStopStrategy)
+    assert strategies[0]._turn_analyzer.stop_secs == 1.5
 
 
 def test_external_turn_stt_uses_longer_stop_timeout():

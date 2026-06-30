@@ -45,6 +45,7 @@ import { useAuth } from "@/lib/auth";
 import logger from "@/lib/logger";
 import {
     type AmbientNoiseConfiguration,
+    DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     DEFAULT_TURN_START_MIN_WORDS,
     DEFAULT_VOICEMAIL_DETECTION_CONFIGURATION,
     DEFAULT_WORKFLOW_CONFIGURATIONS,
@@ -289,6 +290,9 @@ function GeneralSection({
     const [turnStartMinWords, setTurnStartMinWords] = useState(
         workflowConfigurations.turn_start_min_words || DEFAULT_TURN_START_MIN_WORDS,
     );
+    const [provisionalVadPauseSecs, setProvisionalVadPauseSecs] = useState(
+        workflowConfigurations.provisional_vad_pause_secs || DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
+    );
     const [turnStopStrategy, setTurnStopStrategy] = useState<TurnStopStrategy>(
         workflowConfigurations.turn_stop_strategy || "transcription",
     );
@@ -314,10 +318,11 @@ function GeneralSection({
             smartTurnStopSecs !== (workflowConfigurations.smart_turn_stop_secs || 2) ||
             turnStartStrategy !== (workflowConfigurations.turn_start_strategy || "default") ||
             turnStartMinWords !== (workflowConfigurations.turn_start_min_words || DEFAULT_TURN_START_MIN_WORDS) ||
+            provisionalVadPauseSecs !== (workflowConfigurations.provisional_vad_pause_secs || DEFAULT_PROVISIONAL_VAD_PAUSE_SECS) ||
             turnStopStrategy !== (workflowConfigurations.turn_stop_strategy || "transcription") ||
             contextCompactionEnabled !== (workflowConfigurations.context_compaction_enabled ?? false)
         );
-    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
+    }, [name, workflowName, ambientNoiseConfig, maxCallDuration, maxUserIdleTimeout, smartTurnStopSecs, turnStartStrategy, turnStartMinWords, provisionalVadPauseSecs, turnStopStrategy, contextCompactionEnabled, workflowConfigurations]);
 
     useUnsavedChanges("general", isDirty);
 
@@ -391,6 +396,7 @@ function GeneralSection({
                     smart_turn_stop_secs: smartTurnStopSecs,
                     turn_start_strategy: turnStartStrategy,
                     turn_start_min_words: turnStartMinWords,
+                    provisional_vad_pause_secs: provisionalVadPauseSecs,
                     turn_stop_strategy: turnStopStrategy,
                     context_compaction_enabled: contextCompactionEnabled,
                 },
@@ -645,6 +651,28 @@ function GeneralSection({
                             />
                             <p className="text-xs text-muted-foreground">
                                 Number of transcribed words needed to interrupt while the bot is speaking. Default: {DEFAULT_TURN_START_MIN_WORDS}
+                            </p>
+                        </div>
+                    )}
+                    {turnStartStrategy === "provisional_vad" && (
+                        <div className="space-y-2">
+                            <Label htmlFor="provisional_vad_pause_secs" className="text-xs">
+                                Provisional Pause (seconds)
+                            </Label>
+                            <Input
+                                id="provisional_vad_pause_secs"
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                max="5"
+                                value={provisionalVadPauseSecs}
+                                onChange={(e) => {
+                                    const value = parseFloat(e.target.value);
+                                    if (!isNaN(value) && value >= 0.1) setProvisionalVadPauseSecs(value);
+                                }}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Seconds to pause bot audio while waiting for transcript confirmation. Default: {DEFAULT_PROVISIONAL_VAD_PAUSE_SECS}
                             </p>
                         </div>
                     )}

@@ -11,6 +11,7 @@ export interface AmbientNoiseConfiguration {
 export type TurnStopStrategy = 'transcription' | 'turn_analyzer';
 export type TurnStartStrategy = 'default' | 'min_words' | 'provisional_vad';
 export const DEFAULT_TURN_START_MIN_WORDS = 3;
+export const DEFAULT_PROVISIONAL_VAD_PAUSE_SECS = 1.0;
 
 export const TURN_START_STRATEGY_OPTIONS: Array<{
     value: TurnStartStrategy;
@@ -87,6 +88,7 @@ export interface WorkflowConfigurations {
     smart_turn_stop_secs: number;  // Timeout in seconds for incomplete turn detection
     turn_start_strategy: TurnStartStrategy;  // Strategy for detecting start of user turn/interruption
     turn_start_min_words: number;  // Minimum transcribed words required for minimum-word interruptions
+    provisional_vad_pause_secs: number;  // Seconds to pause bot output while awaiting transcript confirmation
     turn_stop_strategy: TurnStopStrategy;  // Strategy for detecting end of user turn
     dictionary?: string;  // Comma-separated words for voice agent to listen for
     voicemail_detection?: VoicemailDetectionConfiguration;
@@ -106,6 +108,7 @@ export const DEFAULT_WORKFLOW_CONFIGURATIONS: WorkflowConfigurations = {
     smart_turn_stop_secs: 2,  // 2 seconds
     turn_start_strategy: 'default',  // Default to platform-chosen user turn start detection
     turn_start_min_words: DEFAULT_TURN_START_MIN_WORDS,
+    provisional_vad_pause_secs: DEFAULT_PROVISIONAL_VAD_PAUSE_SECS,
     turn_stop_strategy: 'transcription',  // Default to transcription-based detection
     dictionary: ''
 };

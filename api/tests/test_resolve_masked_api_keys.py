@@ -98,6 +98,9 @@ class TestEmpty:
     def test_empty_incoming_list(self):
         assert resolve_masked_api_keys([], [REAL_A]) == []
 
+    def test_empty_value(self):
+        assert resolve_masked_api_keys("", REAL_A) == ""
+
     def test_no_existing_keys_keeps_incoming(self):
         result = resolve_masked_api_keys([MASK_A, MASK_B], [])
         assert result == [MASK_A, MASK_B]

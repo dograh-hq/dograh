@@ -4,6 +4,6 @@
     "git.worktreeIncludeFiles": [
         "api/.env",
         "api/.env.test",
-        "ui/.env.local"
+        "ui/.env"
     ]
 }

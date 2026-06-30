@@ -18,6 +18,18 @@
                 "runOn": "folderOpen"
             },
             "problemMatcher": []
+        },
+        {
+            // Manual, one-time per worktree (heavy: submodule + venv + deps).
+            // Run via: Tasks: Run Task -> "Setup worktree environment".
+            "label": "Setup worktree environment",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/setup-worktree.sh",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
         }
     ]
 }

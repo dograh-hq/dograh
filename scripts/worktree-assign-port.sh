@@ -7,7 +7,7 @@
 #   - The MAIN worktree is left untouched (backend stays on uvicorn's default 8000).
 #   - Each linked worktree gets the next free backend port: 8001, 8002, ...
 #   - api/.env       : UVICORN_PORT          -> the assigned backend port
-#   - ui/.env.local  : BACKEND_URL           -> http://localhost:<port>
+#   - ui/.env  : BACKEND_URL           -> http://localhost:<port>
 #                      NEXT_PUBLIC_BACKEND_URL -> http://localhost:<port>
 #
 # CORS is intentionally NOT touched: local dev runs DEPLOYMENT_MODE="oss", where
@@ -22,7 +22,7 @@ MAIN="$(git worktree list --porcelain | sed -n '1s/^worktree //p')"
 [ "$ROOT" = "$MAIN" ] && { echo "[worktree] main worktree -> backend 8000 (untouched)"; exit 0; }
 
 AENV="$ROOT/api/.env"
-UENV="$ROOT/ui/.env.local"
+UENV="$ROOT/ui/.env"
 [ -f "$AENV" ] || { echo "[worktree] no api/.env yet; skipping"; exit 0; }
 
 # Echo the UVICORN_PORT value from an env file (empty if unset/missing).

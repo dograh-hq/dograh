@@ -99,9 +99,12 @@ export default function ChatwootWidget() {
       }
     };
 
-    // The SDK may not be ready on first navigation; apply once it fires
-    // `chatwoot:ready`, otherwise apply immediately.
-    if (window.$chatwoot) {
+    // Apply immediately only once the bubble holder is actually in the DOM.
+    // `window.$chatwoot` exists synchronously after run(), but `.woot--bubble-holder`
+    // is appended later when the widget iframe loads, and toggleBubbleVisibility()
+    // dereferences it with no null check. When it's absent, fall through to
+    // `chatwoot:ready`, which the SDK fires once the holder exists.
+    if (window.$chatwoot && document.querySelector(".woot--bubble-holder")) {
       applyVisibility();
       return;
     }

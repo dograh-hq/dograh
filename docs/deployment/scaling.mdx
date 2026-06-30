@@ -55,7 +55,7 @@ Number of FastAPI workers (uvicorn processes nginx will load-balance):
 Press Enter for the default (`4`) or enter a different positive integer. Non-interactive callers (cloud-init, CI, Terraform) can set the value via environment variable instead:
 
 ```bash
-SERVER_IP=... TURN_SECRET=... FASTAPI_WORKERS=8 ./setup_remote.sh
+sudo SERVER_IP=... TURN_SECRET=... FASTAPI_WORKERS=8 ./setup_remote.sh
 ```
 
 The script stores the value in **`.env`** (`FASTAPI_WORKERS=N`). The supported startup path (`./remote_up.sh`) preflights the `dograh-init` render from that value before every remote start, so nginx and the API worker count stay aligned.

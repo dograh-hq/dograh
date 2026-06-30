@@ -9,7 +9,7 @@ from api.services.pipecat.audio_config import AudioConfig
 from api.services.pipecat.service_factory import (
     create_stt_service,
     dograh_stt_uses_flux_language,
-    stt_uses_flux_turns,
+    stt_uses_external_turns,
 )
 
 
@@ -38,10 +38,10 @@ def test_dograh_flux_language_predicate_matches_multilingual_support():
     assert not dograh_stt_uses_flux_language("ar")
 
 
-def test_stt_uses_flux_turns_only_for_dograh_flux_supported_languages():
-    assert stt_uses_flux_turns(_dograh_config("multi"))
-    assert stt_uses_flux_turns(_dograh_config("es"))
-    assert not stt_uses_flux_turns(_dograh_config("ar"))
+def test_stt_uses_external_turns_only_for_dograh_flux_supported_languages():
+    assert stt_uses_external_turns(_dograh_config("multi"))
+    assert stt_uses_external_turns(_dograh_config("es"))
+    assert not stt_uses_external_turns(_dograh_config("ar"))
 
 
 def test_create_dograh_multi_uses_flux_service_without_language_hint():

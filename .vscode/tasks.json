@@ -1,0 +1,35 @@
+{
+    // Auto-runs when a worktree folder is opened. The first time, VS Code asks
+    // to "Allow Automatic Tasks in Folder" (or run it via the command palette:
+    // "Tasks: Allow Automatic Tasks in Folder"). Assigns this worktree a unique
+    // backend port and points the UI env at it — see scripts/worktree-assign-port.sh.
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Assign worktree port",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/worktree-assign-port.sh",
+            "presentation": {
+                "reveal": "silent",
+                "panel": "shared",
+                "close": true
+            },
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "problemMatcher": []
+        },
+        {
+            // Manual, one-time per worktree (heavy: submodule + venv + deps).
+            // Run via: Tasks: Run Task -> "Setup worktree environment".
+            "label": "Setup worktree environment",
+            "type": "shell",
+            "command": "${workspaceFolder}/scripts/setup-worktree.sh",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        }
+    ]
+}

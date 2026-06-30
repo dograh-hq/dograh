@@ -21,7 +21,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from api.db import db_client
 from api.db.models import UserModel
-from api.enums import CallType, WorkflowRunState
+from api.enums import CallType, WorkflowRunMode, WorkflowRunState
 from api.errors.telephony_errors import TelephonyError
 from api.sdk_expose import sdk_expose
 from api.services.auth.depends import get_user
@@ -584,12 +584,36 @@ async def _handle_telephony_websocket(
             provider_type = workflow_run.initial_context.get("provider")
             logger.info(f"Extracted provider_type: {provider_type}")
 
+        if (
+            workflow_run.mode == WorkflowRunMode.SMALLWEBRTC.value
+            or provider_type == WorkflowRunMode.SMALLWEBRTC.value
+        ):
+            logger.warning(
+                f"SmallWebRTC workflow run {workflow_run_id} reached telephony "
+                f"websocket; mode={workflow_run.mode}, provider={provider_type}"
+            )
+            await websocket.close(
+                code=4400,
+                reason=(
+                    "smallwebrtc runs connect through the WebRTC signaling endpoint, "
+                    "not the telephony websocket"
+                ),
+            )
+            return
+
         if not provider_type:
             logger.error(
                 f"No provider type found in workflow run {workflow_run_id}. "
                 f"gathered_context: {workflow_run.gathered_context}, mode: {workflow_run.mode}"
             )
-            await websocket.close(code=4400, reason="Provider type not found")
+            await websocket.close(
+                code=4400,
+                reason=(
+                    f"No provider type found for workflow run {workflow_run_id} "
+                    f"(mode: {workflow_run.mode}); telephony websocket requires "
+                    "a telephony provider"
+                ),
+            )
             return
 
         logger.info(
@@ -660,7 +684,7 @@ async def handle_inbound_run(request: Request):
             logger.error("Unable to detect provider for /inbound/run webhook")
             return generic_hangup_response()
 
-        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+        normalized_data = normalize_webhook_data(provider_class, webhook_data, headers)
         logger.info(
             f"/inbound/run normalized data — provider={normalized_data.provider} "
             f"to={normalized_data.to_number} from={normalized_data.from_number}"
@@ -847,7 +871,7 @@ async def handle_inbound_telephony(
             logger.error("Unable to detect provider for webhook")
             return generic_hangup_response()
 
-        normalized_data = normalize_webhook_data(provider_class, webhook_data)
+        normalized_data = normalize_webhook_data(provider_class, webhook_data, headers)
 
         logger.info(f"Inbound call - Provider: {normalized_data.provider}")
         logger.info(f"Normalized data: {normalized_data}")

@@ -9,6 +9,9 @@ from api.services.workflow.node_specs._base import (
     GraphConstraints,
     NodeCategory,
     NodeExample,
+    NumberInputOptions,
+    PropertyLayoutOptions,
+    PropertyRendererOptions,
     PropertyType,
 )
 from api.services.workflow.node_specs.model_spec import (
@@ -19,6 +22,10 @@ from api.services.workflow.node_specs.model_spec import (
 
 # Cost rate fields are only shown once the user turns on cost calculation.
 _COST_FIELDS_VISIBLE = DisplayOptions(show={"cost_calculation_enabled": [True]})
+_COST_RATE_RENDERER_OPTIONS = PropertyRendererOptions(
+    layout=PropertyLayoutOptions(column_span=6),
+    number_input=NumberInputOptions(fractional=True),
+)
 
 
 @node_spec(
@@ -128,7 +135,7 @@ class TunerNodeData(BaseNodeData):
         display_name="LLM input",
         description="USD per 1M tokens",
         display_options=_COST_FIELDS_VISIBLE,
-        extra={"layout": "half"},
+        renderer_options=_COST_RATE_RENDERER_OPTIONS,
     )
     cost_llm_cached_input_rate: float | None = spec_field(
         default=None,
@@ -138,7 +145,7 @@ class TunerNodeData(BaseNodeData):
         display_name="LLM cached input",
         description="USD per 1M cached tokens",
         display_options=_COST_FIELDS_VISIBLE,
-        extra={"layout": "half"},
+        renderer_options=_COST_RATE_RENDERER_OPTIONS,
     )
     cost_llm_output_rate: float | None = spec_field(
         default=None,
@@ -148,7 +155,7 @@ class TunerNodeData(BaseNodeData):
         display_name="LLM output",
         description="USD per 1M tokens",
         display_options=_COST_FIELDS_VISIBLE,
-        extra={"layout": "half"},
+        renderer_options=_COST_RATE_RENDERER_OPTIONS,
     )
     cost_tts_rate: float | None = spec_field(
         default=None,
@@ -158,7 +165,7 @@ class TunerNodeData(BaseNodeData):
         display_name="TTS",
         description="USD per 1K characters",
         display_options=_COST_FIELDS_VISIBLE,
-        extra={"layout": "half"},
+        renderer_options=_COST_RATE_RENDERER_OPTIONS,
     )
     cost_stt_rate: float | None = spec_field(
         default=None,
@@ -168,7 +175,7 @@ class TunerNodeData(BaseNodeData):
         display_name="STT",
         description="USD per minute",
         display_options=_COST_FIELDS_VISIBLE,
-        extra={"layout": "half"},
+        renderer_options=_COST_RATE_RENDERER_OPTIONS,
     )
     cost_telephony_rate: float | None = spec_field(
         default=None,
@@ -178,7 +185,7 @@ class TunerNodeData(BaseNodeData):
         display_name="Telephony",
         description="USD per minute",
         display_options=_COST_FIELDS_VISIBLE,
-        extra={"layout": "half"},
+        renderer_options=_COST_RATE_RENDERER_OPTIONS,
     )
 
     @model_validator(mode="after")

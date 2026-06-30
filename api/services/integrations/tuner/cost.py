@@ -115,8 +115,7 @@ def compute_call_cost_cents(
     if cached_input_rate is not None:
         uncached_prompt_tokens = max(prompt_tokens - cached_tokens, 0)
         llm_input_usd = (
-            uncached_prompt_tokens * llm_input_rate
-            + cached_tokens * cached_input_rate
+            uncached_prompt_tokens * llm_input_rate + cached_tokens * cached_input_rate
         ) / 1_000_000
     else:
         llm_input_usd = prompt_tokens * llm_input_rate / 1_000_000

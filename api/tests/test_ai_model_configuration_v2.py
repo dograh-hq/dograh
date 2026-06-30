@@ -191,6 +191,100 @@ def test_masked_dograh_key_is_preserved_when_saving_same_mode():
     check_for_masked_keys_in_ai_model_configuration_v2(merged)
 
 
+def test_short_masked_dograh_key_is_preserved_when_saving_same_mode():
+    existing = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key="SECRET"),
+    )
+    incoming = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key=mask_key("SECRET")),
+    )
+
+    assert incoming.dograh.api_key == "**CRET"
+
+    merged = merge_ai_model_configuration_v2_secrets(incoming, existing)
+
+    assert merged.dograh.api_key == "SECRET"
+    check_for_masked_keys_in_ai_model_configuration_v2(merged)
+
+
+def test_unmasked_dograh_key_replaces_existing_when_saving_same_mode():
+    existing = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key="SECRET"),
+    )
+    incoming = OrganizationAIModelConfigurationV2(
+        mode="dograh",
+        dograh=DograhManagedAIModelConfiguration(api_key="NEWKEY"),
+    )
+
+    merged = merge_ai_model_configuration_v2_secrets(incoming, existing)
+
+    assert merged.dograh.api_key == "NEWKEY"
+
+
+def test_short_masked_byok_service_key_is_preserved_when_saving_same_mode():
+    existing = OrganizationAIModelConfigurationV2.model_validate(
+        {
+            "mode": "byok",
+            "byok": {
+                "mode": "pipeline",
+                "pipeline": {
+                    "llm": {
+                        "provider": "openai",
+                        "api_key": "SECRET",
+                        "model": "gpt-4.1",
+                    },
+                    "tts": {
+                        "provider": "elevenlabs",
+                        "api_key": "el-real-secret",
+                        "model": "eleven_flash_v2_5",
+                        "voice": "Rachel",
+                    },
+                    "stt": {
+                        "provider": "deepgram",
+                        "api_key": "dg-real-secret",
+                        "model": "nova-3-general",
+                    },
+                },
+            },
+        }
+    )
+    incoming = OrganizationAIModelConfigurationV2.model_validate(
+        {
+            "mode": "byok",
+            "byok": {
+                "mode": "pipeline",
+                "pipeline": {
+                    "llm": {
+                        "provider": "openai",
+                        "api_key": mask_key("SECRET"),
+                        "model": "gpt-4.1",
+                    },
+                    "tts": {
+                        "provider": "elevenlabs",
+                        "api_key": "el-real-secret",
+                        "model": "eleven_flash_v2_5",
+                        "voice": "Rachel",
+                    },
+                    "stt": {
+                        "provider": "deepgram",
+                        "api_key": "dg-real-secret",
+                        "model": "nova-3-general",
+                    },
+                },
+            },
+        }
+    )
+
+    assert incoming.byok.pipeline.llm.api_key == "**CRET"
+
+    merged = merge_ai_model_configuration_v2_secrets(incoming, existing)
+
+    assert merged.byok.pipeline.llm.api_key == "SECRET"
+
+
 def test_masked_v2_configuration_masks_nested_service_keys():
     config = OrganizationAIModelConfigurationV2(
         mode="byok",

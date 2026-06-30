@@ -28,6 +28,7 @@ from api.schemas.ai_model_configuration import (
 )
 from api.services.configuration.masking import (
     SERVICE_SECRET_FIELDS,
+    _secret_values_differ,
     contains_masked_key,
     mask_key,
     resolve_masked_api_keys,
@@ -244,11 +245,13 @@ def merge_ai_model_configuration_v2_secrets(
         existing_dograh = existing_dict.get("dograh") or {}
         incoming_key = incoming_dograh.get("api_key")
         existing_key = existing_dograh.get("api_key")
-        if incoming_key and existing_key and contains_masked_key(incoming_key):
-            incoming_dograh["api_key"] = resolve_masked_api_keys(
+        if incoming_key and existing_key:
+            resolved_key = resolve_masked_api_keys(
                 incoming_key,
                 existing_key,
             )
+            if _secret_values_differ(incoming_key, resolved_key):
+                incoming_dograh["api_key"] = resolved_key
 
     if incoming_dict.get("mode") == "byok" and existing_dict.get("mode") == "byok":
         _merge_byok_secret_fields(incoming_dict.get("byok"), existing_dict.get("byok"))
@@ -381,11 +384,13 @@ def _merge_service_secret_fields(incoming: dict, existing: dict):
         existing_secret = existing[secret_field]
         if incoming_secret is None:
             incoming[secret_field] = existing_secret
-        elif contains_masked_key(incoming_secret):
-            incoming[secret_field] = resolve_masked_api_keys(
+        else:
+            resolved_secret = resolve_masked_api_keys(
                 incoming_secret,
                 existing_secret,
             )
+            if _secret_values_differ(incoming_secret, resolved_secret):
+                incoming[secret_field] = resolved_secret
 
 
 def _raise_if_masked_secret(value):

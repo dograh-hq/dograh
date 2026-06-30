@@ -563,6 +563,24 @@ class TestWorkflowConfigurationSecrets:
         assert merged["model_overrides"]["tts"]["voice"] == "Bella"
         assert incoming["model_overrides"]["tts"]["api_key"] != "el-real-tts-key"
 
+    def test_restores_short_masked_model_override_secret_from_existing_config(self):
+        existing = {
+            "model_overrides": {
+                "llm": {
+                    "provider": "openai",
+                    "api_key": "SECRET",
+                    "model": "gpt-4.1-mini",
+                }
+            }
+        }
+        incoming = mask_workflow_configurations(existing)
+
+        assert incoming["model_overrides"]["llm"]["api_key"] == "**CRET"
+
+        merged = merge_workflow_configuration_secrets(incoming, existing)
+
+        assert merged["model_overrides"]["llm"]["api_key"] == "SECRET"
+
     def test_single_masked_key_preserves_existing_multi_key_override(self):
         existing = {
             "model_overrides": {

@@ -11,7 +11,7 @@ from api.schemas.ai_model_configuration import EffectiveAIModelConfiguration
 from api.services.configuration.masking import (
     MODEL_OVERRIDE_FIELDS,
     SERVICE_SECRET_FIELDS,
-    contains_masked_key,
+    _secret_values_differ,
     resolve_masked_api_keys,
 )
 
@@ -50,14 +50,15 @@ def _merge_service_secret_fields(
         incoming_secret = incoming_cfg.get(secret_field)
         existing_secret = existing_cfg[secret_field]
         if incoming_secret is not None:
-            if contains_masked_key(incoming_secret):
+            resolved_secret = resolve_masked_api_keys(
+                incoming_secret,
+                existing_secret,
+            )
+            if _secret_values_differ(incoming_secret, resolved_secret):
                 incoming_cfg[secret_field] = (
                     existing_secret
                     if masked_value_preserves_full_secret
-                    else resolve_masked_api_keys(
-                        incoming_secret,
-                        existing_secret,
-                    )
+                    else resolved_secret
                 )
         elif preserve_missing:
             incoming_cfg[secret_field] = existing_secret

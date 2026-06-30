@@ -80,6 +80,12 @@ def is_mask_of(masked: str, real_key: str) -> bool:
     return mask_key(real_key) == masked
 
 
+def _secret_values_differ(left: str | list[str], right: str | list[str]) -> bool:
+    left_values = left if isinstance(left, list) else [left]
+    right_values = right if isinstance(right, list) else [right]
+    return left_values != right_values
+
+
 def resolve_masked_api_keys(
     incoming: str | list[str], existing: str | list[str]
 ) -> str | list[str]:

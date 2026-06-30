@@ -52,6 +52,7 @@ interface WorkflowRunResponse {
 
 const RUN_SHELL_HEIGHT_CLASS = "h-[calc(100svh-49px)] min-h-[calc(100svh-49px)] max-h-[calc(100svh-49px)]";
 const WAVEFORM_BAR_COUNT = 96;
+type SplitTrackPlaybackMode = 'both' | 'user' | 'bot';
 
 function formatDuration(seconds?: number | null) {
     if (seconds == null || Number.isNaN(seconds)) return 'N/A';
@@ -124,19 +125,38 @@ async function loadWaveformPeaks(url: string) {
     }
 }
 
+function getAudioDuration(audio: HTMLAudioElement | null) {
+    return audio && Number.isFinite(audio.duration) ? audio.duration : 0;
+}
+
+function getAudioTimelineState(audios: HTMLAudioElement[]) {
+    const duration = Math.max(0, ...audios.map((audio) => getAudioDuration(audio)));
+    const currentTime = Math.max(0, ...audios.map((audio) => audio.currentTime));
+
+    return { duration, currentTime };
+}
+
+function syncAudioCurrentTime(audio: HTMLAudioElement, startTime: number) {
+    const duration = getAudioDuration(audio);
+    audio.currentTime = Math.min(startTime, duration || startTime);
+}
+
 function WaveformLane({
     peaks,
     track,
     position,
+    isActive,
 }: {
     peaks: number[] | null;
     track: 'user' | 'bot';
     position: 'top' | 'bottom';
+    isActive: boolean;
 }) {
     return (
         <div
             className={cn(
                 'absolute left-3 right-3 flex gap-0.5',
+                isActive ? 'opacity-85' : 'opacity-25',
                 position === 'top' ? 'top-5 h-12 items-end' : 'bottom-5 h-12 items-start'
             )}
         >
@@ -145,7 +165,7 @@ function WaveformLane({
                     <span
                         key={`${track}-${index}`}
                         className={cn(
-                            'min-h-1 flex-1 rounded-full opacity-85',
+                            'min-h-1 flex-1 rounded-full',
                             track === 'user' ? 'bg-sky-500' : 'bg-emerald-500'
                         )}
                         style={{ height: `${Math.round(peak * 100)}%` }}
@@ -178,6 +198,21 @@ function SplitTracksSection({
     const [isLoading, setIsLoading] = useState(false);
     const [isPlaying, setIsPlaying] = useState(false);
     const [progress, setProgress] = useState(0);
+    const [playbackMode, setPlaybackMode] = useState<SplitTrackPlaybackMode>('both');
+
+    const getPlaybackAudios = (mode: SplitTrackPlaybackMode) => {
+        const audios: HTMLAudioElement[] = [];
+
+        if (mode !== 'bot' && userAudioRef.current) {
+            audios.push(userAudioRef.current);
+        }
+
+        if (mode !== 'user' && botAudioRef.current) {
+            audios.push(botAudioRef.current);
+        }
+
+        return audios;
+    };
 
     useEffect(() => {
         let isActive = true;
@@ -190,6 +225,7 @@ function SplitTracksSection({
         setPeaks({ user: null, bot: null });
         setIsPlaying(false);
         setProgress(0);
+        setPlaybackMode('both');
         setIsLoading(true);
 
         async function loadTracks() {
@@ -234,12 +270,17 @@ function SplitTracksSection({
 
         let frameId: number;
         const updateProgress = () => {
-            const userAudio = userAudioRef.current;
-            const botAudio = botAudioRef.current;
-            const userDuration = Number.isFinite(userAudio?.duration) ? userAudio?.duration ?? 0 : 0;
-            const botDuration = Number.isFinite(botAudio?.duration) ? botAudio?.duration ?? 0 : 0;
-            const duration = Math.max(userDuration, botDuration);
-            const currentTime = Math.max(userAudio?.currentTime ?? 0, botAudio?.currentTime ?? 0);
+            const activeAudios: HTMLAudioElement[] = [];
+
+            if (playbackMode !== 'bot' && userAudioRef.current) {
+                activeAudios.push(userAudioRef.current);
+            }
+
+            if (playbackMode !== 'user' && botAudioRef.current) {
+                activeAudios.push(botAudioRef.current);
+            }
+
+            const { duration, currentTime } = getAudioTimelineState(activeAudios);
 
             setProgress(duration > 0 ? Math.min(1, currentTime / duration) : 0);
             frameId = window.requestAnimationFrame(updateProgress);
@@ -247,7 +288,7 @@ function SplitTracksSection({
 
         frameId = window.requestAnimationFrame(updateProgress);
         return () => window.cancelAnimationFrame(frameId);
-    }, [isPlaying]);
+    }, [isPlaying, playbackMode]);
 
     const pauseTracks = () => {
         userAudioRef.current?.pause();
@@ -256,38 +297,68 @@ function SplitTracksSection({
     };
 
     const handleTrackEnded = () => {
-        const userAudio = userAudioRef.current;
-        const botAudio = botAudioRef.current;
-        const userDone = !userAudio || userAudio.ended;
-        const botDone = !botAudio || botAudio.ended;
+        const activeAudios = getPlaybackAudios(playbackMode);
+        const activeTracksDone = activeAudios.length > 0 && activeAudios.every((audio) => audio.ended);
 
-        if (userDone && botDone) {
+        if (activeTracksDone) {
             setIsPlaying(false);
             setProgress(1);
         }
     };
 
+    const handlePlaybackModeChange = async (nextMode: SplitTrackPlaybackMode) => {
+        if (nextMode === playbackMode) return;
+
+        const { currentTime } = getAudioTimelineState(getPlaybackAudios(playbackMode));
+        const nextAudios = getPlaybackAudios(nextMode);
+        const { duration } = getAudioTimelineState(nextAudios);
+        const startTime = duration > 0 && currentTime >= duration - 0.1 ? 0 : currentTime;
+
+        userAudioRef.current?.pause();
+        botAudioRef.current?.pause();
+        nextAudios.forEach((audio) => syncAudioCurrentTime(audio, startTime));
+        setPlaybackMode(nextMode);
+        setProgress(duration > 0 ? Math.min(1, startTime / duration) : 0);
+
+        if (!isPlaying) return;
+
+        if (nextAudios.length === 0) {
+            setIsPlaying(false);
+            return;
+        }
+
+        try {
+            await Promise.all(nextAudios.map((audio) => audio.play()));
+            setIsPlaying(true);
+        } catch (error) {
+            pauseTracks();
+            console.error('Error switching split track playback:', error);
+        }
+    };
+
+    const handleTrackButtonClick = (track: 'user' | 'bot') => {
+        const nextMode = playbackMode === track ? 'both' : track;
+        void handlePlaybackModeChange(nextMode);
+    };
+
     const togglePlayback = async () => {
-        const userAudio = userAudioRef.current;
-        const botAudio = botAudioRef.current;
-        if (!userAudio || !botAudio || !signedUrls.user || !signedUrls.bot) return;
+        const playbackAudios = getPlaybackAudios(playbackMode);
+        if (!canPlay || playbackAudios.length === 0) return;
 
         if (isPlaying) {
             pauseTracks();
             return;
         }
 
-        const userDuration = Number.isFinite(userAudio.duration) ? userAudio.duration : 0;
-        const botDuration = Number.isFinite(botAudio.duration) ? botAudio.duration : 0;
-        const duration = Math.max(userDuration, botDuration);
-        const currentTime = Math.max(userAudio.currentTime, botAudio.currentTime);
+        const { duration, currentTime } = getAudioTimelineState(playbackAudios);
         const startTime = duration > 0 && currentTime >= duration - 0.1 ? 0 : currentTime;
 
-        userAudio.currentTime = Math.min(startTime, userDuration || startTime);
-        botAudio.currentTime = Math.min(startTime, botDuration || startTime);
+        userAudioRef.current?.pause();
+        botAudioRef.current?.pause();
+        playbackAudios.forEach((audio) => syncAudioCurrentTime(audio, startTime));
 
         try {
-            await Promise.all([userAudio.play(), botAudio.play()]);
+            await Promise.all(playbackAudios.map((audio) => audio.play()));
             setIsPlaying(true);
         } catch (error) {
             pauseTracks();
@@ -295,8 +366,16 @@ function SplitTracksSection({
         }
     };
 
-    const canPlay = Boolean(signedUrls.user && signedUrls.bot);
+    const canPlay =
+        playbackMode === 'both'
+            ? Boolean(signedUrls.user && signedUrls.bot)
+            : playbackMode === 'user'
+                ? Boolean(signedUrls.user)
+                : Boolean(signedUrls.bot);
     const progressPercent = Math.round(progress * 1000) / 10;
+    const userTrackActive = playbackMode !== 'bot';
+    const botTrackActive = playbackMode !== 'user';
+    const playbackTargetLabel = playbackMode === 'both' ? 'split tracks' : `${playbackMode} track`;
 
     return (
         <Card className="border-border">
@@ -319,16 +398,42 @@ function SplitTracksSection({
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-sky-600">
+                    <div className="flex items-center gap-2" role="group" aria-label="Playback tracks">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-pressed={userTrackActive}
+                            aria-label={playbackMode === 'user' ? 'Play both tracks' : 'Play user track only'}
+                            onClick={() => handleTrackButtonClick('user')}
+                            className={cn(
+                                'gap-1.5',
+                                userTrackActive
+                                    ? 'border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300'
+                                    : 'text-muted-foreground opacity-60'
+                            )}
+                        >
                             <UserRound className="h-4 w-4" />
                             User
-                        </span>
+                        </Button>
                         <span className="h-4 w-px bg-border" />
-                        <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-600">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            aria-pressed={botTrackActive}
+                            aria-label={playbackMode === 'bot' ? 'Play both tracks' : 'Play bot track only'}
+                            onClick={() => handleTrackButtonClick('bot')}
+                            className={cn(
+                                'gap-1.5',
+                                botTrackActive
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300'
+                                    : 'text-muted-foreground opacity-60'
+                            )}
+                        >
                             <Bot className="h-4 w-4" />
                             Bot
-                        </span>
+                        </Button>
                     </div>
                     <div className="flex items-center gap-2">
                         <Button
@@ -360,15 +465,15 @@ function SplitTracksSection({
                         variant={isPlaying ? 'default' : 'outline'}
                         onClick={togglePlayback}
                         disabled={!canPlay}
-                        aria-label={isPlaying ? 'Pause split tracks' : 'Play split tracks'}
+                        aria-label={isPlaying ? `Pause ${playbackTargetLabel}` : `Play ${playbackTargetLabel}`}
                         className="h-10 w-10 shrink-0"
                     >
                         {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                     </Button>
                     <div className="relative h-36 min-w-0 flex-1 overflow-hidden rounded-lg border border-border/70 bg-background">
                         <div className="absolute left-3 right-3 top-1/2 h-px bg-border/80" />
-                        <WaveformLane peaks={peaks.user} track="user" position="top" />
-                        <WaveformLane peaks={peaks.bot} track="bot" position="bottom" />
+                        <WaveformLane peaks={peaks.user} track="user" position="top" isActive={userTrackActive} />
+                        <WaveformLane peaks={peaks.bot} track="bot" position="bottom" isActive={botTrackActive} />
                         {canPlay && (
                             <div className="pointer-events-none absolute inset-x-3 inset-y-3">
                                 <div

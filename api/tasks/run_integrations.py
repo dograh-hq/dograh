@@ -294,6 +294,29 @@ async def run_integrations_post_workflow_run(_ctx, workflow_run_id: int):
                     workflow_run_id
                 )
 
+        # Step 5b: Classify callee interest for campaign runs (best-effort, one
+        # cheap LLM pass over the transcript). Merged into annotations so the
+        # campaign runs view can surface + filter "interested".
+        if getattr(workflow_run, "campaign_id", None):
+            try:
+                from api.services.workflow.qa.interest import classify_call_interest
+
+                interest = await classify_call_interest(workflow_run)
+                if interest:
+                    annotations = dict(getattr(workflow_run, "annotations", None) or {})
+                    annotations["interested"] = interest
+                    await db_client.update_workflow_run(
+                        workflow_run_id, annotations=annotations
+                    )
+                    workflow_run, _ = await db_client.get_workflow_run_with_context(
+                        workflow_run_id
+                    )
+            except Exception:
+                logger.warning(
+                    f"Interest classification failed for run {workflow_run_id}",
+                    exc_info=True,
+                )
+
         # Step 6: Run registered third-party integrations after uploads are complete
         integration_results = await run_completion_handlers(
             context=IntegrationCompletionContext(

@@ -29,6 +29,7 @@ import {
 import { useAuth } from '@/lib/auth';
 
 import CampaignAdvancedSettings, { getTimezoneValue, type TimeSlot } from '../CampaignAdvancedSettings';
+import CsvColumnMapping from '../CsvColumnMapping';
 import CsvUploadSelector from '../CsvUploadSelector';
 
 export default function NewCampaignPage() {
@@ -41,6 +42,7 @@ export default function NewCampaignPage() {
     const [sourceType, setSourceType] = useState<'csv'>('csv');
     const [sourceId, setSourceId] = useState('');
     const [selectedFileName, setSelectedFileName] = useState('');
+    const [columnMapping, setColumnMapping] = useState<Record<string, string>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [createError, setCreateError] = useState<string | null>(null);
 
@@ -305,6 +307,7 @@ export default function NewCampaignPage() {
                     max_concurrency: maxConcurrencyValue,
                     schedule_config: scheduleConfig,
                     circuit_breaker: circuitBreakerConfig,
+                    column_mapping: Object.keys(columnMapping).length ? columnMapping : undefined,
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
@@ -495,6 +498,14 @@ export default function NewCampaignPage() {
                                 onFileUploaded={handleFileUploaded}
                                 selectedFileName={selectedFileName}
                             />
+
+                            {sourceId && (
+                                <CsvColumnMapping
+                                    sourceId={sourceId}
+                                    workflowId={selectedWorkflowId}
+                                    onChange={setColumnMapping}
+                                />
+                            )}
 
                             {/* Advanced Settings */}
                             <Collapsible

@@ -27,6 +27,7 @@ class CampaignClient(BaseDBClient):
         schedule_config: Optional[dict] = None,
         circuit_breaker: Optional[dict] = None,
         telephony_configuration_id: Optional[int] = None,
+        column_mapping: Optional[dict] = None,
     ) -> CampaignModel:
         """Create a new campaign"""
         async with self.async_session() as session:
@@ -38,6 +39,8 @@ class CampaignClient(BaseDBClient):
                 orchestrator_metadata["schedule_config"] = schedule_config
             if circuit_breaker is not None:
                 orchestrator_metadata["circuit_breaker"] = circuit_breaker
+            if column_mapping:
+                orchestrator_metadata["column_mapping"] = column_mapping
 
             campaign = CampaignModel(
                 name=name,

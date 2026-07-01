@@ -1373,6 +1373,12 @@ export type CreateCampaignRequest = {
     max_concurrency?: number | null;
     schedule_config?: ScheduleConfigRequest | null;
     circuit_breaker?: CircuitBreakerConfigRequest | null;
+    /**
+     * Column Mapping
+     */
+    column_mapping?: {
+        [key: string]: string;
+    } | null;
 };
 
 /**

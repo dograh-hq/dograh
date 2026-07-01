@@ -173,6 +173,7 @@ export function WorkflowRunsTable({
                                         </TableHead>
                                         <TableHead className="font-semibold">Disposition</TableHead>
                                         <TableHead className="font-semibold">Sentiment</TableHead>
+                                        <TableHead className="font-semibold">Interested</TableHead>
                                         <TableHead className="font-semibold">WhatsApp</TableHead>
                                         <TableHead className="font-semibold">Actions</TableHead>
                                     </TableRow>
@@ -219,6 +220,19 @@ export function WorkflowRunsTable({
                                                             ? "bg-red-100 text-red-800 hover:bg-red-100"
                                                             : "bg-zinc-100 text-zinc-700 hover:bg-zinc-100";
                                                     return <Badge className={cls} variant="secondary">{sentiment}</Badge>;
+                                                })()}
+                                            </TableCell>
+                                            <TableCell>
+                                                {(() => {
+                                                    const interested = (run.annotations?.interested as { value?: string; reason?: string } | undefined)?.value;
+                                                    if (!interested) return <span className="text-sm text-muted-foreground">-</span>;
+                                                    const cls = interested === "yes"
+                                                        ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-100"
+                                                        : interested === "no"
+                                                            ? "bg-red-100 text-red-800 hover:bg-red-100"
+                                                            : "bg-zinc-100 text-zinc-700 hover:bg-zinc-100";
+                                                    const label = interested === "yes" ? "Interested" : interested === "no" ? "Not interested" : "Unclear";
+                                                    return <Badge className={cls} variant="secondary">{label}</Badge>;
                                                 })()}
                                             </TableCell>
                                             <TableCell>

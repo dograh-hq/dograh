@@ -166,6 +166,10 @@ class CreateCampaignRequest(BaseModel):
     max_concurrency: Optional[int] = Field(default=None, ge=1, le=100)
     schedule_config: Optional[ScheduleConfigRequest] = None
     circuit_breaker: Optional[CircuitBreakerConfigRequest] = None
+    # Optional CSV-header -> workflow-variable overrides (e.g. {"Mobile":
+    # "phone_number", "Name": "customer_name"}). The phone column is
+    # auto-detected when not mapped.
+    column_mapping: Optional[Dict[str, str]] = None
 
 
 class UpdateCampaignRequest(BaseModel):
@@ -376,7 +380,9 @@ async def create_campaign(
     # Validate source data (phone_number column and format)
     sync_service = get_sync_service(request.source_type)
     validation_result = await sync_service.validate_source(
-        request.source_id, user.selected_organization_id
+        request.source_id,
+        user.selected_organization_id,
+        column_mapping=request.column_mapping,
     )
     if not validation_result.is_valid:
         raise HTTPException(status_code=400, detail=validation_result.error.message)
@@ -469,6 +475,7 @@ async def create_campaign(
         schedule_config=schedule_config,
         circuit_breaker=circuit_breaker_config,
         telephony_configuration_id=telephony_configuration_id,
+        column_mapping=request.column_mapping,
     )
 
     cfg_name = await _get_telephony_configuration_name(
@@ -477,6 +484,74 @@ async def create_campaign(
     return _build_campaign_response(
         campaign, workflow_name, telephony_configuration_name=cfg_name
     )
+
+
+class CsvPreviewRequest(BaseModel):
+    source_id: str  # CSV file key from the presigned upload
+    workflow_id: Optional[int] = None
+
+
+@router.post("/preview-csv")
+async def preview_csv(
+    request: CsvPreviewRequest, user: UserModel = Depends(get_user)
+):
+    """Preview an uploaded CSV so the campaign wizard can offer a mapping step:
+    headers, sample rows, the auto-detected phone column, the workflow's
+    required variables, and a suggested header -> variable mapping."""
+    sync_service = get_sync_service("csv")
+    try:
+        csv_data = await sync_service._fetch_csv_data(request.source_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not csv_data or len(csv_data) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV must have a header row and at least one data row",
+        )
+
+    raw_headers = csv_data[0]
+    norm_headers = CampaignSourceSyncService.normalize_headers(raw_headers)
+    rows = csv_data[1:]
+    phone_idx = CampaignSourceSyncService.detect_phone_column(raw_headers, rows)
+    detected_phone = norm_headers[phone_idx] if phone_idx is not None else None
+
+    required_vars: List[str] = []
+    if request.workflow_id:
+        workflow = await db_client.get_workflow(
+            request.workflow_id, organization_id=user.selected_organization_id
+        )
+        wf_json = (
+            workflow.released_definition.workflow_json
+            if workflow and workflow.released_definition
+            else None
+        )
+        if wf_json:
+            try:
+                from api.services.workflow.dto import ReactFlowDTO
+                from api.services.workflow.workflow_graph import WorkflowGraph
+
+                dto = ReactFlowDTO(**wf_json)
+                graph = WorkflowGraph(dto, skip_instance_constraints_for={"trigger"})
+                required_vars = sorted(graph.get_required_template_variables())
+            except Exception:
+                required_vars = []
+
+    # Suggested mapping: phone column -> phone_number, plus exact-name matches
+    # for any workflow variable that already appears as a header.
+    suggested: Dict[str, str] = {}
+    if detected_phone:
+        suggested[detected_phone] = "phone_number"
+    for h in norm_headers:
+        if h in required_vars and h not in suggested:
+            suggested[h] = h
+
+    return {
+        "headers": norm_headers,
+        "sample_rows": rows[:5],
+        "detected_phone_column": detected_phone,
+        "required_variables": required_vars,
+        "suggested_mapping": suggested,
+    }
 
 
 @router.get("/")

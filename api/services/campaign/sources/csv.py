@@ -39,7 +39,10 @@ class CSVSyncService(CampaignSourceSyncService):
         return self._parse_csv(csv_content)
 
     async def validate_source(
-        self, source_id: str, organization_id: Optional[int] = None
+        self,
+        source_id: str,
+        organization_id: Optional[int] = None,
+        column_mapping: Optional[dict] = None,
     ) -> ValidationResult:
         """Validate a CSV source file for campaign creation."""
         try:
@@ -61,7 +64,7 @@ class CSVSyncService(CampaignSourceSyncService):
         headers = csv_data[0]
         data_rows = csv_data[1:]
 
-        return self.validate_source_data(headers, data_rows)
+        return self.validate_source_data(headers, data_rows, column_mapping)
 
     async def sync_source_data(self, campaign_id: int) -> int:
         """
@@ -79,8 +82,12 @@ class CSVSyncService(CampaignSourceSyncService):
             logger.warning(f"No data found in CSV for campaign {campaign_id}")
             return 0
 
-        headers = self.normalize_headers(csv_data[0])
         rows = csv_data[1:]
+        # Apply the campaign's saved column mapping + phone auto-detect so the
+        # phone column lands under "phone_number" and mapped columns become the
+        # variable names the workflow expects.
+        column_mapping = (campaign.orchestrator_metadata or {}).get("column_mapping")
+        headers = self.apply_column_mapping(csv_data[0], rows, column_mapping)
 
         # Create hash of file_key for consistent source_uuid prefix
         file_hash = hashlib.md5(file_key.encode()).hexdigest()[:8]

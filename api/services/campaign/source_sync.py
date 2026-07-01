@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
@@ -31,9 +32,80 @@ class CampaignSourceSyncService(ABC):
         """Normalize headers by stripping whitespace and lowercasing."""
         return [h.strip().lower() for h in headers]
 
+    # Header names that clearly denote a phone/mobile column.
+    PHONE_HEADER_HINTS = (
+        "phone_number", "phone", "phonenumber", "phone_no", "phoneno",
+        "mobile", "mobile_number", "mobileno", "mobile_no", "cell",
+        "contact", "contact_number", "contact_no", "number", "msisdn",
+        "whatsapp", "tel", "telephone",
+    )
+
+    @staticmethod
+    def _looks_like_phone(value: str) -> bool:
+        """Loose phone-shape check: 7-15 digits, optional leading '+'."""
+        v = (value or "").strip()
+        if not v:
+            return False
+        digits = re.sub(r"[\s\-()]", "", v)
+        if digits.startswith("+"):
+            digits = digits[1:]
+        return digits.isdigit() and 7 <= len(digits) <= 15
+
+    @staticmethod
+    def detect_phone_column(
+        headers: List[str], rows: List[List[str]], sample: int = 25
+    ) -> Optional[int]:
+        """Best-guess the phone column index: exact known name, then a hint
+        token in the name, then value shape. None when nothing looks like one."""
+        norm = CampaignSourceSyncService.normalize_headers(headers)
+        for i, h in enumerate(norm):
+            if h in CampaignSourceSyncService.PHONE_HEADER_HINTS:
+                return i
+        for i, h in enumerate(norm):
+            if any(tok in h for tok in ("phone", "mobile", "msisdn", "whatsapp")):
+                return i
+        best_idx, best_hits = None, 0
+        checked = rows[:sample]
+        for i in range(len(norm)):
+            hits = sum(
+                1
+                for row in checked
+                if len(row) > i and CampaignSourceSyncService._looks_like_phone(row[i])
+            )
+            if hits > best_hits:
+                best_idx, best_hits = i, hits
+        if best_idx is not None and best_hits >= max(1, len(checked) // 2):
+            return best_idx
+        return None
+
+    @staticmethod
+    def apply_column_mapping(
+        headers: List[str],
+        rows: List[List[str]],
+        column_mapping: Optional[Dict[str, str]] = None,
+    ) -> List[str]:
+        """Normalized headers with the user's CSV-header -> variable mapping
+        applied, and the phone column renamed to 'phone_number' (auto-detected
+        when the mapping didn't already provide one). Backward compatible: with
+        no mapping and a literal 'phone_number' header, headers are unchanged."""
+        norm = CampaignSourceSyncService.normalize_headers(headers)
+        mapping = {
+            k.strip().lower(): str(v).strip().lower()
+            for k, v in (column_mapping or {}).items()
+            if v and str(v).strip()
+        }
+        effective = [mapping.get(h, h) for h in norm]
+        if "phone_number" not in effective:
+            idx = CampaignSourceSyncService.detect_phone_column(headers, rows)
+            if idx is not None:
+                effective[idx] = "phone_number"
+        return effective
+
     @staticmethod
     def validate_source_data(
-        headers: List[str], rows: List[List[str]]
+        headers: List[str],
+        rows: List[List[str]],
+        column_mapping: Optional[Dict[str, str]] = None,
     ) -> ValidationResult:
         """
         Validate source data for campaign creation.
@@ -41,18 +113,23 @@ class CampaignSourceSyncService(ABC):
         Args:
             headers: List of column headers
             rows: List of data rows (excluding header)
+            column_mapping: optional CSV-header -> variable overrides; the phone
+                column is auto-detected when not mapped.
 
         Returns:
             ValidationResult with is_valid=True if valid, or error details if invalid
         """
-        normalized_headers = CampaignSourceSyncService.normalize_headers(headers)
+        normalized_headers = CampaignSourceSyncService.apply_column_mapping(
+            headers, rows, column_mapping
+        )
 
-        # Check for phone_number column
+        # Phone column (mapped or auto-detected above)
         if "phone_number" not in normalized_headers:
             return ValidationResult(
                 is_valid=False,
                 error=ValidationError(
-                    message="Source must contain a 'phone_number' column"
+                    message="Couldn't find a phone-number column. Map one of your "
+                    "columns to the phone number, or include a 'phone_number' column."
                 ),
             )
 
@@ -166,7 +243,10 @@ class CampaignSourceSyncService(ABC):
 
     @abstractmethod
     async def validate_source(
-        self, source_id: str, organization_id: Optional[int] = None
+        self,
+        source_id: str,
+        organization_id: Optional[int] = None,
+        column_mapping: Optional[Dict[str, str]] = None,
     ) -> ValidationResult:
         """Validate source data before campaign creation."""
         pass

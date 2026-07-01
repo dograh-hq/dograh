@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# rebrand-to-sativoice.sh — Idempotent Dograh → Sativoice rebrand for surface files.
+# Safe to run multiple times. Only touches files that still contain "Dograh" or "dograh".
+# Run after `git merge upstream/main` to re-apply branding.
+set -euo pipefail
+
+SURFACE_FILES=(
+    "README.md"
+    "CONTRIBUTING.md"
+    "SECURITY.md"
+    "CHANGELOG.md"
+    "PRIVATE_DEPLOYMENT_PLAN.md"
+    "AGENTS.md"
+    "release-please-config.json"
+    "docker-compose.yaml"
+    "docker-compose-local.yaml"
+    "api/Dockerfile"
+    "ui/Dockerfile"
+    "scripts/start_docker.sh"
+    "scripts/start_docker.ps1"
+    "scripts/setup_local.sh"
+    "scripts/setup_local.ps1"
+    "scripts/setup_remote.sh"
+    "scripts/remote_up.sh"
+    "scripts/setup_fork.sh"
+    "scripts/setup_fork.ps1"
+    "scripts/update_remote.sh"
+    "scripts/setup_requirements.sh"
+    "scripts/setup_requirements.ps1"
+    "scripts/rolling_update.sh"
+    "scripts/run_dograh_init.sh"
+    "scripts/generate_sdk.sh"
+    "scripts/release_sdks.sh"
+    "scripts/setup_custom_domain.sh"
+    "scripts/setup_pipecat.sh"
+    "scripts/start_services.sh"
+    "scripts/lib/setup_common.sh"
+    "ui/src/app/layout.tsx"
+    "docs/docs.json"
+    "docs/api-reference/openapi.json"
+)
+
+echo "==> Sativoice rebrand — $(date)"
+changed=0
+skipped=0
+
+for file in "${SURFACE_FILES[@]}"; do
+    if [ ! -f "$file" ]; then
+        echo "SKIP (missing): $file"
+        ((skipped++)) || true
+        continue
+    fi
+
+    if ! grep -q -E "Dograh|dograh" "$file" 2>/dev/null; then
+        echo "SKIP (clean):  $file"
+        ((skipped++)) || true
+        continue
+    fi
+
+    cp "$file" "$file.bak"
+    sed -i 's/Dograh/Sativoice/g' "$file"
+    sed -i 's/dograh/sativoice/g' "$file"
+    echo "DONE:          $file"
+    ((changed++)) || true
+done
+
+echo ""
+echo "==> Summary: $changed files changed, $skipped files skipped"
+
+# Verification: count remaining [Dd]ograh references in surface files
+# Matches what the sed commands handle: "Dograh" and "dograh", not all-caps DOGRAH_
+echo ""
+echo "==> Verification:"
+REMAINING=0
+for file in "${SURFACE_FILES[@]}"; do
+    if [ -f "$file" ]; then
+        count=$(grep -c "[Dd]ograh" "$file" 2>/dev/null || true)
+        REMAINING=$((REMAINING + count))
+    fi
+done
+
+if [ "$REMAINING" -eq 0 ]; then
+    echo "✅ No [Dd]ograh references found in surface files"
+else
+    echo "⚠️  $REMAINING [Dd]ograh references remaining in surface files:"
+    for file in "${SURFACE_FILES[@]}"; do
+        [ -f "$file" ] && grep -Hn "[Dd]ograh" "$file" 2>/dev/null || true
+    done
+fi

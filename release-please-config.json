@@ -2,7 +2,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "package-name": "dograh",
+      "package-name": "sativoice",
       "changelog-type": "github",
       "changelog-sections": [
         {

@@ -24,12 +24,12 @@ BASE_LOG_DIR="$BASE_DIR/logs"
 LATEST_LINK="$BASE_LOG_DIR/latest"
 VENV_PATH="$BASE_DIR/venv"
 
-NGINX_UPSTREAM_TEMPLATE="$BASE_DIR/nginx/dograh_upstream.conf.template"
-NGINX_UPSTREAM_CONF="/etc/nginx/conf.d/dograh_upstream.conf"
+NGINX_UPSTREAM_TEMPLATE="$BASE_DIR/nginx/sativoice_upstream.conf.template"
+NGINX_UPSTREAM_CONF="/etc/nginx/conf.d/sativoice_upstream.conf"
 
 HEALTH_CHECK_ENDPOINT="/api/v1/health"
 ACTIVE_CALLS_ENDPOINT="/api/v1/health/active-calls"
-DOGRAH_DEVOPS_SECRET_HEADER="X-Dograh-Devops-Secret"
+DOGRAH_DEVOPS_SECRET_HEADER="X-Sativoice-Devops-Secret"
 
 # Load environment
 if [[ -f "$ENV_FILE" ]]; then
@@ -62,7 +62,7 @@ if [[ -z "${DOGRAH_DEVOPS_SECRET:-}" ]]; then
   log_error "DOGRAH_DEVOPS_SECRET is not set. Add it to $ENV_FILE before running rolling_update.sh."
   exit 1
 fi
-if [[ "$DOGRAH_DEVOPS_SECRET" == "change-me-dograh-devops-secret" ]]; then
+if [[ "$DOGRAH_DEVOPS_SECRET" == "change-me-sativoice-devops-secret" ]]; then
   log_error "DOGRAH_DEVOPS_SECRET still has the example placeholder value. Replace it in $ENV_FILE."
   exit 1
 fi

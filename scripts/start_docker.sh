@@ -2,7 +2,7 @@
 set -e
 
 ENV_FILE=".env"
-REGISTRY="${REGISTRY:-ghcr.io/dograh-hq}"
+REGISTRY="${REGISTRY:-ghcr.io/sativoice-hq}"
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
 
 fail() {
@@ -27,7 +27,7 @@ generate_secret() {
 }
 
 generate_minio_root_user() {
-    printf 'dograh%s\n' "$(generate_secret | cut -c1-12)"
+    printf 'sativoice%s\n' "$(generate_secret | cut -c1-12)"
 }
 
 dotenv_value() {
@@ -126,12 +126,12 @@ sync_postgres_password() {
         fail "Postgres did not become ready while syncing POSTGRES_PASSWORD."
     fi
 
-    printf '%s\n' "ALTER USER postgres WITH PASSWORD :'dograh_password';" \
+    printf '%s\n' "ALTER USER postgres WITH PASSWORD :'sativoice_password';" \
         | docker compose exec -T postgres psql \
         -U postgres \
         -d postgres \
         -v ON_ERROR_STOP=1 \
-        -v "dograh_password=$postgres_password" >/dev/null
+        -v "sativoice_password=$postgres_password" >/dev/null
     echo "Postgres password synced."
 }
 
@@ -206,14 +206,14 @@ echo "  REGISTRY=$REGISTRY ENABLE_TELEMETRY=$ENABLE_TELEMETRY docker compose --p
 echo ""
 
 if [[ ! -t 0 ]]; then
-    echo "Run the command above from an interactive shell to start Dograh."
+    echo "Run the command above from an interactive shell to start Sativoice."
     exit 0
 fi
 
-read -r -p "Start Dograh now? [Y/n]: " answer
+read -r -p "Start Sativoice now? [Y/n]: " answer
 case "$answer" in
     [Nn]*)
-        echo "Dograh was not started."
+        echo "Sativoice was not started."
         exit 0
         ;;
 esac

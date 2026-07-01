@@ -68,13 +68,13 @@ if ! command -v uv >/dev/null 2>&1; then
     export PATH="$HOME/.local/bin:$PATH"
 fi
 
-# Install dograh API requirements first so pipecat's extras win on any
+# Install sativoice API requirements first so pipecat's extras win on any
 # shared transitive dependencies (matches api/Dockerfile and CI workflow).
-echo "Installing dograh API requirements..."
+echo "Installing sativoice API requirements..."
 uv pip install -r api/requirements.txt
 
 if [ "$DEV_MODE" -eq 1 ]; then
-    echo "Installing dograh API dev requirements..."
+    echo "Installing sativoice API dev requirements..."
     uv pip install -r api/requirements.dev.txt
 fi
 

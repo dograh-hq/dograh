@@ -14,7 +14,7 @@ BOOTSTRAP_LIB=""
 
 if [[ ! -f "$LIB_PATH" ]]; then
     BOOTSTRAP_LIB="$(mktemp)"
-    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/setup_common.sh"
+    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/sativoice-hq/sativoice/main/scripts/lib/setup_common.sh"
     LIB_PATH="$BOOTSTRAP_LIB"
 fi
 
@@ -30,7 +30,7 @@ trap cleanup EXIT
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║                   Dograh Remote Setup                        ║"
+echo "║                   Sativoice Remote Setup                        ║"
 echo "║      Automated HTTPS deployment with TURN server             ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -40,7 +40,7 @@ echo -e "${NC}"
 # system renewal hook under /etc/letsencrypt — all of which require root. Stop
 # early with clear guidance rather than getting halfway and degrading the install.
 if [[ $EUID -ne 0 ]]; then
-    dograh_fail "setup_remote.sh must be run as root.\nRe-run with sudo:\n  sudo ./setup_remote.sh"
+    sativoice_fail "setup_remote.sh must be run as root.\nRe-run with sudo:\n  sudo ./setup_remote.sh"
 fi
 
 # Get the server IP address (skip prompt if SERVER_IP is already set)
@@ -50,11 +50,11 @@ if [[ -z "${SERVER_IP:-}" ]]; then
 fi
 
 if [[ -z "$SERVER_IP" ]]; then
-    dograh_fail "IP address cannot be empty"
+    sativoice_fail "IP address cannot be empty"
 fi
 
-if ! dograh_is_ipv4 "$SERVER_IP"; then
-    dograh_fail "Invalid IP address format"
+if ! sativoice_is_ipv4 "$SERVER_IP"; then
+    sativoice_fail "Invalid IP address format"
 fi
 
 # Certificate strategy. CERT_MODE selects how HTTPS is secured:
@@ -68,14 +68,14 @@ ACME_DOMAIN_SUFFIX="${ACME_DOMAIN_SUFFIX:-sslip.io}"
 LETSENCRYPT_EMAIL="${LETSENCRYPT_EMAIL:-}"
 
 if [[ "$CERT_MODE" == "auto" ]]; then
-    if dograh_is_local_ipv4 "$SERVER_IP"; then
+    if sativoice_is_local_ipv4 "$SERVER_IP"; then
         CERT_MODE="self-signed"
-        dograh_warn "$SERVER_IP is a private IP — using a self-signed certificate."
-        dograh_warn "For a trusted cert, deploy on a public IP or a domain you own"
-        dograh_warn "(https://docs.dograh.com/deployment/custom-domain)."
+        sativoice_warn "$SERVER_IP is a private IP — using a self-signed certificate."
+        sativoice_warn "For a trusted cert, deploy on a public IP or a domain you own"
+        sativoice_warn "(https://docs.sativoice.com/deployment/custom-domain)."
     elif ! command -v docker >/dev/null 2>&1; then
         CERT_MODE="self-signed"
-        dograh_warn "Docker not found — skipping automatic Let's Encrypt setup and using a self-signed cert."
+        sativoice_warn "Docker not found — skipping automatic Let's Encrypt setup and using a self-signed cert."
     else
         CERT_MODE="sslip"
     fi
@@ -84,21 +84,21 @@ fi
 case "$CERT_MODE" in
     self-signed) ;;
     sslip)
-        if dograh_is_local_ipv4 "$SERVER_IP"; then
-            dograh_fail "CERT_MODE=sslip needs a public IP; $SERVER_IP is private/reserved."
+        if sativoice_is_local_ipv4 "$SERVER_IP"; then
+            sativoice_fail "CERT_MODE=sslip needs a public IP; $SERVER_IP is private/reserved."
         fi
-        command -v docker >/dev/null 2>&1 || dograh_fail "CERT_MODE=sslip needs Docker to serve the ACME challenge."
+        command -v docker >/dev/null 2>&1 || sativoice_fail "CERT_MODE=sslip needs Docker to serve the ACME challenge."
         ;;
     letsencrypt-dns|cloudflare-tunnel|external)
-        dograh_fail "CERT_MODE=$CERT_MODE is reserved but not implemented yet. Use 'sslip' (public IP) or 'self-signed'."
+        sativoice_fail "CERT_MODE=$CERT_MODE is reserved but not implemented yet. Use 'sslip' (public IP) or 'self-signed'."
         ;;
     *)
-        dograh_fail "Unknown CERT_MODE '$CERT_MODE' (expected: auto, sslip, self-signed)."
+        sativoice_fail "Unknown CERT_MODE '$CERT_MODE' (expected: auto, sslip, self-signed)."
         ;;
 esac
 
 if [[ "$CERT_MODE" == "sslip" ]]; then
-    PUBLIC_HOST_VALUE="$(dograh_sslip_host_from_ip "$SERVER_IP" "$ACME_DOMAIN_SUFFIX")"
+    PUBLIC_HOST_VALUE="$(sativoice_sslip_host_from_ip "$SERVER_IP" "$ACME_DOMAIN_SUFFIX")"
     CERT_DESC="Let's Encrypt via $ACME_DOMAIN_SUFFIX (trusted)"
 else
     PUBLIC_HOST_VALUE="$SERVER_IP"
@@ -132,14 +132,14 @@ if [[ -z "${DEPLOY_MODE:-}" ]]; then
     if [[ -t 0 ]]; then
         echo ""
         echo -e "${YELLOW}Deployment mode:${NC}"
-        echo "  1) prebuilt - pull official dograh images (recommended, fastest)"
+        echo "  1) prebuilt - pull official sativoice images (recommended, fastest)"
         echo "  2) build    - build images from source (for forks or local customizations)"
         read -p "Choose [1]: " mode_choice
         mode_choice="${mode_choice:-1}"
         case "$mode_choice" in
             1|prebuilt) DEPLOY_MODE="prebuilt" ;;
             2|build) DEPLOY_MODE="build" ;;
-            *) dograh_fail "invalid choice '$mode_choice'" ;;
+            *) sativoice_fail "invalid choice '$mode_choice'" ;;
         esac
     else
         DEPLOY_MODE="prebuilt"
@@ -172,10 +172,10 @@ if [[ "$DEPLOY_MODE" == "build" ]]; then
             if [[ -t 0 ]]; then
                 echo ""
                 echo -e "${YELLOW}GitHub repo to clone (format: owner/name):${NC}"
-                read -p "[dograh-hq/dograh]: " FORK_REPO
-                FORK_REPO="${FORK_REPO:-dograh-hq/dograh}"
+                read -p "[sativoice-hq/sativoice]: " FORK_REPO
+                FORK_REPO="${FORK_REPO:-sativoice-hq/sativoice}"
             else
-                FORK_REPO="dograh-hq/dograh"
+                FORK_REPO="sativoice-hq/sativoice"
             fi
         fi
 
@@ -205,12 +205,12 @@ if [[ -z "$FASTAPI_WORKERS" ]]; then
     fi
 fi
 
-[[ "$FASTAPI_WORKERS" =~ ^[1-9][0-9]*$ ]] || dograh_fail "FASTAPI_WORKERS must be a positive integer (got: $FASTAPI_WORKERS)"
+[[ "$FASTAPI_WORKERS" =~ ^[1-9][0-9]*$ ]] || sativoice_fail "FASTAPI_WORKERS must be a positive integer (got: $FASTAPI_WORKERS)"
 
 if [[ "$DEPLOY_MODE" == "build" && "${REPO_SOURCE:-}" == "existing" ]]; then
     TARGET_DIR="."
 else
-    TARGET_DIR="dograh"
+    TARGET_DIR="sativoice"
 fi
 
 if [[ "${DOGRAH_FORCE_OVERWRITE:-}" != "1" && "${DOGRAH_SKIP_DOWNLOAD:-}" != "1" ]]; then
@@ -221,7 +221,7 @@ if [[ "${DOGRAH_FORCE_OVERWRITE:-}" != "1" && "${DOGRAH_SKIP_DOWNLOAD:-}" != "1"
             existing_path="$(pwd)/$TARGET_DIR/.env"
         fi
         echo ""
-        echo -e "${YELLOW}Detected an existing Dograh install:${NC}"
+        echo -e "${YELLOW}Detected an existing Sativoice install:${NC}"
         echo -e "  ${YELLOW}$existing_path${NC}"
         echo ""
         echo -e "${RED}Refusing to continue - re-running setup would:${NC}"
@@ -230,7 +230,7 @@ if [[ "${DOGRAH_FORCE_OVERWRITE:-}" != "1" && "${DOGRAH_SKIP_DOWNLOAD:-}" != "1"
         echo -e "${RED}  - replace the validated remote deployment bundle${NC}"
         echo ""
         echo -e "${BLUE}To upgrade an existing install, follow:${NC}"
-        echo -e "  ${BLUE}https://docs.dograh.com/deployment/update${NC}"
+        echo -e "  ${BLUE}https://docs.sativoice.com/deployment/update${NC}"
         echo ""
         echo -e "${BLUE}To wipe state and reinstall from scratch, re-run with:${NC}"
         echo -e "  ${BLUE}DOGRAH_FORCE_OVERWRITE=1 <same command>${NC}"
@@ -267,24 +267,24 @@ if [[ "$DEPLOY_MODE" == "build" ]]; then
     if [[ "${DOGRAH_SKIP_DOWNLOAD:-}" == "1" ]]; then
         echo -e "${BLUE}[1/$TOTAL] Using existing repo in current directory${NC}"
     elif [[ "${REPO_SOURCE:-}" == "clone" ]]; then
-        if [[ -e "dograh" ]]; then
-            dograh_fail "'dograh' directory already exists. Remove it or re-run with REPO_SOURCE=existing from inside it."
+        if [[ -e "sativoice" ]]; then
+            sativoice_fail "'sativoice' directory already exists. Remove it or re-run with REPO_SOURCE=existing from inside it."
         fi
         echo -e "${BLUE}[1/$TOTAL] Cloning $FORK_REPO (branch: $BRANCH)...${NC}"
-        git clone --branch "$BRANCH" --recurse-submodules "https://github.com/$FORK_REPO.git" dograh
-        cd dograh
+        git clone --branch "$BRANCH" --recurse-submodules "https://github.com/$FORK_REPO.git" sativoice
+        cd sativoice
         echo -e "${GREEN}✓ Repo cloned${NC}"
     else
         echo -e "${BLUE}[1/$TOTAL] Using existing repo at $(pwd)${NC}"
     fi
 else
     if [[ "${DOGRAH_SKIP_DOWNLOAD:-}" != "1" ]]; then
-        mkdir -p dograh 2>/dev/null || true
-        cd dograh
+        mkdir -p sativoice 2>/dev/null || true
+        cd sativoice
 
         echo -e "${BLUE}[1/$TOTAL] Downloading deployment bundle...${NC}"
-        curl -fsSL -o docker-compose.yaml "https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml"
-        dograh_download_remote_support_bundle "$(pwd)" "main"
+        curl -fsSL -o docker-compose.yaml "https://raw.githubusercontent.com/sativoice-hq/sativoice/main/docker-compose.yaml"
+        sativoice_download_remote_support_bundle "$(pwd)" "main"
         echo -e "${GREEN}✓ Deployment bundle downloaded${NC}"
     else
         echo -e "${BLUE}[1/$TOTAL] Using deployment files in current directory${NC}"
@@ -318,7 +318,7 @@ echo -e "${BLUE}[4/$TOTAL] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 REDIS_PASSWORD=$(openssl rand -hex 32)
-MINIO_ROOT_USER="dograh$(openssl rand -hex 6)"
+MINIO_ROOT_USER="sativoice$(openssl rand -hex 6)"
 MINIO_ROOT_PASSWORD=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
@@ -366,7 +366,7 @@ ENV_EOF
 echo -e "${GREEN}✓ .env file created${NC}"
 
 echo -e "${BLUE}[5/$TOTAL] Validating remote init configuration...${NC}"
-dograh_prepare_remote_install "$(pwd)"
+sativoice_prepare_remote_install "$(pwd)"
 echo -e "${GREEN}✓ Remote init configuration validated${NC}"
 
 if [[ "$DEPLOY_MODE" == "build" ]]; then
@@ -381,14 +381,14 @@ services:
     build:
       context: .
       dockerfile: api/Dockerfile
-    image: dograh-local/dograh-api:local
+    image: sativoice-local/sativoice-api:local
     pull_policy: never
 
   ui:
     build:
       context: .
       dockerfile: ui/Dockerfile
-    image: dograh-local/dograh-ui:local
+    image: sativoice-local/sativoice-ui:local
     pull_policy: never
 OVERRIDE_EOF
     echo -e "${GREEN}✓ docker-compose.override.yaml created${NC}"
@@ -396,7 +396,7 @@ fi
 
 if [[ "$CERT_MODE" == "sslip" ]]; then
     echo ""
-    echo -e "${BLUE}Starting Dograh and requesting a trusted certificate for ${PUBLIC_HOST_VALUE}...${NC}"
+    echo -e "${BLUE}Starting Sativoice and requesting a trusted certificate for ${PUBLIC_HOST_VALUE}...${NC}"
 
     if [[ "$DEPLOY_MODE" == "build" ]]; then
         ./remote_up.sh --build
@@ -416,21 +416,21 @@ if [[ "$CERT_MODE" == "sslip" ]]; then
 
     if [[ "$nginx_ready" != "1" ]]; then
         CERT_RESULT="self-signed"
-        dograh_warn "nginx did not become reachable on port 80 — skipping Let's Encrypt for now."
-        dograh_warn "The stack is running with the bootstrap self-signed certificate."
-    elif dograh_install_certbot && dograh_issue_letsencrypt_webroot "$(pwd)" "$PUBLIC_HOST_VALUE" "$LETSENCRYPT_EMAIL"; then
+        sativoice_warn "nginx did not become reachable on port 80 — skipping Let's Encrypt for now."
+        sativoice_warn "The stack is running with the bootstrap self-signed certificate."
+    elif sativoice_install_certbot && sativoice_issue_letsencrypt_webroot "$(pwd)" "$PUBLIC_HOST_VALUE" "$LETSENCRYPT_EMAIL"; then
         docker compose --profile remote restart nginx >/dev/null 2>&1 || true
-        dograh_install_cert_renewal_hook "$(pwd)" "$PUBLIC_HOST_VALUE"
+        sativoice_install_cert_renewal_hook "$(pwd)" "$PUBLIC_HOST_VALUE"
         CERT_RESULT="sslip"
-        dograh_success "✓ Trusted Let's Encrypt certificate installed; auto-renewal configured"
+        sativoice_success "✓ Trusted Let's Encrypt certificate installed; auto-renewal configured"
     else
         CERT_RESULT="self-signed"
         echo ""
-        dograh_warn "Let's Encrypt issuance failed — the stack is running with the self-signed certificate."
-        dograh_warn "Common causes and fixes:"
-        dograh_warn "  - Port 80 not reachable from the internet: open it in your firewall/security group"
-        dograh_warn "  - Rate limited on ${ACME_DOMAIN_SUFFIX}: re-run with ACME_DOMAIN_SUFFIX=nip.io"
-        dograh_warn "  - Then retry: sudo certbot certonly --webroot -w \"$(pwd)/certs\" -d ${PUBLIC_HOST_VALUE}"
+        sativoice_warn "Let's Encrypt issuance failed — the stack is running with the self-signed certificate."
+        sativoice_warn "Common causes and fixes:"
+        sativoice_warn "  - Port 80 not reachable from the internet: open it in your firewall/security group"
+        sativoice_warn "  - Rate limited on ${ACME_DOMAIN_SUFFIX}: re-run with ACME_DOMAIN_SUFFIX=nip.io"
+        sativoice_warn "  - Then retry: sudo certbot certonly --webroot -w \"$(pwd)/certs\" -d ${PUBLIC_HOST_VALUE}"
     fi
 fi
 
@@ -445,7 +445,7 @@ if [[ "$DEPLOY_MODE" == "build" ]]; then
     echo "  - docker-compose.override.yaml  (build directives)"
 fi
 echo "  - remote_up.sh"
-echo "  - scripts/run_dograh_init.sh"
+echo "  - scripts/run_sativoice_init.sh"
 echo "  - deploy/templates/"
 echo "  - generate_certificate.sh"
 echo "  - certs/local.crt"
@@ -454,13 +454,13 @@ echo "  - .env"
 echo ""
 if [[ "$CERT_MODE" == "sslip" ]]; then
     if [[ "$CERT_RESULT" == "sslip" ]]; then
-        echo -e "${GREEN}Dograh is running with a trusted certificate at:${NC}"
+        echo -e "${GREEN}Sativoice is running with a trusted certificate at:${NC}"
         echo ""
         echo -e "  ${BLUE}https://$PUBLIC_HOST_VALUE${NC}"
         echo ""
         echo -e "${GREEN}No browser warning — the certificate renews automatically before expiry.${NC}"
     else
-        echo -e "${YELLOW}Dograh is running (with a temporary self-signed certificate) at:${NC}"
+        echo -e "${YELLOW}Sativoice is running (with a temporary self-signed certificate) at:${NC}"
         echo ""
         echo -e "  ${BLUE}https://$PUBLIC_HOST_VALUE${NC}"
         echo ""
@@ -468,7 +468,7 @@ if [[ "$CERT_MODE" == "sslip" ]]; then
         echo -e "${YELLOW}browser will warn until a trusted certificate is issued.${NC}"
     fi
 else
-    echo -e "${YELLOW}To start Dograh, run:${NC}"
+    echo -e "${YELLOW}To start Sativoice, run:${NC}"
     echo ""
     if [[ "$DEPLOY_MODE" != "build" || "${REPO_SOURCE:-}" != "existing" ]]; then
         echo -e "  ${BLUE}cd $(pwd)${NC}"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cut a release of both SDKs — dograh-sdk (PyPI) and @dograh/sdk (npm) —
+# Cut a release of both SDKs — sativoice-sdk (PyPI) and @sativoice/sdk (npm) —
 # at the given version. Regenerates typed files from node_specs first so
 # a stale SDK can't ship.
 #
@@ -8,7 +8,7 @@
 #
 # Prerequisites (one-time setup):
 #   - `build` + `twine` installed: `pip install --upgrade build twine`
-#   - `npm login` completed as a member of the `dograh` npm org. npm
+#   - `npm login` completed as a member of the `sativoice` npm org. npm
 #     publish will prompt interactively for a 2FA OTP — run this script
 #     in a terminal where you can type the code.
 #
@@ -44,7 +44,7 @@ if ! command -v npm >/dev/null 2>&1; then
 fi
 if ! NPM_USER="$(npm whoami 2>/dev/null)"; then
     echo "error: not logged in to npm. Run 'npm login' as a member of the" >&2
-    echo "       dograh org before re-running this script — otherwise PyPI" >&2
+    echo "       sativoice org before re-running this script — otherwise PyPI" >&2
     echo "       will publish and npm will 404, leaving the release split." >&2
     exit 1
 fi
@@ -53,7 +53,7 @@ echo "  npm: logged in as $NPM_USER"
 echo "→ Regenerating typed SDK sources from node_specs..."
 ./scripts/generate_sdk.sh
 
-if ! git diff --quiet -- sdk/python/src/dograh_sdk/typed sdk/typescript/src/typed; then
+if ! git diff --quiet -- sdk/python/src/sativoice_sdk/typed sdk/typescript/src/typed; then
     echo
     echo "⚠  node_specs regeneration changed typed files. Review the diff"
     echo "   above and commit before releasing — otherwise the tag will"
@@ -125,31 +125,31 @@ echo "→ Building TypeScript + running tests..."
 
 echo
 echo "============================================================"
-echo "  Built dograh-sdk==$VERSION and @dograh/sdk@$VERSION"
+echo "  Built sativoice-sdk==$VERSION and @sativoice/sdk@$VERSION"
 echo "  Nothing has been published yet."
 echo "============================================================"
 echo
 
-if confirm "Upload dograh-sdk==$VERSION to TestPyPI first (recommended)?"; then
+if confirm "Upload sativoice-sdk==$VERSION to TestPyPI first (recommended)?"; then
     (cd sdk/python && twine upload --repository testpypi dist/*)
-    echo "  → https://test.pypi.org/project/dograh-sdk/$VERSION/"
+    echo "  → https://test.pypi.org/project/sativoice-sdk/$VERSION/"
     echo
 fi
 
-if confirm "Publish @dograh/sdk@$VERSION to npm? (will prompt for 2FA OTP)"; then
+if confirm "Publish @sativoice/sdk@$VERSION to npm? (will prompt for 2FA OTP)"; then
     (cd sdk/typescript && npm publish --access public)
-    echo "  → https://www.npmjs.com/package/@dograh/sdk/v/$VERSION"
+    echo "  → https://www.npmjs.com/package/@sativoice/sdk/v/$VERSION"
     echo
 fi
 
-if confirm "Upload dograh-sdk==$VERSION to PyPI?"; then
+if confirm "Upload sativoice-sdk==$VERSION to PyPI?"; then
     (cd sdk/python && twine upload dist/*)
-    echo "  → https://pypi.org/project/dograh-sdk/$VERSION/"
+    echo "  → https://pypi.org/project/sativoice-sdk/$VERSION/"
     echo
 fi
 
 if confirm "Create annotated git tag sdks-v$VERSION at HEAD?"; then
-    git tag -a "sdks-v$VERSION" -m "dograh-sdk + @dograh/sdk $VERSION"
+    git tag -a "sdks-v$VERSION" -m "sativoice-sdk + @sativoice/sdk $VERSION"
     echo "  → created tag (not pushed). Push with:"
     echo "     git push origin sdks-v$VERSION"
 fi

@@ -112,9 +112,9 @@ FROM python:3.13-slim AS runner
 
 WORKDIR /app
 
-RUN groupadd --system dograh \
- && useradd --system --gid dograh --no-log-init --home-dir /app --shell /usr/sbin/nologin dograh \
- && chown dograh:dograh /app
+RUN groupadd --system sativoice \
+ && useradd --system --gid sativoice --no-log-init --home-dir /app --shell /usr/sbin/nologin sativoice \
+ && chown sativoice:sativoice /app
 
 # Static ffmpeg + ffprobe (used by audio_converter, audio_file_cache, etc.)
 COPY --from=ffmpeg-static /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
@@ -140,23 +140,23 @@ ENV PYTHONUNBUFFERED=1
 
 # Copy application code (chown at copy-time avoids a duplicate /app layer
 # from a later `RUN chown -R`, which would double the on-disk size of /app).
-COPY --chown=dograh:dograh ./api ./api
-COPY --chown=dograh:dograh ./scripts/start_services_docker.sh ./scripts/start_services_docker.sh
+COPY --chown=sativoice:sativoice ./api ./api
+COPY --chown=sativoice:sativoice ./scripts/start_services_docker.sh ./scripts/start_services_docker.sh
 
 # ts_validator Node deps (built in ts-deps stage with full node:22-slim image).
 # The validator runs as a short-lived subprocess from api/mcp_server/ts_bridge.py.
-COPY --from=ts-deps --chown=dograh:dograh /ts_validator/node_modules ./api/mcp_server/ts_validator/node_modules
+COPY --from=ts-deps --chown=sativoice:sativoice /ts_validator/node_modules ./api/mcp_server/ts_validator/node_modules
 
 # Product documentation — read at runtime by the MCP docs tools
-# (search_dograh_docs / fetch_dograh_doc) so agents can learn Dograh.
-COPY --chown=dograh:dograh ./docs ./docs
+# (search_sativoice_docs / fetch_sativoice_doc) so agents can learn Sativoice.
+COPY --chown=sativoice:sativoice ./docs ./docs
 
 ENV PYTHONPATH=/app
 
 # Disable file logging in Docker - logs go to stdout for docker logs
 ENV LOG_TO_FILE=false
 
-USER dograh
+USER sativoice
 
 # Expose the port FastAPI will run on
 EXPOSE 8000

@@ -15,7 +15,7 @@ echo "Initializing git submodules..."
 git submodule update --init --recursive
 
 # Install other requirements first so pipecat submodule wins any version conflicts
-echo "Installing dograh API requirements..."
+echo "Installing sativoice API requirements..."
 pip install -r api/requirements.txt
 
 # Install pipecat from submodule last so it overrides any pipecat-ai pulled in by dependencies

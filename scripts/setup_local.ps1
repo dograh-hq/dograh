@@ -117,8 +117,8 @@ function Download-File([string]$Url, [string]$Destination) {
 }
 
 function Download-BundleFileForRef([string]$Destination, [string]$RemotePath, [string]$Ref) {
-    $rawBase = "https://raw.githubusercontent.com/dograh-hq/dograh/$Ref"
-    $fallbackBase = 'https://raw.githubusercontent.com/dograh-hq/dograh/main'
+    $rawBase = "https://raw.githubusercontent.com/sativoice-hq/sativoice/$Ref"
+    $fallbackBase = 'https://raw.githubusercontent.com/sativoice-hq/sativoice/main'
 
     try {
         Download-File "$rawBase/$RemotePath" $Destination
@@ -134,7 +134,7 @@ function Download-BundleFileForRef([string]$Destination, [string]$RemotePath, [s
 
 function Download-InitSupportBundle([string]$ProjectDir, [string]$Ref) {
     Download-BundleFileForRef (Join-Path $ProjectDir 'scripts/lib/setup_common.sh') 'scripts/lib/setup_common.sh' $Ref
-    Download-BundleFileForRef (Join-Path $ProjectDir 'scripts/run_dograh_init.sh') 'scripts/run_dograh_init.sh' $Ref
+    Download-BundleFileForRef (Join-Path $ProjectDir 'scripts/run_sativoice_init.sh') 'scripts/run_sativoice_init.sh' $Ref
     Download-BundleFileForRef (Join-Path $ProjectDir 'deploy/templates/nginx.remote.conf.template') 'deploy/templates/nginx.remote.conf.template' $Ref
     Download-BundleFileForRef (Join-Path $ProjectDir 'deploy/templates/turnserver.remote.conf.template') 'deploy/templates/turnserver.remote.conf.template' $Ref
 }
@@ -147,7 +147,7 @@ function Assert-PathExists([string]$Path, [string]$Message) {
 
 Write-Info ''
 Write-Info '╔══════════════════════════════════════════════════════════════╗'
-Write-Info '║                    Dograh Local Setup                        ║'
+Write-Info '║                    Sativoice Local Setup                        ║'
 Write-Info '║       Local docker deployment, optional TURN server          ║'
 Write-Info '╚══════════════════════════════════════════════════════════════╝'
 Write-Info ''
@@ -201,7 +201,7 @@ if ($UseCoturn) {
 }
 
 $EnableTelemetry = if ([string]::IsNullOrEmpty($env:ENABLE_TELEMETRY)) { 'true' } else { $env:ENABLE_TELEMETRY }
-$Registry = if ([string]::IsNullOrEmpty($env:REGISTRY)) { 'ghcr.io/dograh-hq' } else { $env:REGISTRY }
+$Registry = if ([string]::IsNullOrEmpty($env:REGISTRY)) { 'ghcr.io/sativoice-hq' } else { $env:REGISTRY }
 
 Write-Host ''
 Write-Success 'Configuration:'
@@ -225,7 +225,7 @@ if ($env:DOGRAH_SKIP_DOWNLOAD -ne '1') {
         Write-Info "[1/$TotalSteps] Downloading docker-compose.yaml..."
     }
 
-    Download-File 'https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml' (Join-Path $CurrentDir 'docker-compose.yaml')
+    Download-File 'https://raw.githubusercontent.com/sativoice-hq/sativoice/main/docker-compose.yaml' (Join-Path $CurrentDir 'docker-compose.yaml')
     if ($UseCoturn) {
         Download-InitSupportBundle $CurrentDir 'main'
     }
@@ -236,7 +236,7 @@ if ($env:DOGRAH_SKIP_DOWNLOAD -ne '1') {
 }
 
 if ($UseCoturn) {
-    Assert-PathExists 'scripts/run_dograh_init.sh' 'scripts/run_dograh_init.sh not found. Re-run setup_local.ps1 without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout.'
+    Assert-PathExists 'scripts/run_sativoice_init.sh' 'scripts/run_sativoice_init.sh not found. Re-run setup_local.ps1 without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout.'
     Assert-PathExists 'scripts/lib/setup_common.sh' 'scripts/lib/setup_common.sh not found. Re-run setup_local.ps1 without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout.'
     Assert-PathExists 'deploy/templates/turnserver.remote.conf.template' 'deploy/templates/turnserver.remote.conf.template not found. Re-run setup_local.ps1 without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout.'
 }
@@ -245,11 +245,11 @@ Write-Info "[2/$TotalSteps] Creating environment file..."
 $ossJwtSecret = New-HexSecret 32
 $postgresPassword = New-HexSecret 32
 $redisPassword = New-HexSecret 32
-$minioRootUser = "dograh$((New-HexSecret 6).Substring(0, 12))"
+$minioRootUser = "sativoice$((New-HexSecret 6).Substring(0, 12))"
 $minioRootPassword = New-HexSecret 32
 
 $envLines = @(
-    '# Container registry for Dograh images'
+    '# Container registry for Sativoice images'
     "REGISTRY=$Registry"
     ''
     '# JWT secret for OSS authentication'
@@ -299,17 +299,17 @@ Write-Host "Files created in $CurrentDir:" -ForegroundColor Blue
 Write-Host '  - docker-compose.yaml'
 Write-Host '  - .env'
 if ($UseCoturn) {
-    Write-Host '  - scripts/run_dograh_init.sh'
+    Write-Host '  - scripts/run_sativoice_init.sh'
     Write-Host '  - scripts/lib/setup_common.sh'
     Write-Host '  - deploy/templates/'
 }
 Write-Host ''
 if ($UseCoturn) {
-    Write-Warn 'To start Dograh with TURN, run:'
+    Write-Warn 'To start Sativoice with TURN, run:'
     Write-Host ''
     Write-Host '  docker compose --profile local-turn --profile tunnel up --pull always' -ForegroundColor Blue
 } else {
-    Write-Warn 'To start Dograh, run:'
+    Write-Warn 'To start Sativoice, run:'
     Write-Host ''
     Write-Host '  docker compose --profile tunnel up --pull always' -ForegroundColor Blue
 }

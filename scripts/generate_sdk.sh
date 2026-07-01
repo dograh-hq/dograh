@@ -12,7 +12,7 @@
 #
 # Run from anywhere — the script resolves the repo root relative to itself.
 # Requires:
-#   - `python` in the `dograh` conda env, `api/.env` sourced; the `api`
+#   - `python` in the `sativoice` conda env, `api/.env` sourced; the `api`
 #     package must be importable. `datamodel-code-generator` installed
 #     (`pip install datamodel-code-generator`).
 #   - `node` (>= 22.6 for native .mts support) and npm. openapi-typescript
@@ -35,8 +35,8 @@ if [ -f "$REPO_ROOT/api/.env" ]; then
     set +a
 fi
 
-SPECS_JSON="$(mktemp -t dograh-specs-XXXXXX.json)"
-OPENAPI_JSON="$(mktemp -t dograh-openapi-XXXXXX.json)"
+SPECS_JSON="$(mktemp -t sativoice-specs-XXXXXX.json)"
+OPENAPI_JSON="$(mktemp -t sativoice-openapi-XXXXXX.json)"
 trap 'rm -f "$SPECS_JSON" "$OPENAPI_JSON"' EXIT
 
 # ── 1. Node-spec typed dataclasses ────────────────────────────────────
@@ -45,9 +45,9 @@ echo "→ Dumping node specs from in-process registry..."
 python -m api.services.workflow.node_specs > "$SPECS_JSON"
 
 echo "→ Generating Python typed dataclasses..."
-PYTHONPATH="$REPO_ROOT/sdk/python/src" python -m dograh_sdk.codegen \
+PYTHONPATH="$REPO_ROOT/sdk/python/src" python -m sativoice_sdk.codegen \
     --input "$SPECS_JSON" \
-    --out "sdk/python/src/dograh_sdk/typed"
+    --out "sdk/python/src/sativoice_sdk/typed"
 
 echo "→ Generating TypeScript typed interfaces..."
 node "sdk/typescript/scripts/codegen.mts" \
@@ -82,7 +82,7 @@ echo "→ Generating Python Pydantic models (datamodel-codegen)..."
 datamodel-codegen \
     --input "$OPENAPI_JSON" \
     --input-file-type openapi \
-    --output "sdk/python/src/dograh_sdk/_generated_models.py" \
+    --output "sdk/python/src/sativoice_sdk/_generated_models.py" \
     --output-model-type pydantic_v2.BaseModel \
     --target-python-version 3.10 \
     --use-schema-description \
@@ -107,7 +107,7 @@ fi
 echo "→ Emitting client method mixins..."
 python -m sdk.codegen.client_codegen \
     --input "$OPENAPI_JSON" \
-    --py-out "sdk/python/src/dograh_sdk/_generated_client.py" \
+    --py-out "sdk/python/src/sativoice_sdk/_generated_client.py" \
     --ts-out "sdk/typescript/src/_generated_client.ts"
 
 # ── 5. Docs OpenAPI spec ─────────────────────────────────────────────

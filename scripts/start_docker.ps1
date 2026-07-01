@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $EnvFile = '.env'
-$Registry = if ([string]::IsNullOrEmpty($env:REGISTRY)) { 'ghcr.io/dograh-hq' } else { $env:REGISTRY }
+$Registry = if ([string]::IsNullOrEmpty($env:REGISTRY)) { 'ghcr.io/sativoice-hq' } else { $env:REGISTRY }
 $EnableTelemetry = if ([string]::IsNullOrEmpty($env:ENABLE_TELEMETRY)) { 'true' } else { $env:ENABLE_TELEMETRY }
 $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
@@ -17,7 +17,7 @@ function New-HexSecret {
 }
 
 function New-MinioRootUser {
-    return "dograh$((New-HexSecret).Substring(0, 12))"
+    return "sativoice$((New-HexSecret).Substring(0, 12))"
 }
 
 function Get-DotEnvValue {
@@ -134,11 +134,11 @@ function Sync-PostgresPassword {
 
     Wait-PostgresReady
 
-    "ALTER USER postgres WITH PASSWORD :'dograh_password';" | docker compose exec -T postgres psql `
+    "ALTER USER postgres WITH PASSWORD :'sativoice_password';" | docker compose exec -T postgres psql `
         -U postgres `
         -d postgres `
         -v 'ON_ERROR_STOP=1' `
-        -v "dograh_password=$Password" > $null
+        -v "sativoice_password=$Password" > $null
     if ($LASTEXITCODE -ne 0) {
         Write-Error 'Failed to sync POSTGRES_PASSWORD with the existing Postgres volume.'
         exit $LASTEXITCODE
@@ -217,9 +217,9 @@ Write-Host 'This will run:'
 Write-Host "  `$env:REGISTRY = '$Registry'; `$env:ENABLE_TELEMETRY = '$EnableTelemetry'; docker compose --profile tunnel up --pull always"
 Write-Host ''
 
-$answer = Read-Host 'Start Dograh now? [Y/n]'
+$answer = Read-Host 'Start Sativoice now? [Y/n]'
 if ($answer -match '^[Nn]') {
-    Write-Host 'Dograh was not started.'
+    Write-Host 'Sativoice was not started.'
     exit 0
 }
 

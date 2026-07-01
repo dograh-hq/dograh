@@ -1,199 +1,105 @@
-# Sativoice AI
+# Sativoice Enterprise
 
-**The open-source, self-hostable alternative to Vapi & Retell** — build production voice agents with a drag-and-drop workflow builder. From zero to a working bot in under 2 minutes.
+**Piattaforma Voice AI open-source per il mercato enterprise italiano** — basata su [Dograh](https://github.com/TopCS/dograh), l'alternativa self-hostabile a Vapi e Retell.
 
-<p align="center">
-  <a href="https://app.sativoice.com">
-    <img src="https://img.shields.io/badge/▶_Try_the_Cloud-app.sativoice.com-2563eb?style=for-the-badge" alt="Try the Cloud">
-  </a>
-  &nbsp;
-  <a href="#-get-started">
-    <img src="https://img.shields.io/badge/⚡_Self--host_in_60s-One_command-111827?style=for-the-badge" alt="Self-host in 60s">
-  </a>
-  &nbsp;
-  <a href="https://join.slack.com/t/sativoice-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">
-    <img src="https://img.shields.io/badge/💬_Join_Slack-Community-4A154B?style=for-the-badge&logo=slack" alt="Join Slack">
-  </a>
-</p>
+Sativoice Enterprise è la distribuzione italiana ufficiale mantenuta da **Satisfactory Group**.
 
-<p align="center">
-  <a href="https://docs.sativoice.com">📖 Docs</a> &nbsp;·&nbsp;
-  <a href="LICENSE">📜 BSD 2-Clause</a> &nbsp;·&nbsp;
-  <a href="README.zh-CN.md">🌐 中文</a> &nbsp;·&nbsp;
-  <a href="README.ja-JP.md">🌐 日本語</a>
-</p>
+- **100% open source** (BSD 2-Clause) — nessun vendor lock-in
+- **Self-hosting on-premise** — i tuoi dati restano nella tua infrastruttura
+- **GDPR-ready** — deployment su suolo italiano
+- **Bring your own LLM / STT / TTS** — qualsiasi provider, o usa lo stack integrato
 
-<p align="center">
-  <img src="docs/images/hero.gif" alt="Sativoice in action — build a workflow, launch a voice agent, talk to it" width="80%">
-</p>
-
-- **100% open source**, self-hostable — no vendor lock-in, unlike Vapi or Retell
-- **Full control & transparency** — every line of code is open, with flexible LLM / TTS / STT integration
-- **Maintained by YC alumni and exit founders**, committed to keeping voice AI open
-
-<p align="center">
-  <a href="https://trendshift.io/repositories/31007" target="_blank"><img src="https://trendshift.io/api/badge/repositories/31007" alt="sativoice-hq%2Fsativoice | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-</p>
-
-## 🎥 Featured
-
-<div align="center">
-  <a href="https://www.youtube.com/watch?v=xD9JEvfCH9k">
-    <img src="https://img.youtube.com/vi/xD9JEvfCH9k/maxresdefault.jpg" alt="Sativoice featured by Better Stack" width="80%" style="border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-  </a>
-  <br>
-  <em>Featured by <strong>Better Stack</strong> — a hands-on look at Sativoice</em>
-</div>
-
-<details>
-<summary>📺 Prefer a 2-minute product walkthrough? Click here.</summary>
-
-<div align="center">
-  <a href="https://youtu.be/9gPneyf9M9w">
-    <img src="docs/images/video_thumbnail_1.png" alt="Watch Sativoice AI Demo Video" width="70%" style="border-radius: 8px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-  </a>
-</div>
-
-</details>
+---
 
 ## ⚖️ Sativoice vs Vapi vs Retell
 
-An honest comparison on the axes that matter most to teams evaluating voice AI platforms.
-
-|  | **Sativoice** | **Vapi** | **Retell** |
+|  | **Sativoice** (basato su Dograh) | **Vapi** | **Retell** |
 |---|---|---|---|
 | **License** | BSD 2-Clause (open source) | Proprietary | Proprietary |
-| **Self-hostable** | ✅ Yes — one Docker command | ❌ SaaS only | ❌ SaaS only |
-| **Pricing** | Free (self-host) · usage-based (cloud) | Per-minute SaaS | Per-minute SaaS |
-| **Bring your own LLM / STT / TTS** | ✅ Any provider, or use Sativoice's stack | Configurable within their integrations | Configurable within their integrations |
-| **Source-level customization** | ✅ Every line is yours to modify | ❌ Closed source | ❌ Closed source |
-| **Data residency** | Your infra, your rules | Their cloud | Their cloud |
-| **Vendor lock-in** | None | Full | Full |
+| **Self-hostable** | ✅ Yes — un comando Docker | ❌ SaaS only | ❌ SaaS only |
+| **Pricing** | Free (self-host) | Per-minute SaaS | Per-minute SaaS |
+| **Bring your own LLM / STT / TTS** | ✅ Qualsiasi provider | Configurabile | Configurabile |
+| **Source-level customization** | ✅ Ogni linea è tua | ❌ Closed source | ❌ Closed source |
+| **Data residency** | La tua infrastruttura | Their cloud | Their cloud |
+| **Vendor lock-in** | Nessuno | Full | Full |
 
+---
 
-## 🚀 Get Started
-
-##### Download and setup Sativoice on your Local Machine
-
-> **Note**
-> We collect anonymous usage data to improve the product. You can opt out by setting `ENABLE_TELEMETRY=false` before running the startup script.
-
-> **Note**
-> If you wish to run the platform on a remote server instead, checkout our [Documentation](https://docs.sativoice.com/deployment/docker#option-2:-remote-server-deployment)
+## 🚀 Deploy Locale
 
 ```bash
-curl -o docker-compose.yaml https://raw.githubusercontent.com/sativoice-hq/sativoice/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/sativoice-hq/sativoice/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
+curl -o docker-compose.yaml https://raw.githubusercontent.com/TopCS/sativoice/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/TopCS/sativoice/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
 
-> **⚡ Prefer an AI agent to set it up for you?**
-> If you use **Claude Code** or **Codex**, install the official [Sativoice setup skill](https://github.com/sativoice-hq/sativoice-plugins) and let your agent handle installation, configuration, and troubleshooting — it detects your OS, picks the right deploy path, runs Sativoice's own setup scripts, and verifies the result.
->
-> ```text
-> # In Claude Code
-> /plugin marketplace add sativoice-hq/sativoice-plugins
-> /plugin install sativoice@sativoice
-> ```
->
-> Then start a new session and ask it to _"set up Sativoice"_ (or run `/sativoice-setup`). Codex is supported too — see the [plugin repo](https://github.com/sativoice-hq/sativoice-plugins#install).
+Primo avvio: 2-3 minuti per scaricare le immagini. Poi apri [http://localhost:3010](http://localhost:3010).
 
-> **Note**
-> First startup may take 2-3 minutes to download all images. Once running, open http://localhost:3010 to create your first AI voice assistant!
-> For common issues and solutions, see 🔧 **[Troubleshooting](docs/getting-started/troubleshooting.mdx)**.
+> **Nota:** Il progetto raccoglie dati di utilizzo anonimi. Disattiva con `ENABLE_TELEMETRY=false` prima di avviare.
 
-### 🎙️ Your First Voice Bot
+---
 
-1. Open [http://localhost:3010](http://localhost:3010) in your browser.
-2. Pick **Inbound** or **Outbound**, name your bot (e.g. _Lead Qualification_), and describe the use case in 5–10 words (e.g. _Screen insurance form submissions for purchase intent_).
-3. Click **Web Call** — you're talking to your bot.
+## 🎙️ Primo Voice Bot
 
-> 🔑 **No API keys needed.** Sativoice ships with auto-generated keys and its own LLM / TTS / STT stack. Connect your own keys for LLM, TTS, STT, or Telephony (e.g. Twilio, Vonage, Telnyx) anytime.
+1. Apri [http://localhost:3010](http://localhost:3010)
+2. Scegli **Inbound** o **Outbound**, dai un nome al bot e descrivi l'uso in 5-10 parole
+3. Clicca **Web Call** — stai parlando col tuo bot
+
+> 🔑 **Nessuna API key necessaria.** Sativoice include chiavi auto-generate e il proprio stack LLM/TTS/STT. Connetti le tue chiavi per LLM, TTS, STT o telefonia (Twilio, Vonage, Telnyx, etc.) in qualsiasi momento.
+
+---
 
 ## Features
 
-### Voice Capabilities
+### Voice
 
-- Telephony: Built-in telephony integration like Twilio, Vonage, Vobiz, Cloudonix (easily add others), with support for transferring calls to human agents
-- Languages: English support (expandable to other languages)
-- Custom Models: Bring your own TTS/STT models
-- Real-time Processing: Low-latency voice interactions
+- **Telefonia:** Twilio, Vonage, Vobiz, Cloudonix, Telnyx, Plivo, ARI — aggiungine altri
+- **Lingue:** Supporto multilingua
+- **Modelli custom:** Porta i tuoi TTS/STT
+- **Real-time:** Interazioni vocali a bassa latenza
+- **Transfer call:** Passa chiamate a operatori umani
 
 ### Developer Experience
 
-- Zero Config Start: Auto-generated API keys for instant testing
-- Python-Based: Built on Python for easy customization
-- Docker-First: Containerized for consistent deployments
-- Modular Architecture: Swap components as needed
+- **Zero config:** Chiavi API auto-generate per test immediati
+- **Python:** Backend in FastAPI, personalizzabile
+- **Docker-first:** Containerizzato per deploy consistenti
+- **Architettura modulare:** Sostituisci componenti al volo
 
-### Testing & Quality
+### Testing
 
-- **Test Mode**: Try your agent end-to-end before publishing, with no production calls or data affected
-- **In-Dashboard Web Calls**: Talk to your bot directly while building — no telephony setup required
-- **QA Node**: A built-in workflow node that analyzes prompt quality across your other nodes
+- **Test Mode:** Prova l'agente end-to-end prima di pubblicare
+- **Web Calls:** Parla col bot direttamente dal builder — nessuna configurazione telefonica
+- **QA Node:** Nodo di workflow per analizzare la qualità dei prompt
 
-## Deployment Options
+---
 
-### Local Development
+## Deploy
 
-Refer [Local Setup](https://docs.sativoice.com/contribution/setup)
+- **Locale:** `./start_docker.sh` (questo README)
+- **Self-Hosted:** [Guida Docker Deployment](https://docs.sativoice.com/deployment/docker)
+- **Contributor:** [Guida sviluppo locale](https://docs.sativoice.com/contribution/setup)
 
-### Self-Hosted Deployment
+---
 
-For detailed deployment instructions including remote server setup with HTTPS, see our [Docker Deployment Guide](https://docs.sativoice.com/deployment/docker).
+## 📦 SDK
 
-### Cloud Version
+- **Python SDK** — `dograh_sdk` (nel repo)
+- **TypeScript SDK** — `@dograh/sdk` (nel repo)
 
-Visit [https://www.sativoice.com](https://www.sativoice.com/) for our managed cloud offering.
+---
 
-## 📚Documentation
+## 🙌 Upstream
 
-You can go to [https://docs.sativoice.com](https://docs.sativoice.com/) for our documentation.
+Sativoice Enterprise è un fork di **[Dograh](https://github.com/TopCS/dograh)** — la piattaforma voice AI open-source mantenuta da YC alumni. Il codice interno (classi, SDK, env var) mantiene i riferimenti a Dograh per garantire piena compatibilità con l'upstream.
 
-## 📦 SDKs
+---
 
-- **Python SDK** — [pypi.org/project/sativoice-sdk](https://pypi.org/project/sativoice-sdk/)
-- **Node SDK** — [npmjs.com/package/@sativoice/sdk](https://www.npmjs.com/package/@sativoice/sdk)
+## 📄 Licenza
 
-## 🤝Community & Support
+BSD 2-Clause — vedi [LICENSE](LICENSE).
 
-> 👋 **Coming from the Better Stack video?** Drop your use case in our [pinned GitHub Discussion](https://github.com/orgs/sativoice-hq/discussions/291) — we read every reply and the founders personally onboard early adopters.
+---
 
-- **Slack** — the cornerstone of Sativoice AI contributions. Connect with maintainers, discuss features before coding, get help with setup, and stay current on contribution sprints.
-- **GitHub Discussions** — share use cases, ask questions, swap workflow recipes.
-- **GitHub Issues** — report bugs or request features.
+## 🏢 Sativoice Enterprise
 
-👉 Join us → [Sativoice Community Slack](https://join.slack.com/t/sativoice-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g)
-
-## 🙌 Contributing
-
-We love contributions! Sativoice AI is 100% open source and we intend to keep it that way.
-
-### Getting Started
-
-- Fork the repository
-- Create your feature branch (git checkout -b feature/AmazingFeature)
-- Commit your changes (git commit -m 'Add some AmazingFeature')
-- Push to the branch (git push origin feature/AmazingFeature)
-- Open a Pull Request
-
-## ⭐ Star History
-
-<a href="https://star-history.com/#sativoice-hq/sativoice&Date">
-  <img src="https://api.star-history.com/svg?repos=sativoice-hq/sativoice&type=Date" alt="Sativoice star history" width="80%">
-</a>
-
-## 📄 License
-
-Sativoice AI is licensed under the [BSD 2-Clause License](LICENSE)- the same license as projects that were used in building Sativoice AI, ensuring compatibility and freedom to use, modify, and distribute.
-
-## 🏢 About
-
-Built with ❤️ by **Sativoice** (Zansat Technologies Private Limited)
-Founded by YC alumni and exit founders committed to keeping voice AI open and accessible to everyone.
-
-<br><br><br>
-
-  <p align="center">
-    <a href="https://github.com/sativoice-hq/sativoice/stargazers">⭐ Star us on GitHub</a> |
-    <a href="https://app.sativoice.com">☁️ Try Cloud Version</a> |
-    <a href="https://join.slack.com/t/sativoice-community/shared_invite/zt-3zjb5vwvl-j7hRz3_F1SOn5cH~jm5f5g">💬 Join Slack</a>
-  </p>
+Mantenuto da **Satisfactory Group** per il mercato enterprise italiano.
+Per informazioni: enterprise@sativoice.com

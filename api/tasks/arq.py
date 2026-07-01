@@ -12,7 +12,7 @@ from api.tasks.function_names import FunctionNames
 setup_logging()
 
 # Now import ARQ and task dependencies
-from arq import create_pool
+from arq import create_pool, cron
 from arq.connections import ArqRedis, RedisSettings
 
 parsed_url = urlparse(REDIS_URL)
@@ -46,6 +46,7 @@ from api.tasks.campaign_tasks import (
 from api.tasks.knowledge_base_processing import process_knowledge_base_document
 from api.tasks.run_integrations import run_integrations_post_workflow_run
 from api.tasks.s3_upload import upload_voicemail_audio_to_s3
+from api.tasks.voicelink_provisioning import retry_pending_voicelink_provisioning
 from api.tasks.workflow_completion import process_workflow_completion
 
 
@@ -57,8 +58,13 @@ class WorkerSettings:
         sync_campaign_source,
         process_campaign_batch,
         process_knowledge_base_document,
+        retry_pending_voicelink_provisioning,
     ]
-    cron_jobs = []
+    # Heal stuck VoiceLink provisioning every 15 minutes so a reseller recharge
+    # auto-provisions all pending clients with no manual retries.
+    cron_jobs = [
+        cron(retry_pending_voicelink_provisioning, minute={0, 15, 30, 45})
+    ]
     redis_settings = REDIS_SETTINGS
     max_jobs = 10
 

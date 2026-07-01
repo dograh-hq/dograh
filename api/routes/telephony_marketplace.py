@@ -13,6 +13,7 @@ from api.db.models import UserModel
 from api.services import telephony_marketplace as mkt
 from api.services.auth.depends import get_user
 from api.services.voicelink_clients.client import VoiceLinkClientError
+from api.services.voicelink_clients.service import ensure_voicelink_client
 from api.services.voicelink_kyc.gating import assert_org_kyc_complete
 
 router = APIRouter(prefix="/telephony/marketplace", tags=["telephony"])
@@ -49,6 +50,9 @@ async def buy_number(body: BuyNumberRequest, user: UserModel = Depends(get_user)
     org = _org(user)
     # Compliance + provisioning gates.
     await assert_org_kyc_complete(org)
+    # Safety net: auto-provision the org's VoiceLink client if not yet done
+    # (idempotent, best-effort) so a KYC-complete org can always buy a number.
+    await ensure_voicelink_client(org)
     o = await db_client.get_organization_by_id(org)
     client_id = o.voicelink_client_id if o else None
     if not client_id:

@@ -18,6 +18,7 @@ or stored.
 
 import os
 import re
+import secrets as _stdlib_secrets
 from typing import Any, Dict, Optional, Tuple
 
 from loguru import logger
@@ -29,7 +30,10 @@ from api.services.voicelink_clients.client import (
     VoiceLinkClientsClient,
     get_voicelink_clients_client,
 )
-from api.services.voicelink_clients.secrets import encrypt_provision_secret
+from api.services.voicelink_clients.secrets import (
+    decrypt_provision_secret,
+    encrypt_provision_secret,
+)
 
 VOICELINK_STATUS_PROVISIONED = "provisioned"
 VOICELINK_STATUS_PENDING = "pending"
@@ -241,3 +245,110 @@ async def provision_voicelink_client_for_signup(
             logger.warning(
                 "Failed to record pending VoiceLink status", exc_info=True
             )
+
+
+def generate_client_password(length: int = 24) -> str:
+    """A strong random password for a platform-managed VoiceLink client.
+
+    The end user never logs into VoiceLink directly (the reseller manages the
+    client), so this is used only for ``create_client`` and never surfaced.
+    """
+    return _stdlib_secrets.token_urlsafe(length)
+
+
+def resolve_org_owner(organization: Any) -> Optional[Any]:
+    """The org's owner user: local signup names orgs ``org_<user.provider_id>``;
+    falls back to the earliest member. Returns None when the org has no members.
+    """
+    users = list(getattr(organization, "users", None) or [])
+    if not users:
+        return None
+    for user in users:
+        if f"org_{user.provider_id}" == organization.provider_id:
+            return user
+    return min(users, key=lambda u: u.id)
+
+
+async def ensure_voicelink_client(
+    organization_id: int,
+    *,
+    client: Optional[VoiceLinkClientsClient] = None,
+) -> Dict[str, Any]:
+    """Idempotently ensure the org has a provisioned VoiceLink client.
+
+    No-op when the org already carries a ``voicelink_client_id``. Best-effort —
+    never raises — so callers (KYC entry, buy-number, the retry sweep) can
+    fire-and-forget. Uses the org's stored signup secret when present, else a
+    generated password. Skips the deployment owner (ADMIN_EMAILS), who uses the
+    reseller's own account, and no-ops when reseller credentials are unset.
+
+    Returns the same ``{"status", "client_id", "username", "error"}`` shape as
+    :func:`provision_voicelink_client`.
+    """
+    try:
+        organization = await db_client.get_organization_with_users(organization_id)
+        if organization is None:
+            return {
+                "status": None,
+                "client_id": None,
+                "username": None,
+                "error": "organization_not_found",
+            }
+
+        if organization.voicelink_client_id:
+            return {
+                "status": VOICELINK_STATUS_PROVISIONED,
+                "client_id": organization.voicelink_client_id,
+                "username": organization.voicelink_username,
+                "error": None,
+            }
+
+        client = client or get_voicelink_clients_client()
+        if not client.is_configured:
+            return {
+                "status": None,
+                "client_id": None,
+                "username": organization.voicelink_username,
+                "error": "reseller_credentials_unset",
+            }
+
+        owner = resolve_org_owner(organization)
+        if owner is None or not getattr(owner, "email", None):
+            return {
+                "status": VOICELINK_STATUS_PENDING,
+                "client_id": None,
+                "username": organization.voicelink_username,
+                "error": "organization_has_no_owner_email",
+            }
+
+        if is_admin_email(owner.email):
+            return {
+                "status": None,
+                "client_id": None,
+                "username": organization.voicelink_username,
+                "error": "admin_owner_uses_reseller_account",
+            }
+
+        password = decrypt_provision_secret(
+            organization.voicelink_provision_secret
+        ) or generate_client_password()
+
+        return await provision_voicelink_client(
+            organization_id,
+            email=owner.email,
+            password=password,
+            name=getattr(owner, "name", None),
+            username=organization.voicelink_username or None,
+            client=client,
+        )
+    except Exception:
+        logger.warning(
+            f"ensure_voicelink_client failed unexpectedly for org {organization_id}",
+            exc_info=True,
+        )
+        return {
+            "status": VOICELINK_STATUS_PENDING,
+            "client_id": None,
+            "username": None,
+            "error": "unexpected_error",
+        }

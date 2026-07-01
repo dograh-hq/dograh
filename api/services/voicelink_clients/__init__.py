@@ -14,8 +14,11 @@ from .client import (
 )
 from .service import (
     derive_username,
+    ensure_voicelink_client,
+    generate_client_password,
     provision_voicelink_client,
     provision_voicelink_client_for_signup,
+    resolve_org_owner,
     split_signup_name,
 )
 
@@ -24,7 +27,10 @@ __all__ = [
     "VoiceLinkClientsClient",
     "get_voicelink_clients_client",
     "derive_username",
+    "ensure_voicelink_client",
+    "generate_client_password",
     "provision_voicelink_client",
     "provision_voicelink_client_for_signup",
+    "resolve_org_owner",
     "split_signup_name",
 ]

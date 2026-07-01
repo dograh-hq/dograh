@@ -5,6 +5,7 @@ pattern as the KYC tests — no network calls), and the DB layer is mocked
 at the ``db_client`` module attribute used by the service.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -14,8 +15,11 @@ from api.services.voicelink_clients import (
     VoiceLinkClientError,
     VoiceLinkClientsClient,
     derive_username,
+    ensure_voicelink_client,
+    generate_client_password,
     provision_voicelink_client,
     provision_voicelink_client_for_signup,
+    resolve_org_owner,
     split_signup_name,
 )
 from api.services.voicelink_clients.secrets import decrypt_provision_secret
@@ -412,3 +416,171 @@ async def test_signup_hook_never_raises_and_records_pending():
 
     update_kwargs = db.update_organization_voicelink.await_args.kwargs
     assert update_kwargs["status"] == "pending"
+
+
+# ======== PASSWORD / OWNER RESOLUTION ========
+
+
+def test_generate_client_password_is_nonempty_and_random():
+    pw = generate_client_password()
+    assert isinstance(pw, str) and len(pw) >= 16
+    assert pw != generate_client_password()
+
+
+def test_resolve_org_owner_prefers_signup_owner():
+    owner = SimpleNamespace(id=5, provider_id="p1", email="jane@x.test")
+    other = SimpleNamespace(id=2, provider_id="p2", email="other@x.test")
+    org = SimpleNamespace(provider_id="org_p1", users=[other, owner])
+    assert resolve_org_owner(org) is owner
+
+
+def test_resolve_org_owner_falls_back_to_earliest_member():
+    a = SimpleNamespace(id=9, provider_id="pa", email="a@x.test")
+    b = SimpleNamespace(id=3, provider_id="pb", email="b@x.test")
+    org = SimpleNamespace(provider_id="org_none", users=[a, b])
+    assert resolve_org_owner(org) is b
+
+
+def test_resolve_org_owner_none_when_no_members():
+    assert resolve_org_owner(SimpleNamespace(provider_id="org_x", users=[])) is None
+
+
+# ======== ensure_voicelink_client (idempotent) ========
+
+
+@pytest.mark.asyncio
+async def test_ensure_noop_when_already_provisioned():
+    org = SimpleNamespace(
+        id=11, voicelink_client_id="474", voicelink_username="jane.11"
+    )
+    with (
+        patch("api.services.voicelink_clients.service.db_client") as db,
+        patch(
+            "api.services.voicelink_clients.service.provision_voicelink_client",
+            new_callable=AsyncMock,
+        ) as prov,
+    ):
+        db.get_organization_with_users = AsyncMock(return_value=org)
+        result = await ensure_voicelink_client(11, client=_client())
+
+    assert result["status"] == "provisioned"
+    assert result["client_id"] == "474"
+    prov.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ensure_skips_when_reseller_unconfigured():
+    org = SimpleNamespace(
+        id=11, voicelink_client_id=None, voicelink_username=None
+    )
+    with patch("api.services.voicelink_clients.service.db_client") as db:
+        db.get_organization_with_users = AsyncMock(return_value=org)
+        result = await ensure_voicelink_client(
+            11, client=_client(username="", password="")
+        )
+
+    assert result["client_id"] is None
+    assert result["error"] == "reseller_credentials_unset"
+
+
+@pytest.mark.asyncio
+async def test_ensure_skips_admin_owner():
+    owner = SimpleNamespace(
+        id=1, provider_id="p1", email="owner@admin.test", name="Owner"
+    )
+    org = SimpleNamespace(
+        id=11,
+        voicelink_client_id=None,
+        voicelink_username=None,
+        voicelink_provision_secret=None,
+        provider_id="org_p1",
+        users=[owner],
+    )
+    with (
+        patch("api.services.voicelink_clients.service.db_client") as db,
+        patch(
+            "api.services.voicelink_clients.service.is_admin_email",
+            return_value=True,
+        ),
+        patch(
+            "api.services.voicelink_clients.service.provision_voicelink_client",
+            new_callable=AsyncMock,
+        ) as prov,
+    ):
+        db.get_organization_with_users = AsyncMock(return_value=org)
+        result = await ensure_voicelink_client(11, client=_client())
+
+    assert result["error"] == "admin_owner_uses_reseller_account"
+    prov.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ensure_provisions_when_missing():
+    owner = SimpleNamespace(
+        id=1, provider_id="p1", email="jane@x.test", name="Jane Doe"
+    )
+    org = SimpleNamespace(
+        id=11,
+        voicelink_client_id=None,
+        voicelink_username="jane.11",
+        voicelink_provision_secret=None,
+        provider_id="org_p1",
+        users=[owner],
+    )
+    with (
+        patch("api.services.voicelink_clients.service.db_client") as db,
+        patch(
+            "api.services.voicelink_clients.service.is_admin_email",
+            return_value=False,
+        ),
+        patch(
+            "api.services.voicelink_clients.service.provision_voicelink_client",
+            new_callable=AsyncMock,
+        ) as prov,
+    ):
+        db.get_organization_with_users = AsyncMock(return_value=org)
+        prov.return_value = {
+            "status": "provisioned",
+            "client_id": "900",
+            "username": "jane.11",
+            "error": None,
+        }
+        result = await ensure_voicelink_client(11, client=_client())
+
+    assert result["client_id"] == "900"
+    prov.assert_awaited_once()
+    assert prov.await_args.args[0] == 11
+    assert prov.await_args.kwargs["email"] == "jane@x.test"
+    assert prov.await_args.kwargs["username"] == "jane.11"
+    assert prov.await_args.kwargs["password"]  # a generated password was passed
+
+
+# ======== retry sweep (cron) ========
+
+
+@pytest.mark.asyncio
+async def test_retry_sweep_provisions_pending_only():
+    from api.tasks.voicelink_provisioning import (
+        retry_pending_voicelink_provisioning,
+    )
+
+    orgs = [
+        SimpleNamespace(id=1, voicelink_status="provisioned", voicelink_client_id="1"),
+        SimpleNamespace(id=2, voicelink_status="pending", voicelink_client_id=None),
+        SimpleNamespace(id=3, voicelink_status="pending", voicelink_client_id=None),
+        SimpleNamespace(id=4, voicelink_status=None, voicelink_client_id=None),
+    ]
+    with (
+        patch("api.tasks.voicelink_provisioning.db_client") as db,
+        patch(
+            "api.tasks.voicelink_provisioning.ensure_voicelink_client",
+            new_callable=AsyncMock,
+        ) as ens,
+    ):
+        db.list_organizations_with_users = AsyncMock(return_value=orgs)
+        ens.return_value = {"status": "provisioned", "client_id": "900"}
+        result = await retry_pending_voicelink_provisioning({})
+
+    assert result == {"pending": 2, "provisioned": 2}
+    assert ens.await_count == 2
+    assert {call.args[0] for call in ens.await_args_list} == {2, 3}

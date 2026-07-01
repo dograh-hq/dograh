@@ -350,6 +350,9 @@ async def test_step_routes_pass_resolved_client_id_and_body():
             new_callable=AsyncMock,
             return_value=("474", True),
         ),
+        patch(
+            "api.routes.kyc.ensure_voicelink_client", new_callable=AsyncMock
+        ),
     ):
         step1 = await kyc_step_1_register_details(
             KycStep1Request(

@@ -23,6 +23,7 @@ from api.schemas.kyc import (
     KycStep4Request,
 )
 from api.services.auth.depends import get_user
+from api.services.voicelink_clients.service import ensure_voicelink_client
 from api.services.voicelink_kyc import (
     VoiceLinkKycClient,
     VoiceLinkKycError,
@@ -98,6 +99,9 @@ async def kyc_step_1_register_details(
 ):
     """Step 1 — register account details."""
     client = _require_configured_client()
+    # Auto-provision the org's VoiceLink client on first KYC entry (idempotent,
+    # best-effort) so KYC scopes to the client rather than the reseller account.
+    await ensure_voicelink_client(_organization_id(user))
     client_id, _ = await _resolve_client_id(user)
     try:
         envelope = await client.step1_register_details(

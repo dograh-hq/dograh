@@ -7,17 +7,20 @@ The credited amount comes from the SERVER-stored transaction, never the client.
 """
 
 from typing import Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from loguru import logger
 from pydantic import BaseModel
 
-from api.constants import CREDIT_PACKS, RAZORPAY_KEY_ID
+from api.constants import CREDIT_PACKS, RAZORPAY_KEY_ID, UI_APP_URL
 from api.db import db_client
 from api.db.models import UserModel
 from api.services.auth.depends import get_user
-from api.services.billing import razorpay_client
+from api.services.billing import payu_client, razorpay_client
 from api.services.plans import features_for_plan, get_org_plan
+from api.utils.common import get_backend_endpoints
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -51,7 +54,10 @@ async def get_balance(user: UserModel = Depends(get_user)):
     return {
         "balance_seconds": balance,
         "unlimited": balance is None,
-        "configured": razorpay_client.is_configured(),
+        # PayU is the active gateway; keep Razorpay as an OR so an env with only
+        # Razorpay keys still surfaces the packs.
+        "configured": payu_client.is_configured() or razorpay_client.is_configured(),
+        "gateway": "payu" if payu_client.is_configured() else "razorpay",
         "packs": CREDIT_PACKS,
         "plan": plan,
         "features": features_for_plan(plan),
@@ -149,3 +155,112 @@ async def list_transactions(user: UserModel = Depends(get_user)):
         }
         for t in txns
     ]
+
+
+# ======== PayU Hosted Checkout ========
+
+
+def _payu_customer_fields(user: UserModel) -> tuple[str, str, str]:
+    """(firstname, email, phone) for the PayU request. We only reliably have the
+    email locally, so firstname derives from it and phone falls back to a
+    placeholder (PayU requires the field; the user re-enters real details on the
+    PayU page if needed)."""
+    email = user.email or "customer@auto4you.in"
+    firstname = (email.split("@", 1)[0] or "Customer")[:60]
+    phone = getattr(user, "phone", None) or "9999999999"
+    return firstname, email, phone
+
+
+@router.post("/payu/initiate")
+async def payu_initiate(
+    body: CreateOrderRequest, user: UserModel = Depends(get_user)
+):
+    """Create a PayU Hosted Checkout request for a credit pack.
+
+    Returns the PayU payment URL + the signed form params; the browser auto-POSTs
+    them to PayU. The credited amount comes from the SERVER-stored transaction,
+    never the client.
+    """
+    org = _org(user)
+    if not payu_client.is_configured():
+        raise HTTPException(status_code=503, detail="payments_not_configured")
+
+    balance = await db_client.get_free_call_seconds_remaining(org)
+    if balance is None:
+        raise HTTPException(status_code=400, detail="org_has_unlimited_calling")
+
+    pack = _pack(body.pack_id)
+    if not pack:
+        raise HTTPException(status_code=400, detail="unknown_pack")
+
+    seconds = int(pack["minutes"]) * 60
+    amount = f'{int(pack["price_inr"])}.00'
+    txnid = "a4y" + uuid4().hex[:20]
+
+    # Reuse the existing txn row; the PayU txnid occupies the gateway-order-id slot.
+    await db_client.create_transaction(
+        organization_id=org,
+        created_by=user.id,
+        razorpay_order_id=txnid,
+        pack_id=pack["id"],
+        seconds=seconds,
+        amount_paise=int(pack["price_inr"]) * 100,
+    )
+
+    firstname, email, phone = _payu_customer_fields(user)
+    backend_endpoint, _ = await get_backend_endpoints()
+    callback = f"{backend_endpoint}/api/v1/billing/payu/callback"
+    params = payu_client.build_payment_params(
+        txnid=txnid,
+        amount=amount,
+        productinfo=pack["label"],
+        firstname=firstname,
+        email=email,
+        phone=phone,
+        surl=callback,
+        furl=callback,
+        udf1=str(org),
+        udf2=pack["id"],
+    )
+    return {"payment_url": payu_client.payment_url(), "params": params}
+
+
+@router.post("/payu/callback")
+async def payu_callback(request: Request):
+    """PayU surl/furl handler (public, no session). Verify the reverse hash, then
+    credit the org's balance idempotently and redirect the browser back to the app.
+    """
+    form = await request.form()
+    params = {k: str(v) for k, v in form.items()}
+    result_page = f"{UI_APP_URL.rstrip('/')}/credits"
+
+    if not payu_client.verify_response_hash(params):
+        logger.warning(f"PayU callback hash mismatch (txnid={params.get('txnid')})")
+        return RedirectResponse(f"{result_page}?payment=failed", status_code=303)
+
+    txnid = params.get("txnid") or ""
+    status = (params.get("status") or "").lower()
+    txn = await db_client.get_transaction_by_order_id_unscoped(txnid)
+    if not txn:
+        return RedirectResponse(f"{result_page}?payment=failed", status_code=303)
+
+    if txn.status == "paid":  # idempotent — already credited
+        return RedirectResponse(f"{result_page}?payment=success", status_code=303)
+
+    # The hash already covers amount; confirm it matches the stored txn before crediting.
+    try:
+        amount_ok = abs(float(params.get("amount") or 0) - txn.amount_paise / 100) < 0.01
+    except ValueError:
+        amount_ok = False
+
+    if status == "success" and amount_ok:
+        await db_client.mark_transaction_paid(txnid, params.get("mihpayid") or "payu")
+        new_balance = await db_client.add_call_seconds(txn.organization_id, txn.seconds)
+        logger.info(
+            f"PayU top-up: org {txn.organization_id} credited {txn.seconds}s "
+            f"(txnid {txnid}); balance now {new_balance}"
+        )
+        return RedirectResponse(f"{result_page}?payment=success", status_code=303)
+
+    logger.info(f"PayU payment not successful (txnid={txnid}, status={status})")
+    return RedirectResponse(f"{result_page}?payment=failed", status_code=303)

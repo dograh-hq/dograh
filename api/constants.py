@@ -71,6 +71,13 @@ DEFAULT_FREE_CALL_SECONDS = int(os.getenv("DEFAULT_FREE_CALL_SECONDS", "1800"))
 # Test-mode keys work end-to-end; swap to live keys when ready.
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+# PayU Hosted Checkout — the platform's payment gateway for credit-pack top-ups.
+# Key + Salt come from the PayU dashboard (Developer Tools -> API Keys). The SALT
+# is a SECRET (signs every payment) — server-side only, never sent to the browser.
+# PAYU_MODE=live -> secure.payu.in; anything else (default) -> test.payu.in sandbox.
+PAYU_MERCHANT_KEY = os.getenv("PAYU_MERCHANT_KEY", "")
+PAYU_MERCHANT_SALT = os.getenv("PAYU_MERCHANT_SALT", "")
+PAYU_MODE = os.getenv("PAYU_MODE", "test").lower()
 # Plans / credit packs sold via Razorpay top-up. 1 credit = 1 call-minute, so
 # `minutes` == credits granted, credited to the org's call-seconds balance.
 # `features` gates self-serve surfaces by tier:

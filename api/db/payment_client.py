@@ -47,6 +47,21 @@ class PaymentClient(BaseDBClient):
             )
             return result.scalars().first()
 
+    async def get_transaction_by_order_id_unscoped(
+        self, razorpay_order_id: str
+    ) -> Optional[PaymentTransactionModel]:
+        """Look up a txn by its globally-unique gateway order id, without org
+        scoping — for gateway callbacks (e.g. PayU surl/furl) that carry no
+        authenticated session. The org to credit is read off the row itself.
+        """
+        async with self.async_session() as session:
+            result = await session.execute(
+                select(PaymentTransactionModel).where(
+                    PaymentTransactionModel.razorpay_order_id == razorpay_order_id
+                )
+            )
+            return result.scalars().first()
+
     async def mark_transaction_paid(
         self, razorpay_order_id: str, razorpay_payment_id: str
     ) -> None:

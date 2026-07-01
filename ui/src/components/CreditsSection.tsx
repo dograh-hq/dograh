@@ -28,19 +28,23 @@ interface Balance {
   features?: PackFeatures;
 }
 
-// Razorpay Checkout is injected on demand (no SDK regen needed; calls go through
-// the shared hey-api client). The credited amount is decided server-side from the
-// stored transaction — the client only relays Razorpay's signed response to verify.
-function loadRazorpay(): Promise<boolean> {
-  return new Promise((resolve) => {
-    if (typeof window !== "undefined" && (window as unknown as { Razorpay?: unknown }).Razorpay)
-      return resolve(true);
-    const s = document.createElement("script");
-    s.src = "https://checkout.razorpay.com/v1/checkout.js";
-    s.onload = () => resolve(true);
-    s.onerror = () => resolve(false);
-    document.body.appendChild(s);
-  });
+// PayU Hosted Checkout is a redirect flow: the backend returns the PayU payment
+// URL + a server-signed set of form fields, we auto-POST them, and PayU redirects
+// back to /credits?payment=success|failed. The credited amount is decided
+// server-side from the stored transaction; the SALT never reaches the browser.
+function submitToPayU(paymentUrl: string, params: Record<string, string>) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = paymentUrl;
+  for (const [name, value] of Object.entries(params)) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value ?? "";
+    form.appendChild(input);
+  }
+  document.body.appendChild(form);
+  form.submit();
 }
 
 export function CreditsSection() {
@@ -55,6 +59,18 @@ export function CreditsSection() {
     refresh();
   }, [authLoading, user]);
 
+  // Handle the PayU return: /credits?payment=success|failed → toast, refresh
+  // the balance, and strip the query param.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const outcome = new URLSearchParams(window.location.search).get("payment");
+    if (!outcome) return;
+    if (outcome === "success") toast.success("Payment successful — credits added!");
+    else toast.error("Payment failed or was cancelled.");
+    window.history.replaceState({}, "", "/credits");
+    refresh();
+  }, []);
+
   async function refresh() {
     try {
       const res = await client.get({ url: "/api/v1/billing/balance" });
@@ -67,50 +83,21 @@ export function CreditsSection() {
   async function buy(pack: Pack) {
     setBusy(pack.id);
     try {
-      if (!(await loadRazorpay())) {
-        toast.error("Couldn't load the payment window");
-        return;
-      }
       const res = await client.post({
-        url: "/api/v1/billing/order",
+        url: "/api/v1/billing/payu/initiate",
         body: { pack_id: pack.id },
       });
-      if (res.error) throw new Error("order_failed");
-      const order = res.data as {
-        order_id: string;
-        amount_paise: number;
-        key_id: string;
+      if (res.error) throw new Error("initiate_failed");
+      const { payment_url, params } = res.data as {
+        payment_url: string;
+        params: Record<string, string>;
       };
-      const Razorpay = (window as unknown as { Razorpay: new (o: unknown) => { open: () => void } })
-        .Razorpay;
-      const rzp = new Razorpay({
-        key: order.key_id,
-        order_id: order.order_id,
-        amount: order.amount_paise,
-        currency: "INR",
-        name: "auto4you",
-        description: `${pack.minutes.toLocaleString()} call minutes`,
-        handler: async (resp: {
-          razorpay_order_id: string;
-          razorpay_payment_id: string;
-          razorpay_signature: string;
-        }) => {
-          const v = await client.post({ url: "/api/v1/billing/verify", body: resp });
-          const vd = v.data as { ok: boolean; balance_seconds: number } | undefined;
-          if (vd?.ok) {
-            toast.success(`${pack.minutes.toLocaleString()} minutes added!`);
-            await refresh();
-          } else {
-            toast.error("Payment verification failed — contact support");
-          }
-        },
-        theme: { color: "#7165ad" },
-      });
-      rzp.open();
+      // Redirects the browser to PayU; on success it returns to
+      // /credits?payment=success and the effect below toasts + refreshes.
+      submitToPayU(payment_url, params);
     } catch {
       toast.error("Couldn't start checkout");
-    } finally {
-      setBusy(null);
+      setBusy(null); // on redirect success the page navigates away
     }
   }
 
@@ -151,8 +138,8 @@ export function CreditsSection() {
         </p>
       ) : !data.configured ? (
         <p className="text-sm text-muted-foreground">
-          Top-ups aren&apos;t enabled yet. Once Razorpay is connected you&apos;ll be
-          able to buy more minutes here.
+          Top-ups aren&apos;t enabled yet. Once the payment gateway is connected
+          you&apos;ll be able to buy more minutes here.
         </p>
       ) : (
         <div className="grid gap-3 sm:grid-cols-3">

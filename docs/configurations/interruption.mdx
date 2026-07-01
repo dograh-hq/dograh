@@ -11,7 +11,7 @@ Interruption handling controls whether the user can "barge in" and interrupt the
 
 ## What is VAD?
 
-VAD (Voice Activity Detection) is what makes barge-in possible — it's the model that listens to the incoming audio stream and decides whether the caller is currently speaking. Dograh's pipeline runs [Silero VAD](https://github.com/snakers4/silero-vad) on every call to detect the start and end of user speech in real time.
+VAD (Voice Activity Detection) is what makes barge-in possible — it's the model that listens to the incoming audio stream and decides whether the caller is currently speaking. Dograh's pipeline runs [Silero VAD](https://github.com/snakers4/silero-vad) by default to detect the start and end of user speech in real time. Some realtime providers (such as OpenAI Realtime, Azure Realtime, and Grok Voice Agent) supply their own VAD signals, so local Silero VAD is skipped for those calls.
 
 When **Allow Interruption** is enabled on a node, VAD is what triggers the interrupt: the moment it detects the caller has started talking, the bot's speech is cut off and the pipeline starts processing the new input. When interruption is disabled, VAD output for the user's mic is ignored until the bot finishes speaking.
 

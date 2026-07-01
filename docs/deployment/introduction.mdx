@@ -7,12 +7,12 @@ Dograh is self-hosted with Docker. Everything ships as two images (`dograh-api` 
 
 | Path | Use it when | Guide |
 | --- | --- | --- |
-| **Local Docker** | You want to try Dograh on your own machine. No public URL, no telephony. | [Docker → Option 1](/deployment/docker#option-1%3A-local-docker-deployment) |
-| **Remote server** | You want a real server reachable from the internet, with HTTPS out of the box (via a free `sslip.io` certificate — no domain required). | [Docker → Option 2](/deployment/docker#option-2%3A-remote-server-deployment) |
+| **Local Docker** | You want to try Dograh on your own machine. No public URL, no telephony. | [Docker → Option 1](/deployment/docker#option-1-local-docker-deployment) |
+| **Remote server** | You want a real server reachable from the internet, with HTTPS out of the box (via a free `sslip.io` certificate — no domain required). | [Docker → Option 2](/deployment/docker#option-2-remote-server-deployment) |
 | **Custom domain** | You already have a remote deployment and want your own domain (e.g. `voice.yourcompany.com`) instead of the `sslip.io` URL. | [Custom Domain](/deployment/custom-domain) |
 | **Heroku** | One-click PaaS deployment. | [Heroku](/deployment/heroku) — coming soon |
 
-Browsers only grant microphone access over HTTPS, so every path above ends with the app served over HTTPS — either via a `sslip.io`/Let's Encrypt certificate, a self-signed certificate, or your own domain's certificate.
+Browsers treat microphone access as a secure-context feature, so the deployed app must be served over HTTPS (or accessed at localhost/127.0.0.1 over HTTP, which is a secure context). Local Docker uses `http://localhost:3010` and therefore does not need a certificate.
 
 ## After you deploy
 
@@ -24,8 +24,8 @@ Once the platform is running, these guides cover keeping it running:
 
 ## Where to start
 
-1. **Kicking the tires?** Start with [local Docker](/deployment/docker#option-1%3A-local-docker-deployment) — running in a few minutes, no server needed.
-2. **Putting it in front of real callers?** Use [remote server deployment](/deployment/docker#option-2%3A-remote-server-deployment), then layer on a [custom domain](/deployment/custom-domain) if you want one.
+1. **Kicking the tires?** Start with [local Docker](/deployment/docker#option-1-local-docker-deployment) — running in a few minutes, no server needed.
+2. **Putting it in front of real callers?** Use [remote server deployment](/deployment/docker#option-2-remote-server-deployment), then layer on a [custom domain](/deployment/custom-domain) if you want one.
 3. **Already running and need to upgrade?** Go straight to [Update](/deployment/update).
 4. **Expecting high call volume?** Read [Scaling](/deployment/scaling) once your base deployment is live.
 

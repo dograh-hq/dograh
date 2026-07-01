@@ -33,9 +33,7 @@ Get the platform up and running using Docker with a small startup script on your
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
 ```powershell Windows
-Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
-Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1
-.\start_docker.ps1
+Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml; Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1; .\start_docker.ps1
 ```
 </CodeGroup>
 

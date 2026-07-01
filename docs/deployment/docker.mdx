@@ -48,9 +48,7 @@ Download the compose file and starter script, then confirm the prompt to start D
 curl -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml && curl -o start_docker.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.sh && chmod +x start_docker.sh && ./start_docker.sh
 ```
 ```powershell Windows
-Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
-Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1
-.\start_docker.ps1
+Invoke-WebRequest -OutFile docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml; Invoke-WebRequest -OutFile start_docker.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/start_docker.ps1; .\start_docker.ps1
 ```
 </CodeGroup>
 
@@ -89,8 +87,7 @@ For these cases, use the alternate local setup script which configures a coturn 
 curl -o setup_local.sh https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_local.sh && chmod +x setup_local.sh && ./setup_local.sh
 ```
 ```powershell Windows
-Invoke-WebRequest -OutFile setup_local.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_local.ps1
-.\setup_local.ps1
+Invoke-WebRequest -OutFile setup_local.ps1 https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/setup_local.ps1; .\setup_local.ps1
 ```
 </CodeGroup>
 

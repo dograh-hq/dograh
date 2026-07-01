@@ -7,7 +7,12 @@ $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function New-HexSecret {
     $bytes = [byte[]]::new(32)
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $rng.GetBytes($bytes)
+    } finally {
+        $rng.Dispose()
+    }
     return -join ($bytes | ForEach-Object { $_.ToString('x2') })
 }
 

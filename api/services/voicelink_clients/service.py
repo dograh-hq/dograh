@@ -170,8 +170,10 @@ async def provision_voicelink_client(
         username=username,
         status=VOICELINK_STATUS_PROVISIONED,
         error=None,
-        # Org is provisioned — the stored secret is no longer needed.
-        provision_secret=None,
+        # Retain the encrypted client password: we authenticate as this client
+        # (username + password -> access token) when dialing on its VoiceLink
+        # account, and surface it in the admin Clients view.
+        provision_secret=encrypt_provision_secret(password),
     )
     logger.info(
         f"VoiceLink client provisioned for org {organization_id} "

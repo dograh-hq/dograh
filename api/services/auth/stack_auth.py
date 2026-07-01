@@ -26,7 +26,8 @@ class StackAuth:
 
         access_token = self._strip_bearer(access_token)
 
-        url = os.environ.get("STACK_AUTH_API_URL") + "/api/v1/users/me"
+        base = os.environ.get("STACK_AUTH_API_URL") or "https://api.stack-auth.com"
+        url = base + "/api/v1/users/me"
         headers = {
             "x-stack-access-type": "server",
             "x-stack-project-id": self.project_id,
@@ -43,7 +44,15 @@ class StackAuth:
                     return None
 
     async def impersonate(self, stack_user_id: str):
-        url = os.environ.get("STACK_AUTH_API_URL") + "/api/v1/auth/sessions"
+        # Impersonation is a server-side Stack call; it needs the project id +
+        # secret server key (unlike normal login, which the frontend SDK handles).
+        if not (self.project_id and self.secret_server_key):
+            raise RuntimeError(
+                "Stack server auth is not configured — set STACK_AUTH_PROJECT_ID "
+                "and STACK_SECRET_SERVER_KEY on the API to enable impersonation."
+            )
+        base = os.environ.get("STACK_AUTH_API_URL") or "https://api.stack-auth.com"
+        url = base + "/api/v1/auth/sessions"
         headers = {
             "x-stack-access-type": "server",
             "x-stack-project-id": self.project_id,
@@ -58,8 +67,14 @@ class StackAuth:
 
         async with aiohttp.ClientSession() as session:
             async with session.post(url, headers=headers, json=data) as response:
-                response = await response.json()
-                return response
+                body = await response.json()
+
+        if not isinstance(body, dict) or not body.get("refresh_token"):
+            keys = list(body.keys()) if isinstance(body, dict) else type(body).__name__
+            raise RuntimeError(
+                f"Stack impersonate returned no refresh_token (response keys: {keys})"
+            )
+        return body
 
     # ------------------------------------------------------------------
     # Team & user management helpers

@@ -28,6 +28,7 @@ from api.services.auth.depends import get_superuser
 from api.services.voicelink_clients import (
     VoiceLinkClientError,
     derive_username,
+    generate_client_password,
     get_voicelink_clients_client,
     provision_voicelink_client,
 )
@@ -302,18 +303,14 @@ async def create_client(
             voicelink_error=None,
         )
 
-    # Create using the supplied override or the stored (encrypted) password.
-    password = (request.password if request and request.password else None) or (
-        decrypt_provision_secret(organization.voicelink_provision_secret)
+    # Use the supplied override, else the stored (encrypted) password, else a
+    # freshly generated one (the client never logs into VoiceLink directly, so a
+    # generated password is fine — and provisioning now retains it for dialing).
+    password = (
+        (request.password if request and request.password else None)
+        or decrypt_provision_secret(organization.voicelink_provision_secret)
+        or generate_client_password()
     )
-    if not password:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "No stored password for this organization. Use Retry "
-                "provisioning and supply a password."
-            ),
-        )
 
     result = await provision_voicelink_client(
         org_id,

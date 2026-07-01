@@ -502,7 +502,7 @@ def test_create_provisions_with_stored_secret_when_missing(monkeypatch):
     assert provision.await_args.kwargs["email"] == "jane@example.test"
 
 
-def test_create_409_when_missing_and_no_stored_secret():
+def test_create_generates_password_when_none_stored():
     app = _make_test_app()
     client = TestClient(app)
 
@@ -520,11 +520,19 @@ def test_create_409_when_missing_and_no_stored_secret():
         ) as provision,
     ):
         db.get_organization_with_users = AsyncMock(return_value=org)
+        provision.return_value = {
+            "status": "provisioned",
+            "client_id": "999",
+            "username": "x.5",
+            "error": None,
+        }
 
         response = client.post("/admin/clients/5/create")
 
-    assert response.status_code == 409
-    provision.assert_not_awaited()
+    # No longer 409 — a password is generated and provisioning proceeds.
+    assert response.status_code == 200
+    provision.assert_awaited_once()
+    assert provision.await_args.kwargs["password"]  # a generated password was passed
 
 
 def test_create_503_when_reseller_unconfigured():

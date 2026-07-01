@@ -12,7 +12,7 @@ Dograh is self-hosted with Docker. Everything ships as two images (`dograh-api` 
 | **Custom domain** | You already have a remote deployment and want your own domain (e.g. `voice.yourcompany.com`) instead of the `sslip.io` URL. | [Custom Domain](/deployment/custom-domain) |
 | **Heroku** | One-click PaaS deployment. | [Heroku](/deployment/heroku) — coming soon |
 
-Browsers treat microphone access as a secure-context feature, so the deployed app must be served over HTTPS (or accessed at localhost/127.0.0.1 over HTTP, which is a secure context). Local Docker uses `http://localhost:3010` and therefore does not need a certificate.
+Browsers treat microphone access as a secure-context feature, so the app must be served over HTTPS — or accessed at localhost/127.0.0.1 over HTTP, which is also a secure context. Local Docker uses `http://localhost:3010` and therefore does not need a certificate.
 
 ## After you deploy
 

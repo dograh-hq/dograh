@@ -43,6 +43,15 @@ export function UploadWorkflowButton() {
                 return;
             }
 
+            // An upload is a COPY of an agent. Strip trigger paths so the backend
+            // mints fresh, unique ones — re-using the source agent's paths returns
+            // a 409 Conflict (trigger endpoints must be unique per org).
+            for (const node of definition.nodes as Array<{ type?: string; data?: Record<string, unknown> }>) {
+                if (node?.type === 'trigger' && node.data && 'trigger_path' in node.data) {
+                    delete node.data.trigger_path;
+                }
+            }
+
             if (!user) return;
             const accessToken = await getAccessToken();
             const response = await createWorkflowApiV1WorkflowCreateDefinitionPost({

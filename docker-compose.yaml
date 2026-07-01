@@ -98,7 +98,7 @@ services:
       - nginx-generated:/generated/nginx
       - coturn-generated:/generated/coturn
     command:
-      - /workspace/scripts/run_sativoice_init.sh
+      - /workspace/scripts/run_dograh_init.sh
 
   nginx:
     image: nginx:alpine

@@ -64,6 +64,11 @@ done
 echo ""
 echo "==> Summary: $changed files changed, $skipped files skipped"
 
+# Revert file-path references that are code identifiers, not surface text
+# The blanket sed above converts "run_dograh_init.sh" → "run_sativoice_init.sh"
+# but the actual file on disk is still named run_dograh_init.sh.
+sed -i 's|run_sativoice_init\.sh|run_dograh_init.sh|g' docker-compose.yaml 2>/dev/null || true
+
 # Verification: count remaining [Dd]ograh references in surface files
 # Matches what the sed commands handle: "Dograh" and "dograh", not all-caps DOGRAH_
 echo ""

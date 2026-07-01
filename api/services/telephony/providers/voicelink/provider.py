@@ -9,6 +9,7 @@ webhook route.
 """
 
 import json
+import os
 import re
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -96,6 +97,18 @@ class VoiceLinkProvider(TelephonyProvider):
         self.username = config.get("username")
         self.password = config.get("password")
         self.bearer_token = config.get("bearer_token")
+        # VoiceLink clients cannot self-login (the /v1/auth/login endpoint is
+        # reseller-scoped); an outbound call is scoped to a client by the DID it
+        # dials from. So when a per-client config carries no usable auth,
+        # authenticate as the reseller from the environment — the client's DID
+        # does the scoping. Reseller-credential configs are unaffected.
+        if not self.password and not self.bearer_token:
+            reseller_pass = os.getenv("VOICELINK_RESELLER_PASSWORD")
+            if reseller_pass:
+                self.username = (
+                    os.getenv("VOICELINK_RESELLER_USERNAME") or self.username
+                )
+                self.password = reseller_pass
         self.did_number = config.get("did_number")
         self.from_numbers = config.get("from_numbers", [])
 

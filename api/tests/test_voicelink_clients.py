@@ -139,7 +139,7 @@ async def test_provision_defaults_channels_and_rates(monkeypatch):
             client=client,
         )
 
-    payload = send.await_args.args[2]
+    payload = send.await_args_list[0].args[2]  # first call = the create POST
     assert payload["channel_count"] == 1
     assert payload["inbound_rate"] == 1.0
     assert payload["outbound_rate"] == 1.0
@@ -165,7 +165,7 @@ async def test_provision_uses_supplied_username_for_retries():
             client=client,
         )
 
-    assert send.await_args.args[2]["username"] == "stored.username.11"
+    assert send.await_args_list[0].args[2]["username"] == "stored.username.11"
 
 
 # ======== OUTCOME PERSISTENCE ========

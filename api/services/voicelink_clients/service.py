@@ -112,6 +112,31 @@ def _extract_client_id(envelope: Dict[str, Any]) -> Optional[str]:
     return str(candidate) if candidate is not None else None
 
 
+async def _find_voicelink_client_id_by_username(
+    client: VoiceLinkClientsClient, username: Optional[str]
+) -> Optional[str]:
+    """Recover a client's VoiceLink id by matching username in the reseller list.
+
+    The create response occasionally omits the id, and orgs provisioned before
+    id-capture carry ``client_id=None``. Matching ``GET /v1/reseller/clients`` by
+    username recovers it (``id`` in each record IS the client id). Best-effort —
+    returns None on any failure or no match (so callers fall back to creating).
+    """
+    if not username:
+        return None
+    target = username.strip().lower()
+    try:
+        for record in await client.list_clients():
+            if str(record.get("username") or "").strip().lower() == target:
+                cid = record.get("id") or record.get("client_id")
+                return str(cid) if cid is not None else None
+    except Exception:
+        logger.warning(
+            "VoiceLink client_id backfill lookup failed", exc_info=True
+        )
+    return None
+
+
 async def provision_voicelink_client(
     organization_id: int,
     *,
@@ -164,6 +189,10 @@ async def provision_voicelink_client(
         }
 
     client_id = _extract_client_id(envelope)
+    if not client_id:
+        # The create envelope didn't carry the id — recover it from the list so
+        # KYC can scope to this client (KYC needs the client_id).
+        client_id = await _find_voicelink_client_id_by_username(client, username)
     await db_client.update_organization_voicelink(
         organization_id,
         client_id=client_id,
@@ -312,6 +341,26 @@ async def ensure_voicelink_client(
                 "client_id": None,
                 "username": organization.voicelink_username,
                 "error": "reseller_credentials_unset",
+            }
+
+        # The client may already exist on VoiceLink but its id was lost locally.
+        # Recover it before creating a duplicate; also self-heals orgs marked
+        # "provisioned" with a NULL client_id (KYC then scopes correctly).
+        existing_id = await _find_voicelink_client_id_by_username(
+            client, organization.voicelink_username
+        )
+        if existing_id:
+            await db_client.update_organization_voicelink(
+                organization_id,
+                client_id=existing_id,
+                status=VOICELINK_STATUS_PROVISIONED,
+                error=None,
+            )
+            return {
+                "status": VOICELINK_STATUS_PROVISIONED,
+                "client_id": existing_id,
+                "username": organization.voicelink_username,
+                "error": None,
             }
 
         owner = resolve_org_owner(organization)

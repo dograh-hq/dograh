@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { client } from "@/client/client.gen";
 import { Button } from "@/components/ui/button";
+import { useLeadForms } from "@/context/LeadFormsContext";
 import { useAuth } from "@/lib/auth";
 
 interface PackFeatures {
@@ -49,6 +50,7 @@ function submitToPayU(paymentUrl: string, params: Record<string, string>) {
 
 export function CreditsSection() {
   const { user, loading: authLoading } = useAuth();
+  const { openEnterprise } = useLeadForms();
   const [data, setData] = useState<Balance | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const hasFetched = useRef(false);
@@ -200,6 +202,35 @@ export function CreditsSection() {
           })}
         </div>
       )}
+
+      {/* Enterprise — custom pricing / committed volume: contact + book a meeting */}
+      <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-semibold">Enterprise</p>
+            <p className="text-sm text-muted-foreground">
+              Custom pricing for committed volume — dedicated numbers, priority
+              support, SLAs, and volume discounts.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Talk to us:{" "}
+              <a
+                href="mailto:hardikagarwal@autosysai.dev?subject=Enterprise%20plan%20—%20Auto4You"
+                className="underline underline-offset-4 hover:text-foreground"
+              >
+                hardikagarwal@autosysai.dev
+              </a>
+            </p>
+          </div>
+          <Button
+            variant="brand"
+            className="shrink-0"
+            onClick={() => openEnterprise("billing_custom_pricing")}
+          >
+            Contact us · Book a meeting
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }

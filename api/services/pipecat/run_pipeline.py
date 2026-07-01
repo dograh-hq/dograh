@@ -63,6 +63,8 @@ from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnal
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.extensions.voicemail.voicemail_detector import VoicemailDetector
+
+from api.constants import DEFAULT_VOICEMAIL_SYSTEM_PROMPT
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
@@ -718,11 +720,16 @@ async def _run_pipeline(
     voicemail_config = (workflow.workflow_configurations or {}).get(
         "voicemail_detection", {}
     )
-    if is_realtime and voicemail_config.get("enabled", False):
+    # Default ON for outbound (non-realtime) calls so we never burn minutes on an
+    # answering machine / IVR. A workflow can opt out with
+    # voicemail_detection.enabled = false. Realtime (speech-to-speech) can't run
+    # the classifier sub-pipeline, so it's skipped there.
+    voicemail_enabled = voicemail_config.get("enabled", True)
+    if is_realtime and voicemail_enabled:
         logger.info(
             f"Disabling voicemail detection for realtime workflow run {workflow_run_id}"
         )
-    if voicemail_config.get("enabled", False) and not is_realtime:
+    if voicemail_enabled and not is_realtime:
         logger.info(f"Voicemail detection enabled for workflow run {workflow_run_id}")
         # Create a separate LLM instance for the voicemail sub-pipeline
         # (can't share with main pipeline as it would mess up frame linking)
@@ -739,7 +746,9 @@ async def _run_pipeline(
             )
 
         long_speech_timeout = voicemail_config.get("long_speech_timeout", 8.0)
-        custom_system_prompt = voicemail_config.get("system_prompt") or None
+        custom_system_prompt = (
+            voicemail_config.get("system_prompt") or DEFAULT_VOICEMAIL_SYSTEM_PROMPT
+        )
 
         voicemail_detector = VoicemailDetector(
             llm=voicemail_llm,

@@ -78,6 +78,26 @@ RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
 PAYU_MERCHANT_KEY = os.getenv("PAYU_MERCHANT_KEY", "")
 PAYU_MERCHANT_SALT = os.getenv("PAYU_MERCHANT_SALT", "")
 PAYU_MODE = os.getenv("PAYU_MODE", "test").lower()
+
+# Voicemail-detection classifier prompt (ported from the VAPP phrase rules).
+# The detector's parallel LLM branch classifies the callee's opening as
+# CONVERSATION (human) or VOICEMAIL (answering machine / telecom IVR); on
+# VOICEMAIL the pipeline hangs up immediately. Covers English + Hindi/Hinglish
+# Indian-IVR phrasing and biases to CONVERSATION when unsure (never hang up on
+# a real person). Override per workflow via voicemail_detection.system_prompt.
+DEFAULT_VOICEMAIL_SYSTEM_PROMPT = """You classify the FIRST thing the called party says on an outbound phone call as either a live human ("CONVERSATION") or an automated system / answering machine / voicemail / telecom IVR ("VOICEMAIL").
+
+Respond with ONLY one word: CONVERSATION or VOICEMAIL.
+
+Classify as VOICEMAIL if the opening contains any of these (English, Hinglish, or Hindi), even partially:
+- "voicemail", "voice mail", "leave a message", "leave your message", "record your message", "after the tone", "after the beep", "at the tone", "mailbox", "the person you are calling", "is not available", "is unavailable", "please record", "please try again later"
+- Indian telecom IVR: "the number you are calling is currently not reachable", "the subscriber you are calling is not available", "is switched off", "is currently busy", "the number you have dialed is not in service", "please check the number and dial again"
+- Hindi / Hinglish: "switch off hai", "abhi uplabdh nahi", "uplabdh nahi hai", "vyast hai", "sampark nahi ho pa raha", "sandesh chhodein", "sandesh chhod dijiye", "beep ke baad", "baad mein prayaas karein", "aap jis number par call kar rahe hain"
+- A long, uninterrupted scripted greeting or monologue with no natural back-and-forth, or a greeting immediately followed by a beep/tone.
+
+Classify as CONVERSATION if a real person responds naturally and briefly — e.g. "Hello?", "Hi", "Yes?", "Haan", "Hello kaun?", "Kaun bol raha hai?" — or any short conversational reply that invites dialogue.
+
+When unsure, prefer CONVERSATION — never hang up on a real person. Respond with ONLY CONVERSATION or VOICEMAIL."""
 # Plans / credit packs sold via Razorpay top-up. 1 credit = 1 call-minute, so
 # `minutes` == credits granted, credited to the org's call-seconds balance.
 # `features` gates self-serve surfaces by tier:

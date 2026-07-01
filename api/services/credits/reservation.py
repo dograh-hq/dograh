@@ -14,6 +14,8 @@ from api.db import db_client
 from api.services.trial_credits import consume_free_call_seconds
 
 RESERVED_CREDIT_SECONDS_KEY = "reserved_credit_seconds"
+# Set once settlement has run so a retried post-call task can't double-charge.
+CREDITS_SETTLED_KEY = "credits_settled"
 
 INSUFFICIENT_CREDITS_MESSAGE = (
     "You're out of calling credits. Add credits from Billing to keep making calls."
@@ -55,10 +57,25 @@ async def reconcile_call_credits(
 
 
 async def settle_workflow_run_credits(organization_id: int, workflow_run) -> None:
-    """Reconcile credits for a completed run from its reserved hold + duration."""
+    """Reconcile credits for a completed run from its reserved hold + duration.
+
+    Idempotent: the ARQ post-call task can be retried, so we guard on a
+    ``credits_settled`` flag stored in ``initial_context`` (merged, never
+    overwritten) and no-op if this run was already settled — a retry must never
+    release the hold or charge the duration twice.
+    """
     ctx = getattr(workflow_run, "initial_context", None) or {}
+    if ctx.get(CREDITS_SETTLED_KEY):
+        return
     reserved = ctx.get(RESERVED_CREDIT_SECONDS_KEY) or 0
     usage = getattr(workflow_run, "usage_info", None) or {}
     cost = getattr(workflow_run, "cost_info", None) or {}
     duration = usage.get("call_duration_seconds") or cost.get("call_duration_seconds")
     await reconcile_call_credits(organization_id, reserved, duration)
+
+    run_id = getattr(workflow_run, "id", None)
+    if run_id is not None:
+        # Merge-write the flag so the reserved-seconds key is preserved.
+        await db_client.update_workflow_run(
+            run_id, initial_context={CREDITS_SETTLED_KEY: True}
+        )

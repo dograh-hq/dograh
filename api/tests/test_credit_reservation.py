@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from api.services.credits import reservation
 from api.services.credits.reservation import (
+    CREDITS_SETTLED_KEY,
     RESERVED_CREDIT_SECONDS_KEY,
     reconcile_call_credits,
     reserve_call_credits,
@@ -70,11 +71,46 @@ async def test_reconcile_swallows_errors():
 
 async def test_settle_reads_reserved_and_duration_off_run():
     run = SimpleNamespace(
+        id=9,
         initial_context={RESERVED_CREDIT_SECONDS_KEY: 600},
         usage_info={"call_duration_seconds": 130},
         cost_info={},
     )
     rec = AsyncMock()
-    with patch.object(reservation, "reconcile_call_credits", new=rec):
+    with patch.object(reservation, "reconcile_call_credits", new=rec), _patch(
+        "update_workflow_run"
+    ):
         await settle_workflow_run_credits(1, run)
     rec.assert_awaited_once_with(1, 600, 130)
+
+
+async def test_settle_is_idempotent_when_already_settled():
+    run = SimpleNamespace(
+        id=9,
+        initial_context={RESERVED_CREDIT_SECONDS_KEY: 600, CREDITS_SETTLED_KEY: True},
+        usage_info={"call_duration_seconds": 130},
+        cost_info={},
+    )
+    rec = AsyncMock()
+    upd = AsyncMock()
+    with patch.object(reservation, "reconcile_call_credits", new=rec), patch.object(
+        reservation.db_client, "update_workflow_run", new=upd
+    ):
+        await settle_workflow_run_credits(1, run)
+    rec.assert_not_awaited()  # already settled — a retry must not double-charge
+    upd.assert_not_awaited()
+
+
+async def test_settle_marks_run_settled_after_reconcile():
+    run = SimpleNamespace(
+        id=9,
+        initial_context={RESERVED_CREDIT_SECONDS_KEY: 600},
+        usage_info={"call_duration_seconds": 130},
+        cost_info={},
+    )
+    upd = AsyncMock()
+    with patch.object(reservation, "reconcile_call_credits", new=AsyncMock()), patch.object(
+        reservation.db_client, "update_workflow_run", new=upd
+    ):
+        await settle_workflow_run_credits(1, run)
+    upd.assert_awaited_once_with(9, initial_context={CREDITS_SETTLED_KEY: True})

@@ -24,9 +24,7 @@ SURFACE_FILES=(
     "scripts/setup_fork.ps1"
     "scripts/generate_sdk.sh"
     "scripts/release_sdks.sh"
-    "scripts/setup_custom_domain.sh"
     "scripts/setup_pipecat.sh"
-    "scripts/start_services.sh"
     "scripts/setup_requirements.sh"
     "scripts/setup_requirements.ps1"
     # Scripts EXCLUDED: setup_local.sh, setup_local.ps1, setup_remote.sh,

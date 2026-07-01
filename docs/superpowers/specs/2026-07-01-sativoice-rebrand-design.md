@@ -95,6 +95,37 @@ set -euo pipefail
 
 See "What changes" table above. All modifications are string-level replacements of "Dograh" → "Sativoice" in specific, scoped files only.
 
+## Custom Modules (Post-Rebrand Milestones)
+
+Three custom modules will be developed within the fork, leveraging the existing integration plugin architecture to avoid merge conflicts with upstream.
+
+### Modules
+
+| Module | Location | Pattern | Merge Risk |
+|---|---|---|---|
+| FS Integration | `api/services/filesystem/` (extend existing providers) | Core extension — new storage backend | Low (new files in existing package) |
+| Web Widget (voice + text) | `widgets/sativoice-web-widget/` | Standalone npm package in monorepo, CDN-deployable | Zero (new top-level directory) |
+| WhatsApp Gupshup | `api/services/integrations/gupShup/` | Integration plugin — auto-discovered by loader | Zero (new directory, upstream won't have it) |
+
+### Why in the fork, not separate repos
+
+- All three modules have tight coupling with core (DB models, workflow engine, auth system)
+- The integration plugin system (`api/services/integrations/loader.py`) auto-discovers new directories — upstream can't conflict with what it doesn't have
+- Separate repos would require cross-repo versioning, complex integration tests, and worse DX
+
+### Upstream sync with custom modules
+
+```bash
+git fetch upstream
+git merge upstream/main          # No conflicts: our modules are in new directories
+./scripts/rebrand-to-sativoice.sh
+pytest api/tests/ -k "gupShup or fs_integration"  # Verify custom modules still work
+git commit -am "chore: sync upstream + rebrand"
+```
+
+**Merge conflict risk:** near zero. Custom code lives in directories upstream doesn't own.
+**Real risk:** API breakage — if upstream changes `IntegrationPackageSpec` or `IntegrationRuntimeSession` interfaces. Caught by tests, not by merge conflicts.
+
 ## Out of Scope
 
 - Renaming the GitHub repository or organization

@@ -110,11 +110,9 @@
      only on primary CTAs + focus underlines. */
   --cta: oklch(0.74 0.13 70);
   --cta-foreground: oklch(0.20 0.02 60);
-  /* Giant faded "dograh" wordmark (authentic Proxima Nova letterforms traced
-     from the brand logo PNG — the font is commercial, so the lettering ships
-     as static artwork in /public; fill + 0.9% opacity are baked into the
-     files). Theme-switched here; consumed by .app-surface and .auth-imprint. */
-  --brand-imprint: url("/brand-imprint-light.svg");
+  /* Background wordmark imprint (consumed by .app-surface and .auth-imprint).
+     Set to `none` to keep surfaces clean and unbranded. */
+  --brand-imprint: none;
 }
 
 .dark {
@@ -156,7 +154,7 @@
   /* Warm amber accent, slightly brighter against the espresso surfaces. */
   --cta: oklch(0.80 0.14 72);
   --cta-foreground: oklch(0.20 0.02 60);
-  --brand-imprint: url("/brand-imprint-dark.svg");
+  --brand-imprint: none;
 }
 
 @layer base {

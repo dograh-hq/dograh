@@ -187,11 +187,6 @@ const NAV_SECTIONS: SidebarNavSection[] = [
         url: "/analytics",
         icon: BarChart3,
       },
-      {
-        title: "Billing",
-        url: "/billing",
-        icon: CircleDollarSign,
-      },
     ],
   },
   {

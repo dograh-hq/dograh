@@ -7,11 +7,10 @@ import { useCallback, useState } from 'react';
 import { createWorkflowApiV1WorkflowCreateDefinitionPost } from '@/client/sdk.gen';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { detailFromError } from '@/lib/apiError';
 import { useAuth } from '@/lib/auth';
 import logger from '@/lib/logger';
 import { getRandomId } from '@/lib/utils';
-
-import { WorkflowData } from '../flow/types';
 
 export function UploadWorkflowButton() {
     const router = useRouter();
@@ -21,34 +20,53 @@ export function UploadWorkflowButton() {
     const { user, getAccessToken } = useAuth();
 
     const handleFileUpload = useCallback(async (file: File) => {
+        setError(null);
         try {
-            const text = await file.text();
-            const workflowData: WorkflowData = JSON.parse(text);
+            const raw = await file.text();
+            let parsed: { name?: string; workflow_definition?: unknown; nodes?: unknown; edges?: unknown };
+            try {
+                parsed = JSON.parse(raw);
+            } catch {
+                setError("That file isn't valid JSON. Please upload a workflow JSON file.");
+                return;
+            }
 
-            if (!workflowData.workflow_definition?.nodes ||
-                !workflowData.workflow_definition?.edges ||
-                !workflowData.workflow_definition?.viewport) {
-                throw new Error('Invalid workflow data structure');
+            // Accept either { name, workflow_definition: {...} } or a raw
+            // { nodes, edges } definition. viewport is optional — the editor
+            // adds a default one, and AI-built / exported agents omit it.
+            const definition = (parsed?.workflow_definition ?? parsed) as {
+                nodes?: unknown;
+                edges?: unknown;
+            };
+            if (!definition || !Array.isArray(definition.nodes) || !Array.isArray(definition.edges)) {
+                setError('This doesn\'t look like an agent file — it must contain "nodes" and "edges".');
+                return;
             }
 
             if (!user) return;
             const accessToken = await getAccessToken();
             const response = await createWorkflowApiV1WorkflowCreateDefinitionPost({
                 body: {
-                    name: workflowData.name || `WF-${getRandomId()}`,
-                    workflow_definition: workflowData.workflow_definition as unknown as { [key: string]: unknown },
+                    name: parsed?.name || `WF-${getRandomId()}`,
+                    workflow_definition: definition as unknown as { [key: string]: unknown },
                 },
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
                 },
             });
 
+            if (response.error) {
+                setError(detailFromError(response.error, 'Failed to upload the agent.'));
+                return;
+            }
             if (response.data?.id) {
                 router.push(`/workflow/${response.data.id}`);
                 setIsOpen(false);
+            } else {
+                setError('Upload succeeded but no workflow was returned. Please try again.');
             }
         } catch (err) {
-            setError('Failed to upload workflow. Please check if the file is valid.');
+            setError('Failed to upload the agent. Please check the file and try again.');
             logger.error(`Error uploading workflow: ${err}`);
         }
     }, [router, user, getAccessToken]);
@@ -59,7 +77,9 @@ export function UploadWorkflowButton() {
         setError(null);
 
         const file = e.dataTransfer.files[0];
-        if (file && file.type === 'application/json') {
+        // Accept by MIME OR .json extension — browsers report .json files with
+        // an empty or non-standard MIME type, which was rejecting valid files.
+        if (file && (file.type === 'application/json' || file.name.toLowerCase().endsWith('.json'))) {
             handleFileUpload(file);
         } else {
             setError('Please upload a valid JSON file');

@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from api.constants import CREDIT_PACKS, RAZORPAY_KEY_ID, UI_APP_URL
 from api.db import db_client
 from api.db.models import UserModel
-from api.services.auth.depends import get_user
+from api.services.auth.depends import get_superuser, get_user
 from api.services.billing import payu_client, razorpay_client
 from api.services.plans import features_for_plan, get_org_plan
 from api.utils.common import get_backend_endpoints
@@ -225,6 +225,47 @@ async def payu_initiate(
     return {"payment_url": payu_client.payment_url(), "params": params}
 
 
+@router.post("/payu/test-initiate")
+async def payu_test_initiate(user: UserModel = Depends(get_superuser)):
+    """Superuser-only ₹30 live PayU test to verify the gateway end-to-end.
+
+    Priced tiny and superuser-gated so it's never a customer-facing purchase.
+    Not gated on a metered balance — the callback skips crediting unlimited
+    (NULL) orgs. pack_id='test' never affects plan tier (only starter/growth/
+    scale are ranked).
+    """
+    org = _org(user)
+    if not payu_client.is_configured():
+        raise HTTPException(status_code=503, detail="payments_not_configured")
+
+    txnid = "a4ytest" + uuid4().hex[:16]
+    await db_client.create_transaction(
+        organization_id=org,
+        created_by=user.id,
+        razorpay_order_id=txnid,
+        pack_id="test",
+        seconds=60,  # nominal 1-minute credit on success (skipped for NULL orgs)
+        amount_paise=3000,
+    )
+
+    firstname, email, phone = _payu_customer_fields(user)
+    backend_endpoint, _ = await get_backend_endpoints()
+    callback = f"{backend_endpoint}/api/v1/billing/payu/callback"
+    params = payu_client.build_payment_params(
+        txnid=txnid,
+        amount="30.00",
+        productinfo="PayU Test Rs 30",
+        firstname=firstname,
+        email=email,
+        phone=phone,
+        surl=callback,
+        furl=callback,
+        udf1=str(org),
+        udf2="test",
+    )
+    return {"payment_url": payu_client.payment_url(), "params": params}
+
+
 @router.post("/payu/callback")
 async def payu_callback(request: Request):
     """PayU surl/furl handler (public, no session). Verify the reverse hash, then
@@ -255,9 +296,14 @@ async def payu_callback(request: Request):
 
     if status == "success" and amount_ok:
         await db_client.mark_transaction_paid(txnid, params.get("mihpayid") or "payu")
-        new_balance = await db_client.add_call_seconds(txn.organization_id, txn.seconds)
+        # Never convert an unlimited (NULL) org to metered — skip crediting it.
+        current = await db_client.get_free_call_seconds_remaining(txn.organization_id)
+        if current is not None:
+            new_balance = await db_client.add_call_seconds(txn.organization_id, txn.seconds)
+        else:
+            new_balance = "unlimited (not credited)"
         logger.info(
-            f"PayU top-up: org {txn.organization_id} credited {txn.seconds}s "
+            f"PayU payment ok: org {txn.organization_id} +{txn.seconds}s "
             f"(txnid {txnid}); balance now {new_balance}"
         )
         return RedirectResponse(f"{result_page}?payment=success", status_code=303)

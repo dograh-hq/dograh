@@ -71,6 +71,7 @@ async def test_payu_callback_credits_on_verified_success(monkeypatch):
     txn = SimpleNamespace(status="created", organization_id=4, seconds=18000, amount_paise=239900)
     with (
         patch.object(billing.db_client, "get_transaction_by_order_id_unscoped", new=AsyncMock(return_value=txn)),
+        patch.object(billing.db_client, "get_free_call_seconds_remaining", new=AsyncMock(return_value=1800)),
         patch.object(billing.db_client, "mark_transaction_paid", new=AsyncMock()) as mark,
         patch.object(billing.db_client, "add_call_seconds", new=AsyncMock(return_value=19800)) as add,
     ):
@@ -81,6 +82,48 @@ async def test_payu_callback_credits_on_verified_success(monkeypatch):
     assert "payment=success" in resp.headers["location"]
     mark.assert_awaited_once_with("a4yX", "MP1")
     add.assert_awaited_once_with(4, 18000)
+
+
+@pytest.mark.asyncio
+async def test_payu_callback_skips_credit_for_unlimited_org(monkeypatch):
+    monkeypatch.setattr(billing.payu_client, "verify_response_hash", lambda p: True)
+    monkeypatch.setattr(billing, "UI_APP_URL", "https://app.auto4you.in")
+    txn = SimpleNamespace(status="created", organization_id=1, seconds=60, amount_paise=3000)
+    with (
+        patch.object(billing.db_client, "get_transaction_by_order_id_unscoped", new=AsyncMock(return_value=txn)),
+        patch.object(billing.db_client, "get_free_call_seconds_remaining", new=AsyncMock(return_value=None)),
+        patch.object(billing.db_client, "mark_transaction_paid", new=AsyncMock()) as mark,
+        patch.object(billing.db_client, "add_call_seconds", new=AsyncMock()) as add,
+    ):
+        resp = await billing.payu_callback(
+            _Req({"status": "success", "txnid": "a4ytestX", "amount": "30.00", "hash": "h"})
+        )
+    assert "payment=success" in resp.headers["location"]
+    mark.assert_awaited_once()          # payment recorded
+    add.assert_not_awaited()            # but unlimited org is NOT converted to metered
+
+
+@pytest.mark.asyncio
+async def test_payu_test_initiate_builds_30rs_request(monkeypatch):
+    monkeypatch.setattr(billing.payu_client, "is_configured", lambda: True)
+    monkeypatch.setattr(billing.payu_client, "payment_url", lambda: "https://secure.payu.in/_payment")
+    monkeypatch.setattr(
+        billing.payu_client, "build_payment_params",
+        lambda **kw: {"amount": kw["amount"], "productinfo": kw["productinfo"], "txnid": kw["txnid"]},
+    )
+    with (
+        patch.object(billing.db_client, "create_transaction", new=AsyncMock()) as create,
+        patch.object(billing, "get_backend_endpoints", new=AsyncMock(return_value=("https://api.auto4you.in", "m"))),
+    ):
+        res = await billing.payu_test_initiate(user=_user())
+    assert res["payment_url"] == "https://secure.payu.in/_payment"
+    assert res["params"]["amount"] == "30.00"
+    assert res["params"]["productinfo"] == "PayU Test Rs 30"
+    kw = create.await_args.kwargs
+    assert kw["amount_paise"] == 3000
+    assert kw["seconds"] == 60
+    assert kw["pack_id"] == "test"
+    assert kw["razorpay_order_id"].startswith("a4ytest")
 
 
 @pytest.mark.asyncio

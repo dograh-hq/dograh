@@ -257,26 +257,36 @@ async def resolve_org_voicelink_client_id(
 ) -> Tuple[Optional[str], bool]:
     """Resolve the VoiceLink ``client_id`` for an organization.
 
-    Reads the optional ``client_id`` credential stored on the org's VoiceLink
-    telephony configuration(s) (JSONB credentials), preferring the default
-    outbound configuration.
+    Prefers the ``client_id`` credential stored on the org's VoiceLink
+    telephony configuration(s) (JSONB credentials, default outbound first).
+    Falls back to ``OrganizationModel.voicelink_client_id`` — the id stored at
+    provisioning time — so client-side KYC scopes to the client's VoiceLink
+    account as soon as the client is provisioned, before any DID/telephony
+    configuration is assigned.
 
     Returns:
-        (client_id, has_voicelink_config) — ``client_id`` is None when no
-        VoiceLink configuration carries one (KYC calls then act on the
-        reseller's own KYC).
+        (client_id, has_voicelink_config) — ``has_voicelink_config`` reflects
+        whether a VoiceLink telephony configuration exists. ``client_id`` is
+        None only when neither a config nor the org carries one (KYC calls then
+        act on the reseller's own KYC).
     """
     from api.db import db_client
 
     configs = await db_client.list_telephony_configurations_by_provider(
         organization_id, "voicelink"
     )
-    if not configs:
-        return None, False
+    has_voicelink_config = bool(configs)
 
-    ordered = sorted(configs, key=lambda c: not c.is_default_outbound)
-    for config in ordered:
-        client_id = (config.credentials or {}).get("client_id")
-        if client_id:
-            return str(client_id), True
-    return None, True
+    if configs:
+        ordered = sorted(configs, key=lambda c: not c.is_default_outbound)
+        for config in ordered:
+            client_id = (config.credentials or {}).get("client_id")
+            if client_id:
+                return str(client_id), has_voicelink_config
+
+    organization = await db_client.get_organization_by_id(organization_id)
+    org_client_id = getattr(organization, "voicelink_client_id", None)
+    if org_client_id:
+        return str(org_client_id), has_voicelink_config
+
+    return None, has_voicelink_config

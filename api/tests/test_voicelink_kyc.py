@@ -432,6 +432,9 @@ async def test_resolve_client_id_handles_config_without_client_id():
         db_client.list_telephony_configurations_by_provider = AsyncMock(
             return_value=configs
         )
+        db_client.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(voicelink_client_id=None)
+        )
         client_id, has_config = await resolve_org_voicelink_client_id(11)
 
     assert client_id is None
@@ -446,7 +449,46 @@ async def test_resolve_client_id_handles_no_voicelink_config():
         db_client.list_telephony_configurations_by_provider = AsyncMock(
             return_value=[]
         )
+        db_client.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(voicelink_client_id=None)
+        )
         client_id, has_config = await resolve_org_voicelink_client_id(11)
 
     assert client_id is None
+    assert has_config is False
+
+
+@pytest.mark.asyncio
+async def test_resolve_client_id_falls_back_to_org_when_config_lacks_it():
+    from api.services.voicelink_kyc import resolve_org_voicelink_client_id
+
+    configs = [SimpleNamespace(is_default_outbound=True, credentials={})]
+
+    with patch("api.db.db_client") as db_client:
+        db_client.list_telephony_configurations_by_provider = AsyncMock(
+            return_value=configs
+        )
+        db_client.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(voicelink_client_id="900")
+        )
+        client_id, has_config = await resolve_org_voicelink_client_id(11)
+
+    assert client_id == "900"
+    assert has_config is True
+
+
+@pytest.mark.asyncio
+async def test_resolve_client_id_uses_org_client_id_without_any_config():
+    from api.services.voicelink_kyc import resolve_org_voicelink_client_id
+
+    with patch("api.db.db_client") as db_client:
+        db_client.list_telephony_configurations_by_provider = AsyncMock(
+            return_value=[]
+        )
+        db_client.get_organization_by_id = AsyncMock(
+            return_value=SimpleNamespace(voicelink_client_id="900")
+        )
+        client_id, has_config = await resolve_org_voicelink_client_id(11)
+
+    assert client_id == "900"
     assert has_config is False

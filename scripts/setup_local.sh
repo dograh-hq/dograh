@@ -14,7 +14,7 @@ BOOTSTRAP_LIB=""
 
 if [[ ! -f "$LIB_PATH" ]]; then
     BOOTSTRAP_LIB="$(mktemp)"
-    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/sativoice-hq/sativoice/main/scripts/lib/setup_common.sh"
+    curl -fsSL -o "$BOOTSTRAP_LIB" "https://raw.githubusercontent.com/dograh-hq/dograh/main/scripts/lib/setup_common.sh"
     LIB_PATH="$BOOTSTRAP_LIB"
 fi
 
@@ -30,7 +30,7 @@ trap cleanup EXIT
 
 echo -e "${BLUE}"
 echo "╔══════════════════════════════════════════════════════════════╗"
-echo "║                    Sativoice Local Setup                        ║"
+echo "║                    Dograh Local Setup                        ║"
 echo "║       Local docker deployment, optional TURN server          ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
@@ -108,7 +108,7 @@ FORCE_TURN_RELAY="${FORCE_TURN_RELAY:-false}"
 ENABLE_TELEMETRY="${ENABLE_TELEMETRY:-true}"
 
 # Container registry (defaults to the public OSS registry)
-REGISTRY="${REGISTRY:-ghcr.io/sativoice-hq}"
+REGISTRY="${REGISTRY:-ghcr.io/dograh-hq}"
 
 echo ""
 echo -e "${GREEN}Configuration:${NC}"
@@ -131,9 +131,9 @@ if [[ "${DOGRAH_SKIP_DOWNLOAD:-}" != "1" ]]; then
     else
         echo -e "${BLUE}[1/$TOTAL_STEPS] Downloading docker-compose.yaml...${NC}"
     fi
-    curl -sS -o docker-compose.yaml https://raw.githubusercontent.com/sativoice-hq/sativoice/main/docker-compose.yaml
+    curl -sS -o docker-compose.yaml https://raw.githubusercontent.com/dograh-hq/dograh/main/docker-compose.yaml
     if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
-        sativoice_download_init_support_bundle "$(pwd)" "main"
+        dograh_download_init_support_bundle "$(pwd)" "main"
     fi
     echo -e "${GREEN}✓ Deployment files downloaded${NC}"
 else
@@ -141,9 +141,9 @@ else
 fi
 
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
-    [[ -f scripts/run_sativoice_init.sh ]] || sativoice_fail "scripts/run_sativoice_init.sh not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
-    [[ -f scripts/lib/setup_common.sh ]] || sativoice_fail "scripts/lib/setup_common.sh not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
-    [[ -f deploy/templates/turnserver.remote.conf.template ]] || sativoice_fail "deploy/templates/turnserver.remote.conf.template not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
+    [[ -f scripts/run_dograh_init.sh ]] || dograh_fail "scripts/run_dograh_init.sh not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
+    [[ -f scripts/lib/setup_common.sh ]] || dograh_fail "scripts/lib/setup_common.sh not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
+    [[ -f deploy/templates/turnserver.remote.conf.template ]] || dograh_fail "deploy/templates/turnserver.remote.conf.template not found. Re-run setup_local.sh without DOGRAH_SKIP_DOWNLOAD=1, or use a full repo checkout."
 fi
 
 # Generate .env
@@ -152,11 +152,11 @@ echo -e "${BLUE}[$ENV_STEP/$TOTAL_STEPS] Creating environment file...${NC}"
 OSS_JWT_SECRET=$(openssl rand -hex 32)
 POSTGRES_PASSWORD=$(openssl rand -hex 32)
 REDIS_PASSWORD=$(openssl rand -hex 32)
-MINIO_ROOT_USER="sativoice$(openssl rand -hex 6)"
+MINIO_ROOT_USER="dograh$(openssl rand -hex 6)"
 MINIO_ROOT_PASSWORD=$(openssl rand -hex 32)
 
 cat > .env << ENV_EOF
-# Container registry for Sativoice images
+# Container registry for Dograh images
 REGISTRY=$REGISTRY
 
 # JWT secret for OSS authentication
@@ -203,17 +203,17 @@ echo -e "Files created in ${BLUE}$(pwd)${NC}:"
 echo "  - docker-compose.yaml"
 echo "  - .env"
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
-    echo "  - scripts/run_sativoice_init.sh"
+    echo "  - scripts/run_dograh_init.sh"
     echo "  - scripts/lib/setup_common.sh"
     echo "  - deploy/templates/"
 fi
 echo ""
 if [[ "${ENABLE_COTURN:-false}" == "true" ]]; then
-    echo -e "${YELLOW}To start Sativoice with TURN, run:${NC}"
+    echo -e "${YELLOW}To start Dograh with TURN, run:${NC}"
     echo ""
     echo -e "  ${BLUE}docker compose --profile local-turn --profile tunnel up --pull always${NC}"
 else
-    echo -e "${YELLOW}To start Sativoice, run:${NC}"
+    echo -e "${YELLOW}To start Dograh, run:${NC}"
     echo ""
     echo -e "  ${BLUE}docker compose --profile tunnel up --pull always${NC}"
 fi

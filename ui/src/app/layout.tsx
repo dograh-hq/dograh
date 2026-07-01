@@ -29,7 +29,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sativoice",
+  title: "Sativoice Enterprise",
   description: "Open Source Voice Assistant Workflow Builder",
 };
 

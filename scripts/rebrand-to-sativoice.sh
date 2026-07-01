@@ -16,25 +16,24 @@ SURFACE_FILES=(
     "docker-compose-local.yaml"
     "api/Dockerfile"
     "ui/Dockerfile"
+    # Scripts safe for blanket sed (user-facing messages only, no code identifiers)
     "scripts/start_docker.sh"
     "scripts/start_docker.ps1"
-    "scripts/setup_local.sh"
-    "scripts/setup_local.ps1"
-    "scripts/setup_remote.sh"
     "scripts/remote_up.sh"
     "scripts/setup_fork.sh"
     "scripts/setup_fork.ps1"
-    "scripts/update_remote.sh"
-    "scripts/setup_requirements.sh"
-    "scripts/setup_requirements.ps1"
-    "scripts/rolling_update.sh"
-    "scripts/run_dograh_init.sh"
     "scripts/generate_sdk.sh"
     "scripts/release_sdks.sh"
     "scripts/setup_custom_domain.sh"
     "scripts/setup_pipecat.sh"
     "scripts/start_services.sh"
-    "scripts/lib/setup_common.sh"
+    "scripts/setup_requirements.sh"
+    "scripts/setup_requirements.ps1"
+    # Scripts EXCLUDED: setup_local.sh, setup_local.ps1, setup_remote.sh,
+    #   update_remote.sh, rolling_update.sh, run_dograh_init.sh,
+    #   lib/setup_common.sh — these contain code-level identifiers
+    #   (file paths, function names, string comparisons, HTTP headers)
+    #   that must NOT be blanket-sed'd.
     "ui/src/app/layout.tsx"
     "docs/docs.json"
     "docs/api-reference/openapi.json"

@@ -9,24 +9,24 @@ DOGRAH_DEPLOY_REPO_ROOT="$(cd "$DOGRAH_DEPLOY_LIB_DIR/../.." 2>/dev/null && pwd 
 : "${BLUE:=\033[0;34m}"
 : "${NC:=\033[0m}"
 
-sativoice_info() {
+dograh_info() {
     echo -e "${BLUE}$*${NC}"
 }
 
-sativoice_success() {
+dograh_success() {
     echo -e "${GREEN}$*${NC}"
 }
 
-sativoice_warn() {
+dograh_warn() {
     echo -e "${YELLOW}$*${NC}"
 }
 
-sativoice_fail() {
+dograh_fail() {
     echo -e "${RED}Error: $*${NC}" >&2
     exit 1
 }
 
-sativoice_project_dir() {
+dograh_project_dir() {
     if [[ -n "${DOGRAH_DEPLOY_PROJECT_DIR:-}" ]]; then
         printf '%s\n' "$DOGRAH_DEPLOY_PROJECT_DIR"
     else
@@ -34,12 +34,12 @@ sativoice_project_dir() {
     fi
 }
 
-sativoice_template_path() {
+dograh_template_path() {
     local template_name=$1
     local candidate=""
     local project_dir
 
-    project_dir="$(sativoice_project_dir)"
+    project_dir="$(dograh_project_dir)"
 
     for candidate in \
         "$project_dir/deploy/templates/$template_name" \
@@ -51,18 +51,18 @@ sativoice_template_path() {
         fi
     done
 
-    sativoice_fail "Template '$template_name' not found"
+    dograh_fail "Template '$template_name' not found"
 }
 
-sativoice_init_script_path() {
+dograh_init_script_path() {
     local candidate=""
     local project_dir
 
-    project_dir="$(sativoice_project_dir)"
+    project_dir="$(dograh_project_dir)"
 
     for candidate in \
-        "$project_dir/scripts/run_sativoice_init.sh" \
-        "$DOGRAH_DEPLOY_REPO_ROOT/scripts/run_sativoice_init.sh"
+        "$project_dir/scripts/run_dograh_init.sh" \
+        "$DOGRAH_DEPLOY_REPO_ROOT/scripts/run_dograh_init.sh"
     do
         if [[ -f "$candidate" ]]; then
             printf '%s\n' "$candidate"
@@ -70,13 +70,13 @@ sativoice_init_script_path() {
         fi
     done
 
-    sativoice_fail "run_sativoice_init.sh not found"
+    dograh_fail "run_dograh_init.sh not found"
 }
 
-sativoice_load_env_file() {
+dograh_load_env_file() {
     local env_file=${1:-.env}
 
-    [[ -f "$env_file" ]] || sativoice_fail "$env_file not found"
+    [[ -f "$env_file" ]] || dograh_fail "$env_file not found"
 
     set -a
     # shellcheck disable=SC1090
@@ -84,7 +84,7 @@ sativoice_load_env_file() {
     set +a
 }
 
-sativoice_host_from_url() {
+dograh_host_from_url() {
     local url=$1
 
     url="${url#https://}"
@@ -94,15 +94,15 @@ sativoice_host_from_url() {
     printf '%s\n' "$url"
 }
 
-sativoice_is_ipv4() {
+dograh_is_ipv4() {
     [[ "$1" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
 }
 
-sativoice_is_local_ipv4() {
+dograh_is_local_ipv4() {
     local ip=$1
     local o1 o2 o3 o4 octet
 
-    sativoice_is_ipv4 "$ip" || return 1
+    dograh_is_ipv4 "$ip" || return 1
     IFS=. read -r o1 o2 o3 o4 <<< "$ip"
 
     for octet in "$o1" "$o2" "$o3" "$o4"; do
@@ -120,8 +120,8 @@ sativoice_is_local_ipv4() {
     return 1
 }
 
-sativoice_infer_server_ip() {
-    local project_dir=${1:-$(sativoice_project_dir)}
+dograh_infer_server_ip() {
+    local project_dir=${1:-$(dograh_project_dir)}
     local turn_conf="$project_dir/turnserver.conf"
     local ip=""
 
@@ -138,12 +138,12 @@ sativoice_infer_server_ip() {
         fi
     fi
 
-    if [[ -n "${TURN_HOST:-}" ]] && sativoice_is_ipv4 "$TURN_HOST"; then
+    if [[ -n "${TURN_HOST:-}" ]] && dograh_is_ipv4 "$TURN_HOST"; then
         printf '%s\n' "$TURN_HOST"
         return 0
     fi
 
-    if [[ -n "${PUBLIC_HOST:-}" ]] && sativoice_is_ipv4 "$PUBLIC_HOST"; then
+    if [[ -n "${PUBLIC_HOST:-}" ]] && dograh_is_ipv4 "$PUBLIC_HOST"; then
         printf '%s\n' "$PUBLIC_HOST"
         return 0
     fi
@@ -151,7 +151,7 @@ sativoice_infer_server_ip() {
     return 1
 }
 
-sativoice_infer_public_base_url() {
+dograh_infer_public_base_url() {
     if [[ -n "${PUBLIC_BASE_URL:-}" ]]; then
         printf '%s\n' "${PUBLIC_BASE_URL%/}"
         return 0
@@ -175,7 +175,7 @@ sativoice_infer_public_base_url() {
     return 1
 }
 
-sativoice_infer_public_host() {
+dograh_infer_public_host() {
     local public_base_url=""
 
     if [[ -n "${PUBLIC_HOST:-}" ]]; then
@@ -183,9 +183,9 @@ sativoice_infer_public_host() {
         return 0
     fi
 
-    public_base_url="$(sativoice_infer_public_base_url 2>/dev/null || true)"
+    public_base_url="$(dograh_infer_public_base_url 2>/dev/null || true)"
     if [[ -n "$public_base_url" ]]; then
-        sativoice_host_from_url "$public_base_url"
+        dograh_host_from_url "$public_base_url"
         return 0
     fi
 
@@ -197,7 +197,7 @@ sativoice_infer_public_host() {
     return 1
 }
 
-sativoice_set_env_key() {
+dograh_set_env_key() {
     local env_file=$1
     local key=$2
     local value=$3
@@ -221,7 +221,7 @@ sativoice_set_env_key() {
     mv "$tmp_file" "$env_file"
 }
 
-sativoice_delete_env_key() {
+dograh_delete_env_key() {
     local env_file=$1
     local key=$2
     local tmp_file="${env_file}.tmp.$$"
@@ -230,7 +230,7 @@ sativoice_delete_env_key() {
     mv "$tmp_file" "$env_file"
 }
 
-sativoice_sync_remote_env_file() {
+dograh_sync_remote_env_file() {
     local env_file=${1:-.env}
     local project_dir
     local public_base_url=""
@@ -238,20 +238,20 @@ sativoice_sync_remote_env_file() {
     local server_ip=""
 
     project_dir="$(cd "$(dirname "$env_file")" && pwd)"
-    sativoice_load_env_file "$env_file"
+    dograh_load_env_file "$env_file"
 
-    public_base_url="$(sativoice_infer_public_base_url)" || sativoice_fail "Could not determine PUBLIC_BASE_URL"
+    public_base_url="$(dograh_infer_public_base_url)" || dograh_fail "Could not determine PUBLIC_BASE_URL"
     public_base_url="${public_base_url%/}"
-    public_host="$(sativoice_infer_public_host)" || sativoice_fail "Could not determine PUBLIC_HOST"
-    server_ip="$(sativoice_infer_server_ip "$project_dir")" || sativoice_fail "Could not determine SERVER_IP"
+    public_host="$(dograh_infer_public_host)" || dograh_fail "Could not determine PUBLIC_HOST"
+    server_ip="$(dograh_infer_server_ip "$project_dir")" || dograh_fail "Could not determine SERVER_IP"
 
-    [[ "$public_base_url" =~ ^https?:// ]] || sativoice_fail "PUBLIC_BASE_URL must include http:// or https://"
-    sativoice_is_ipv4 "$server_ip" || sativoice_fail "SERVER_IP must be an IPv4 address (got: $server_ip)"
+    [[ "$public_base_url" =~ ^https?:// ]] || dograh_fail "PUBLIC_BASE_URL must include http:// or https://"
+    dograh_is_ipv4 "$server_ip" || dograh_fail "SERVER_IP must be an IPv4 address (got: $server_ip)"
 
-    sativoice_set_env_key "$env_file" ENVIRONMENT "${ENVIRONMENT:-production}"
-    sativoice_set_env_key "$env_file" SERVER_IP "$server_ip"
-    sativoice_set_env_key "$env_file" PUBLIC_HOST "$public_host"
-    sativoice_set_env_key "$env_file" PUBLIC_BASE_URL "$public_base_url"
+    dograh_set_env_key "$env_file" ENVIRONMENT "${ENVIRONMENT:-production}"
+    dograh_set_env_key "$env_file" SERVER_IP "$server_ip"
+    dograh_set_env_key "$env_file" PUBLIC_HOST "$public_host"
+    dograh_set_env_key "$env_file" PUBLIC_BASE_URL "$public_base_url"
 
     # BACKEND_API_ENDPOINT / MINIO_PUBLIC_ENDPOINT / TURN_HOST are derived in-app
     # from PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py), so sync neither
@@ -259,50 +259,50 @@ sativoice_sync_remote_env_file() {
     # operator set by hand is left untouched as an explicit override.
 }
 
-sativoice_validate_remote_runtime_env() {
-    [[ "${FASTAPI_WORKERS:-}" =~ ^[1-9][0-9]*$ ]] || sativoice_fail "FASTAPI_WORKERS must be a positive integer"
-    [[ -n "${TURN_SECRET:-}" ]] || sativoice_fail "TURN_SECRET is missing"
-    [[ -n "${PUBLIC_HOST:-}" ]] || sativoice_fail "PUBLIC_HOST is missing"
-    [[ -n "${PUBLIC_BASE_URL:-}" ]] || sativoice_fail "PUBLIC_BASE_URL is missing"
-    sativoice_is_ipv4 "${SERVER_IP:-}" || sativoice_fail "SERVER_IP must be a valid IPv4 address"
-    [[ "${PUBLIC_BASE_URL}" =~ ^https?:// ]] || sativoice_fail "PUBLIC_BASE_URL must include http:// or https://"
+dograh_validate_remote_runtime_env() {
+    [[ "${FASTAPI_WORKERS:-}" =~ ^[1-9][0-9]*$ ]] || dograh_fail "FASTAPI_WORKERS must be a positive integer"
+    [[ -n "${TURN_SECRET:-}" ]] || dograh_fail "TURN_SECRET is missing"
+    [[ -n "${PUBLIC_HOST:-}" ]] || dograh_fail "PUBLIC_HOST is missing"
+    [[ -n "${PUBLIC_BASE_URL:-}" ]] || dograh_fail "PUBLIC_BASE_URL is missing"
+    dograh_is_ipv4 "${SERVER_IP:-}" || dograh_fail "SERVER_IP must be a valid IPv4 address"
+    [[ "${PUBLIC_BASE_URL}" =~ ^https?:// ]] || dograh_fail "PUBLIC_BASE_URL must include http:// or https://"
     # BACKEND_API_ENDPOINT / MINIO_PUBLIC_ENDPOINT / TURN_HOST are derived in-app
     # from PUBLIC_BASE_URL / PUBLIC_HOST (see api/constants.py), so they are not
     # required here. When an operator sets them explicitly (split deployment),
     # their value is honored as-is — no equality check.
 }
 
-sativoice_uses_init_compose_layout() {
-    local project_dir=${1:-$(sativoice_project_dir)}
+dograh_uses_init_compose_layout() {
+    local project_dir=${1:-$(dograh_project_dir)}
     local compose_file="$project_dir/docker-compose.yaml"
 
     [[ -f "$compose_file" ]] || return 1
-    grep -q "sativoice-init:" "$compose_file" \
+    grep -q "dograh-init:" "$compose_file" \
         && grep -q "nginx-generated:/etc/nginx/conf.d:ro" "$compose_file" \
         && grep -q "coturn-generated:/etc/coturn:ro" "$compose_file"
 }
 
-sativoice_require_init_compose_layout() {
-    local project_dir=${1:-$(sativoice_project_dir)}
+dograh_require_init_compose_layout() {
+    local project_dir=${1:-$(dograh_project_dir)}
 
-    if ! sativoice_uses_init_compose_layout "$project_dir"; then
-        sativoice_fail "This install uses the legacy remote compose layout. Run ./update_remote.sh first so Docker uses sativoice-init generated config."
+    if ! dograh_uses_init_compose_layout "$project_dir"; then
+        dograh_fail "This install uses the legacy remote compose layout. Run ./update_remote.sh first so Docker uses dograh-init generated config."
     fi
 }
 
-sativoice_render_remote_nginx_conf() {
-    local project_dir=${1:-$(sativoice_project_dir)}
+dograh_render_remote_nginx_conf() {
+    local project_dir=${1:-$(dograh_project_dir)}
     local destination=${2:-"$project_dir/nginx.conf"}
     local template=""
     local tmp_upstream=""
 
-    template="$(sativoice_template_path "nginx.remote.conf.template")"
+    template="$(dograh_template_path "nginx.remote.conf.template")"
     tmp_upstream="$(mktemp)"
 
     {
         echo "# Backend API workers - one uvicorn process per port, balanced by least_conn."
-        echo "# Auto-generated by Sativoice remote config renderer. Do not edit manually."
-        echo "upstream sativoice_api {"
+        echo "# Auto-generated by Dograh remote config renderer. Do not edit manually."
+        echo "upstream dograh_api {"
         echo "    least_conn;"
         for ((i=0; i<FASTAPI_WORKERS; i++)); do
             printf '    server api:%d max_fails=3 fail_timeout=10s;\n' "$((8000 + i))"
@@ -331,14 +331,14 @@ sativoice_render_remote_nginx_conf() {
     rm -f "$tmp_upstream"
 }
 
-sativoice_render_remote_turn_conf() {
-    local project_dir=${1:-$(sativoice_project_dir)}
+dograh_render_remote_turn_conf() {
+    local project_dir=${1:-$(dograh_project_dir)}
     local destination=${2:-"$project_dir/turnserver.conf"}
     local template=""
     local external_ip="${TURN_EXTERNAL_IP:-${SERVER_IP:-}}"
 
-    template="$(sativoice_template_path "turnserver.remote.conf.template")"
-    [[ -n "$external_ip" ]] || sativoice_fail "TURN external IP/host is missing"
+    template="$(dograh_template_path "turnserver.remote.conf.template")"
+    [[ -n "$external_ip" ]] || dograh_fail "TURN external IP/host is missing"
 
     awk \
         -v external_ip="$external_ip" \
@@ -352,8 +352,8 @@ sativoice_render_remote_turn_conf() {
     ' "$template" > "$destination"
 }
 
-sativoice_preflight_remote_init_render() {
-    local project_dir=${1:-$(sativoice_project_dir)}
+dograh_preflight_remote_init_render() {
+    local project_dir=${1:-$(dograh_project_dir)}
     local env_file="$project_dir/.env"
     local cert_dir="$project_dir/certs"
     local init_script=""
@@ -365,12 +365,12 @@ sativoice_preflight_remote_init_render() {
     local rendered_ip=""
     local rendered_server_name=""
 
-    sativoice_load_env_file "$env_file"
-    sativoice_validate_remote_runtime_env
-    [[ -f "$cert_dir/local.crt" ]] || sativoice_fail "certs/local.crt not found"
-    [[ -f "$cert_dir/local.key" ]] || sativoice_fail "certs/local.key not found"
+    dograh_load_env_file "$env_file"
+    dograh_validate_remote_runtime_env
+    [[ -f "$cert_dir/local.crt" ]] || dograh_fail "certs/local.crt not found"
+    [[ -f "$cert_dir/local.key" ]] || dograh_fail "certs/local.key not found"
 
-    init_script="$(sativoice_init_script_path)"
+    init_script="$(dograh_init_script_path)"
     tmp_root="$(mktemp -d)"
     nginx_conf="$tmp_root/nginx/default.conf"
     turn_conf="$tmp_root/coturn/turnserver.conf"
@@ -383,20 +383,20 @@ sativoice_preflight_remote_init_render() {
         bash "$init_script" >/dev/null
     )
 
-    [[ -f "$nginx_conf" ]] || sativoice_fail "sativoice-init did not render nginx config"
-    [[ -f "$turn_conf" ]] || sativoice_fail "sativoice-init did not render coturn config"
+    [[ -f "$nginx_conf" ]] || dograh_fail "dograh-init did not render nginx config"
+    [[ -f "$turn_conf" ]] || dograh_fail "dograh-init did not render coturn config"
 
     nginx_workers=$(awk '/^[[:space:]]*server api:[0-9]+/ { count += 1 } END { print count + 0 }' "$nginx_conf")
-    [[ "$nginx_workers" -eq "$FASTAPI_WORKERS" ]] || sativoice_fail "FASTAPI_WORKERS=$FASTAPI_WORKERS but nginx.conf has $nginx_workers upstream servers"
+    [[ "$nginx_workers" -eq "$FASTAPI_WORKERS" ]] || dograh_fail "FASTAPI_WORKERS=$FASTAPI_WORKERS but nginx.conf has $nginx_workers upstream servers"
 
     rendered_server_name="$(awk '/^[[:space:]]*server_name / { print $2; exit }' "$nginx_conf" | sed 's/;$//')"
-    [[ "$rendered_server_name" == "$PUBLIC_HOST" ]] || sativoice_fail "nginx.conf server_name ($rendered_server_name) does not match PUBLIC_HOST ($PUBLIC_HOST)"
+    [[ "$rendered_server_name" == "$PUBLIC_HOST" ]] || dograh_fail "nginx.conf server_name ($rendered_server_name) does not match PUBLIC_HOST ($PUBLIC_HOST)"
 
     rendered_secret="$(sed -n 's/^static-auth-secret=//p' "$turn_conf" | head -1)"
-    [[ "$rendered_secret" == "$TURN_SECRET" ]] || sativoice_fail "TURN_SECRET in .env does not match turnserver.conf"
+    [[ "$rendered_secret" == "$TURN_SECRET" ]] || dograh_fail "TURN_SECRET in .env does not match turnserver.conf"
 
     rendered_ip="$(sed -n 's/^external-ip=//p' "$turn_conf" | head -1)"
-    [[ "$rendered_ip" == "$SERVER_IP" ]] || sativoice_fail "SERVER_IP in .env does not match turnserver.conf"
+    [[ "$rendered_ip" == "$SERVER_IP" ]] || dograh_fail "SERVER_IP in .env does not match turnserver.conf"
 
     rm -rf "$tmp_root"
 }
@@ -416,7 +416,7 @@ sativoice_preflight_remote_init_render() {
 # currently mismatched). Idempotent: on a fresh volume it just re-sets the same
 # value. Survives the later `--force-recreate` because the password lives in the
 # data volume, not the container.
-sativoice_sync_postgres_password() {
+dograh_sync_postgres_password() {
     local project_dir=$1
     shift
     local compose=("$@")
@@ -435,7 +435,7 @@ sativoice_sync_postgres_password() {
     # DB init and the API's DATABASE_URL, so the two already agree — nothing to do.
     [[ -n "$password" ]] || return 0
 
-    sativoice_info "Syncing Postgres password from .env..."
+    dograh_info "Syncing Postgres password from .env..."
     ( cd "$project_dir" && "${compose[@]}" up -d postgres ) >/dev/null
 
     for ((i = 0; i < 30; i++)); do
@@ -445,22 +445,22 @@ sativoice_sync_postgres_password() {
         fi
         sleep 1
     done
-    [[ -n "$ready" ]] || sativoice_fail "Postgres did not become ready while syncing POSTGRES_PASSWORD."
+    [[ -n "$ready" ]] || dograh_fail "Postgres did not become ready while syncing POSTGRES_PASSWORD."
 
     printf '%s\n' "ALTER USER postgres WITH PASSWORD :'pw';" \
         | ( cd "$project_dir" && "${compose[@]}" exec -T postgres \
               psql -U postgres -d postgres -v ON_ERROR_STOP=1 -v "pw=$password" ) >/dev/null \
-        || sativoice_fail "Failed to sync Postgres password from .env."
-    sativoice_success "✓ Postgres password synced with .env"
+        || dograh_fail "Failed to sync Postgres password from .env."
+    dograh_success "✓ Postgres password synced with .env"
 }
 
-sativoice_prepare_remote_install() {
-    local project_dir=${1:-$(sativoice_project_dir)}
+dograh_prepare_remote_install() {
+    local project_dir=${1:-$(dograh_project_dir)}
     local env_file="$project_dir/.env"
 
-    sativoice_sync_remote_env_file "$env_file"
-    sativoice_require_init_compose_layout "$project_dir"
-    sativoice_preflight_remote_init_render "$project_dir"
+    dograh_sync_remote_env_file "$env_file"
+    dograh_require_init_compose_layout "$project_dir"
+    dograh_preflight_remote_init_render "$project_dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -472,23 +472,23 @@ sativoice_prepare_remote_install() {
 # embedded IP from any public resolver, so Let's Encrypt can validate it over
 # the HTTP-01 challenge without the operator owning a domain. Public IPs only:
 # Let's Encrypt refuses to validate private/reserved addresses.
-sativoice_sslip_host_from_ip() {
+dograh_sslip_host_from_ip() {
     local ip=$1
     local suffix=${2:-sslip.io}
 
-    sativoice_is_ipv4 "$ip" || sativoice_fail "sativoice_sslip_host_from_ip: '$ip' is not an IPv4 address"
+    dograh_is_ipv4 "$ip" || dograh_fail "dograh_sslip_host_from_ip: '$ip' is not an IPv4 address"
     printf '%s.%s\n' "${ip//./-}" "$suffix"
 }
 
 # Install certbot via the host package manager if it is not already present.
 # Returns non-zero (instead of exiting) when no supported package manager is
 # found or the install fails, so callers can fall back to a self-signed cert.
-sativoice_install_certbot() {
+dograh_install_certbot() {
     if command -v certbot >/dev/null 2>&1; then
         return 0
     fi
 
-    sativoice_info "Installing Certbot..."
+    dograh_info "Installing Certbot..."
     if command -v apt-get >/dev/null 2>&1; then
         apt-get update -qq && apt-get install -y -qq certbot
     elif command -v dnf >/dev/null 2>&1; then
@@ -496,7 +496,7 @@ sativoice_install_certbot() {
     elif command -v yum >/dev/null 2>&1; then
         yum install -y -q certbot
     else
-        sativoice_warn "Could not detect a package manager (apt/dnf/yum) to install certbot."
+        dograh_warn "Could not detect a package manager (apt/dnf/yum) to install certbot."
         return 1
     fi
 }
@@ -506,7 +506,7 @@ sativoice_install_certbot() {
 # copy the issued cert to certs/local.{crt,key} (the files nginx reads). This
 # needs nginx already running and serving /.well-known/acme-challenge/ on :80.
 # Returns non-zero on failure so callers can keep the self-signed cert.
-sativoice_issue_letsencrypt_webroot() {
+dograh_issue_letsencrypt_webroot() {
     local project_dir=$1
     local host=$2
     local email=${3:-}
@@ -538,11 +538,11 @@ sativoice_issue_letsencrypt_webroot() {
 # <project>/certs and nginx is restarted to load them. Renewal itself is driven
 # by certbot's packaged systemd timer / cron; webroot renewals need no downtime
 # because the running nginx serves the challenge.
-sativoice_install_cert_renewal_hook() {
+dograh_install_cert_renewal_hook() {
     local project_dir=$1
     local host=$2
     local hook_dir="/etc/letsencrypt/renewal-hooks/deploy"
-    local hook_path="$hook_dir/sativoice-reload.sh"
+    local hook_path="$hook_dir/dograh-reload.sh"
 
     mkdir -p "$hook_dir"
 
@@ -558,38 +558,38 @@ HOOK_EOF
     chmod +x "$hook_path"
 }
 
-sativoice_download_bundle_file_for_ref() {
+dograh_download_bundle_file_for_ref() {
     local destination=$1
     local remote_path=$2
     local ref=${3:-main}
-    local raw_base="https://raw.githubusercontent.com/sativoice-hq/sativoice/$ref"
-    local fallback_base="https://raw.githubusercontent.com/sativoice-hq/sativoice/main"
+    local raw_base="https://raw.githubusercontent.com/dograh-hq/dograh/$ref"
+    local fallback_base="https://raw.githubusercontent.com/dograh-hq/dograh/main"
 
     if ! curl -fsSL -o "$destination" "$raw_base/$remote_path"; then
-        sativoice_warn "Warning: '$remote_path' not found at '$ref' - falling back to main"
+        dograh_warn "Warning: '$remote_path' not found at '$ref' - falling back to main"
         curl -fsSL -o "$destination" "$fallback_base/$remote_path"
     fi
 }
 
-sativoice_download_init_support_bundle() {
+dograh_download_init_support_bundle() {
     local project_dir=$1
     local ref=${2:-main}
 
     mkdir -p "$project_dir/scripts/lib" "$project_dir/deploy/templates"
 
     mkdir -p "$project_dir/scripts"
-    sativoice_download_bundle_file_for_ref "$project_dir/scripts/lib/setup_common.sh" "scripts/lib/setup_common.sh" "$ref"
-    sativoice_download_bundle_file_for_ref "$project_dir/scripts/run_sativoice_init.sh" "scripts/run_sativoice_init.sh" "$ref"
-    chmod +x "$project_dir/scripts/run_sativoice_init.sh"
-    sativoice_download_bundle_file_for_ref "$project_dir/deploy/templates/nginx.remote.conf.template" "deploy/templates/nginx.remote.conf.template" "$ref"
-    sativoice_download_bundle_file_for_ref "$project_dir/deploy/templates/turnserver.remote.conf.template" "deploy/templates/turnserver.remote.conf.template" "$ref"
+    dograh_download_bundle_file_for_ref "$project_dir/scripts/lib/setup_common.sh" "scripts/lib/setup_common.sh" "$ref"
+    dograh_download_bundle_file_for_ref "$project_dir/scripts/run_dograh_init.sh" "scripts/run_dograh_init.sh" "$ref"
+    chmod +x "$project_dir/scripts/run_dograh_init.sh"
+    dograh_download_bundle_file_for_ref "$project_dir/deploy/templates/nginx.remote.conf.template" "deploy/templates/nginx.remote.conf.template" "$ref"
+    dograh_download_bundle_file_for_ref "$project_dir/deploy/templates/turnserver.remote.conf.template" "deploy/templates/turnserver.remote.conf.template" "$ref"
 }
 
-sativoice_download_remote_support_bundle() {
+dograh_download_remote_support_bundle() {
     local project_dir=$1
     local ref=${2:-main}
 
-    sativoice_download_bundle_file_for_ref "$project_dir/remote_up.sh" "remote_up.sh" "$ref"
+    dograh_download_bundle_file_for_ref "$project_dir/remote_up.sh" "remote_up.sh" "$ref"
     chmod +x "$project_dir/remote_up.sh"
-    sativoice_download_init_support_bundle "$project_dir" "$ref"
+    dograh_download_init_support_bundle "$project_dir" "$ref"
 }
